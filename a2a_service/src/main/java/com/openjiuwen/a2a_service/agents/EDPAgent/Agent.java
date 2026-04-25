@@ -149,18 +149,18 @@ public class Agent {
         AgentSessionApi session = AgentSessionApi.create(convId, new HashMap<>(), currentAgent.getCard());
 
         Map<String, Object> inputs = new HashMap<>();
-        inputs.put("query", query);
+        inputs.put("query", cascadeResult != null ? "continue" : query);
         inputs.put("conversation_id", convId);
 
         if (cascadeResult != null) {
             // ── Cascade 续轮路径 ──────────────────────────────────────────
             logger.info("[DPA] Cascade 续轮：convId={}", convId);
             session.preRun(inputs);
-            session.updateState(Map.of(
-                    "cascade_result", cascadeResult,
-                    "original_body", originalBody,
-                    "pending_delegate", null  // 防止 preRun 恢复旧值导致循环触发
-            ));
+            Map<String, Object> cascadeState = new HashMap<>();
+            cascadeState.put("cascade_result", cascadeResult);
+            cascadeState.put("original_body", originalBody);
+            cascadeState.put("pending_delegate", null);  // 防止 preRun 恢复旧值导致循环触发
+            session.updateState(cascadeState);
         } else {
             // ── 首轮路径 ──────────────────────────────────────────────────
             logger.info("[DPA] 首轮：convId={}, query={}", convId, query.length() > 60 ? query.substring(0, 60) : query);

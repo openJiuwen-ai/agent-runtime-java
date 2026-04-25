@@ -1,5 +1,6 @@
 package com.openjiuwen.a2a_service.orchestrator;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.a2a_service.agents.EDPAgent.Agent;
 import com.openjiuwen.a2a_service.common.Constants;
 import com.openjiuwen.a2a_service.common.Events;
@@ -16,6 +17,7 @@ import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -250,7 +252,6 @@ public class Executor {
 
         // 从 Redis 取首轮缓存
         Optional<Map<String, Object>> cachedOpt = redis.getJsonAsMap(Constants.sessionRequestKey(convId));
-        System.out.println("cachedOpt====" + cachedOpt);
         Map<String, Object> cached = cachedOpt.orElse(new HashMap<>());
         Map<String, Object> headers = (Map<String, Object>) cached.getOrDefault("headers", new HashMap<>());
         Map<String, Object> body = new HashMap<>((Map<String, Object>) cached.getOrDefault("body", new HashMap<>()));
@@ -274,7 +275,6 @@ public class Executor {
 
         // 构建消息并发送
         Message message = buildVaMessage(delegate.getTaskDescription(), headers, body, "", convId);
-        System.out.println("message====" + message);
         return streamCallVa(message, convId, eventSink);
     }
 
@@ -351,13 +351,14 @@ public class Executor {
         AtomicReference<String> continuationTaskId = new AtomicReference<>(UUID.randomUUID().toString());
         CountDownLatch latch = new CountDownLatch(1);
         List<Exception> errors = new ArrayList<>();
+        AtomicInteger streamRespCount = new AtomicInteger(0);
 
         try {
             vaClient.sendMessage(message,
                     List.of((event, card) -> {
                         try {
+                            streamRespCount.incrementAndGet();
                             // TaskUpdateEvent 包含 TaskArtifactUpdateEvent / TaskStatusUpdateEvent
-                            System.out.println("event====" + event);
                             if (event instanceof TaskUpdateEvent tue) {
                                 boolean isFinal = handleStreamUpdateEvent(tue, convId, eventSink,
                                         vaRealTaskId, hasEndNode, qaResult, continuationTaskId);
@@ -382,7 +383,7 @@ public class Executor {
                         }
                     }),
                     error -> {
-                        logger.error("[Executor] VA send_message 异常: {}", error.getMessage());
+                        logger.warn("[Executor] VA send_message 异常: {}", error.getMessage());
                         errors.add(error instanceof Exception ? (Exception) error : new RuntimeException(error));
                         latch.countDown();
                     },
@@ -403,6 +404,7 @@ public class Executor {
             Thread.currentThread().interrupt();
             logger.warn("[Executor] VA 流式等待被中断：conv={}", convId);
         }
+        logger.info("[Executor] streamRespCount={}", streamRespCount);
 
         if (!errors.isEmpty()) {
             logger.error("[Executor] VA 调用存在异常，conv={}", convId);
@@ -437,10 +439,11 @@ public class Executor {
         if (updateEvent instanceof TaskArtifactUpdateEvent artifactEvent) {
             // 提取 VA 真实 task id
             String taskId = artifactEvent.taskId();
+            logger.info("[Executor] VA taskId={}, convId={}", taskId, convId);
             if (taskId != null && !taskId.isEmpty() && vaRealTaskId.get() == null) {
                 vaRealTaskId.set(taskId);
                 continuationTaskId.set(taskId);
-                logger.info("[Executor] VA real task_id={}, conv={}", taskId, convId);
+                logger.info("[Executor] TaskArtifactUpdateEvent, VA real task_id={}, conv={}", taskId, convId);
             }
 
             // 检查 end node
@@ -450,7 +453,7 @@ public class Executor {
 
             // 提取 QA 结果
             String qa = extractQaNode(artifactEvent);
-            if (qa != null) {
+            if (qa != null && !qa.isEmpty()) {
                 qaResult.set(qa);
             }
 
@@ -474,6 +477,7 @@ public class Executor {
             if (taskId != null && !taskId.isEmpty() && vaRealTaskId.get() == null) {
                 vaRealTaskId.set(taskId);
                 continuationTaskId.set(taskId);
+                logger.info("[Executor] TaskStatusUpdateEvent, VA real task_id={}, conv={}", taskId, convId);
             }
 
             // 终态 → 通知 latch
