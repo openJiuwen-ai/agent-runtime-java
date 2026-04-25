@@ -41,8 +41,6 @@ public class A2ARouter {
     private final DefaultRequestHandler requestHandler;
 
     public A2ARouter(AgentCard agentCard, DefaultRequestHandler requestHandler) {
-        System.out.println("agentCard====" + agentCard);
-        System.out.println("requestHandler====" + requestHandler);
         this.agentCard = agentCard;
         this.requestHandler = requestHandler;
     }
@@ -66,11 +64,9 @@ public class A2ARouter {
 
     @PostMapping(value = "/", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Object handleJsonRpc(@RequestBody String body) {
-        System.out.println("body====" + body);
         try {
             JsonNode root = objectMapper.readTree(body);
             String method = root.has("method") ? root.get("method").asText() : "";
-            System.out.println("method====" + method);
 
             Object id = parseId(root);
 
@@ -203,9 +199,7 @@ public class A2ARouter {
                         removeIsFinal(tree);
                         json = objectMapper.writeValueAsString(tree);
                     }
-                    String kind = item.kind();
-                    System.out.println("kind=====" + kind);
-                    System.out.println("json=====" + json);
+                    logger.info("emitter send json: {}", json);
                     emitter.send(json);
                     subscription.request(1);
                 } catch (Exception e) {
@@ -264,7 +258,6 @@ public class A2ARouter {
                 }
             }
         }
-        System.out.println("paramsNode====" +paramsNode);
         String paramsJson = objectMapper.writeValueAsString(paramsNode);
         return JsonUtil.fromJson(paramsJson, MessageSendParams.class);
     }

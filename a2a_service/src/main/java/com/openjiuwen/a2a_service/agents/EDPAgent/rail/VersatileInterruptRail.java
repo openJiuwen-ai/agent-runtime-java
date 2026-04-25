@@ -9,6 +9,7 @@ import com.openjiuwen.harness.rails.interrupt.InterruptDecision;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,7 @@ public class VersatileInterruptRail extends BaseInterruptRail {
 
     @Override
     protected InterruptDecision resolveInterrupt(AgentCallbackContext ctx, ToolCall toolCall, Object userInput) {
+        logger.info("[VersatileInterruptRail] 调用, toolCall={}", toolCall);
         // ── 提取工具参数 ──────────────────────────────────────────────────────
         Object rawToolArgs = null;
         if (ctx.getInputs() instanceof ToolCallInputs) {
@@ -70,7 +72,9 @@ public class VersatileInterruptRail extends BaseInterruptRail {
         // Agent.java 在续轮时调用 session.updateState({"cascade_result": ...})
         Object cascadeResult = ctx.getSession().getState("cascade_result");
         if (cascadeResult != null) {
-            ctx.getSession().updateState(Map.of("cascade_result", null));  // 消费
+            Map<String, Object> clearState = new HashMap<>();
+            clearState.put("cascade_result", null);  // 消费
+            ctx.getSession().updateState(clearState);
             logger.info("[VersatileInterruptRail] Cascade 续轮：注入 workflow_result 给 LLM，cascade_result={}", cascadeResult);
             return reject(cascadeResult);
         }
