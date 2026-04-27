@@ -199,7 +199,8 @@ public class A2ARouter {
                         removeIsFinal(tree);
                         json = objectMapper.writeValueAsString(tree);
                     }
-                    logger.info("emitter send json: {}", json);
+                    String kind = item.kind();
+                    logger.debug("[A2ARouter] stream item kind={}", kind);
                     emitter.send(json);
                     subscription.request(1);
                 } catch (Exception e) {

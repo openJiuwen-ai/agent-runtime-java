@@ -51,16 +51,19 @@ public class Executor implements AgentExecutor {
         Map<String, Object> body = (Map<String, Object>) inputData.getOrDefault("body", new HashMap<>());
         @SuppressWarnings("unchecked")
         Map<String, String> headers = (Map<String, String>) inputData.getOrDefault("headers", new HashMap<>());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> params = (Map<String, Object>) inputData.getOrDefault("params", new HashMap<>());
 
         logger.debug("[VersatileAdapter] 请求头: {}", headers);
         logger.debug("[VersatileAdapter] 请求体: {}", body);
+        logger.debug("[VersatileAdapter] 请求参数: {}", params);
 
         // 3. 用 "前一个 chunk" 模式流式调用 VersatileProxy
         //    延迟一次，确保最后一个 chunk 以 lastChunk=true 发送且不重复
         final Map<String, Object>[] prevChunk = new Map[]{null};
         final String finalConvId = convId != null ? convId : "";
 
-        versatileProxy.dispatchStream(body, finalConvId, headers, chunk -> {
+        versatileProxy.dispatchStream(body, finalConvId, headers, params, chunk -> {
             // 如果有前一个 chunk，先推送它（lastChunk=false）
             if (prevChunk[0] != null) {
                 emitter.addArtifact(List.of(new DataPart(prevChunk[0])));
@@ -100,7 +103,7 @@ public class Executor implements AgentExecutor {
     @SuppressWarnings("unchecked")
     private Map<String, Object> buildFirstInput(Message message) {
         if (message == null || message.parts() == null) {
-            return Map.of("body", Map.of("input", Map.of("query", "")));
+            return Map.of("body", Map.of("input", Map.of("query", "")), "headers", Map.of(), "params", Map.of());
         }
 
         // 优先提取 DataPart
@@ -123,6 +126,6 @@ public class Executor implements AgentExecutor {
                 }
             }
         }
-        return Map.of("body", Map.of("input", Map.of("query", text)));
+        return Map.of("body", Map.of("input", Map.of("query", text)), "headers", Map.of(), "params", Map.of());
     }
 }

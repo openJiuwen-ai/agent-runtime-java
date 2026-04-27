@@ -2,9 +2,8 @@ package com.openjiuwen.a2a_service.orchestrator;
 
 import com.openjiuwen.a2a_service.common.Events;
 
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Agent 事件 → A2A 事件转换。
@@ -23,35 +22,60 @@ public class AgentAdapter {
      */
     public static Map<String, Object> agentEventToA2a(Object event, String taskId, String convId) {
         if (event instanceof Events.ThoughtEvent thought) {
-            return Map.of(
-                    "type", "artifact",
-                    "taskId", taskId,
-                    "contextId", convId,
-                    "artifactId", UUID.randomUUID().toString(),
-                    "content", thought.getContent(),
-                    "lastChunk", false
-            );
+            return agentEvent("thought", thought.getContent(), Map.of(), "");
         }
 
         if (event instanceof Events.AnswerEvent answer) {
-            if (answer.isFinal()) {
-                return Map.of(
-                        "type", "completed",
-                        "taskId", taskId,
-                        "contextId", convId,
-                        "content", answer.getContent()
-                );
-            }
-            return Map.of(
-                    "type", "artifact",
-                    "taskId", taskId,
-                    "contextId", convId,
-                    "artifactId", UUID.randomUUID().toString(),
-                    "content", answer.getContent(),
-                    "lastChunk", false
-            );
+            return agentEvent(answer.isFinal() ? "final_answer_end" : "summary", answer.getContent(), Map.of(), "");
+        }
+
+        if (event instanceof Map<?, ?> map) {
+            return mapEventToA2a(map, taskId, convId);
         }
 
         return null;
+    }
+
+    private static Map<String, Object> mapEventToA2a(Map<?, ?> event, String taskId, String convId) {
+        Object rawType = event.get("type");
+        Object rawContent = event.get("content");
+        String type = rawType != null ? String.valueOf(rawType) : "";
+        String content = rawContent != null ? String.valueOf(rawContent) : "";
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        Object nested = event.get("data");
+        if (nested instanceof Map<?, ?> rawData) {
+            for (Map.Entry<?, ?> entry : rawData.entrySet()) {
+                if (entry.getKey() != null) {
+                    payload.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+        } else {
+            for (Map.Entry<?, ?> entry : event.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                if (!"type".equals(key) && !"content".equals(key) && !"plugin".equals(key)) {
+                    payload.put(key, entry.getValue());
+                }
+            }
+        }
+        String plugin = event.get("plugin") != null ? String.valueOf(event.get("plugin")) : "";
+        return agentEvent(type, content, payload, plugin);
+    }
+
+    public static Map<String, Object> agentEvent(String type, String content, Map<String, Object> data, String plugin) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("_event_kind", "agent");
+        result.put("event", type);
+        result.put("content", content != null ? content : "");
+        result.put("data", data != null ? data : Map.of());
+        result.put("plugin", plugin != null ? plugin : "");
+        return result;
+    }
+
+    public static Map<String, Object> workflowEvent(String event, Map<String, Object> data) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("_event_kind", "workflow");
+        result.put("event", event);
+        result.put("data", data != null ? data : Map.of());
+        return result;
     }
 }

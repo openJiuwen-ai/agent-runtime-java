@@ -21,6 +21,7 @@
     </parent>
 
     <modules>
+        <module>vendor/agent-core-java</module>
         <module>a2a_service</module>
         <module>versatile_adapter</module>
     </modules>

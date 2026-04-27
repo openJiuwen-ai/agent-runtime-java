@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -46,6 +47,62 @@ public class VersatileProxy {
         return urlTemplate.replace("{conversation_id}", convId);
     }
 
+    private String buildUrl(String convId, Map<String, Object> params) {
+        String url = buildUrl(convId);
+        if (params == null || params.isEmpty()) {
+            return url;
+        }
+        StringBuilder query = new StringBuilder();
+        for (Map.Entry<String, Object> entry : params.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+            if (query.length() > 0) {
+                query.append('&');
+            }
+            query.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8));
+            query.append('=');
+            query.append(URLEncoder.encode(String.valueOf(entry.getValue()), StandardCharsets.UTF_8));
+        }
+        if (query.length() == 0) {
+            return url;
+        }
+        return url + (url.contains("?") ? "&" : "?") + query;
+    }
+
+    private Map<String, Object> unwrapUpstreamFrame(Map<String, Object> outer) {
+        if (outer == null) {
+            return Map.of("event", "message", "data", Map.of());
+        }
+        Object customRspData = outer.get("custom_rsp_data");
+        if (customRspData instanceof Map<?, ?> inner && inner.containsKey("event")) {
+            return Map.of(
+                    "event", String.valueOf(inner.get("event")),
+                    "data", asMapOrEmpty(inner.get("data"))
+            );
+        }
+        if (outer.containsKey("event")) {
+            return Map.of(
+                    "event", String.valueOf(outer.get("event")),
+                    "data", asMapOrEmpty(outer.get("data"))
+            );
+        }
+        return Map.of("event", "message", "data", outer);
+    }
+
+    private Map<String, Object> asMapOrEmpty(Object value) {
+        if (value instanceof Map<?, ?> raw) {
+            Map<String, Object> result = new HashMap<>();
+            for (Map.Entry<?, ?> entry : raw.entrySet()) {
+                if (entry.getKey() != null) {
+                    result.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+            return result;
+        }
+        return Map.of();
+    }
+
     /**
      * 流式分发请求到 Versatile 平台。
      *
@@ -61,7 +118,18 @@ public class VersatileProxy {
     public void dispatchStream(Map<String, Object> body, String convId,
                                Map<String, String> extraHeaders,
                                Consumer<Map<String, Object>> chunkConsumer) {
-        String url = buildUrl(convId);
+        dispatchStream(body, convId, extraHeaders, Map.of(), chunkConsumer);
+    }
+
+    /**
+     * 流式分发请求到 Versatile 平台，并透传 URL query params。
+     */
+    @SuppressWarnings("unchecked")
+    public void dispatchStream(Map<String, Object> body, String convId,
+                               Map<String, String> extraHeaders,
+                               Map<String, Object> params,
+                               Consumer<Map<String, Object>> chunkConsumer) {
+        String url = buildUrl(convId, params);
 
         try {
             HttpClient client = HttpClient.newBuilder()
@@ -87,6 +155,7 @@ public class VersatileProxy {
             logger.info("[VersatileProxy] POST {}", url);
             logger.debug("[VersatileProxy] 请求头: {}", headers);
             logger.debug("[VersatileProxy] 请求体: {}", jsonBody);
+            logger.debug("[VersatileProxy] 请求参数: {}", params);
 
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -128,13 +197,9 @@ public class VersatileProxy {
 
                 try {
                     Map<String, Object> outer = objectMapper.readValue(trimmed, Map.class);
-                    Object chunk = outer.get("data");
-                    if (chunk instanceof Map && !((Map<?, ?>) chunk).isEmpty()) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> chunkMap = (Map<String, Object>) chunk;
-                        logger.debug("[VersatileProxy] received chunk: {}", chunkMap);
-                        chunkConsumer.accept(chunkMap);
-                    }
+                    Map<String, Object> chunkMap = unwrapUpstreamFrame(outer);
+                    logger.debug("[VersatileProxy] received chunk: {}", chunkMap);
+                    chunkConsumer.accept(chunkMap);
                 } catch (Exception e) {
                     logger.warn("[VersatileProxy] 无法解析行: {}",
                             trimmed.length() > 80 ? trimmed.substring(0, 80) + "..." : trimmed, e);

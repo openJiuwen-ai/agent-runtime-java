@@ -120,8 +120,8 @@ public class App {
     }
 
     @Bean
-    public UserRouter userRouter(Executor executor, RedisClient redisClient) {
-        return new UserRouter(executor, redisClient);
+    public UserRouter userRouter(Executor executor, RedisClient redisClient, Settings settings) {
+        return new UserRouter(executor, redisClient, settings);
     }
 
     /**

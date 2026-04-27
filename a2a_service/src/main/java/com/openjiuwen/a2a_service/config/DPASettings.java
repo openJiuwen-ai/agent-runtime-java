@@ -3,6 +3,9 @@ package com.openjiuwen.a2a_service.config;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * DPA Agent 配置。
  */
@@ -17,7 +20,11 @@ public class DPASettings {
     private String llmModelName;
     private boolean llmVerifySsl = true;
     private String llmUserId;
+    private String llmUserIdHeader;
     private String llmToken;
+    private String llmTokenHeader;
+    private double llmTimeout = 120.0d;
+    private Map<String, String> llmExtraHeaders = new LinkedHashMap<String, String>();
 
     // ── Redis（Checkpointer）────────────────────────────────────────────────
     private String redisHost = "localhost";
@@ -61,8 +68,20 @@ public class DPASettings {
     public String getLlmUserId() { return llmUserId; }
     public void setLlmUserId(String llmUserId) { this.llmUserId = llmUserId; }
 
+    public String getLlmUserIdHeader() { return llmUserIdHeader; }
+    public void setLlmUserIdHeader(String llmUserIdHeader) { this.llmUserIdHeader = llmUserIdHeader; }
+
     public String getLlmToken() { return llmToken; }
     public void setLlmToken(String llmToken) { this.llmToken = llmToken; }
+
+    public String getLlmTokenHeader() { return llmTokenHeader; }
+    public void setLlmTokenHeader(String llmTokenHeader) { this.llmTokenHeader = llmTokenHeader; }
+
+    public double getLlmTimeout() { return llmTimeout; }
+    public void setLlmTimeout(double llmTimeout) { this.llmTimeout = llmTimeout; }
+
+    public Map<String, String> getLlmExtraHeaders() { return llmExtraHeaders; }
+    public void setLlmExtraHeaders(Map<String, String> llmExtraHeaders) { this.llmExtraHeaders = llmExtraHeaders; }
 
     public String getRedisHost() { return redisHost; }
     public void setRedisHost(String redisHost) { this.redisHost = redisHost; }
