@@ -18,9 +18,15 @@ public class Settings {
     private String redisPassword;
     private int redisSessionTtl = 1800;
 
+    // ── 入口限流 ───────────────────────────────────────────────────────────
+    private int rateLimitMaxRequests = 1;
+    private int rateLimitWindowSeconds = 10;
+    private int globalRateLimitMaxRequests = 10;
+    private int globalRateLimitWindowSeconds = 10;
+
     // ── VersatileAdapter（内部 A2A 服务地址）────────────────────────────────
     private String versatileAdapterUrl = "http://localhost:8091";
-    private String vaWorkflowResultNode;
+    private String vaWorkflowResultNode = "GXZQAResponseNode";
 
     // ── Server ─────────────────────────────────────────────────────────────
     private String host = "0.0.0.0";
@@ -55,6 +61,18 @@ public class Settings {
 
     public int getRedisSessionTtl() { return redisSessionTtl; }
     public void setRedisSessionTtl(int redisSessionTtl) { this.redisSessionTtl = redisSessionTtl; }
+
+    public int getRateLimitMaxRequests() { return rateLimitMaxRequests; }
+    public void setRateLimitMaxRequests(int rateLimitMaxRequests) { this.rateLimitMaxRequests = rateLimitMaxRequests; }
+
+    public int getRateLimitWindowSeconds() { return rateLimitWindowSeconds; }
+    public void setRateLimitWindowSeconds(int rateLimitWindowSeconds) { this.rateLimitWindowSeconds = rateLimitWindowSeconds; }
+
+    public int getGlobalRateLimitMaxRequests() { return globalRateLimitMaxRequests; }
+    public void setGlobalRateLimitMaxRequests(int globalRateLimitMaxRequests) { this.globalRateLimitMaxRequests = globalRateLimitMaxRequests; }
+
+    public int getGlobalRateLimitWindowSeconds() { return globalRateLimitWindowSeconds; }
+    public void setGlobalRateLimitWindowSeconds(int globalRateLimitWindowSeconds) { this.globalRateLimitWindowSeconds = globalRateLimitWindowSeconds; }
 
     public String getVersatileAdapterUrl() { return versatileAdapterUrl; }
     public void setVersatileAdapterUrl(String versatileAdapterUrl) { this.versatileAdapterUrl = versatileAdapterUrl; }

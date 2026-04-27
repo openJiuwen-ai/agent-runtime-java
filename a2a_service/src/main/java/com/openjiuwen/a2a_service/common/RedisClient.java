@@ -8,6 +8,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -52,6 +53,28 @@ public class RedisClient {
         if (keys != null && keys.length > 0) {
             redisTemplate.delete(java.util.Arrays.asList(keys));
         }
+    }
+
+    public void zRemoveRangeByScore(String key, double min, double max) {
+        redisTemplate.opsForZSet().removeRangeByScore(key, min, max);
+    }
+
+    public long zCard(String key) {
+        Long count = redisTemplate.opsForZSet().zCard(key);
+        return count != null ? count : 0L;
+    }
+
+    public void zAdd(String key, String member, double score) {
+        redisTemplate.opsForZSet().add(key, member, score);
+    }
+
+    public Set<String> zRange(String key, long start, long end) {
+        Set<String> values = redisTemplate.opsForZSet().range(key, start, end);
+        return values != null ? values : Set.of();
+    }
+
+    public void expire(String key, long ttlSeconds) {
+        redisTemplate.expire(key, ttlSeconds, TimeUnit.SECONDS);
     }
 
     public Optional<Object> getJson(String key) {

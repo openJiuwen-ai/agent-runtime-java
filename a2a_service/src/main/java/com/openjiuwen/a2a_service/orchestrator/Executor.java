@@ -1,6 +1,5 @@
 package com.openjiuwen.a2a_service.orchestrator;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.a2a_service.agents.EDPAgent.Agent;
 import com.openjiuwen.a2a_service.common.Constants;
 import com.openjiuwen.a2a_service.common.Events;
@@ -17,7 +16,6 @@ import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -69,13 +67,15 @@ public class Executor {
      */
     public void execute(String taskId, String convId, RedisTaskStore.TaskInfo currentTask,
                         String userQuery, Map<String, Object> headers,
-                        Map<String, Object> originalBody, java.util.function.Consumer<Map<String, Object>> eventSink) {
+                        Map<String, Object> originalBody,
+                        Map<String, Object> params,
+                        java.util.function.Consumer<Map<String, Object>> eventSink) {
 
         // ── 续轮路径：Task 处于 INPUT_REQUIRED（VA 上次未完成）───────────────
         if (currentTask != null && currentTask.getState() == TaskState.TASK_STATE_INPUT_REQUIRED) {
             String vaTaskId = (String) currentTask.getMetadata().getOrDefault("va_task_id", "");
             logger.info("[Executor] INPUT_REQUIRED 续轮：conv={}, vaTask={}", convId, vaTaskId);
-            continueVersatileAdapter(convId, taskId, vaTaskId, userQuery, headers, originalBody, eventSink);
+            continueVersatileAdapter(convId, taskId, vaTaskId, userQuery, headers, originalBody, params, eventSink);
             return;
         }
 
@@ -85,7 +85,7 @@ public class Executor {
             logger.info("[Executor] 创建 Task：task={}, conv={}", taskId, convId);
         }
 
-        runAgent(convId, taskId, userQuery, originalBody, eventSink, null);
+        runAgent(convId, taskId, userQuery, originalBody, eventSink, null, new int[]{0});
     }
 
     /**
@@ -94,17 +94,30 @@ public class Executor {
     private void runAgent(String convId, String taskId, String query,
                           Map<String, Object> originalBody,
                           java.util.function.Consumer<Map<String, Object>> eventSink,
-                          Map<String, Object> cascadeResult) {
+                          Map<String, Object> cascadeResult,
+                          int[] stepCounter) {
 
         List<Object> events = Agent.agentStream(query, convId, cascadeResult, Map.of("body", originalBody));
 
         for (Object event : events) {
+            Map<String, Object> a2aEvent = AgentAdapter.agentEventToA2a(event, taskId, convId);
+            if (a2aEvent != null && "tool_start".equals(a2aEvent.get("event"))) {
+                stepCounter[0]++;
+                String content = "[执行轨迹] 正在执行步骤" + stepCounter[0] + ": "
+                        + String.valueOf(a2aEvent.getOrDefault("content", ""))
+                        + " (tool=" + String.valueOf(a2aEvent.getOrDefault("plugin", "")) + ")";
+                eventSink.accept(AgentAdapter.agentEvent("planning_execution_process", content, Map.of(), ""));
+            }
             if (event instanceof Events.DelegateRequest delegate) {
+                stepCounter[0]++;
+                String content = "[执行轨迹] 正在执行步骤" + stepCounter[0] + ": "
+                        + delegate.getTaskDescription() + " (tool=adapter:versatile_proxy)";
+                eventSink.accept(AgentAdapter.agentEvent("planning_execution_process", content, Map.of(), ""));
                 logger.info("[Executor] DelegateRequest → {}: {}", delegate.getIntent(), delegate.getTaskDescription());
                 VaResult vaResult = callVersatileAdapter(delegate, convId, taskId, eventSink);
 
                 if (vaResult.cascade != null) {
-                    runAgent(convId, taskId, query, originalBody, eventSink, vaResult.cascade);
+                    runAgent(convId, taskId, query, originalBody, eventSink, vaResult.cascade, stepCounter);
                 } else {
                     // VA 未完成：将 vaTaskId 写入 Task metadata，状态改为 INPUT_REQUIRED
                     Optional<RedisTaskStore.TaskInfo> taskOpt = taskStore.get(taskId);
@@ -125,7 +138,6 @@ public class Executor {
                 return;
             }
 
-            Map<String, Object> a2aEvent = AgentAdapter.agentEventToA2a(event, taskId, convId);
             if (a2aEvent != null) {
                 eventSink.accept(a2aEvent);
             }
@@ -155,13 +167,34 @@ public class Executor {
     }
 
     /**
+     * 临时兼容旧链路：推荐首跳改写为平台历史上可识别的入口。
+     */
+    private String[] rewriteRecommendDelegate(String intent, String taskDescription) {
+        if (!"理财推荐".equals(intent)) {
+            return new String[]{intent, taskDescription};
+        }
+
+        String normalizedQuery = taskDescription != null ? taskDescription.trim() : "";
+        if (normalizedQuery.isBlank() || "推荐理财产品".equals(normalizedQuery)) {
+            normalizedQuery = "请推荐低风险理财产品";
+        }
+        return new String[]{"理财选品购买", normalizedQuery};
+    }
+
+    /**
      * 构建 A2A Message 发送给 VA。
      */
     private Message buildVaMessage(String query, Map<String, Object> headers,
                                    Map<String, Object> body, String taskId, String convId) {
+        return buildVaMessage(query, headers, body, Map.of(), taskId, convId);
+    }
+
+    private Message buildVaMessage(String query, Map<String, Object> headers,
+                                   Map<String, Object> body, Map<String, Object> params,
+                                   String taskId, String convId) {
         List<Part<?>> parts = new ArrayList<>();
         parts.add(new TextPart(query));
-        parts.add(new DataPart(Map.of("headers", headers, "body", body)));
+        parts.add(new DataPart(Map.of("headers", headers, "body", body, "params", params != null ? params : Map.of())));
 
         return Message.builder()
                 .role(Message.Role.ROLE_USER)
@@ -194,7 +227,8 @@ public class Executor {
      */
     private boolean hasEndNode(TaskArtifactUpdateEvent event) {
         for (Map<String, Object> data : extractDataParts(event)) {
-            if ("End".equals(data.get("node_type"))) {
+            Map<String, Object> node = extractWorkflowNode(data);
+            if ("End".equals(node.get("node_type"))) {
                 return true;
             }
         }
@@ -210,7 +244,8 @@ public class Executor {
             return false;
         }
         for (Map<String, Object> data : extractDataParts(event)) {
-            if (target.equals(data.get("node_name"))) {
+            Map<String, Object> node = extractWorkflowNode(data);
+            if (target.equals(node.get("node_name"))) {
                 return true;
             }
         }
@@ -226,8 +261,9 @@ public class Executor {
             return null;
         }
         for (Map<String, Object> data : extractDataParts(event)) {
-            if ("QA".equals(data.get("node_type")) && targetNode.equals(data.get("node_name"))) {
-                Object text = data.get("text");
+            Map<String, Object> node = extractWorkflowNode(data);
+            if ("QA".equals(node.get("node_type")) && targetNode.equals(node.get("node_name"))) {
+                Object text = node.get("text");
                 return text != null ? text.toString() : null;
             }
         }
@@ -255,26 +291,36 @@ public class Executor {
         Map<String, Object> cached = cachedOpt.orElse(new HashMap<>());
         Map<String, Object> headers = (Map<String, Object>) cached.getOrDefault("headers", new HashMap<>());
         Map<String, Object> body = new HashMap<>((Map<String, Object>) cached.getOrDefault("body", new HashMap<>()));
+        Map<String, Object> params = new HashMap<>((Map<String, Object>) cached.getOrDefault("params", new HashMap<>()));
+
+        String[] rewritten = rewriteRecommendDelegate(delegate.getIntent(), delegate.getTaskDescription());
+        String effectiveIntent = rewritten[0];
+        String effectiveQuery = rewritten[1];
+        if (!Objects.equals(effectiveIntent, delegate.getIntent())
+                || !Objects.equals(effectiveQuery, delegate.getTaskDescription())) {
+            logger.info("[Executor] 推荐入口临时改写：intent={} -> {}, query={} -> {}",
+                    delegate.getIntent(), effectiveIntent, delegate.getTaskDescription(), effectiveQuery);
+        }
 
         // 修改 custom_data.inputs 和 input
         if (body.get("custom_data") instanceof Map customData) {
             Map<String, Object> cd = new HashMap<>(customData);
             if (cd.get("inputs") instanceof Map inputs) {
                 Map<String, Object> newInputs = new HashMap<>((Map<String, Object>) inputs);
-                newInputs.put("query", delegate.getTaskDescription());
-                newInputs.put("intent", delegate.getIntent());
+                newInputs.put("query", effectiveQuery);
+                newInputs.put("intent", effectiveIntent);
                 cd.put("inputs", newInputs);
             }
             body.put("custom_data", cd);
         }
         Map<String, Object> inputSection = new HashMap<>((Map<String, Object>) body.getOrDefault("input", new HashMap<>()));
-        inputSection.put("query", delegate.getTaskDescription());
-        inputSection.put("intent", delegate.getIntent());
+        inputSection.put("query", effectiveQuery);
+        inputSection.put("intent", effectiveIntent);
         body.put("input", inputSection);
         body.put("stream", true);
 
         // 构建消息并发送
-        Message message = buildVaMessage(delegate.getTaskDescription(), headers, body, "", convId);
+        Message message = buildVaMessage(effectiveQuery, headers, body, params, "", convId);
         return streamCallVa(message, convId, eventSink);
     }
 
@@ -285,6 +331,7 @@ public class Executor {
     private void continueVersatileAdapter(String convId, String taskId, String vaTaskId,
                                           String userInput, Map<String, Object> headers,
                                           Map<String, Object> originalBody,
+                                          Map<String, Object> params,
                                           java.util.function.Consumer<Map<String, Object>> eventSink) {
         // VA Client 不可用时直接挂起
         if (vaClient == null) {
@@ -307,7 +354,7 @@ public class Executor {
         Map<String, Object> body = new HashMap<>(originalBody);
         body.put("stream", true);
 
-        Message message = buildVaMessage(userInput, headers, body, vaTaskId, convId);
+        Message message = buildVaMessage(userInput, headers, body, params, vaTaskId, convId);
         VaResult vaResult = streamCallVa(message, convId, eventSink);
 
         if (vaResult.cascade != null) {
@@ -318,7 +365,7 @@ public class Executor {
                 taskStore.save(taskOpt.get().withState(TaskState.TASK_STATE_WORKING));
             }
 
-            runAgent(convId, taskId, "", originalBody, eventSink, vaResult.cascade);
+            runAgent(convId, taskId, "", originalBody, eventSink, vaResult.cascade, new int[]{0});
         } else {
             // VA 仍未完成，继续挂起；va_task_id 不变
             Optional<RedisTaskStore.TaskInfo> taskOpt = taskStore.get(taskId);
@@ -347,22 +394,22 @@ public class Executor {
                                   java.util.function.Consumer<Map<String, Object>> eventSink) {
         AtomicReference<String> vaRealTaskId = new AtomicReference<>(null);
         AtomicBoolean hasEndNode = new AtomicBoolean(false);
+        AtomicBoolean terminalObserved = new AtomicBoolean(false);
         AtomicReference<String> qaResult = new AtomicReference<>(null);
         AtomicReference<String> continuationTaskId = new AtomicReference<>(UUID.randomUUID().toString());
         CountDownLatch latch = new CountDownLatch(1);
         List<Exception> errors = new ArrayList<>();
-        AtomicInteger streamRespCount = new AtomicInteger(0);
 
         try {
             vaClient.sendMessage(message,
                     List.of((event, card) -> {
                         try {
-                            streamRespCount.incrementAndGet();
                             // TaskUpdateEvent 包含 TaskArtifactUpdateEvent / TaskStatusUpdateEvent
                             if (event instanceof TaskUpdateEvent tue) {
                                 boolean isFinal = handleStreamUpdateEvent(tue, convId, eventSink,
                                         vaRealTaskId, hasEndNode, qaResult, continuationTaskId);
                                 if (isFinal) {
+                                    terminalObserved.set(true);
                                     latch.countDown();
                                 }
                             } else if (event instanceof io.a2a.client.TaskEvent te) {
@@ -375,6 +422,7 @@ public class Executor {
                                 }
                                 // 检查 Task 是否到达终态
                                 if (task != null && task.status() != null && task.status().state().isFinal()) {
+                                    terminalObserved.set(true);
                                     latch.countDown();
                                 }
                             }
@@ -383,7 +431,15 @@ public class Executor {
                         }
                     }),
                     error -> {
-                        logger.warn("[Executor] VA send_message 异常: {}", error.getMessage());
+                        String messageText = error != null ? error.getMessage() : "";
+                        if (terminalObserved.get()
+                                && messageText != null
+                                && messageText.toLowerCase(Locale.ROOT).contains("request cancelled")) {
+                            logger.debug("[Executor] VA send_message 收尾取消，忽略: {}", messageText);
+                            latch.countDown();
+                            return;
+                        }
+                        logger.error("[Executor] VA send_message 异常: {}", messageText);
                         errors.add(error instanceof Exception ? (Exception) error : new RuntimeException(error));
                         latch.countDown();
                     },
@@ -404,7 +460,6 @@ public class Executor {
             Thread.currentThread().interrupt();
             logger.warn("[Executor] VA 流式等待被中断：conv={}", convId);
         }
-        logger.info("[Executor] streamRespCount={}", streamRespCount);
 
         if (!errors.isEmpty()) {
             logger.error("[Executor] VA 调用存在异常，conv={}", convId);
@@ -439,11 +494,10 @@ public class Executor {
         if (updateEvent instanceof TaskArtifactUpdateEvent artifactEvent) {
             // 提取 VA 真实 task id
             String taskId = artifactEvent.taskId();
-            logger.info("[Executor] VA taskId={}, convId={}", taskId, convId);
             if (taskId != null && !taskId.isEmpty() && vaRealTaskId.get() == null) {
                 vaRealTaskId.set(taskId);
                 continuationTaskId.set(taskId);
-                logger.info("[Executor] TaskArtifactUpdateEvent, VA real task_id={}, conv={}", taskId, convId);
+                logger.info("[Executor] VA real task_id={}, conv={}", taskId, convId);
             }
 
             // 检查 end node
@@ -453,20 +507,23 @@ public class Executor {
 
             // 提取 QA 结果
             String qa = extractQaNode(artifactEvent);
-            if (qa != null && !qa.isEmpty()) {
+            if (qa != null) {
                 qaResult.set(qa);
             }
 
             // 非屏蔽事件转发给用户
             if (!isSuppressedNode(artifactEvent)) {
-                eventSink.accept(Map.of(
-                        "type", "artifact",
-                        "taskId", taskId != null ? taskId : "",
-                        "contextId", convId,
-                        "artifactId", artifactEvent.artifact().artifactId(),
-                        "parts", artifactEvent.artifact().parts().toString(),
-                        "lastChunk", artifactEvent.lastChunk()
-                ));
+                for (Map<String, Object> data : extractDataParts(artifactEvent)) {
+                    Map<String, Object> frame = data;
+                    if (data.containsKey("event") && data.get("data") instanceof Map<?, ?>) {
+                        String eventKind = String.valueOf(data.get("event"));
+                        if (!"end".equals(eventKind)) {
+                            eventSink.accept(AgentAdapter.workflowEvent(eventKind, extractWorkflowNode(data)));
+                        }
+                    } else {
+                        eventSink.accept(AgentAdapter.workflowEvent("message", extractWorkflowNode(frame)));
+                    }
+                }
             }
 
             // lastChunk=true 表示最后一个 artifact chunk，但还需要等终态 status
@@ -477,7 +534,6 @@ public class Executor {
             if (taskId != null && !taskId.isEmpty() && vaRealTaskId.get() == null) {
                 vaRealTaskId.set(taskId);
                 continuationTaskId.set(taskId);
-                logger.info("[Executor] TaskStatusUpdateEvent, VA real task_id={}, conv={}", taskId, convId);
             }
 
             // 终态 → 通知 latch
@@ -485,5 +541,23 @@ public class Executor {
         }
 
         return false;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> extractWorkflowNode(Map<String, Object> frame) {
+        if (frame == null) {
+            return Map.of();
+        }
+        Object data = frame.get("data");
+        if (frame.containsKey("event") && data instanceof Map<?, ?> map) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() != null) {
+                    result.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+            return result;
+        }
+        return frame;
     }
 }

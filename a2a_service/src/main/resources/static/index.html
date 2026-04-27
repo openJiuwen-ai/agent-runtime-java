@@ -357,15 +357,15 @@
             <div class="header">
                 <div class="header-item">
                     <label>Project ID:</label>
-                    <input type="text" id="projectId" value="0">
+                    <input type="text" id="projectId" value="demo">
                 </div>
                 <div class="header-item">
                     <label>Agent ID:</label>
-                    <input type="text" id="agentId" value="main_planner">
+                    <input type="text" id="agentId" value="edp_agent">
                 </div>
                 <div class="header-item">
                     <label>Conversation ID:</label>
-                    <input type="text" id="convId" value="test-session-001">
+                    <input type="text" id="convId" value="">
                 </div>
                 <div class="header-item">
                     <label>Workspace ID:</label>
@@ -386,7 +386,7 @@
             <div class="chat-history" id="chatHistory">
                 <div class="message msg-system">
                     <div class="msg-role">System</div>
-                    <div class="bubble">欢迎使用 AgentEngine 对话沙盘。右侧可实时监控请求与响应报文。</div>
+                    <div class="bubble">当前页面已适配 Java 版 a2a_service 北向接口。右侧可查看请求和 SSE 响应报文。</div>
                 </div>
             </div>
 
@@ -418,15 +418,13 @@
 
                 <div class="raw-data-toggle" onclick="toggleRawEditor()">[+] 高级: 自定义完整请求 Payload JSON</div>
                 <textarea id="rawPayload" class="raw-payload-editor" placeholder='JSON payload...'>{
-  "inputs": {
-    "query": "你好"
-  },
-  "memory_inputs": {},
-  "globals": {},
-  "plugin_configs": [],
-  "long_term_memory": {
-    "enable_retrieve": true,
-    "enable_extract": true
+  "agent_id": "edp_agent",
+  "conversation_id": "demo-session",
+  "stream": true,
+  "custom_data": {
+    "inputs": {
+      "query": "你好"
+    }
   }
 }</textarea>
 
@@ -462,6 +460,10 @@
         let rawEditorVisible = false;
         let headerEditorVisible = false;
         let isWaiting = false;
+
+        function randomConversationId() {
+            return `c-${Date.now()}`;
+        }
 
         function toggleRawEditor() {
             rawEditorVisible = !rawEditorVisible;
@@ -576,7 +578,7 @@
         async function sendMessage() {
             const projectId = document.getElementById('projectId').value.trim();
             const agentId = document.getElementById('agentId').value.trim();
-            const convId = document.getElementById('convId').value.trim();
+            let convId = document.getElementById('convId').value.trim();
             const workspaceId = document.getElementById('workspaceId').value.trim();
             const customQueries = document.getElementById('customQueries').value.trim();
             const stream = document.getElementById('streamMode').checked;
@@ -588,31 +590,36 @@
             if (!text && !rawEditorVisible) return;
             if (rawEditorVisible && !rawPayloadStr) return;
 
+            if (!convId) {
+                convId = randomConversationId();
+                document.getElementById('convId').value = convId;
+            }
+
             let finalPayload = {};
             if (rawEditorVisible && rawPayloadStr) {
                 try {
                     finalPayload = JSON.parse(rawPayloadStr);
                     if (text) {
-                        // 逻辑：将主输入框内容替换到 inputs.query 中
-                        if (!finalPayload.inputs) finalPayload.inputs = {};
-                        finalPayload.inputs.query = text;
+                        if (!finalPayload.custom_data) finalPayload.custom_data = {};
+                        if (!finalPayload.custom_data.inputs) finalPayload.custom_data.inputs = {};
+                        finalPayload.custom_data.inputs.query = text;
                     }
+                    finalPayload.agent_id = finalPayload.agent_id || agentId;
+                    finalPayload.conversation_id = finalPayload.conversation_id || convId;
+                    finalPayload.stream = stream;
                 } catch(e) {
                     alert("自定义 Payload JSON 格式错误!");
                     return;
                 }
             } else {
-                // 默认非自定义模式下的 Payload
                 finalPayload = {
-                    inputs: {
-                        query: text
-                    },
-                    memory_inputs: {},
-                    globals: {},
-                    plugin_configs: [],
-                    long_term_memory: {
-                        enable_retrieve: true,
-                        enable_extract: true
+                    agent_id: agentId,
+                    conversation_id: convId,
+                    stream: stream,
+                    custom_data: {
+                        inputs: {
+                            query: text
+                        }
                     }
                 };
             }
@@ -699,13 +706,11 @@
                     appendDebugLog('RES', `JSON Response`, data);
 
                     if (data.success) {
-                        const content = data.payload || (data.message && data.message.content);
-                        if (content) {
-                            appendMessage('agent', content);
-                        }
+                        const content = data.answer || data.output || data.content || "";
+                        if (content) appendMessage('agent', content);
                         setStatus('idle', '⚪ Idle');
                     } else {
-                        appendMessage('system', `❌ Error: ${data.error || 'Unknown error'}`);
+                        appendMessage('system', `❌ Error: ${data.message || data.error || 'Unknown error'}`);
                         setStatus('error', '🔴 Error');
                     }
                     return;
@@ -750,7 +755,7 @@
                                 // 记录解析后的 SSE 响应报文
                                 appendDebugLog('RES', `SSE Chunk: ${data.status || data.event || 'event'}`, data);
 
-                                // 1. 递归提取业务文本内容 (Aggressive extraction)
+                                // 1. 递归提取当前 Java 北向协议中的文本内容
                                 const findText = (obj) => {
                                     if (!obj) return "";
                                     if (typeof obj === 'string') {
@@ -762,12 +767,17 @@
                                     }
                                     if (typeof obj !== 'object') return "";
 
-                                    // 优先尝试已知路径
+                                    if (obj.custom_rsp_data && typeof obj.custom_rsp_data === 'object') {
+                                        const custom = obj.custom_rsp_data;
+                                        return findText(custom.content) || findText(custom.data);
+                                    }
+
                                     if (typeof obj.text === 'string' && obj.text) return obj.text;
                                     if (typeof obj.content === 'string' && obj.content) return obj.content;
+                                    if (typeof obj.answer === 'string' && obj.answer) return obj.answer;
+                                    if (typeof obj.error_msg === 'string' && obj.error_msg) return obj.error_msg;
                                     if (typeof obj.payload === 'string' && obj.payload) return obj.payload;
 
-                                    // 递归尝试包装层
                                     return findText(obj.data) || findText(obj.message) || findText(obj.payload) || "";
                                 };
 
@@ -789,13 +799,20 @@
                                     }
                                 }
 
-                                // 2. 处理 AgentEngine 内部状态消息 (仅更新 UI 状态)
-                                if (data.status === 'completed') {
+                                // 2. Java 北向协议状态处理
+                                const eventType = data.custom_rsp_data?.event || data.event || '';
+                                if (eventType === 'conversation_end' || data.status === 'completed') {
                                     setStatus('idle', '⚪ Idle');
-                                } else if (data.status === 'suspended') {
+                                } else if (data.state === 'INPUT_REQUIRED' || data.status === 'suspended') {
                                     setStatus('blocked', '🟡 Suspended');
-                                } else if (data.status === 'error' || data.event === 'error') {
-                                    const errorReason = data.message?.reason || data.data?.error || "Unknown error";
+                                } else if (eventType === 'error' || data.status === 'error' || data.success === false) {
+                                    const errorReason =
+                                        data.message ||
+                                        data.error_msg ||
+                                        data.error ||
+                                        data.custom_rsp_data?.data?.message ||
+                                        data.custom_rsp_data?.data?.error ||
+                                        "Unknown error";
                                     appendMessage('system', `❌ Error: ${errorReason}`);
                                     setStatus('error', '🔴 Error');
                                 }

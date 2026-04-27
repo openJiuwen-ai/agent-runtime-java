@@ -1,111 +1,261 @@
 package com.openjiuwen.a2a_service.agents.EDPAgent.rail;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.core.foundation.llm.schema.ToolCall;
+import com.openjiuwen.core.runner.Runner;
+import com.openjiuwen.core.runner.base.TagMatchStrategy;
 import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.rail.AgentCallbackContext;
-import com.openjiuwen.core.singleagent.rail.ToolCallInputs;
+import com.openjiuwen.core.sysop.SysOperation;
+import com.openjiuwen.core.sysop.result.ExecuteCmdResult;
+import com.openjiuwen.a2a_service.agents.EDPAgent.state.StateKeys;
+import com.openjiuwen.a2a_service.agents.EDPAgent.tool.VersatileResultNormalizer;
 import com.openjiuwen.harness.rails.interrupt.BaseInterruptRail;
 import com.openjiuwen.harness.rails.interrupt.InterruptDecision;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * VersatileInterruptRail：拦截 query_balance 和 transfer 工具调用，通过 session state 传递委托信息。
- *
- * 设计原则：
- *   - 零 A2A 依赖：不引用 EventQueue、A2AClient 等任何 A2A 对象
- *   - 不主动调用外部 Agent：只记录委托意图，由 Orchestrator 执行
- *   - Cascade 续轮：从 session state 读取 cascade_result，直接 reject(toolResult=result)
- *
- * 数据流：
- *   Rail.resolveInterrupt()
- *     → session.updateState({"pending_delegate": {...}})   # 首次委托
- *     → interrupt()                                          # Runner 保存 Checkpoint
- *   agentStream() 在 runStream/resume 结束后
- *     → session.getState("pending_delegate")
- *     → yield DelegateRequest(...)                           # 传递给 Orchestrator
- */
 public class VersatileInterruptRail extends BaseInterruptRail {
 
-    private static final Logger logger = LoggerFactory.getLogger(VersatileInterruptRail.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private final String sysOperationId;
 
     public VersatileInterruptRail() {
-        super(List.of("query_balance", "transfer"));
-        logger.info("[VersatileInterruptRail] 初始化完成，拦截工具：query_balance, transfer");
+        this(null);
+    }
+
+    public VersatileInterruptRail(String sysOperationId) {
+        super(List.of("call_versatile"));
+        this.sysOperationId = sysOperationId;
     }
 
     @Override
     protected InterruptDecision resolveInterrupt(AgentCallbackContext ctx, ToolCall toolCall, Object userInput) {
-        logger.info("[VersatileInterruptRail] 调用, toolCall={}", toolCall);
-        // ── 提取工具参数 ──────────────────────────────────────────────────────
-        Object rawToolArgs = null;
-        if (ctx.getInputs() instanceof ToolCallInputs) {
-            rawToolArgs = ((ToolCallInputs) ctx.getInputs()).getToolArgs();
+        Map<String, Object> toolArgs = normalizeToolArgs(ctx);
+        Object cascadeResult = ctx.getSession().getState(StateKeys.CASCADE_RESULT);
+        if (cascadeResult != null) {
+            Object normalizedResult = handleCascadeResume(ctx, toolArgs, cascadeResult);
+            Map<String, Object> clearedState = new LinkedHashMap<String, Object>();
+            clearedState.put(StateKeys.CASCADE_RESULT, null);
+            clearedState.put(StateKeys.PENDING_TOOL_CONTEXT, null);
+            clearedState.put(StateKeys.PENDING_DELEGATE, null);
+            ctx.getSession().updateState(clearedState);
+            return reject(normalizedResult);
         }
-        String toolName = toolCall != null ? toolCall.getName() : null;
 
-        // 兼容处理：toolArgs 可能是 String（JSON）或 Map
-        Map<String, Object> toolArgs = new LinkedHashMap<>();
-        if (rawToolArgs instanceof Map) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> mapArgs = (Map<String, Object>) rawToolArgs;
-            toolArgs.putAll(mapArgs);
-        } else if (rawToolArgs instanceof String) {
-            // 尝试 JSON 解析
+        Map<String, Object> mcpProductsData = normalizeMap(ctx.getSession().getState(StateKeys.MCP_PRODUCTS_DATA));
+        Map<String, Object> pendingDelegate = new LinkedHashMap<String, Object>();
+        pendingDelegate.put("intent", stringValue(toolArgs, "query_intent"));
+        pendingDelegate.put("task_description", buildDelegateTaskDescription(toolArgs, mcpProductsData));
+        Map<String, Object> pendingToolContext = new LinkedHashMap<String, Object>();
+        pendingToolContext.put("tool_name", toolCall != null ? toolCall.getName() : "");
+        pendingToolContext.put("tool_args", toolArgs);
+        pendingToolContext.put("mcp_products_data", mcpProductsData);
+
+        Map<String, Object> update = new LinkedHashMap<String, Object>();
+        update.put(StateKeys.PENDING_DELEGATE, pendingDelegate);
+        update.put(StateKeys.PENDING_TOOL_CONTEXT, pendingToolContext);
+        update.put(StateKeys.MCP_PRODUCTS_DATA, null);
+        ctx.getSession().updateState(update);
+
+        return interrupt(InterruptRequest.builder()
+                .interruptId(toolCall != null ? toolCall.getId() : "")
+                .message("执行" + stringValue(toolArgs, "query_intent") + "，等待 Orchestrator Cascade 续轮")
+                .build());
+    }
+
+    private Object handleCascadeResume(
+            AgentCallbackContext ctx,
+            Map<String, Object> currentToolArgs,
+            Object cascadeResult
+    ) {
+        Map<String, Object> toolContext = normalizeMap(ctx.getSession().getState(StateKeys.PENDING_TOOL_CONTEXT));
+        Map<String, Object> toolArgs = normalizeMap(toolContext.get("tool_args"));
+        if (toolArgs.isEmpty()) {
+            toolArgs = currentToolArgs;
+        }
+        Map<String, Object> mcpProductsData = normalizeMap(toolContext.get("mcp_products_data"));
+
+        Map<String, Object> businessData = extractBusinessData(cascadeResult);
+        String command = stringValue(toolArgs, "query_response_analysis_scripts");
+        if (command.isBlank()) {
+            return businessData;
+        }
+        if (VersatileResultNormalizer.supports(command)) {
+            return VersatileResultNormalizer.normalize(command, toolArgs, businessData, mcpProductsData);
+        }
+
+        Object shellNormalized = executeExternalNormalizer(command, toolArgs, businessData, mcpProductsData);
+        return shellNormalized != null ? shellNormalized : businessData;
+    }
+
+    private Map<String, Object> normalizeToolArgs(AgentCallbackContext ctx) {
+        Object toolArgs = ctx.getInputs() instanceof com.openjiuwen.core.singleagent.rail.ToolCallInputs inputs
+                ? inputs.getToolArgs()
+                : null;
+        if (toolArgs instanceof String stringArgs) {
             try {
-                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                @SuppressWarnings("unchecked")
-                Map<String, Object> parsed = mapper.readValue((String) rawToolArgs, Map.class);
-                toolArgs.putAll(parsed);
-            } catch (Exception e) {
-                toolArgs.put("task_description", rawToolArgs);
+                return MAPPER.readValue(stringArgs, new TypeReference<Map<String, Object>>() {
+                });
+            } catch (Exception ignored) {
+                return Map.of();
             }
         }
+        return normalizeMap(toolArgs);
+    }
 
-        // ── Cascade 续轮快捷路径 ──────────────────────────────────────────────
-        // Orchestrator 通过 agentStream(cascadeResult=...) 注入结果，
-        // Agent.java 在续轮时调用 session.updateState({"cascade_result": ...})
-        Object cascadeResult = ctx.getSession().getState("cascade_result");
-        if (cascadeResult != null) {
-            Map<String, Object> clearState = new HashMap<>();
-            clearState.put("cascade_result", null);  // 消费
-            ctx.getSession().updateState(clearState);
-            logger.info("[VersatileInterruptRail] Cascade 续轮：注入 workflow_result 给 LLM，cascade_result={}", cascadeResult);
-            return reject(cascadeResult);
+    private Map<String, Object> extractBusinessData(Object cascadeResult) {
+        Map<String, Object> result = normalizeMap(cascadeResult);
+        Object workflowResult = result.get("workflow_result");
+        if (workflowResult instanceof Map<?, ?> workflowMap) {
+            return normalizeMap(workflowMap);
+        }
+        if (workflowResult instanceof String text) {
+            try {
+                return MAPPER.readValue(text, new TypeReference<Map<String, Object>>() {
+                });
+            } catch (Exception ignored) {
+                return Map.of("workflow_result", text);
+            }
+        }
+        result.remove("node_type");
+        result.remove("node_name");
+        return result;
+    }
+
+    private Object executeExternalNormalizer(
+            String command,
+            Map<String, Object> toolArgs,
+            Map<String, Object> businessData,
+            Map<String, Object> mcpProductsData
+    ) {
+        if (sysOperationId == null || sysOperationId.isBlank()) {
+            return null;
+        }
+        Object sysOperationObj = Runner.resourceMgr().getSysOperation(
+                sysOperationId,
+                null,
+                TagMatchStrategy.ALL
+        );
+        if (!(sysOperationObj instanceof SysOperation sysOperation)) {
+            return null;
         }
 
-        // ── 首次拦截：记录委托意图 ────────────────────────────────────────────
-        String taskDescription = toolArgs.getOrDefault("task_description", "").toString();
-
-        // 根据工具名设置 intent
-        String intent = "";
-        if ("query_balance".equals(toolName)) {
-            intent = "查询账户余额";
-        } else if ("transfer".equals(toolName)) {
-            intent = "快速转账";
+        Map<String, Object> skillInput = new LinkedHashMap<String, Object>();
+        skillInput.put("query_intent", stringValue(toolArgs, "query_intent"));
+        skillInput.put("query_description", stringValue(toolArgs, "query_description"));
+        skillInput.put("business_data", businessData);
+        if (mcpProductsData != null && !mcpProductsData.isEmpty()) {
+            skillInput.put("mcp_products_data", mcpProductsData);
+        }
+        mergeSkillContext(skillInput, stringValue(toolArgs, "skill_context"));
+        if (!skillInput.containsKey("is_first_recommend")) {
+            skillInput.put("is_first_recommend", isFirstRecommend(skillInput));
         }
 
-        String truncatedDesc = taskDescription.length() > 60 ? taskDescription.substring(0, 60) : taskDescription;
-        logger.info("[VersatileInterruptRail] 拦截工具调用：tool={}, intent={}, desc='{}'", toolName, intent, truncatedDesc);
+        try {
+            Object result = sysOperation.shell().executeCmd(
+                    command,
+                    "skills",
+                    60,
+                    Map.of("SKILL_INPUT", MAPPER.writeValueAsString(skillInput)),
+                    Map.of()
+            );
+            if (result instanceof ExecuteCmdResult executeCmdResult
+                    && executeCmdResult.getData() != null
+                    && executeCmdResult.getData().getStdout() != null) {
+                String stdout = executeCmdResult.getData().getStdout().trim();
+                if (!stdout.isEmpty()) {
+                    return MAPPER.readValue(stdout, new TypeReference<Map<String, Object>>() {
+                    });
+                }
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
+    }
 
-        ctx.getSession().updateState(Map.of(
-                "pending_delegate", Map.of(
-                        "intent", intent,
-                        "task_description", taskDescription
-                )
-        ));
+    private String buildDelegateTaskDescription(Map<String, Object> toolArgs, Map<String, Object> mcpProductsData) {
+        String taskDescription = stringValue(toolArgs, "query_description");
+        Object productsObj = mcpProductsData != null ? mcpProductsData.get("products") : null;
+        if (!(productsObj instanceof List<?> products) || products.isEmpty()) {
+            return taskDescription;
+        }
+        try {
+            String productsJson = MAPPER.writeValueAsString(products);
+            Map<String, Object> updatedParams = normalizeMap(mcpProductsData.get("updated_recommend_params"));
+            Map<String, String> filterData = new LinkedHashMap<String, String>();
+            for (Map.Entry<String, Object> entry : updatedParams.entrySet()) {
+                if (entry.getValue() != null) {
+                    filterData.put(entry.getKey(), String.valueOf(entry.getValue()));
+                }
+            }
+            Map<String, Object> data = new LinkedHashMap<String, Object>();
+            data.put("productListJsonData", productsJson);
+            data.put("filter_data", MAPPER.writeValueAsString(filterData));
+            String mcpQuery = "理财二次选品购买：" + MAPPER.writeValueAsString(data);
+            return taskDescription.isBlank() ? mcpQuery : taskDescription + "\n" + mcpQuery;
+        } catch (Exception ignored) {
+            return taskDescription;
+        }
+    }
 
-        logger.info("[VersatileInterruptRail] 委托意图已记录：intent={}, desc='{}'", intent, truncatedDesc);
+    private void mergeSkillContext(Map<String, Object> skillInput, String rawContext) {
+        if (rawContext == null || rawContext.isBlank()) {
+            return;
+        }
+        try {
+            Map<String, Object> context = MAPPER.readValue(rawContext, new TypeReference<Map<String, Object>>() { });
+            for (Map.Entry<String, Object> entry : context.entrySet()) {
+                if (!skillInput.containsKey(entry.getKey())) {
+                    skillInput.put(entry.getKey(), entry.getValue());
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
 
-        // interrupt() → Runner 保存 Checkpoint → agent.stream() 生成器结束
-        // agentStream() 函数末尾会读取 pending_delegate 并 yield DelegateRequest
-        return interrupt(InterruptRequest.builder()
-                .message("执行" + intent + "，等待 Orchestrator Cascade 续轮")
-                .build());
+    private boolean isFirstRecommend(Map<String, Object> skillInput) {
+        return normalizeList(skillInput.get("history_product_codes")).isEmpty()
+                && intValue(skillInput.get("current_sort_type")) == 0
+                && normalizeMap(skillInput.get("history_recommend_params")).isEmpty();
+    }
+
+    private List<Object> normalizeList(Object value) {
+        if (value instanceof List<?> list) {
+            return new java.util.ArrayList<Object>(list);
+        }
+        return List.of();
+    }
+
+    private int intValue(Object value) {
+        try {
+            return value != null ? Integer.parseInt(String.valueOf(value)) : 0;
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    private Map<String, Object> normalizeMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> result = new LinkedHashMap<String, Object>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                result.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+            return result;
+        }
+        return Map.of();
+    }
+
+    private String stringValue(Map<String, Object> values, String key) {
+        if (values == null) {
+            return "";
+        }
+        Object value = values.get(key);
+        return value != null ? String.valueOf(value) : "";
     }
 }
