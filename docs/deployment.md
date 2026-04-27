@@ -6,7 +6,7 @@
 
 | 依赖 | 说明 |
 |---|---|
-| JDK | 当前 Maven 构建配置使用 Java 21 |
+| JDK | 当前 Maven 构建配置使用 Java 17 |
 | Maven | 用于构建 `a2a_service` 和 `versatile_adapter` |
 | Redis | 必需，用于会话、task、checkpoint |
 | LLM 网关 | OpenAI 兼容接口 |
