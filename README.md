@@ -54,7 +54,7 @@ scripts/deploy.sh stop
 配置文件为 `config/deploy.properties`。
 
 - `REDIS_*`：`a2a_service` 会话、task、checkpoint 使用的 Redis
-- `VERSATILE_URL_TEMPLATE`：`versatile_adapter` 调真实 Versatile 的 URL，必须保留 `{conversation_id}`
+- `VERSATILE_URL_TEMPLATE`：`versatile_adapter` 调真实 Versatile 的 URL。旧工作流接口保留 `{conversation_id}`；新 `agentConversationStream.htm` 接口直接填固定地址
 - `VERSATILE_ADAPTER_URL`：`a2a_service` 访问 `versatile_adapter` 的地址
 - `VA_WORKFLOW_RESULT_NODE`：真实 Versatile 返回的 QA 节点名，默认 `GXZQAResponseNode`
 - `LLM_*`：EDPAgent 使用的模型配置

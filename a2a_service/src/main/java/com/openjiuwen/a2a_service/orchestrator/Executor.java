@@ -228,7 +228,7 @@ public class Executor {
     private boolean hasEndNode(TaskArtifactUpdateEvent event) {
         for (Map<String, Object> data : extractDataParts(event)) {
             Map<String, Object> node = extractWorkflowNode(data);
-            if ("End".equals(node.get("node_type"))) {
+            if ("End".equals(String.valueOf(node.get("node_type")))) {
                 return true;
             }
         }
@@ -257,14 +257,22 @@ public class Executor {
      */
     private String extractQaNode(TaskArtifactUpdateEvent event) {
         String targetNode = settings.getVaWorkflowResultNode();
-        if (targetNode == null || targetNode.isEmpty()) {
-            return null;
-        }
         for (Map<String, Object> data : extractDataParts(event)) {
             Map<String, Object> node = extractWorkflowNode(data);
-            if ("QA".equals(node.get("node_type")) && targetNode.equals(node.get("node_name"))) {
-                Object text = node.get("text");
-                return text != null ? text.toString() : null;
+            if (!"QA".equals(String.valueOf(node.get("node_type")))) {
+                continue;
+            }
+            String nodeName = stringValue(node, "node_name");
+            if (targetNode != null && !targetNode.isEmpty() && !targetNode.equals(nodeName)) {
+                continue;
+            }
+            String text = firstNonBlank(
+                    stringValue(node, "text"),
+                    stringValue(node, "summary"),
+                    stringValue(node, "content")
+            );
+            if (!text.isBlank()) {
+                return text;
             }
         }
         return null;
@@ -394,8 +402,11 @@ public class Executor {
                                   java.util.function.Consumer<Map<String, Object>> eventSink) {
         AtomicReference<String> vaRealTaskId = new AtomicReference<>(null);
         AtomicBoolean hasEndNode = new AtomicBoolean(false);
+        AtomicBoolean requiresUserInput = new AtomicBoolean(false);
         AtomicBoolean terminalObserved = new AtomicBoolean(false);
         AtomicReference<String> qaResult = new AtomicReference<>(null);
+        AtomicReference<Map<String, Object>> terminalWorkflowData = new AtomicReference<>(Map.of());
+        AtomicReference<String> terminalWorkflowText = new AtomicReference<>("");
         AtomicReference<String> continuationTaskId = new AtomicReference<>(UUID.randomUUID().toString());
         CountDownLatch latch = new CountDownLatch(1);
         List<Exception> errors = new ArrayList<>();
@@ -407,7 +418,8 @@ public class Executor {
                             // TaskUpdateEvent 包含 TaskArtifactUpdateEvent / TaskStatusUpdateEvent
                             if (event instanceof TaskUpdateEvent tue) {
                                 boolean isFinal = handleStreamUpdateEvent(tue, convId, eventSink,
-                                        vaRealTaskId, hasEndNode, qaResult, continuationTaskId);
+                                        vaRealTaskId, hasEndNode, qaResult, continuationTaskId,
+                                        requiresUserInput, terminalWorkflowData, terminalWorkflowText);
                                 if (isFinal) {
                                     terminalObserved.set(true);
                                     latch.countDown();
@@ -469,12 +481,28 @@ public class Executor {
 
         if (hasEndNode.get()) {
             Map<String, Object> cascade = new HashMap<>();
-            cascade.put("workflow_result", qaResult.get());
+            cascade.put("workflow_result",
+                    firstNonBlank(qaResult.get(), terminalWorkflowText.get()).isBlank()
+                            ? terminalWorkflowData.get()
+                            : firstNonBlank(qaResult.get(), terminalWorkflowText.get()));
             logger.info("[Executor] VA end node: conv={}, qaResult={}", convId, qaResult.get());
             return new VaResult(cascade, taskId);
         }
 
-        logger.info("[Executor] VA 无 end node: conv={}, vaTask={}", convId, taskId);
+        if (requiresUserInput.get()) {
+            logger.info("[Executor] VA requires user input: conv={}, vaTask={}", convId, taskId);
+            return new VaResult(null, taskId);
+        }
+
+        if (!terminalWorkflowData.get().isEmpty() || !terminalWorkflowText.get().isBlank()) {
+            Map<String, Object> cascade = new HashMap<>();
+            cascade.put("workflow_result",
+                    !terminalWorkflowData.get().isEmpty() ? terminalWorkflowData.get() : terminalWorkflowText.get());
+            logger.info("[Executor] VA completed without end node: conv={}, vaTask={}", convId, taskId);
+            return new VaResult(cascade, taskId);
+        }
+
+        logger.info("[Executor] VA 无有效结果: conv={}, vaTask={}", convId, taskId);
         return new VaResult(null, taskId);
     }
 
@@ -488,7 +516,10 @@ public class Executor {
                                              AtomicReference<String> vaRealTaskId,
                                              AtomicBoolean hasEndNode,
                                              AtomicReference<String> qaResult,
-                                             AtomicReference<String> continuationTaskId) {
+                                             AtomicReference<String> continuationTaskId,
+                                             AtomicBoolean requiresUserInput,
+                                             AtomicReference<Map<String, Object>> terminalWorkflowData,
+                                             AtomicReference<String> terminalWorkflowText) {
         UpdateEvent updateEvent = tue.getUpdateEvent();
 
         if (updateEvent instanceof TaskArtifactUpdateEvent artifactEvent) {
@@ -514,14 +545,34 @@ public class Executor {
             // 非屏蔽事件转发给用户
             if (!isSuppressedNode(artifactEvent)) {
                 for (Map<String, Object> data : extractDataParts(artifactEvent)) {
-                    Map<String, Object> frame = data;
-                    if (data.containsKey("event") && data.get("data") instanceof Map<?, ?>) {
-                        String eventKind = String.valueOf(data.get("event"));
-                        if (!"end".equals(eventKind)) {
-                            eventSink.accept(AgentAdapter.workflowEvent(eventKind, extractWorkflowNode(data)));
+                    String eventKind = stringValue(data, "event");
+                    Map<String, Object> node = extractWorkflowNode(data);
+
+                    String dialogId = stringValue(node, "dialog_id");
+                    if (!dialogId.isBlank()) {
+                        continuationTaskId.set(dialogId);
+                    }
+                    if ("QA".equals(String.valueOf(node.get("node_type")))) {
+                        requiresUserInput.set(true);
+                    }
+                    if (isMeaningfulWorkflowPayload(eventKind, node)) {
+                        terminalWorkflowData.set(new LinkedHashMap<>(node));
+                        String candidateText = firstNonBlank(
+                                stringValue(node, "text"),
+                                stringValue(node, "summary"),
+                                stringValue(node, "content")
+                        );
+                        if (!candidateText.isBlank()) {
+                            terminalWorkflowText.set(candidateText);
                         }
-                    } else {
-                        eventSink.accept(AgentAdapter.workflowEvent("message", extractWorkflowNode(frame)));
+                    }
+
+                    if (data.containsKey("event") && data.get("data") instanceof Map<?, ?>) {
+                        if (!"end".equals(eventKind)) {
+                            eventSink.accept(AgentAdapter.workflowEvent(eventKind, node));
+                        }
+                    } else if (!node.isEmpty()) {
+                        eventSink.accept(AgentAdapter.workflowEvent("message", node));
                     }
                 }
             }
@@ -548,6 +599,19 @@ public class Executor {
         if (frame == null) {
             return Map.of();
         }
+        Object customRspData = frame.get("custom_rsp_data");
+        if (customRspData instanceof Map<?, ?> wrapped) {
+            Object wrappedData = wrapped.get("data");
+            if (wrappedData instanceof Map<?, ?> map) {
+                Map<String, Object> result = new LinkedHashMap<>();
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    if (entry.getKey() != null) {
+                        result.put(String.valueOf(entry.getKey()), entry.getValue());
+                    }
+                }
+                return result;
+            }
+        }
         Object data = frame.get("data");
         if (frame.containsKey("event") && data instanceof Map<?, ?> map) {
             Map<String, Object> result = new LinkedHashMap<>();
@@ -559,5 +623,40 @@ public class Executor {
             return result;
         }
         return frame;
+    }
+
+    private boolean isMeaningfulWorkflowPayload(String eventKind, Map<String, Object> node) {
+        if (node == null || node.isEmpty()) {
+            return false;
+        }
+        if (!firstNonBlank(
+                stringValue(node, "text"),
+                stringValue(node, "summary"),
+                stringValue(node, "content"),
+                stringValue(node, "raw_content")
+        ).isBlank()) {
+            return true;
+        }
+        if ("rawData".equals(eventKind)) {
+            return node.size() > 3;
+        }
+        return Set.of("answer", "message", "text").contains(eventKind);
+    }
+
+    private String stringValue(Map<String, Object> values, String key) {
+        if (values == null) {
+            return "";
+        }
+        Object value = values.get(key);
+        return value != null ? String.valueOf(value) : "";
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
     }
 }

@@ -62,7 +62,7 @@ public class App {
 
     @Bean
     public VersatileProxy versatileProxy(Config config) {
-        return new VersatileProxy(config.getVersatileUrlTemplate(), config.getVersatileTimeout());
+        return new VersatileProxy(config);
     }
 
     @Bean

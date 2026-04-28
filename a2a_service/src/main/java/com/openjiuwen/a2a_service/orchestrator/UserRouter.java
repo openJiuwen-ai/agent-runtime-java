@@ -57,6 +57,10 @@ public class UserRouter {
      */
     @SuppressWarnings("unchecked")
     private String extractQuery(Map<String, Object> body) {
+        Object question = body.get("question");
+        if (question instanceof String && !((String) question).isEmpty()) {
+            return (String) question;
+        }
         if (body.get("input") instanceof Map input) {
             Object q = input.get("query");
             if (q instanceof String && !((String) q).isEmpty()) {
@@ -109,7 +113,7 @@ public class UserRouter {
             return ResponseEntity.badRequest().body(Map.of(
                     "success", false,
                     "error", "invalid_body",
-                    "message", "请求 body 缺少 input.query 或 custom_data.inputs.query"
+                    "message", "请求 body 缺少 question、input.query 或 custom_data.inputs.query"
             ));
         }
         boolean streamMode = (boolean) body.getOrDefault("stream", true);
