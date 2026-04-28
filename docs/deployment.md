@@ -35,6 +35,7 @@ REDIS_START_MODE=external
 REDIS_HOST=<redis-host>
 REDIS_PORT=6379
 REDIS_DB=0
+REDIS_PASSWORD=XXX
 
 VERSATILE_URL_TEMPLATE=http://<versatile-host>/v1/<project_id>/agents/<agent_id>/conversations/{conversation_id}
 VERSATILE_ADAPTER_URL=http://<versatile-adapter-host>:8081/
