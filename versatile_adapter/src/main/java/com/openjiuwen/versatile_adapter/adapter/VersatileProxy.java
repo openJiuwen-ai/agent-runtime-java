@@ -1,6 +1,7 @@
 package com.openjiuwen.versatile_adapter.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.versatile_adapter.Config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,6 +13,8 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -20,13 +23,6 @@ import static com.openjiuwen.core.common.security.SslUtils.createInsecureSslCont
 
 /**
  * VersatileProxy — 通过 HTTP 流式调用 Versatile 低代码平台（NDJSON/SSE 协议）。
- *
- * 对应 Python: adapter/versatile_proxy.py
- *
- * Constructor: urlTemplate, timeout=600
- * dispatchStream(body, convId, extraHeaders): POST 到 urlTemplate.format(convId), 流式读取响应
- * 转发白名单请求头: x-user-id, x-project-id, cust-token, cust-userid
- * 解析 SSE 行，通过 Consumer 回调每个 chunk
  */
 public class VersatileProxy {
 
@@ -37,16 +33,24 @@ public class VersatileProxy {
             "x-user-id", "x-project-id", "cust-token", "cust-userid"
     );
 
+    private final Config config;
     private final String urlTemplate;
     private final int timeout;
 
-    public VersatileProxy(String urlTemplate, int timeout) {
-        this.urlTemplate = urlTemplate;
-        this.timeout = timeout;
+    public VersatileProxy(Config config) {
+        this.config = config;
+        this.urlTemplate = config.getVersatileUrlTemplate();
+        this.timeout = config.getVersatileTimeout();
     }
 
     private String buildUrl(String convId) {
-        return urlTemplate.replace("{conversation_id}", convId);
+        if (urlTemplate == null || urlTemplate.isBlank()) {
+            return "";
+        }
+        if (urlTemplate.contains("{conversation_id}")) {
+            return urlTemplate.replace("{conversation_id}", convId);
+        }
+        return urlTemplate;
     }
 
     private String buildUrl(String convId, Map<String, Object> params) {
@@ -72,7 +76,195 @@ public class VersatileProxy {
         return url + (url.contains("?") ? "&" : "?") + query;
     }
 
-    private Map<String, Object> unwrapUpstreamFrame(Map<String, Object> outer) {
+    private boolean usesConversationStreamProtocol() {
+        String value = urlTemplate != null ? urlTemplate : "";
+        return value.contains("agentConversationStream.htm") || !value.contains("{conversation_id}");
+    }
+
+    private Map<String, Object> asMapOrEmpty(Object value) {
+        if (value instanceof Map<?, ?> raw) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : raw.entrySet()) {
+                if (entry.getKey() != null) {
+                    result.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+            return result;
+        }
+        return Map.of();
+    }
+
+    private Object nestedValue(Map<String, Object> source, String... path) {
+        Object current = source;
+        for (String segment : path) {
+            if (!(current instanceof Map<?, ?> map)) {
+                return null;
+            }
+            current = map.get(segment);
+        }
+        return current;
+    }
+
+    private String nestedString(Map<String, Object> source, String... path) {
+        Object value = nestedValue(source, path);
+        if (value == null) {
+            return "";
+        }
+        String text = String.valueOf(value).trim();
+        return text;
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private String headerValue(Map<String, String> headers, String... candidates) {
+        if (headers == null || headers.isEmpty()) {
+            return "";
+        }
+        for (String candidate : candidates) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(candidate)) {
+                    return entry.getValue() != null ? entry.getValue().trim() : "";
+                }
+            }
+        }
+        return "";
+    }
+
+    private Map<String, Object> buildLegacyRequestBody(Map<String, Object> body) {
+        return new LinkedHashMap<>(asMapOrEmpty(body.getOrDefault("custom_data", Map.of())));
+    }
+
+    private Map<String, Object> buildConversationStreamBody(
+            Map<String, Object> body,
+            String convId,
+            Map<String, String> headers
+    ) {
+        String question = firstNonBlank(
+                nestedString(body, "question"),
+                nestedString(body, "input", "query"),
+                nestedString(body, "custom_data", "inputs", "query"),
+                nestedString(body, "custom_data", "query")
+        );
+        String agentName = firstNonBlank(
+                nestedString(body, "agentName"),
+                nestedString(body, "custom_data", "agentName"),
+                nestedString(body, "custom_data", "inputs", "agentName"),
+                nestedString(body, "input", "agentName"),
+                nestedString(body, "custom_data", "inputs", "intent"),
+                nestedString(body, "input", "intent")
+        );
+        String userId = firstNonBlank(
+                nestedString(body, "userId"),
+                nestedString(body, "custom_data", "userId"),
+                nestedString(body, "custom_data", "inputs", "userId"),
+                headerValue(headers, "x-user-id", "cust-userid")
+        );
+        String engine = firstNonBlank(
+                nestedString(body, "engine"),
+                nestedString(body, "custom_data", "engine"),
+                nestedString(body, "custom_data", "inputs", "engine")
+        );
+
+        Map<String, Object> requestBody = new LinkedHashMap<>();
+        requestBody.put("agentName", agentName);
+        requestBody.put("question", question);
+        requestBody.put("sessionId", convId != null ? convId : "");
+        requestBody.put("userId", userId);
+        requestBody.put("engine", engine);
+        return requestBody;
+    }
+
+    private Map<String, Object> buildUpstreamRequestBody(
+            Map<String, Object> body,
+            String convId,
+            Map<String, String> headers
+    ) {
+        if (usesConversationStreamProtocol()) {
+            return buildConversationStreamBody(body, convId, headers);
+        }
+        return buildLegacyRequestBody(body);
+    }
+
+    private String toSnakeCase(String key) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < key.length(); i++) {
+            char ch = key.charAt(i);
+            if (Character.isUpperCase(ch)) {
+                if (i > 0 && builder.charAt(builder.length() - 1) != '_') {
+                    builder.append('_');
+                }
+                builder.append(Character.toLowerCase(ch));
+            } else {
+                builder.append(ch);
+            }
+        }
+        return builder.toString();
+    }
+
+    private Map<String, Object> normalizeKeys(Map<String, Object> source) {
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            normalized.put(toSnakeCase(entry.getKey()), entry.getValue());
+        }
+        return normalized;
+    }
+
+    private void mergeMissing(Map<String, Object> target, Map<String, Object> incoming) {
+        for (Map.Entry<String, Object> entry : incoming.entrySet()) {
+            if (!target.containsKey(entry.getKey())) {
+                target.put(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
+    private Map<String, Object> normalizeConversationStreamData(String type, Map<String, Object> rawData) {
+        Map<String, Object> normalized = normalizeKeys(rawData);
+        Object content = rawData.get("content");
+        if (content instanceof String textContent) {
+            String trimmed = textContent.trim();
+            if ("rawData".equals(type) && !trimmed.isEmpty() && (trimmed.startsWith("{") || trimmed.startsWith("["))) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> parsed = objectMapper.readValue(trimmed, Map.class);
+                    normalized.put("raw_content", trimmed);
+                    mergeMissing(normalized, normalizeKeys(parsed));
+                } catch (Exception ignored) {
+                    normalized.put("raw_content", trimmed);
+                }
+            }
+            if (!trimmed.isEmpty()) {
+                if (Set.of("text", "answer", "message", "bubble").contains(type) && !normalized.containsKey("text")) {
+                    normalized.put("text", trimmed);
+                }
+                if ("dialogId".equals(type) && !normalized.containsKey("dialog_id")) {
+                    normalized.put("dialog_id", trimmed);
+                }
+                if ("nodeType".equals(type) && !normalized.containsKey("node_type")) {
+                    normalized.put("node_type", trimmed);
+                }
+                if ("nodeId".equals(type) && !normalized.containsKey("node_id")) {
+                    normalized.put("node_id", trimmed);
+                }
+                normalized.putIfAbsent("content", trimmed);
+            }
+        }
+        if (!normalized.containsKey("text")) {
+            Object summary = normalized.get("summary");
+            if (summary instanceof String summaryText && !summaryText.isBlank()) {
+                normalized.put("text", summaryText);
+            }
+        }
+        return normalized;
+    }
+
+    private Map<String, Object> unwrapLegacyFrame(Map<String, Object> outer) {
         if (outer == null) {
             return Map.of("event", "message", "data", Map.of());
         }
@@ -92,56 +284,37 @@ public class VersatileProxy {
         return Map.of("event", "message", "data", outer);
     }
 
-    private Map<String, Object> asMapOrEmpty(Object value) {
-        if (value instanceof Map<?, ?> raw) {
-            Map<String, Object> result = new HashMap<>();
-            for (Map.Entry<?, ?> entry : raw.entrySet()) {
-                if (entry.getKey() != null) {
-                    result.put(String.valueOf(entry.getKey()), entry.getValue());
-                }
-            }
-            return result;
+    private Map<String, Object> normalizeUpstreamFrame(Map<String, Object> outer) {
+        if (outer == null) {
+            return Map.of("event", "message", "data", Map.of());
         }
-        return Map.of();
+        Object type = outer.get("type");
+        Object data = outer.get("data");
+        if (type != null && data instanceof Map<?, ?> rawData) {
+            return Map.of(
+                    "event", String.valueOf(type),
+                    "data", normalizeConversationStreamData(String.valueOf(type), asMapOrEmpty(rawData))
+            );
+        }
+        return unwrapLegacyFrame(outer);
     }
 
-    // ==================== 【新增】和 Python 一致的包装函数（无侵入） ====================
-    private Map<String, Object> wrapVersatileResponse(Map<String, Object> outer, String convId, String agentId) {
-        Map<String, Object> wrapped = new HashMap<>();
-        wrapped.put("success", true);
-        wrapped.put("agent_id", agentId == null ? "" : agentId);
-        wrapped.put("conversation_id", convId);
-        wrapped.put("custom_rsp_data", outer);
-        return wrapped;
-    }
-    // ==================================================================================
-
-    /**
-     * 流式分发请求到 Versatile 平台。
-     *
-     * POST 请求体（custom_data）到 urlTemplate.format(convId)，逐行解析 SSE/NDJSON 响应。
-     * 每个解析后的 chunk 会通过 chunkConsumer 回调。
-     *
-     * @param body          请求体（custom_data）
-     * @param convId        会话 ID，用于替换 URL 模板中的 {conversation_id}
-     * @param extraHeaders  额外请求头（仅转发白名单中的 header）
-     * @param chunkConsumer 每个 chunk 的消费者
-     */
-    @SuppressWarnings("unchecked")
-    public void dispatchStream(Map<String, Object> body, String convId,
-                               Map<String, String> extraHeaders,
-                               Consumer<Map<String, Object>> chunkConsumer) {
+    public void dispatchStream(
+            Map<String, Object> body,
+            String convId,
+            Map<String, String> extraHeaders,
+            Consumer<Map<String, Object>> chunkConsumer
+    ) {
         dispatchStream(body, convId, extraHeaders, Map.of(), chunkConsumer);
     }
 
-    /**
-     * 流式分发请求到 Versatile 平台，并透传 URL query params。
-     */
-    @SuppressWarnings("unchecked")
-    public void dispatchStream(Map<String, Object> body, String convId,
-                               Map<String, String> extraHeaders,
-                               Map<String, Object> params,
-                               Consumer<Map<String, Object>> chunkConsumer) {
+    public void dispatchStream(
+            Map<String, Object> body,
+            String convId,
+            Map<String, String> extraHeaders,
+            Map<String, Object> params,
+            Consumer<Map<String, Object>> chunkConsumer
+    ) {
         String url = buildUrl(convId, params);
 
         try {
@@ -154,25 +327,24 @@ public class VersatileProxy {
                     }})
                     .build();
 
-            // 构建 headers
             Map<String, String> headers = new HashMap<>();
             headers.put("Content-Type", "application/json");
             if (extraHeaders != null) {
                 for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
-                    if (FORWARD_HEADER_WHITELIST.contains(entry.getKey().toLowerCase())) {
+                    if (entry.getKey() != null
+                            && FORWARD_HEADER_WHITELIST.contains(entry.getKey().toLowerCase(Locale.ROOT))) {
                         headers.put(entry.getKey(), entry.getValue());
                     }
                 }
             }
 
-            // Python 发送 body.get("custom_data", {})，而非整个 body
-            Object customData = body.getOrDefault("custom_data", new HashMap<>());
-            String jsonBody = objectMapper.writeValueAsString(customData);
+            Map<String, Object> requestBody = buildUpstreamRequestBody(body, convId, headers);
+            String jsonBody = objectMapper.writeValueAsString(requestBody);
 
             logger.info("[VersatileProxy] POST {}", url);
-            logger.debug("[VersatileProxy] 请求头: {}", headers);
-            logger.debug("[VersatileProxy] 请求体: {}", jsonBody);
-            logger.debug("[VersatileProxy] 请求参数: {}", params);
+            logger.debug("[VersatileProxy] protocol={} headers={} body={} params={}",
+                    usesConversationStreamProtocol() ? "conversation_stream" : "legacy",
+                    headers, jsonBody, params);
 
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -194,45 +366,37 @@ public class VersatileProxy {
             if (response.statusCode() >= 400) {
                 StringBuilder errorBody = new StringBuilder();
                 response.body().forEach(line -> errorBody.append(line).append("\n"));
-                logger.error("[VersatileProxy] HTTP 错误code:{} url:{} body:{}", response.statusCode(), url, errorBody);
+                logger.error("[VersatileProxy] HTTP error code:{} url:{} body:{}",
+                        response.statusCode(), url, errorBody);
                 return;
             }
-
-            // 获取 agent_id
-            String agentId = String.valueOf(body.getOrDefault("agent_id", ""));
 
             response.body().forEach(line -> {
                 String trimmed = line.trim();
                 if (trimmed.isEmpty()) {
                     return;
                 }
-
-                // SSE 格式：去掉 "data:" 前缀
                 if (trimmed.startsWith("data:")) {
                     trimmed = trimmed.substring(5).trim();
                 }
-                if (trimmed.isEmpty()) {
+                if (trimmed.isEmpty() || "[DONE]".equals(trimmed)) {
                     return;
                 }
 
                 try {
+                    @SuppressWarnings("unchecked")
                     Map<String, Object> outer = objectMapper.readValue(trimmed, Map.class);
-                    Map<String, Object> chunkMap = unwrapUpstreamFrame(outer);
-
-                    // ==================== 【只加这一行】包装成 Python 格式 ====================
-                    chunkMap = wrapVersatileResponse(chunkMap, convId, agentId);
-                    // ======================================================================
-
+                    Map<String, Object> chunkMap = normalizeUpstreamFrame(outer);
                     logger.debug("[VersatileProxy] received chunk: {}", chunkMap);
                     chunkConsumer.accept(chunkMap);
                 } catch (Exception e) {
-                    logger.warn("[VersatileProxy] 无法解析行: {}",
-                            trimmed.length() > 80 ? trimmed.substring(0, 80) + "..." : trimmed, e);
+                    logger.warn("[VersatileProxy] unable to parse line: {}",
+                            trimmed.length() > 120 ? trimmed.substring(0, 120) + "..." : trimmed, e);
                 }
             });
 
         } catch (Exception e) {
-            logger.error("[VersatileProxy] 请求错误: {}", e.getMessage(), e);
+            logger.error("[VersatileProxy] request failed: {}", e.getMessage(), e);
         }
     }
 }

@@ -24,7 +24,8 @@ REDIS_SESSION_TTL=1800
 DPA_REDIS_CHECKPOINTER_TTL_MINUTES=60
 
 # VersatileAdapter -> real Versatile workflow endpoint. This is usually a remote service.
-# Keep the {conversation_id} placeholder in the URL.
+# Keep the {conversation_id} placeholder in the URL for the old workflow API.
+# For the new agentConversationStream API, use the fixed POST endpoint directly.
 VERSATILE_URL_TEMPLATE=http://REAL_VERSATILE_HOST/v1/PROJECT_ID/agents/AGENT_ID/conversations/{conversation_id}
 VERSATILE_TIMEOUT=600
 

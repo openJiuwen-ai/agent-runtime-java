@@ -50,6 +50,7 @@ LLM_API_KEY=<api-key>
 说明：
 
 - `VERSATILE_ADAPTER_URL` 填 `a2a_service` 可访问到的 `versatile_adapter` 地址
+- 旧工作流接口继续使用 `{conversation_id}` 路径模板；新 `agentConversationStream.htm` 接口直接把 `VERSATILE_URL_TEMPLATE` 配成固定 POST 地址
 - `VA_WORKFLOW_RESULT_NODE` 默认是 `GXZQAResponseNode`，如果真实工作流节点名不同，需要改成实际值
 
 ## 构建与启动
