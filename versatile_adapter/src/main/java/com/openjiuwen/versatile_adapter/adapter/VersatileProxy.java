@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import static com.openjiuwen.core.common.security.SslUtils.createInsecureSslContext;
+
 /**
  * VersatileProxy — 通过 HTTP 流式调用 Versatile 低代码平台（NDJSON/SSE 协议）。
  *
@@ -103,6 +105,17 @@ public class VersatileProxy {
         return Map.of();
     }
 
+    // ==================== 【新增】和 Python 一致的包装函数（无侵入） ====================
+    private Map<String, Object> wrapVersatileResponse(Map<String, Object> outer, String convId, String agentId) {
+        Map<String, Object> wrapped = new HashMap<>();
+        wrapped.put("success", true);
+        wrapped.put("agent_id", agentId == null ? "" : agentId);
+        wrapped.put("conversation_id", convId);
+        wrapped.put("custom_rsp_data", outer);
+        return wrapped;
+    }
+    // ==================================================================================
+
     /**
      * 流式分发请求到 Versatile 平台。
      *
@@ -135,6 +148,10 @@ public class VersatileProxy {
             HttpClient client = HttpClient.newBuilder()
                     .version(HttpClient.Version.HTTP_1_1)
                     .connectTimeout(Duration.ofSeconds(timeout))
+                    .sslContext(createInsecureSslContext())
+                    .sslParameters(new javax.net.ssl.SSLParameters() {{
+                        setEndpointIdentificationAlgorithm("");
+                    }})
                     .build();
 
             // 构建 headers
@@ -181,6 +198,9 @@ public class VersatileProxy {
                 return;
             }
 
+            // 获取 agent_id
+            String agentId = String.valueOf(body.getOrDefault("agent_id", ""));
+
             response.body().forEach(line -> {
                 String trimmed = line.trim();
                 if (trimmed.isEmpty()) {
@@ -198,6 +218,11 @@ public class VersatileProxy {
                 try {
                     Map<String, Object> outer = objectMapper.readValue(trimmed, Map.class);
                     Map<String, Object> chunkMap = unwrapUpstreamFrame(outer);
+
+                    // ==================== 【只加这一行】包装成 Python 格式 ====================
+                    chunkMap = wrapVersatileResponse(chunkMap, convId, agentId);
+                    // ======================================================================
+
                     logger.debug("[VersatileProxy] received chunk: {}", chunkMap);
                     chunkConsumer.accept(chunkMap);
                 } catch (Exception e) {
