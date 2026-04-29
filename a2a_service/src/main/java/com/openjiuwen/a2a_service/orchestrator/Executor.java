@@ -317,13 +317,23 @@ public class Executor {
                 Map<String, Object> newInputs = new HashMap<>((Map<String, Object>) inputs);
                 newInputs.put("query", effectiveQuery);
                 newInputs.put("intent", effectiveIntent);
+                if (delegate.getTargetAgent() != null && !delegate.getTargetAgent().isBlank()) {
+                    newInputs.put("agentName", delegate.getTargetAgent());
+                }
                 cd.put("inputs", newInputs);
+            }
+            if (delegate.getTargetAgent() != null && !delegate.getTargetAgent().isBlank()) {
+                cd.put("agentName", delegate.getTargetAgent());
             }
             body.put("custom_data", cd);
         }
         Map<String, Object> inputSection = new HashMap<>((Map<String, Object>) body.getOrDefault("input", new HashMap<>()));
         inputSection.put("query", effectiveQuery);
         inputSection.put("intent", effectiveIntent);
+        if (delegate.getTargetAgent() != null && !delegate.getTargetAgent().isBlank()) {
+            inputSection.put("agentName", delegate.getTargetAgent());
+            body.put("agentName", delegate.getTargetAgent());
+        }
         body.put("input", inputSection);
         body.put("stream", true);
 
@@ -552,7 +562,7 @@ public class Executor {
                     if (!dialogId.isBlank()) {
                         continuationTaskId.set(dialogId);
                     }
-                    if ("QA".equals(String.valueOf(node.get("node_type")))) {
+                    if ("问答".equals(stringValue(node, "node_name"))) {
                         requiresUserInput.set(true);
                     }
                     if (isMeaningfulWorkflowPayload(eventKind, node)) {

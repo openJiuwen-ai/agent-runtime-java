@@ -88,8 +88,8 @@ public final class EDPTools {
                 .name("call_versatile")
                 .description(
                         "通用业务工作流调用工具。"
-                                + "将任务描述、业务意图和归一化脚本路径传入，由系统自动调用 VersatileAdapter 完成工作流执行并返回结构化结果。"
-                                + "余额查询、转账、购买理财等操作均通过此工具完成。"
+                                + "将任务描述、上游工作流标识和归一化脚本路径传入，由系统自动调用 VersatileAdapter 完成工作流执行并返回结构化结果。"
+                                + "理财场景可继续使用 query_intent；若外部工作流要求显式 agentName，可传 agent_name。"
                 )
                 .inputParams(Map.of(
                         "type", "object",
@@ -98,9 +98,13 @@ public final class EDPTools {
                                         "type", "string",
                                         "description", "自然语言任务描述，传给工作流引擎。"
                                 ),
+                                "agent_name", Map.of(
+                                        "type", "string",
+                                        "description", "可选。上游工作流或智能体名称；当 Versatile 接口要求显式 agentName 时优先使用。"
+                                ),
                                 "query_intent", Map.of(
                                         "type", "string",
-                                        "description", "业务意图分类，用于工作流路由。可选值：查询账户余额、快速转账、理财选品购买、理财推荐"
+                                        "description", "可选。业务意图分类，用于本地规划和旧工作流路由。理财场景可选值：查询账户余额、快速转账、理财选品购买、理财推荐。"
                                 ),
                                 "query_response_analysis_scripts", Map.of(
                                         "type", "string",
@@ -111,7 +115,7 @@ public final class EDPTools {
                                         "description", "Skill 上下文 JSON 字符串，供归一化逻辑使用。"
                                 )
                         ),
-                        "required", List.of("query_description", "query_intent")
+                        "required", List.of("query_description")
                 ))
                 .build(), (inputs, kwargs) -> Map.of());
     }

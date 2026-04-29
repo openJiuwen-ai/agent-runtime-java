@@ -48,7 +48,8 @@ public class VersatileInterruptRail extends BaseInterruptRail {
 
         Map<String, Object> mcpProductsData = normalizeMap(ctx.getSession().getState(StateKeys.MCP_PRODUCTS_DATA));
         Map<String, Object> pendingDelegate = new LinkedHashMap<String, Object>();
-        pendingDelegate.put("intent", stringValue(toolArgs, "query_intent"));
+        pendingDelegate.put("intent", resolveDelegateIntent(toolArgs));
+        pendingDelegate.put("target_agent", stringValue(toolArgs, "agent_name"));
         pendingDelegate.put("task_description", buildDelegateTaskDescription(toolArgs, mcpProductsData));
         Map<String, Object> pendingToolContext = new LinkedHashMap<String, Object>();
         pendingToolContext.put("tool_name", toolCall != null ? toolCall.getName() : "");
@@ -63,7 +64,7 @@ public class VersatileInterruptRail extends BaseInterruptRail {
 
         return interrupt(InterruptRequest.builder()
                 .interruptId(toolCall != null ? toolCall.getId() : "")
-                .message("执行" + stringValue(toolArgs, "query_intent") + "，等待 Orchestrator Cascade 续轮")
+                .message("执行" + resolveDelegateIntent(toolArgs) + "，等待 Orchestrator Cascade 续轮")
                 .build());
     }
 
@@ -202,6 +203,19 @@ public class VersatileInterruptRail extends BaseInterruptRail {
         } catch (Exception ignored) {
             return taskDescription;
         }
+    }
+
+    private String resolveDelegateIntent(Map<String, Object> toolArgs) {
+        String intent = stringValue(toolArgs, "query_intent");
+        if (!intent.isBlank()) {
+            return intent;
+        }
+        String agentName = stringValue(toolArgs, "agent_name");
+        if (!agentName.isBlank()) {
+            return agentName;
+        }
+        String taskDescription = stringValue(toolArgs, "query_description");
+        return !taskDescription.isBlank() ? taskDescription : "通用工作流";
     }
 
     private void mergeSkillContext(Map<String, Object> skillInput, String rawContext) {
