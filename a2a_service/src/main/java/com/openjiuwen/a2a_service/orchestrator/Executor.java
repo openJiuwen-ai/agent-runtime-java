@@ -74,8 +74,9 @@ public class Executor {
         // ── 续轮路径：Task 处于 INPUT_REQUIRED（VA 上次未完成）───────────────
         if (currentTask != null && currentTask.getState() == TaskState.TASK_STATE_INPUT_REQUIRED) {
             String vaTaskId = (String) currentTask.getMetadata().getOrDefault("va_task_id", "");
+            String targetAgent = (String) currentTask.getMetadata().getOrDefault("target_agent", "");
             logger.info("[Executor] INPUT_REQUIRED 续轮：conv={}, vaTask={}", convId, vaTaskId);
-            continueVersatileAdapter(convId, taskId, vaTaskId, userQuery, headers, originalBody, params, eventSink);
+            continueVersatileAdapter(convId, taskId, vaTaskId, targetAgent, userQuery, headers, originalBody, params, eventSink);
             return;
         }
 
@@ -124,6 +125,7 @@ public class Executor {
                     if (taskOpt.isPresent()) {
                         RedisTaskStore.TaskInfo task = taskOpt.get()
                                 .withMetadata("va_task_id", vaResult.vaTaskId != null ? vaResult.vaTaskId : "")
+                                .withMetadata("target_agent", delegate.getTargetAgent() != null ? delegate.getTargetAgent() : "")
                                 .withState(TaskState.TASK_STATE_INPUT_REQUIRED);
                         taskStore.save(task);
                     }
@@ -347,6 +349,7 @@ public class Executor {
      */
     @SuppressWarnings("unchecked")
     private void continueVersatileAdapter(String convId, String taskId, String vaTaskId,
+                                          String targetAgent,
                                           String userInput, Map<String, Object> headers,
                                           Map<String, Object> originalBody,
                                           Map<String, Object> params,
@@ -358,6 +361,7 @@ public class Executor {
             if (taskOpt.isPresent()) {
                 taskStore.save(taskOpt.get()
                         .withMetadata("va_task_id", vaTaskId != null ? vaTaskId : "")
+                        .withMetadata("target_agent", targetAgent != null ? targetAgent : "")
                         .withState(TaskState.TASK_STATE_INPUT_REQUIRED));
             }
             eventSink.accept(Map.of(
@@ -370,6 +374,22 @@ public class Executor {
         }
 
         Map<String, Object> body = new HashMap<>(originalBody);
+        if (targetAgent != null && !targetAgent.isBlank()) {
+            if (body.get("custom_data") instanceof Map<?, ?> customDataRaw) {
+                Map<String, Object> customData = new HashMap<>((Map<String, Object>) customDataRaw);
+                if (customData.get("inputs") instanceof Map<?, ?> inputsRaw) {
+                    Map<String, Object> inputs = new HashMap<>((Map<String, Object>) inputsRaw);
+                    inputs.put("agentName", targetAgent);
+                    customData.put("inputs", inputs);
+                }
+                customData.put("agentName", targetAgent);
+                body.put("custom_data", customData);
+            }
+            Map<String, Object> inputSection = new HashMap<>((Map<String, Object>) body.getOrDefault("input", new HashMap<>()));
+            inputSection.put("agentName", targetAgent);
+            body.put("input", inputSection);
+            body.put("agentName", targetAgent);
+        }
         body.put("stream", true);
 
         Message message = buildVaMessage(userInput, headers, body, params, vaTaskId, convId);
@@ -390,6 +410,7 @@ public class Executor {
             if (taskOpt.isPresent()) {
                 taskStore.save(taskOpt.get()
                         .withMetadata("va_task_id", vaTaskId != null ? vaTaskId : "")
+                        .withMetadata("target_agent", targetAgent != null ? targetAgent : "")
                         .withState(TaskState.TASK_STATE_INPUT_REQUIRED));
             }
             eventSink.accept(Map.of(
