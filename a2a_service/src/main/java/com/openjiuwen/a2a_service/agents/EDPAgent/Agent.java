@@ -26,6 +26,7 @@ public final class Agent {
     private static final Logger LOGGER = LoggerFactory.getLogger(Agent.class);
     private static final String RESOURCE_ROOT = "agents/EDPAgent";
     private static final String[] SKILL_FILES = {
+            "create_schedule_skill/SKILL.md",
             "model_driven_fund_planning_skill/SKILL.md",
             "rebuild_interact_finance_rec_skill/SKILL.md",
             "rebuild_product_recommend_skill/SKILL.md",

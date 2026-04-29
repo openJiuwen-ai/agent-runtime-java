@@ -22,10 +22,12 @@ public final class EDPAgentPromptSupport {
 
             - 需要执行某个 Skill 前，先用 readFile 读取对应目录下的 SKILL.md，再严格按照文档填写工具参数。
             - 读取 Skill 时必须使用相对路径，不要使用绝对路径。固定写法如下：
+              - ./skills/create_schedule_skill/SKILL.md
               - ./skills/rebuild_product_recommend_skill/SKILL.md
               - ./skills/rebuild_product_select_skill/SKILL.md
               - ./skills/model_driven_fund_planning_skill/SKILL.md
               - ./skills/rebuild_interact_finance_rec_skill/SKILL.md
+            - 日程、会议、提醒、安排类请求优先使用 create_schedule_skill，并通过 call_versatile(agent_name=..., query_description=...) 委托给上游工作流。
             - 交互式多轮理财推荐优先使用 rebuild_interact_finance_rec_skill，并按 MCP 先行架构先调用 call_mcp 再调用 call_versatile。
             - 首次理财推荐优先使用 rebuild_product_recommend_skill，并通过 call_versatile 执行。
             - 用户从推荐结果中选择产品时，优先使用 rebuild_product_select_skill，并通过 call_versatile 执行。
