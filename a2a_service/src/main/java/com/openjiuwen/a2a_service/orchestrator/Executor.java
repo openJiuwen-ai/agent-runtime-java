@@ -36,7 +36,7 @@ public class Executor {
     private static final Logger logger = LoggerFactory.getLogger(Executor.class);
     private static final int TTL = 1800;
     /** sendMessage 流式回调的超时时间（秒） */
-    private static final int STREAM_TIMEOUT_SECONDS = 30;
+    private static final int STREAM_TIMEOUT_SECONDS = 300;
 
     private final Client vaClient;
     private final RedisClient redis;
@@ -548,7 +548,7 @@ public class Executor {
 
             // 提取 QA 结果
             String qa = extractQaNode(artifactEvent);
-            if (qa != null) {
+            if (qa != null && !qa.isEmpty()) {
                 qaResult.set(qa);
             }
 
