@@ -583,7 +583,7 @@ public class Executor {
                     if (!dialogId.isBlank()) {
                         continuationTaskId.set(dialogId);
                     }
-                    if ("问答".equals(stringValue(node, "node_name"))) {
+                    if ("QA".equals(String.valueOf(node.get("node_type")))) {
                         requiresUserInput.set(true);
                     }
                     if (isMeaningfulWorkflowPayload(eventKind, node)) {
