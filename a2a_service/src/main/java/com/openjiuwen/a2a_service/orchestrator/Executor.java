@@ -548,6 +548,19 @@ public class Executor {
         if (frame == null) {
             return Map.of();
         }
+        Object customRspData = frame.get("custom_rsp_data");
+        if (customRspData instanceof Map<?, ?> wrapped) {
+            Object wrappedData = wrapped.get("data");
+            if (wrappedData instanceof Map<?, ?> map) {
+                Map<String, Object> result = new LinkedHashMap<>();
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    if (entry.getKey() != null) {
+                        result.put(String.valueOf(entry.getKey()), entry.getValue());
+                    }
+                }
+                return result;
+            }
+        }
         Object data = frame.get("data");
         if (frame.containsKey("event") && data instanceof Map<?, ?> map) {
             Map<String, Object> result = new LinkedHashMap<>();
