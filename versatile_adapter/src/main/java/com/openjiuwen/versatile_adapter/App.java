@@ -16,6 +16,9 @@ import io.a2a.server.tasks.PushNotificationConfigStore;
 import io.a2a.server.tasks.PushNotificationSender;
 import io.a2a.server.tasks.TaskStore;
 import io.a2a.spec.AgentCard;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +51,8 @@ public class App {
     private static final Logger logger = LoggerFactory.getLogger(App.class);
 
     private MainEventBusProcessor eventBusProcessor;
+    private ExecutorService agentExecutorSvc;
+    private ExecutorService eventConsumerSvc;
 
     public static void main(String[] args) {
         SpringApplication.run(App.class, args);
@@ -132,6 +137,31 @@ public class App {
     }
 
     /**
+     * Agent 执行线程池 — 运行 AgentExecutor.execute()，必须在独立线程，
+     * 否则会阻塞 EventConsumer 的消费循环，导致事件积压到 execute() 结束才一次性推送。
+     */
+    @Bean
+    public ExecutorService agentExecutorService() {
+        return Executors.newCachedThreadPool(r -> {
+            Thread t = new Thread(r, "agent-executor");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    /**
+     * Event 消费线程池 — 运行 EventConsumer 的轮询循环，逐帧从 EventQueue 取事件推给 SSE。
+     */
+    @Bean
+    public ExecutorService eventConsumerExecutorService() {
+        return Executors.newCachedThreadPool(r -> {
+            Thread t = new Thread(r, "event-consumer");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    /**
      * DefaultRequestHandler — 对应 Python 的 DefaultRequestHandler(agent_executor, task_store, agent_card)。
      *
      * 这是 A2A 请求处理的核心：接收 JSON-RPC 请求 → 调度到 AgentExecutor → 管理任务状态。
@@ -143,7 +173,11 @@ public class App {
             QueueManager queueManager,
             PushNotificationConfigStore pushConfigStore,
             MainEventBusProcessor eventBusProcessor,
+            ExecutorService agentExecutorService,
+            ExecutorService eventConsumerExecutorService,
             Config config) {
+        this.agentExecutorSvc = agentExecutorService;
+        this.eventConsumerSvc = eventConsumerExecutorService;
 
         logger.info("[VersatileAdapter] 开始初始化 DefaultRequestHandler...");
 
@@ -153,8 +187,8 @@ public class App {
                 queueManager,
                 pushConfigStore,
                 eventBusProcessor,
-                Runnable::run,      // agent executor（直接在调用线程执行）
-                Runnable::run       // event consumer executor
+                agentExecutorService,            // agent executor（独立线程池）
+                eventConsumerExecutorService     // event consumer executor（独立线程池）
         );
 
         logger.info("[VersatileAdapter] 启动完成，Versatile URL template: {}",
@@ -165,6 +199,12 @@ public class App {
 
     @PreDestroy
     public void onShutdown() {
+        if (agentExecutorSvc != null) {
+            agentExecutorSvc.shutdownNow();
+        }
+        if (eventConsumerSvc != null) {
+            eventConsumerSvc.shutdownNow();
+        }
         logger.info("[VersatileAdapter] 关闭完成");
     }
 }
