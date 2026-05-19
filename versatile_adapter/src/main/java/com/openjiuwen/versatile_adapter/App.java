@@ -22,6 +22,7 @@ import java.util.concurrent.Executors;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -173,8 +174,8 @@ public class App {
             QueueManager queueManager,
             PushNotificationConfigStore pushConfigStore,
             MainEventBusProcessor eventBusProcessor,
-            ExecutorService agentExecutorService,
-            ExecutorService eventConsumerExecutorService,
+            @Qualifier("agentExecutorService") ExecutorService agentExecutorService,
+            @Qualifier("eventConsumerExecutorService") ExecutorService eventConsumerExecutorService,
             Config config) {
         this.agentExecutorSvc = agentExecutorService;
         this.eventConsumerSvc = eventConsumerExecutorService;

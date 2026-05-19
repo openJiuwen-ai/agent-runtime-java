@@ -436,7 +436,6 @@ public class Executor {
         AtomicBoolean requiresUserInput = new AtomicBoolean(false);
         AtomicBoolean terminalObserved = new AtomicBoolean(false);
         AtomicReference<String> qaResult = new AtomicReference<>(null);
-        AtomicReference<Map<String, Object>> terminalWorkflowData = new AtomicReference<>(Map.of());
         AtomicReference<String> terminalWorkflowText = new AtomicReference<>("");
         AtomicReference<String> continuationTaskId = new AtomicReference<>(UUID.randomUUID().toString());
         CountDownLatch latch = new CountDownLatch(1);
@@ -450,7 +449,7 @@ public class Executor {
                             if (event instanceof TaskUpdateEvent tue) {
                                 boolean isFinal = handleStreamUpdateEvent(tue, convId, eventSink,
                                         vaRealTaskId, hasEndNode, qaResult, continuationTaskId,
-                                        requiresUserInput, terminalWorkflowData, terminalWorkflowText);
+                                        requiresUserInput, terminalWorkflowText);
                                 if (isFinal) {
                                     terminalObserved.set(true);
                                     latch.countDown();
@@ -512,11 +511,12 @@ public class Executor {
 
         if (hasEndNode.get()) {
             Map<String, Object> cascade = new HashMap<>();
-            cascade.put("workflow_result",
-                    firstNonBlank(qaResult.get(), terminalWorkflowText.get()).isBlank()
-                            ? terminalWorkflowData.get()
-                            : firstNonBlank(qaResult.get(), terminalWorkflowText.get()));
-            logger.info("[Executor] VA end node: conv={}, qaResult={}", convId, qaResult.get());
+            String qaText = qaResult.get();
+            String workflowText = terminalWorkflowText.get();
+            Object workflowResult = (qaText != null && !qaText.isBlank()) ? qaText : workflowText;
+            cascade.put("workflow_result", workflowResult);
+            logger.info("[Executor] VA end node: conv={}, qaResult={}, textLen={}",
+                    convId, qaText, workflowText != null ? workflowText.length() : 0);
             return new VaResult(cascade, taskId);
         }
 
@@ -525,11 +525,11 @@ public class Executor {
             return new VaResult(null, taskId);
         }
 
-        if (!terminalWorkflowData.get().isEmpty() || !terminalWorkflowText.get().isBlank()) {
+        String workflowText = terminalWorkflowText.get();
+        if (workflowText != null && !workflowText.isBlank()) {
             Map<String, Object> cascade = new HashMap<>();
-            cascade.put("workflow_result",
-                    !terminalWorkflowData.get().isEmpty() ? terminalWorkflowData.get() : terminalWorkflowText.get());
-            logger.info("[Executor] VA completed without end node: conv={}, vaTask={}", convId, taskId);
+            cascade.put("workflow_result", workflowText);
+            logger.info("[Executor] VA completed without end node: conv={}, vaTask={}, textLen={}", convId, taskId, workflowText.length());
             return new VaResult(cascade, taskId);
         }
 
@@ -549,7 +549,6 @@ public class Executor {
                                              AtomicReference<String> qaResult,
                                              AtomicReference<String> continuationTaskId,
                                              AtomicBoolean requiresUserInput,
-                                             AtomicReference<Map<String, Object>> terminalWorkflowData,
                                              AtomicReference<String> terminalWorkflowText) {
         UpdateEvent updateEvent = tue.getUpdateEvent();
 
@@ -586,15 +585,16 @@ public class Executor {
                     if ("QA".equals(String.valueOf(node.get("node_type")))) {
                         requiresUserInput.set(true);
                     }
-                    if (isMeaningfulWorkflowPayload(eventKind, node)) {
-                        terminalWorkflowData.set(new LinkedHashMap<>(node));
-                        String candidateText = firstNonBlank(
-                                stringValue(node, "text"),
-                                stringValue(node, "summary"),
-                                stringValue(node, "content")
-                        );
-                        if (!candidateText.isBlank()) {
-                            terminalWorkflowText.set(candidateText);
+                    boolean isMeaningful = isMeaningfulWorkflowPayload(eventKind, node);
+                    if (isMeaningful) {
+                        Map<String, Object> cleanedNode = cleanNodeForContext(node);
+                        String textValue = extractTextValue(cleanedNode);
+                        if (!textValue.isBlank()) {
+                            String existingText = terminalWorkflowText.get();
+                            String newText = deduplicateStreamText(existingText, textValue);
+                            if (newText != null && !newText.isBlank()) {
+                                terminalWorkflowText.set(existingText != null && !existingText.isBlank() ? existingText + newText : newText);
+                            }
                         }
                     }
 
@@ -672,6 +672,71 @@ public class Executor {
             return node.size() > 3;
         }
         return Set.of("answer", "message", "text").contains(eventKind);
+    }
+
+    private String deduplicateStreamText(String existingText, String newText) {
+        if (newText == null || newText.isBlank()) return "";
+        if (existingText == null || existingText.isBlank()) return newText;
+        
+        if (existingText.equals(newText)) {
+            return "";
+        }
+        
+        if (existingText.endsWith(newText)) {
+            return "";
+        }
+        
+        if (existingText.contains(newText)) {
+            return "";
+        }
+        
+        int maxOverlap = Math.min(existingText.length(), newText.length());
+        for (int overlap = maxOverlap; overlap > 0; overlap--) {
+            String existingSuffix = existingText.substring(existingText.length() - overlap);
+            String newPrefix = newText.substring(0, overlap);
+            if (existingSuffix.equals(newPrefix)) {
+                return newText.substring(overlap);
+            }
+        }
+        
+        return newText;
+    }
+
+    private String extractTextValue(Map<String, Object> node) {
+        String content = stringValue(node, "content");
+        String summary = stringValue(node, "summary");
+        String text = stringValue(node, "text");
+
+        if (!content.isBlank()) {
+            return content;
+        }
+        if (!summary.isBlank()) {
+            return summary;
+        }
+        if (!text.isBlank()) {
+            return text;
+        }
+        return "";
+    }
+
+    private Map<String, Object> cleanNodeForContext(Map<String, Object> node) {
+        if (node == null || node.isEmpty()) {
+            return new LinkedHashMap<>();
+        }
+        Set<String> userFacingFields = Set.of(
+                "text", "summary", "content"
+        );
+        Map<String, Object> cleaned = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : node.entrySet()) {
+            String key = entry.getKey();
+            if (!userFacingFields.contains(key)) continue;
+            Object value = entry.getValue();
+            if (value == null) continue;
+            if (value instanceof String s && s.isBlank()) continue;
+            if (value instanceof String str && (str.startsWith("{") || str.startsWith("["))) continue;
+            cleaned.put(key, value);
+        }
+        return cleaned;
     }
 
     private String stringValue(Map<String, Object> values, String key) {
