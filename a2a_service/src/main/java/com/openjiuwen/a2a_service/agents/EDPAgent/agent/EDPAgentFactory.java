@@ -17,6 +17,7 @@ import com.openjiuwen.a2a_service.agents.EDPAgent.config.EdpAgentSettings;
 import com.openjiuwen.a2a_service.agents.EDPAgent.rail.ExecutionLimitRail;
 import com.openjiuwen.a2a_service.agents.EDPAgent.rail.IterationLimitRail;
 import com.openjiuwen.a2a_service.agents.EDPAgent.rail.MCPInterruptRail;
+import com.openjiuwen.a2a_service.agents.EDPAgent.rail.RedisInterruptRail;
 import com.openjiuwen.a2a_service.agents.EDPAgent.rail.VersatileInterruptRail;
 import com.openjiuwen.a2a_service.agents.EDPAgent.tool.EDPTools;
 
@@ -93,6 +94,7 @@ public class EDPAgentFactory {
         agent.registerRail(new IterationLimitRail(config));
         agent.registerRail(new ExecutionLimitRail(config));
         agent.registerRail(new MCPInterruptRail());
+        agent.registerRail(new RedisInterruptRail());
         agent.registerRail(new VersatileInterruptRail(SYS_OPERATION_ID));
         registerTools(agent);
         registerSkills(agent);

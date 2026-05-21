@@ -19,6 +19,7 @@ public final class EDPTools {
         tools.add(createAskUserTool());
         tools.add(createCallMcpTool());
         tools.add(createCallVersatileTool());
+        tools.add(createQueryRedisTool());
         return tools;
     }
 
@@ -116,6 +117,21 @@ public final class EDPTools {
                                 )
                         ),
                         "required", List.of("query_description")
+                ))
+                .build(), (inputs, kwargs) -> Map.of());
+    }
+
+    private static Tool createQueryRedisTool() {
+        return new LocalFunction(ToolCard.builder()
+                .id("query_redis_by_session_id")
+                .name("query_redis_by_session_id")
+                .description(
+                        "通过当前会话从 Redis 获取数据。"
+                                + "系统自动使用当前会话的 session_id 作为 Redis key 查询对应 value 并返回。"
+                                + "无需传入任何参数，session_id 由系统自动注入。"
+                )
+                .inputParams(Map.of(
+                        "type", "object"
                 ))
                 .build(), (inputs, kwargs) -> Map.of());
     }
