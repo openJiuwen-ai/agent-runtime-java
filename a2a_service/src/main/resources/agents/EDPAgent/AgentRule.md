@@ -30,6 +30,7 @@ limits:
     call_versatile: 10
     call_mcp: 5
     ask_user: 5
+    executeCmd: 10
   termination_keywords:
     - 终止执行
     - 取消
