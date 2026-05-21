@@ -116,6 +116,11 @@ public class EDPAgentFactory {
         if (readFileCard != null) {
             agent.getAbilityManager().add(readFileCard);
         }
+
+        Object executeCmdCard = Runner.resourceMgr().getSysOpToolCards(SYS_OPERATION_ID, "shell", "executeCmd");
+        if (executeCmdCard != null) {
+            agent.getAbilityManager().add(executeCmdCard);
+        }
     }
 
     private void registerTools(ReActAgent agent) {
