@@ -27,6 +27,7 @@ public final class EDPAgentPromptSupport {
               - ./skills/rebuild_product_select_skill/SKILL.md
               - ./skills/model_driven_fund_planning_skill/SKILL.md
               - ./skills/rebuild_interact_finance_rec_skill/SKILL.md
+              - ./skills/shell_res/SKILL.md
             - 日程、会议、提醒、安排类请求优先使用 create_schedule_skill，并通过 call_versatile(agent_name=..., query_description=...) 委托给上游工作流。
             - 交互式多轮理财推荐优先使用 rebuild_interact_finance_rec_skill，并按 MCP 先行架构先调用 call_mcp 再调用 call_versatile。
             - 首次理财推荐优先使用 rebuild_product_recommend_skill，并通过 call_versatile 执行。

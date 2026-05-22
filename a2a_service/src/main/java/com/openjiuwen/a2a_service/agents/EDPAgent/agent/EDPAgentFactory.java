@@ -110,6 +110,14 @@ public class EDPAgentFactory {
                 .mode(OperationMode.LOCAL)
                 .workConfig(LocalWorkConfig.builder()
                         .workDir(agentRoot.toString())
+                        .shellAllowlist(java.util.Arrays.asList(
+                                "echo", "ls", "dir", "cd", "pwd",
+                                "python", "python3", "pip", "pip3",
+                                "npm", "node", "git", "cat", "type",
+                                "bash", "sh", "mkdir", "md", "rm", "rd",
+                                "cp", "copy", "mv", "move", "grep", "find",
+                                "curl", "wget", "ps", "df", "ping"
+                        ))
                         .build())
                 .build();
         Runner.resourceMgr().addSysOperation(sysOperationCard, agent.getCard().getId());
