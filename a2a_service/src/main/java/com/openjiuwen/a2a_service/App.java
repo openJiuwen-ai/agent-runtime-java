@@ -2,6 +2,7 @@ package com.openjiuwen.a2a_service;
 
 import com.openjiuwen.a2a_service.agents.EDPAgent.Agent;
 import com.openjiuwen.a2a_service.common.RedisClient;
+import com.openjiuwen.a2a_service.common.RedisHolder;
 import com.openjiuwen.a2a_service.common.RedisTaskStore;
 import com.openjiuwen.a2a_service.config.DPASettings;
 import com.openjiuwen.a2a_service.config.Settings;
@@ -68,7 +69,9 @@ public class App {
 
     @Bean
     public RedisClient redisClient(StringRedisTemplate template) {
-        return new RedisClient(template);
+        RedisClient client = new RedisClient(template);
+        RedisHolder.set(client);
+        return client;
     }
 
     @Bean

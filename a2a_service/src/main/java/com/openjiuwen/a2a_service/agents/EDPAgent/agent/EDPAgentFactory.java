@@ -17,6 +17,7 @@ import com.openjiuwen.a2a_service.agents.EDPAgent.config.EdpAgentSettings;
 import com.openjiuwen.a2a_service.agents.EDPAgent.rail.ExecutionLimitRail;
 import com.openjiuwen.a2a_service.agents.EDPAgent.rail.IterationLimitRail;
 import com.openjiuwen.a2a_service.agents.EDPAgent.rail.MCPInterruptRail;
+import com.openjiuwen.a2a_service.agents.EDPAgent.rail.RedisInterruptRail;
 import com.openjiuwen.a2a_service.agents.EDPAgent.rail.VersatileInterruptRail;
 import com.openjiuwen.a2a_service.agents.EDPAgent.tool.EDPTools;
 
@@ -93,6 +94,7 @@ public class EDPAgentFactory {
         agent.registerRail(new IterationLimitRail(config));
         agent.registerRail(new ExecutionLimitRail(config));
         agent.registerRail(new MCPInterruptRail());
+        agent.registerRail(new RedisInterruptRail());
         agent.registerRail(new VersatileInterruptRail(SYS_OPERATION_ID));
         registerTools(agent);
         registerSkills(agent);
@@ -108,6 +110,14 @@ public class EDPAgentFactory {
                 .mode(OperationMode.LOCAL)
                 .workConfig(LocalWorkConfig.builder()
                         .workDir(agentRoot.toString())
+                        .shellAllowlist(java.util.Arrays.asList(
+                                "echo", "ls", "dir", "cd", "pwd",
+                                "python", "python3", "pip", "pip3",
+                                "npm", "node", "git", "cat", "type",
+                                "bash", "sh", "mkdir", "md", "rm", "rd",
+                                "cp", "copy", "mv", "move", "grep", "find",
+                                "curl", "wget", "ps", "df", "ping"
+                        ))
                         .build())
                 .build();
         Runner.resourceMgr().addSysOperation(sysOperationCard, agent.getCard().getId());

@@ -30,7 +30,9 @@ public final class Agent {
             "model_driven_fund_planning_skill/SKILL.md",
             "rebuild_interact_finance_rec_skill/SKILL.md",
             "rebuild_product_recommend_skill/SKILL.md",
-            "rebuild_product_select_skill/SKILL.md"
+            "rebuild_product_select_skill/SKILL.md",
+            "shell_res/SKILL.md",
+            "shell_res/script/shell_res.sh"
     };
 
     private static volatile EDPAgentFacade facade;
