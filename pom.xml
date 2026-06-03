@@ -7,7 +7,7 @@
 
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-runtime-java</artifactId>
-    <version>0.1.7</version>
+    <version>0.1.0</version>
     <packaging>pom</packaging>
 
     <name>agent-runtime-java</name>
@@ -22,8 +22,8 @@
 
     <modules>
         <module>vendor/agent-core-java</module>
-        <module>a2a_service</module>
-        <module>versatile_adapter</module>
+        <module>manager</module>
+        <module>serving</module>
     </modules>
 
     <properties>
@@ -33,7 +33,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <a2a-sdk.version>1.0.0.Alpha3</a2a-sdk.version>
-        <agent-core.version>0.1.7</agent-core.version>
+        <agent-core.version>0.1.12</agent-core.version>
     </properties>
 
     <dependencyManagement>

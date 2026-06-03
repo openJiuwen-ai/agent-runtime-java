@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.openjiuwen</groupId>
+        <artifactId>agent-runtime-java</artifactId>
+        <version>0.1.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>agent-runtime-serving</artifactId>
+    <packaging>pom</packaging>
+
+    <name>agent-runtime-serving</name>
+    <description>Agent Serving — Ingress AaaS, Egress adapters (②)</description>
+
+    <!-- Leaf modules (agent-serving-*) added in follow-up PRs -->
+    <modules>
+    </modules>
+</project>
