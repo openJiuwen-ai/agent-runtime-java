@@ -16,7 +16,7 @@
     <packaging>jar</packaging>
 
     <name>agent-serving-spec</name>
-    <description>C-013 contract: paths, DTOs, AgentProfile (no Spring)</description>
+    <description>Contract package for clients and managers, including interface information and DTOs (no Spring)</description>
 
     <!-- Pure Java: no spring-* dependencies. Manager may depend on this jar only. -->
 </project>

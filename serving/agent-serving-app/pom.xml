@@ -16,7 +16,7 @@
     <packaging>jar</packaging>
 
     <name>agent-serving-app</name>
-    <description>ServeOrchestrator, AgentHandler SPI, CoreAgentHandler, Spring Boot auto-config</description>
+    <description>AaaS Central：ServeOrchestrator, AgentHandler SPI, CoreAgentHandler, Spring Boot auto-config</description>
 
     <dependencies>
         <dependency>
