@@ -7,21 +7,16 @@
 
     <parent>
         <groupId>com.openjiuwen</groupId>
-        <artifactId>agent-runtime-java</artifactId>
+        <artifactId>agent-runtime-serving</artifactId>
         <version>0.1.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>agent-runtime-serving</artifactId>
-    <packaging>pom</packaging>
+    <artifactId>agent-serving-spec</artifactId>
+    <packaging>jar</packaging>
 
-    <name>agent-runtime-serving</name>
-    <description>Agent Serving — Ingress AaaS, Egress adapters (②)</description>
+    <name>agent-serving-spec</name>
+    <description>C-013 contract: paths, DTOs, AgentProfile (no Spring)</description>
 
-    <modules>
-        <module>agent-serving-spec</module>
-        <module>agent-serving-egress</module>
-        <module>agent-serving-app</module>
-        <module>agent-serving-ingress</module>
-    </modules>
+    <!-- Pure Java: no spring-* dependencies. Manager may depend on this jar only. -->
 </project>
