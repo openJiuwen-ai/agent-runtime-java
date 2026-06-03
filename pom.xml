@@ -7,7 +7,7 @@
 
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-runtime-java</artifactId>
-    <version>0.1.7</version>
+    <version>0.1.0</version>
     <packaging>pom</packaging>
 
     <name>agent-runtime-java</name>
@@ -22,8 +22,8 @@
 
     <modules>
         <module>vendor/agent-core-java</module>
-        <module>a2a_service</module>
-        <module>versatile_adapter</module>
+        <module>manager</module>
+        <module>serving</module>
     </modules>
 
     <properties>
@@ -33,7 +33,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <a2a-sdk.version>1.0.0.Alpha3</a2a-sdk.version>
-        <agent-core.version>0.1.7</agent-core.version>
+        <agent-core.version>0.1.12</agent-core.version>
     </properties>
 
     <dependencyManagement>
@@ -62,6 +62,28 @@
                 <version>${agent-core.version}</version>
             </dependency>
 
+            <!-- ② Serving leaf modules -->
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-serving-spec</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-serving-app</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-serving-ingress</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-serving-egress</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
             <!-- Protobuf - 统一版本，解决 SDK 内部 protobuf-java 4.33.1 与 protobuf-java-util 4.32.1 不一致的问题 -->
             <!-- Gson - SDK 的 JSONRPCUtils 需要 2.11.0+（setStrictness API） -->
             <dependency>
@@ -83,84 +105,25 @@
         </dependencies>
     </dependencyManagement>
 
-    <dependencies>
-        <!-- A2A SDK Spec -->
-        <dependency>
-            <groupId>io.github.a2asdk</groupId>
-            <artifactId>a2a-java-sdk-spec</artifactId>
-        </dependency>
-
-        <!-- A2A SDK Server Common -->
-        <dependency>
-            <groupId>io.github.a2asdk</groupId>
-            <artifactId>a2a-java-sdk-server-common</artifactId>
-        </dependency>
-
-        <!-- A2A SDK Client -->
-        <dependency>
-            <groupId>io.github.a2asdk</groupId>
-            <artifactId>a2a-java-sdk-client</artifactId>
-        </dependency>
-
-        <!-- OpenJiuwen Agent Core -->
-        <dependency>
-            <groupId>com.openjiuwen</groupId>
-            <artifactId>agent-core-java</artifactId>
-        </dependency>
-
-        <!-- Spring Boot Web -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-
-        <!-- Redis -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
-
-        <!-- Jackson -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-
-        <!-- Lombok -->
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <scope>provided</scope>
-        </dependency>
-
-        <!-- SLF4J + Logback -->
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>ch.qos.logback</groupId>
-            <artifactId>logback-classic</artifactId>
-        </dependency>
-    </dependencies>
-
     <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok</artifactId>
-                            <version>${lombok.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
-            </plugin>
-        </plugins>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                        <source>${java.version}</source>
+                        <target>${java.version}</target>
+                        <annotationProcessorPaths>
+                            <path>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                                <version>${lombok.version}</version>
+                            </path>
+                        </annotationProcessorPaths>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
     </build>
 </project>
