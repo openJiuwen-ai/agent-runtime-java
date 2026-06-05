@@ -22,8 +22,7 @@
 
     <modules>
         <module>vendor/agent-core-java</module>
-        <module>manager</module>
-        <module>serving</module>
+        <module>service</module>
     </modules>
 
     <properties>
@@ -62,25 +61,25 @@
                 <version>${agent-core.version}</version>
             </dependency>
 
-            <!-- ② Serving leaf modules -->
+            <!-- ② Service leaf modules -->
             <dependency>
                 <groupId>com.openjiuwen</groupId>
-                <artifactId>agent-serving-spec</artifactId>
+                <artifactId>agent-service-spec</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.openjiuwen</groupId>
-                <artifactId>agent-serving-app</artifactId>
+                <artifactId>agent-service-app</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.openjiuwen</groupId>
-                <artifactId>agent-serving-ingress</artifactId>
+                <artifactId>agent-service-ingress</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.openjiuwen</groupId>
-                <artifactId>agent-serving-egress</artifactId>
+                <artifactId>agent-service-egress</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
