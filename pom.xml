@@ -69,17 +69,12 @@
             </dependency>
             <dependency>
                 <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-service-adapters</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-service-app</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.openjiuwen</groupId>
-                <artifactId>agent-service-ingress</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.openjiuwen</groupId>
-                <artifactId>agent-service-egress</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

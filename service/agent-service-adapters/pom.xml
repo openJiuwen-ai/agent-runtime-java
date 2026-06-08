@@ -12,11 +12,11 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>agent-service-egress</artifactId>
+    <artifactId>agent-service-adapters</artifactId>
     <packaging>jar</packaging>
 
-    <name>agent-service-egress</name>
-    <description>Egress adapters: MCP / Plugin / external HTTP clients</description>
+    <name>agent-service-adapters</name>
+    <description>Adapters: AgentFW / Middleware / ExternalSvc (depends spec + agent-core-java)</description>
 
     <dependencies>
         <dependency>
@@ -24,12 +24,13 @@
             <artifactId>agent-service-spec</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-context</artifactId>
+            <groupId>com.openjiuwen</groupId>
+            <artifactId>agent-core-java</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
-            <artifactId>spring-web</artifactId>
+            <artifactId>spring-context</artifactId>
+            <optional>true</optional>
         </dependency>
     </dependencies>
 </project>

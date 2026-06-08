@@ -16,7 +16,7 @@
     <packaging>jar</packaging>
 
     <name>agent-service-app</name>
-    <description>AaaS Central：ServeOrchestrator, AgentHandler SPI, CoreAgentHandler, Spring Boot auto-config</description>
+    <description>AgentApp: controllers, ServeOrchestrator, Lifecycle, Spring Boot auto-config</description>
 
     <dependencies>
         <dependency>
@@ -25,8 +25,7 @@
         </dependency>
         <dependency>
             <groupId>com.openjiuwen</groupId>
-            <artifactId>agent-service-egress</artifactId>
-            <optional>true</optional>
+            <artifactId>agent-service-adapters</artifactId>
         </dependency>
         <dependency>
             <groupId>com.openjiuwen</groupId>
@@ -39,6 +38,16 @@
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+            <optional>true</optional>
         </dependency>
     </dependencies>
 </project>
