@@ -12,10 +12,10 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>agent-runtime-service</artifactId>
+    <artifactId>agent-service</artifactId>
     <packaging>pom</packaging>
 
-    <name>agent-runtime-service</name>
+    <name>agent-service</name>
     <description>Agent Service — spec / adapters / app (②)</description>
 
     <modules>
