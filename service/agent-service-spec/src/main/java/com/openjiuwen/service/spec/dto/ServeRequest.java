@@ -17,6 +17,7 @@ public class ServeRequest {
     private boolean stream = true;
 
     public static ServeRequest fromQueryRequest(QueryRequest request) {
+        request.normalizeMessages();
         ServeRequest serveRequest = new ServeRequest();
         serveRequest.setConversationId(request.getConversationId());
         serveRequest.setMessages(request.getMessages());
@@ -25,6 +26,30 @@ public class ServeRequest {
         serveRequest.setTenantId(request.getTenantId());
         serveRequest.setStream(request.isStream());
         return serveRequest;
+    }
+
+    /**
+     * Extract the latest user message content as the agent query.
+     */
+    public String lastUserQuery() {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            Map<String, Object> m = messages.get(i);
+            if (m == null) {
+                continue;
+            }
+            Object role = m.get("role");
+            Object content = m.get("content");
+            if (role != null && "user".equalsIgnoreCase(String.valueOf(role)) && content != null) {
+                return String.valueOf(content);
+            }
+        }
+        if (!messages.isEmpty()) {
+            Map<String, Object> last = messages.get(messages.size() - 1);
+            if (last != null && last.get("content") != null) {
+                return String.valueOf(last.get("content"));
+            }
+        }
+        return "";
     }
 
     public String getConversationId() {

@@ -12,4 +12,8 @@ public interface QueryStreamObserver {
     void onError(Throwable error);
 
     void onComplete();
+
+    default boolean isCancelled() {
+        return false;
+    }
 }
