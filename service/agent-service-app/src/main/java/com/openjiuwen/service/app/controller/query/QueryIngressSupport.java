@@ -64,4 +64,11 @@ public final class QueryIngressSupport {
         body.put("error", "no agent handler configured");
         return body;
     }
+
+    public static Map<String, Object> agentNotReady() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("type", "error");
+        body.put("error", "agent not loaded");
+        return body;
+    }
 }

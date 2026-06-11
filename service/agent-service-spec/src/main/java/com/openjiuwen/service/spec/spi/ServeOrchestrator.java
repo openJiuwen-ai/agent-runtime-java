@@ -11,4 +11,9 @@ public interface ServeOrchestrator {
     QueryResponse query(ServeRequest request);
 
     void streamQuery(ServeRequest request, QueryStreamObserver observer);
+
+    /**
+     * Cancel active streaming (or in-flight) execution for the given conversation.
+     */
+    void cancelActive(String conversationId);
 }
