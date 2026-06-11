@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.QueryResponse;
+import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -35,11 +36,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class QueryWebFluxController {
 
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
+    private final ObjectProvider<AgentReadiness> readinessProvider;
     private final ObjectMapper objectMapper;
 
     public QueryWebFluxController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
+                                  ObjectProvider<AgentReadiness> readinessProvider,
                                   ObjectMapper objectMapper) {
         this.orchestratorProvider = orchestratorProvider;
+        this.readinessProvider = readinessProvider;
         this.objectMapper = objectMapper;
     }
 
@@ -53,6 +57,10 @@ public class QueryWebFluxController {
         QueryIngressSupport.ValidationResult validation = QueryIngressSupport.validateAndBuild(request, headers);
         if (!validation.valid()) {
             return Mono.just(ResponseEntity.status(validation.errorStatus()).body(validation.errorBody()));
+        }
+        if (!isAgentReady()) {
+            return Mono.just(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(QueryIngressSupport.agentNotReady()));
         }
         ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
         if (orchestrator == null) {
@@ -70,6 +78,11 @@ public class QueryWebFluxController {
         }
         QueryResponse response = orchestrator.query(validation.serveRequest());
         return Mono.just(ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(response));
+    }
+
+    private boolean isAgentReady() {
+        AgentReadiness readiness = readinessProvider.getIfAvailable();
+        return readiness == null || readiness.isAgentLoaded();
     }
 
     private void streamQuery(ServeOrchestrator orchestrator,

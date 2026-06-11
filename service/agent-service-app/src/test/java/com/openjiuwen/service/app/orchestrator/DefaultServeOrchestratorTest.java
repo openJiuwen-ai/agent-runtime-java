@@ -1,5 +1,6 @@
 package com.openjiuwen.service.app.orchestrator;
 
+import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -10,10 +11,11 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DefaultServeOrchestratorTest {
+
+    private final ActiveStreamRegistry streamRegistry = new ActiveStreamRegistry();
 
     @Test
     void queryDelegatesToHandler() {
@@ -33,7 +35,7 @@ class DefaultServeOrchestratorTest {
             }
         };
 
-        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler);
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
         assertThat(orchestrator.query(request)).isEqualTo(expected);
     }
 
@@ -56,7 +58,7 @@ class DefaultServeOrchestratorTest {
             }
         };
 
-        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler);
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
         orchestrator.streamQuery(request, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
@@ -79,6 +81,7 @@ class DefaultServeOrchestratorTest {
     @Test
     void streamQuerySurfacesHandlerExceptionAsErrorEvent() {
         ServeRequest request = new ServeRequest();
+        request.setConversationId("c-error");
         List<QueryChunk> chunks = new ArrayList<>();
 
         AgentHandler handler = new AgentHandler() {
@@ -93,7 +96,7 @@ class DefaultServeOrchestratorTest {
             }
         };
 
-        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler);
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
         orchestrator.streamQuery(request, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {

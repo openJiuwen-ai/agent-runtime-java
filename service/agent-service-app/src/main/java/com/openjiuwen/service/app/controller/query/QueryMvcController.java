@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.QueryResponse;
+import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -36,11 +37,14 @@ import jakarta.servlet.http.HttpServletResponse;
 public class QueryMvcController {
 
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
+    private final ObjectProvider<AgentReadiness> readinessProvider;
     private final ObjectMapper objectMapper;
 
     public QueryMvcController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
+                              ObjectProvider<AgentReadiness> readinessProvider,
                               ObjectMapper objectMapper) {
         this.orchestratorProvider = orchestratorProvider;
+        this.readinessProvider = readinessProvider;
         this.objectMapper = objectMapper;
     }
 
@@ -65,6 +69,10 @@ public class QueryMvcController {
         QueryIngressSupport.ValidationResult validation = QueryIngressSupport.validateAndBuild(request, headers);
         if (!validation.valid()) {
             writeJson(response, validation.errorStatus(), validation.errorBody());
+            return null;
+        }
+        if (!isAgentReady()) {
+            writeJson(response, HttpStatus.SERVICE_UNAVAILABLE.value(), QueryIngressSupport.agentNotReady());
             return null;
         }
         ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
@@ -139,6 +147,11 @@ public class QueryMvcController {
                 return cancelled.get();
             }
         });
+    }
+
+    private boolean isAgentReady() {
+        AgentReadiness readiness = readinessProvider.getIfAvailable();
+        return readiness == null || readiness.isAgentLoaded();
     }
 
     private void writeJson(HttpServletResponse response, int status, Object value) throws IOException {
