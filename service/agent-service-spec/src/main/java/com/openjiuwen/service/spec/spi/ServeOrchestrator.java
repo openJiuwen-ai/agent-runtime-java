@@ -16,4 +16,9 @@ public interface ServeOrchestrator {
      * Cancel active streaming (or in-flight) execution for the given conversation.
      */
     void cancelActive(String conversationId);
+
+    /**
+     * Reset conversation context: cancel active streams then clear session state.
+     */
+    void resetConversation(String conversationId);
 }

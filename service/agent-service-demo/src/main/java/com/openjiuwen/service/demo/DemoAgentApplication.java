@@ -5,7 +5,6 @@ import com.openjiuwen.core.application.schema.ConstrainConfig;
 import com.openjiuwen.core.application.schema.LlmAgentConfig;
 import com.openjiuwen.core.foundation.llm.schema.BaseModelInfo;
 import com.openjiuwen.core.foundation.llm.schema.ModelConfig;
-import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.service.adapters.agentfw.CoreAgentHandler;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import org.springframework.boot.SpringApplication;
@@ -33,9 +32,7 @@ public class DemoAgentApplication {
                     .ifPresent(llmProperties::applyFromFile);
         }
         if (llmProperties.shouldUseLlm()) {
-            LlmAgent agent = buildLlmAgent(llmProperties);
-            Runner.start();
-            return new CoreAgentHandler(agent);
+            return new CoreAgentHandler(buildLlmAgent(llmProperties));
         }
         return new DemoAgentHandler();
     }

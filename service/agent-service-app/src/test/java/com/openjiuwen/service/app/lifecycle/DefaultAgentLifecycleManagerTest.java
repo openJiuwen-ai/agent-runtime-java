@@ -2,6 +2,7 @@ package com.openjiuwen.service.app.lifecycle;
 
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
 import com.openjiuwen.service.app.config.LifecycleProperties;
+import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.lifecycle.AgentInitHook;
 import com.openjiuwen.service.spec.lifecycle.AgentInterruptHandler;
@@ -22,6 +23,62 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 class DefaultAgentLifecycleManagerTest {
+
+    @Test
+    void initLoadsAgentThroughServiceWhenAgentIdConfigured() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        AgentHandlerHolder holder = new AgentHandlerHolder();
+        ServiceProperties serviceProperties = new ServiceProperties();
+        serviceProperties.setAgentId("configured-agent");
+
+        DefaultAgentLifecycleManager manager = newManager(
+                readiness,
+                holder,
+                List.of(),
+                List.of(),
+                List.of(),
+                new LifecycleProperties(),
+                new ActiveStreamRegistry(),
+                null,
+                serviceProperties);
+
+        assertThat(holder.isLoaded()).isFalse();
+        manager.runInitPhase();
+
+        assertThat(holder.isLoaded()).isTrue();
+        assertThat(readiness.isAgentLoaded()).isTrue();
+    }
+
+    @Test
+    void initRunsHooksAfterHandlerLoadWhenAgentIdConfigured() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        AgentHandlerHolder holder = new AgentHandlerHolder();
+        ServiceProperties serviceProperties = new ServiceProperties();
+        serviceProperties.setAgentId("configured-agent");
+        AtomicInteger hookObservedLoaded = new AtomicInteger();
+
+        AgentInitHook hook = context -> {
+            if (holder.isLoaded()) {
+                hookObservedLoaded.incrementAndGet();
+            }
+        };
+
+        DefaultAgentLifecycleManager manager = newManager(
+                readiness,
+                holder,
+                List.of(hook),
+                List.of(),
+                List.of(),
+                new LifecycleProperties(),
+                new ActiveStreamRegistry(),
+                null,
+                serviceProperties);
+
+        manager.runInitPhase();
+
+        assertThat(hookObservedLoaded.get()).isEqualTo(1);
+        assertThat(readiness.isAgentLoaded()).isTrue();
+    }
 
     @Test
     void initRunsHooksInOrderAndMarksAgentLoadedWhenHandlerPresent() {
@@ -116,6 +173,10 @@ class DefaultAgentLifecycleManagerTest {
             public void cancelActive(String conversationId) {
                 registry.cancel(conversationId);
             }
+
+            @Override
+            public void resetConversation(String conversationId) {
+            }
         };
         DefaultAgentLifecycleManager manager = newManager(
                 readiness,
@@ -140,7 +201,7 @@ class DefaultAgentLifecycleManagerTest {
             List<AgentShutdownHook> shutdownHooks,
             List<AgentInterruptHandler> interruptHandlers) {
         return newManager(readiness, agentHandler, initHooks, shutdownHooks, interruptHandlers,
-                new LifecycleProperties(), new ActiveStreamRegistry(), null);
+                new LifecycleProperties(), new ActiveStreamRegistry(), null, new ServiceProperties());
     }
 
     private static DefaultAgentLifecycleManager newManager(
@@ -151,7 +212,7 @@ class DefaultAgentLifecycleManagerTest {
             List<AgentInterruptHandler> interruptHandlers,
             LifecycleProperties properties) {
         return newManager(readiness, agentHandler, initHooks, shutdownHooks, interruptHandlers,
-                properties, new ActiveStreamRegistry(), null);
+                properties, new ActiveStreamRegistry(), null, new ServiceProperties());
     }
 
     private static DefaultAgentLifecycleManager newManager(
@@ -163,13 +224,28 @@ class DefaultAgentLifecycleManagerTest {
             LifecycleProperties properties,
             ActiveStreamRegistry registry,
             ServeOrchestrator orchestrator) {
+        return newManager(readiness, agentHandler, initHooks, shutdownHooks, interruptHandlers,
+                properties, registry, orchestrator, new ServiceProperties());
+    }
+
+    private static DefaultAgentLifecycleManager newManager(
+            DefaultAgentReadiness readiness,
+            AgentHandler agentHandler,
+            List<AgentInitHook> initHooks,
+            List<AgentShutdownHook> shutdownHooks,
+            List<AgentInterruptHandler> interruptHandlers,
+            LifecycleProperties properties,
+            ActiveStreamRegistry registry,
+            ServeOrchestrator orchestrator,
+            ServiceProperties serviceProperties) {
         AgentServiceIdentity identity = new DefaultAgentServiceIdentity("test-agent");
         AgentLifecycleHooks hooks = new AgentLifecycleHooks(
                 initHooks, shutdownHooks, interruptHandlers);
+        AgentHandlerLoader agentHandlerLoader = new AgentHandlerLoader(serviceProperties);
         InitPhaseExecutor initExecutor = new InitPhaseExecutor(
-                identity, hooks, readiness, providerOf(agentHandler), properties);
+                identity, hooks, readiness, providerOf(agentHandler), agentHandlerLoader, properties);
         ShutdownPhaseExecutor shutdownExecutor = new ShutdownPhaseExecutor(
-                identity, hooks, readiness, registry, properties);
+                identity, hooks, readiness, registry, providerOf(agentHandler), properties);
         ActiveStreamInterruptor interruptor = new ActiveStreamInterruptor(
                 providerOf(orchestrator), hooks.interruptHandlers());
         return new DefaultAgentLifecycleManager(initExecutor, shutdownExecutor, interruptor);

@@ -9,17 +9,23 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Default {@link AgentHandler} delegating to AgentCore {@code Runner}.
  */
 public class CoreAgentHandler implements AgentHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(CoreAgentHandler.class);
+    private static final AtomicBoolean RUNNER_STARTED = new AtomicBoolean(false);
 
     private static final String INPUT_QUERY = "query";
     private static final String INPUT_CONVERSATION_ID = "conversation_id";
@@ -32,6 +38,44 @@ public class CoreAgentHandler implements AgentHandler {
 
     public CoreAgentHandler(Object agent) {
         this.agent = agent;
+    }
+
+    @Override
+    public void start() {
+        if (!RUNNER_STARTED.compareAndSet(false, true)) {
+            return;
+        }
+        log.info("Starting AgentCore Runner");
+        Runner.start();
+    }
+
+    @Override
+    public void stop() {
+        if (!RUNNER_STARTED.get()) {
+            return;
+        }
+        log.info("Stopping AgentCore Runner");
+        try {
+            Runner.stop();
+        } catch (Exception ex) {
+            log.error("Failed to stop AgentCore Runner", ex);
+            throw ex;
+        } finally {
+            RUNNER_STARTED.set(false);
+        }
+    }
+
+    static boolean isRunnerStarted() {
+        return RUNNER_STARTED.get();
+    }
+
+    @Override
+    public void clearSession(String conversationId) {
+        if (conversationId == null || conversationId.isBlank()) {
+            return;
+        }
+        log.info("Releasing AgentCore session for conversation_id={}", conversationId);
+        Runner.release(conversationId);
     }
 
     @Override

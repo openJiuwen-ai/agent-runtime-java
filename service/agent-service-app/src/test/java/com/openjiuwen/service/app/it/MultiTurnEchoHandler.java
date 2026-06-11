@@ -37,6 +37,13 @@ class MultiTurnEchoHandler implements AgentHandler {
         return new QueryResponse(result(request, reply), request.getConversationId());
     }
 
+    @Override
+    public void clearSession(String conversationId) {
+        if (conversationId != null) {
+            history.remove(conversationId);
+        }
+    }
+
     private String buildReply(ServeRequest request) {
         String cid = request.getConversationId();
         String query = request.lastUserQuery();

@@ -28,7 +28,7 @@ Query API -> ServeOrchestrator -> CoreAgentHandler -> Runner -> LlmAgent
 - `POST /query`
 - `POST /v1/query/reactive`，仅在应用以 WebFlux 模式启动时使用
 
-当前 demo 不暴露 `/health`、`/reset_conversation` 或 A2A 端点，因为这些能力不属于当前实现范围。
+当前 demo 已随 Agent Service 自动装配暴露 `POST /v1/reset_conversation`（及 legacy `/reset_conversation`）；`/health` 与 A2A 仍归后续 Issue。
 
 ## 基础示例
 
