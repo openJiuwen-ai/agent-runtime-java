@@ -1,0 +1,54 @@
+package com.openjiuwen.service.app.lifecycle;
+
+import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+import org.junit.jupiter.api.Test;
+
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class AgentHandlerHolderTest {
+
+    @Test
+    void rejectsQueryBeforeAgentLoaded() {
+        AgentHandlerHolder holder = new AgentHandlerHolder();
+
+        assertThat(holder.isLoaded()).isFalse();
+        assertThatThrownBy(() -> holder.query(new ServeRequest()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Agent not loaded");
+    }
+
+    @Test
+    void delegatesAfterHandlerSet() {
+        AgentHandlerHolder holder = new AgentHandlerHolder();
+        holder.setHandler(new DemoAgentHandler());
+
+        assertThat(holder.isLoaded()).isTrue();
+        assertThat(holder.query(request("hello")).getResult()).isEqualTo("demo:hello");
+    }
+
+    private static ServeRequest request(String message) {
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c1");
+        request.getMessages().add(Map.of("role", "user", "content", message));
+        return request;
+    }
+
+    private static final class DemoAgentHandler implements com.openjiuwen.service.spec.spi.AgentHandler {
+        @Override
+        public com.openjiuwen.service.spec.dto.QueryResponse query(
+                com.openjiuwen.service.spec.dto.ServeRequest request) {
+            return new com.openjiuwen.service.spec.dto.QueryResponse(
+                    "demo:" + request.lastUserQuery(), request.getConversationId());
+        }
+
+        @Override
+        public void streamQuery(
+                com.openjiuwen.service.spec.dto.ServeRequest request,
+                QueryStreamObserver observer) {
+        }
+    }
+}

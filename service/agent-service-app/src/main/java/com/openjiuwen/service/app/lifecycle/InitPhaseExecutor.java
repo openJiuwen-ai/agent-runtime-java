@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
- * Runs {@link AgentInitHook}s and updates readiness after init.
+ * Runs {@link AgentInitHook}s, starts Runner when needed, and updates readiness after init.
  */
 public final class InitPhaseExecutor {
 
@@ -20,6 +20,7 @@ public final class InitPhaseExecutor {
     private final AgentLifecycleHooks hooks;
     private final DefaultAgentReadiness readiness;
     private final ObjectProvider<AgentHandler> agentHandlerProvider;
+    private final RunnerLifecycleManager runnerLifecycleManager;
     private final LifecycleProperties properties;
 
     public InitPhaseExecutor(
@@ -27,11 +28,13 @@ public final class InitPhaseExecutor {
             AgentLifecycleHooks hooks,
             DefaultAgentReadiness readiness,
             ObjectProvider<AgentHandler> agentHandlerProvider,
+            RunnerLifecycleManager runnerLifecycleManager,
             LifecycleProperties properties) {
         this.identity = identity;
         this.hooks = hooks;
         this.readiness = readiness;
         this.agentHandlerProvider = agentHandlerProvider;
+        this.runnerLifecycleManager = runnerLifecycleManager;
         this.properties = properties;
     }
 
@@ -45,12 +48,20 @@ public final class InitPhaseExecutor {
                 log.debug("Running AgentInitHook: {}", hook.getClass().getName());
                 hook.onInit(context);
             }
-            if (agentHandlerProvider.getIfAvailable() != null) {
+            AgentHandler handler = agentHandlerProvider.getIfAvailable();
+            if (handler == null) {
+                readiness.markAgentLoaded(false);
+                log.warn("Agent init phase completed for application '{}' without AgentHandler bean, agent_loaded=false",
+                        appName);
+                return;
+            }
+            runnerLifecycleManager.startIfNeeded(handler);
+            if (isAgentLoaded(handler)) {
                 readiness.markAgentLoaded(true);
                 log.info("Agent init phase completed for application '{}', agent_loaded=true", appName);
             } else {
                 readiness.markAgentLoaded(false);
-                log.warn("Agent init phase completed for application '{}' without AgentHandler bean, agent_loaded=false",
+                log.warn("Agent init phase completed for application '{}' but agent is not loaded, agent_loaded=false",
                         appName);
             }
         } catch (Exception ex) {
@@ -62,5 +73,12 @@ public final class InitPhaseExecutor {
             log.error("Agent init phase failed for application '{}' (init-fail-fast=false), agent_loaded remains false",
                     appName, ex);
         }
+    }
+
+    private static boolean isAgentLoaded(AgentHandler handler) {
+        if (handler instanceof AgentHandlerHolder holder) {
+            return holder.isLoaded();
+        }
+        return true;
     }
 }

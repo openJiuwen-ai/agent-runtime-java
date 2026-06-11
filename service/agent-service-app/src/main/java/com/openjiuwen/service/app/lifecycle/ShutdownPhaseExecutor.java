@@ -22,6 +22,7 @@ public final class ShutdownPhaseExecutor {
     private final AgentLifecycleHooks hooks;
     private final DefaultAgentReadiness readiness;
     private final ActiveStreamRegistry streamRegistry;
+    private final RunnerLifecycleManager runnerLifecycleManager;
     private final LifecycleProperties properties;
 
     public ShutdownPhaseExecutor(
@@ -29,11 +30,13 @@ public final class ShutdownPhaseExecutor {
             AgentLifecycleHooks hooks,
             DefaultAgentReadiness readiness,
             ActiveStreamRegistry streamRegistry,
+            RunnerLifecycleManager runnerLifecycleManager,
             LifecycleProperties properties) {
         this.identity = identity;
         this.hooks = hooks;
         this.readiness = readiness;
         this.streamRegistry = streamRegistry;
+        this.runnerLifecycleManager = runnerLifecycleManager;
         this.properties = properties;
     }
 
@@ -54,6 +57,7 @@ public final class ShutdownPhaseExecutor {
                 log.warn("AgentShutdownHook failed: {}", hook.getClass().getName(), ex);
             }
         }
+        runnerLifecycleManager.stopIfStarted();
         readiness.markProcessDown();
         log.info("Agent shutdown phase completed for application '{}'", appName);
     }

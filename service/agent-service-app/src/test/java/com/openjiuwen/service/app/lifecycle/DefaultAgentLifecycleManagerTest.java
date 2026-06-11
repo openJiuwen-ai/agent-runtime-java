@@ -2,6 +2,7 @@ package com.openjiuwen.service.app.lifecycle;
 
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
 import com.openjiuwen.service.app.config.LifecycleProperties;
+import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.lifecycle.AgentInitHook;
 import com.openjiuwen.service.spec.lifecycle.AgentInterruptHandler;
@@ -22,6 +23,26 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 class DefaultAgentLifecycleManagerTest {
+
+    @Test
+    void initLoadsAgentThroughHolderAndInitHook() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        AgentHandlerHolder holder = new AgentHandlerHolder();
+        AgentInitHook load = context -> holder.setHandler(stubAgentHandler());
+
+        DefaultAgentLifecycleManager manager = newManager(
+                readiness,
+                holder,
+                List.of(load),
+                List.of(),
+                List.of());
+
+        assertThat(holder.isLoaded()).isFalse();
+        manager.runInitPhase();
+
+        assertThat(holder.isLoaded()).isTrue();
+        assertThat(readiness.isAgentLoaded()).isTrue();
+    }
 
     @Test
     void initRunsHooksInOrderAndMarksAgentLoadedWhenHandlerPresent() {
@@ -166,13 +187,18 @@ class DefaultAgentLifecycleManagerTest {
         AgentServiceIdentity identity = new DefaultAgentServiceIdentity("test-agent");
         AgentLifecycleHooks hooks = new AgentLifecycleHooks(
                 initHooks, shutdownHooks, interruptHandlers);
+        RunnerLifecycleManager runnerLifecycleManager = runnerLifecycleManager(identity);
         InitPhaseExecutor initExecutor = new InitPhaseExecutor(
-                identity, hooks, readiness, providerOf(agentHandler), properties);
+                identity, hooks, readiness, providerOf(agentHandler), runnerLifecycleManager, properties);
         ShutdownPhaseExecutor shutdownExecutor = new ShutdownPhaseExecutor(
-                identity, hooks, readiness, registry, properties);
+                identity, hooks, readiness, registry, runnerLifecycleManager, properties);
         ActiveStreamInterruptor interruptor = new ActiveStreamInterruptor(
                 providerOf(orchestrator), hooks.interruptHandlers());
         return new DefaultAgentLifecycleManager(initExecutor, shutdownExecutor, interruptor);
+    }
+
+    private static RunnerLifecycleManager runnerLifecycleManager(AgentServiceIdentity identity) {
+        return new RunnerLifecycleManager(new ServiceProperties(), identity);
     }
 
     private static AgentHandler stubAgentHandler() {
