@@ -206,21 +206,15 @@ class DefaultAgentLifecycleManagerTest {
         AgentServiceIdentity identity = new DefaultAgentServiceIdentity("test-agent");
         AgentLifecycleHooks hooks = new AgentLifecycleHooks(
                 initHooks, shutdownHooks, interruptHandlers);
-        RunnerLifecycleManager runnerLifecycleManager = runnerLifecycleManager(identity, serviceProperties);
         AgentHandlerLoader agentHandlerLoader = new AgentHandlerLoader(serviceProperties);
         InitPhaseExecutor initExecutor = new InitPhaseExecutor(
                 identity, hooks, readiness, providerOf(agentHandler), agentHandlerLoader,
-                runnerLifecycleManager, properties);
+                serviceProperties, properties);
         ShutdownPhaseExecutor shutdownExecutor = new ShutdownPhaseExecutor(
-                identity, hooks, readiness, registry, runnerLifecycleManager, properties);
+                identity, hooks, readiness, registry, providerOf(agentHandler), properties);
         ActiveStreamInterruptor interruptor = new ActiveStreamInterruptor(
                 providerOf(orchestrator), hooks.interruptHandlers());
         return new DefaultAgentLifecycleManager(initExecutor, shutdownExecutor, interruptor);
-    }
-
-    private static RunnerLifecycleManager runnerLifecycleManager(
-            AgentServiceIdentity identity, ServiceProperties serviceProperties) {
-        return new RunnerLifecycleManager(serviceProperties, identity);
     }
 
     private static AgentHandler stubAgentHandler() {

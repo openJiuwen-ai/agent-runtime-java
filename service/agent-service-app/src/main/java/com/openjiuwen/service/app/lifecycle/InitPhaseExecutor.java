@@ -1,6 +1,7 @@
 package com.openjiuwen.service.app.lifecycle;
 
 import com.openjiuwen.service.app.config.LifecycleProperties;
+import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.spec.lifecycle.AgentInitHook;
 import com.openjiuwen.service.spec.lifecycle.AgentLifecycleContext;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
@@ -10,8 +11,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
- * Runs {@link AgentInitHook}s, performs built-in Agent loading, starts Runner when needed,
- * and updates readiness after init.
+ * Runs {@link AgentInitHook}s, performs built-in Agent loading, starts handler via
+ * {@link AgentHandler#start()}, and updates readiness after init.
  */
 public final class InitPhaseExecutor {
 
@@ -22,7 +23,7 @@ public final class InitPhaseExecutor {
     private final DefaultAgentReadiness readiness;
     private final ObjectProvider<AgentHandler> agentHandlerProvider;
     private final AgentHandlerLoader agentHandlerLoader;
-    private final RunnerLifecycleManager runnerLifecycleManager;
+    private final ServiceProperties serviceProperties;
     private final LifecycleProperties properties;
 
     public InitPhaseExecutor(
@@ -31,14 +32,14 @@ public final class InitPhaseExecutor {
             DefaultAgentReadiness readiness,
             ObjectProvider<AgentHandler> agentHandlerProvider,
             AgentHandlerLoader agentHandlerLoader,
-            RunnerLifecycleManager runnerLifecycleManager,
+            ServiceProperties serviceProperties,
             LifecycleProperties properties) {
         this.identity = identity;
         this.hooks = hooks;
         this.readiness = readiness;
         this.agentHandlerProvider = agentHandlerProvider;
         this.agentHandlerLoader = agentHandlerLoader;
-        this.runnerLifecycleManager = runnerLifecycleManager;
+        this.serviceProperties = serviceProperties;
         this.properties = properties;
     }
 
@@ -62,7 +63,9 @@ public final class InitPhaseExecutor {
                         appName);
                 return;
             }
-            runnerLifecycleManager.startIfNeeded(handler);
+            if (serviceProperties.isAutoStartRunner()) {
+                handler.start();
+            }
             if (isAgentLoaded(handler)) {
                 readiness.markAgentLoaded(true);
                 log.info("Agent init phase completed for application '{}', agent_loaded=true", appName);

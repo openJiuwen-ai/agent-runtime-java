@@ -35,6 +35,19 @@ public final class AgentHandlerHolder implements AgentHandler {
         requireHandler().streamQuery(request, observer);
     }
 
+    @Override
+    public void start() {
+        requireHandler().start();
+    }
+
+    @Override
+    public void stop() {
+        AgentHandler handler = delegate;
+        if (handler != null) {
+            handler.stop();
+        }
+    }
+
     private AgentHandler requireHandler() {
         AgentHandler handler = delegate;
         if (handler == null) {

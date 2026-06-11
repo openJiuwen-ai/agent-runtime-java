@@ -14,7 +14,6 @@ import com.openjiuwen.service.app.lifecycle.AgentLifecycleManager;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentLifecycleManager;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.app.lifecycle.InitPhaseExecutor;
-import com.openjiuwen.service.app.lifecycle.RunnerLifecycleManager;
 import com.openjiuwen.service.app.lifecycle.ShutdownPhaseExecutor;
 import com.openjiuwen.service.app.orchestrator.DefaultServeOrchestrator;
 import com.openjiuwen.service.spec.lifecycle.AgentInitHook;
@@ -60,13 +59,6 @@ public class AgentServiceAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(RunnerLifecycleManager.class)
-    public RunnerLifecycleManager runnerLifecycleManager(
-            ServiceProperties serviceProperties, AgentServiceIdentity identity) {
-        return new RunnerLifecycleManager(serviceProperties, identity);
-    }
-
-    @Bean
     @ConditionalOnMissingBean(ActiveStreamRegistry.class)
     public ActiveStreamRegistry activeStreamRegistry() {
         return new ActiveStreamRegistry();
@@ -101,11 +93,11 @@ public class AgentServiceAutoConfiguration {
             DefaultAgentReadiness readiness,
             ObjectProvider<AgentHandler> agentHandlerProvider,
             AgentHandlerLoader agentHandlerLoader,
-            RunnerLifecycleManager runnerLifecycleManager,
+            ServiceProperties serviceProperties,
             LifecycleProperties lifecycleProperties) {
         return new InitPhaseExecutor(
                 identity, hooks, readiness, agentHandlerProvider, agentHandlerLoader,
-                runnerLifecycleManager, lifecycleProperties);
+                serviceProperties, lifecycleProperties);
     }
 
     @Bean
@@ -115,10 +107,10 @@ public class AgentServiceAutoConfiguration {
             AgentLifecycleHooks hooks,
             DefaultAgentReadiness readiness,
             ActiveStreamRegistry streamRegistry,
-            RunnerLifecycleManager runnerLifecycleManager,
+            ObjectProvider<AgentHandler> agentHandlerProvider,
             LifecycleProperties lifecycleProperties) {
         return new ShutdownPhaseExecutor(
-                identity, hooks, readiness, streamRegistry, runnerLifecycleManager, lifecycleProperties);
+                identity, hooks, readiness, streamRegistry, agentHandlerProvider, lifecycleProperties);
     }
 
     @Bean

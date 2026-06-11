@@ -4,8 +4,10 @@ import com.openjiuwen.service.app.config.LifecycleProperties;
 import com.openjiuwen.service.spec.lifecycle.AgentLifecycleContext;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.lifecycle.AgentShutdownHook;
+import com.openjiuwen.service.spec.spi.AgentHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -22,7 +24,7 @@ public final class ShutdownPhaseExecutor {
     private final AgentLifecycleHooks hooks;
     private final DefaultAgentReadiness readiness;
     private final ActiveStreamRegistry streamRegistry;
-    private final RunnerLifecycleManager runnerLifecycleManager;
+    private final ObjectProvider<AgentHandler> agentHandlerProvider;
     private final LifecycleProperties properties;
 
     public ShutdownPhaseExecutor(
@@ -30,13 +32,13 @@ public final class ShutdownPhaseExecutor {
             AgentLifecycleHooks hooks,
             DefaultAgentReadiness readiness,
             ActiveStreamRegistry streamRegistry,
-            RunnerLifecycleManager runnerLifecycleManager,
+            ObjectProvider<AgentHandler> agentHandlerProvider,
             LifecycleProperties properties) {
         this.identity = identity;
         this.hooks = hooks;
         this.readiness = readiness;
         this.streamRegistry = streamRegistry;
-        this.runnerLifecycleManager = runnerLifecycleManager;
+        this.agentHandlerProvider = agentHandlerProvider;
         this.properties = properties;
     }
 
@@ -57,7 +59,10 @@ public final class ShutdownPhaseExecutor {
                 log.warn("AgentShutdownHook failed: {}", hook.getClass().getName(), ex);
             }
         }
-        runnerLifecycleManager.stopIfStarted();
+        AgentHandler handler = agentHandlerProvider.getIfAvailable();
+        if (handler != null) {
+            handler.stop();
+        }
         readiness.markProcessDown();
         log.info("Agent shutdown phase completed for application '{}'", appName);
     }

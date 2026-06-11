@@ -96,6 +96,28 @@ class CoreAgentHandlerTest {
         return request;
     }
 
+    @Test
+    void startStartsRunnerAndStopStopsIt() {
+        CoreAgentHandler handler = new CoreAgentHandler("agent-id");
+
+        handler.start();
+        assertThat(CoreAgentHandler.isRunnerStarted()).isTrue();
+
+        handler.stop();
+        assertThat(CoreAgentHandler.isRunnerStarted()).isFalse();
+    }
+
+    @Test
+    void startIsIdempotent() {
+        CoreAgentHandler handler = new CoreAgentHandler("agent-id");
+
+        handler.start();
+        handler.start();
+
+        assertThat(CoreAgentHandler.isRunnerStarted()).isTrue();
+        handler.stop();
+    }
+
     public static class CapturingAgent {
         private Object lastInputs;
 
