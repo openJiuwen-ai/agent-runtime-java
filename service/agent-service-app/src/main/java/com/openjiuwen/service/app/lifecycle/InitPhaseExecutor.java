@@ -10,7 +10,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
- * Runs {@link AgentInitHook}s, starts Runner when needed, and updates readiness after init.
+ * Runs {@link AgentInitHook}s, performs built-in Agent loading, starts Runner when needed,
+ * and updates readiness after init.
  */
 public final class InitPhaseExecutor {
 
@@ -20,6 +21,7 @@ public final class InitPhaseExecutor {
     private final AgentLifecycleHooks hooks;
     private final DefaultAgentReadiness readiness;
     private final ObjectProvider<AgentHandler> agentHandlerProvider;
+    private final AgentHandlerLoader agentHandlerLoader;
     private final RunnerLifecycleManager runnerLifecycleManager;
     private final LifecycleProperties properties;
 
@@ -28,12 +30,14 @@ public final class InitPhaseExecutor {
             AgentLifecycleHooks hooks,
             DefaultAgentReadiness readiness,
             ObjectProvider<AgentHandler> agentHandlerProvider,
+            AgentHandlerLoader agentHandlerLoader,
             RunnerLifecycleManager runnerLifecycleManager,
             LifecycleProperties properties) {
         this.identity = identity;
         this.hooks = hooks;
         this.readiness = readiness;
         this.agentHandlerProvider = agentHandlerProvider;
+        this.agentHandlerLoader = agentHandlerLoader;
         this.runnerLifecycleManager = runnerLifecycleManager;
         this.properties = properties;
     }
@@ -49,6 +53,9 @@ public final class InitPhaseExecutor {
                 hook.onInit(context);
             }
             AgentHandler handler = agentHandlerProvider.getIfAvailable();
+            if (handler instanceof AgentHandlerHolder holder) {
+                agentHandlerLoader.loadInto(holder, context);
+            }
             if (handler == null) {
                 readiness.markAgentLoaded(false);
                 log.warn("Agent init phase completed for application '{}' without AgentHandler bean, agent_loaded=false",

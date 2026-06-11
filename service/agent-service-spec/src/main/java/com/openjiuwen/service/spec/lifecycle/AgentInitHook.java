@@ -1,8 +1,8 @@
 package com.openjiuwen.service.spec.lifecycle;
 
 /**
- * Hook invoked during the AgentApp init phase (after Spring context is ready).
- * <p>Load the Agent here (e.g. bind {@link com.openjiuwen.service.spec.spi.AgentHandler}), aligned with Python {@code @app.init}.
+ * Optional hook during the AgentApp init phase (after Spring context is ready).
+ * <p>Agent loading is performed by Agent Service; use this for warmup or auxiliary setup only.
  */
 public interface AgentInitHook {
 

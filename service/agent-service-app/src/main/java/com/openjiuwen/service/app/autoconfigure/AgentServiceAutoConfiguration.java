@@ -1,7 +1,7 @@
 package com.openjiuwen.service.app.autoconfigure;
 
-import com.openjiuwen.service.adapters.agentfw.CoreAgentHandler;
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
+import com.openjiuwen.service.app.lifecycle.AgentHandlerLoader;
 import com.openjiuwen.service.app.config.LifecycleProperties;
 import com.openjiuwen.service.app.config.QueryProperties;
 import com.openjiuwen.service.app.config.ServiceProperties;
@@ -48,10 +48,9 @@ public class AgentServiceAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "openjiuwen.service", name = "agent-id")
-    @ConditionalOnBean(AgentHandlerHolder.class)
-    public AgentInitHook coreAgentIdInitHook(ServiceProperties properties, AgentHandlerHolder handlerHolder) {
-        return context -> handlerHolder.setHandler(new CoreAgentHandler(properties.getAgentId()));
+    @ConditionalOnMissingBean(AgentHandlerLoader.class)
+    public AgentHandlerLoader agentHandlerLoader(ServiceProperties serviceProperties) {
+        return new AgentHandlerLoader(serviceProperties);
     }
 
     @Bean
@@ -101,10 +100,12 @@ public class AgentServiceAutoConfiguration {
             AgentLifecycleHooks hooks,
             DefaultAgentReadiness readiness,
             ObjectProvider<AgentHandler> agentHandlerProvider,
+            AgentHandlerLoader agentHandlerLoader,
             RunnerLifecycleManager runnerLifecycleManager,
             LifecycleProperties lifecycleProperties) {
         return new InitPhaseExecutor(
-                identity, hooks, readiness, agentHandlerProvider, runnerLifecycleManager, lifecycleProperties);
+                identity, hooks, readiness, agentHandlerProvider, agentHandlerLoader,
+                runnerLifecycleManager, lifecycleProperties);
     }
 
     @Bean

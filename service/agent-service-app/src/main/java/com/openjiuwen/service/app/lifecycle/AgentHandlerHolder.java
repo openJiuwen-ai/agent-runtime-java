@@ -6,8 +6,8 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 /**
- * Lazy {@link AgentHandler} populated during the init phase ({@code AgentInitHook}),
- * aligned with Python {@code app.agent = ...} in {@code @app.init}.
+ * Internal lazy {@link AgentHandler} used when no custom {@code AgentHandler} bean is registered.
+ * Populated by {@link AgentHandlerLoader} during the init phase.
  */
 public final class AgentHandlerHolder implements AgentHandler {
 
