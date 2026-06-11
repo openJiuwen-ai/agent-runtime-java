@@ -51,6 +51,14 @@ public final class AgentHandlerHolder implements AgentHandler {
         }
     }
 
+    @Override
+    public void clearSession(String conversationId) {
+        AgentHandler handler = delegate;
+        if (handler != null) {
+            handler.clearSession(conversationId);
+        }
+    }
+
     private AgentHandler requireHandler() {
         AgentHandler handler = delegate;
         if (handler == null) {

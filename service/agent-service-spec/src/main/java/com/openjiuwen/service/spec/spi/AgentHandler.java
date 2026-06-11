@@ -24,4 +24,10 @@ public interface AgentHandler {
      */
     default void stop() {
     }
+
+    /**
+     * Clear persisted session state for a conversation (e.g. {@code Runner.release(sessionId)}).
+     */
+    default void clearSession(String conversationId) {
+    }
 }

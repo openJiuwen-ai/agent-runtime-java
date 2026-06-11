@@ -173,6 +173,10 @@ class DefaultAgentLifecycleManagerTest {
             public void cancelActive(String conversationId) {
                 registry.cancel(conversationId);
             }
+
+            @Override
+            public void resetConversation(String conversationId) {
+            }
         };
         DefaultAgentLifecycleManager manager = newManager(
                 readiness,

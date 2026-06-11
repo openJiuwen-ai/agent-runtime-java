@@ -70,6 +70,15 @@ public class CoreAgentHandler implements AgentHandler {
     }
 
     @Override
+    public void clearSession(String conversationId) {
+        if (conversationId == null || conversationId.isBlank()) {
+            return;
+        }
+        log.info("Releasing AgentCore session for conversation_id={}", conversationId);
+        Runner.release(conversationId);
+    }
+
+    @Override
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         try {
             Iterator<Object> source = Runner.runAgentStreaming(

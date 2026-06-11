@@ -71,6 +71,16 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
         streamRegistry.cancel(conversationId);
     }
 
+    @Override
+    public void resetConversation(String conversationId) {
+        if (conversationId == null || conversationId.isBlank()) {
+            return;
+        }
+        log.info("Resetting conversation for conversation_id={}", conversationId);
+        cancelActive(conversationId);
+        agentHandler.clearSession(conversationId);
+    }
+
     private QueryStreamObserver wrapObserver(QueryStreamObserver observer, StreamCancellationHandle handle) {
         return new QueryStreamObserver() {
             @Override
