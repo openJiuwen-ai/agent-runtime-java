@@ -3,7 +3,7 @@ package com.openjiuwen.service.app.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Query endpoint feature toggles.
+ * Query endpoint configuration.
  */
 @ConfigurationProperties(prefix = "openjiuwen.service.query")
 public class QueryProperties {

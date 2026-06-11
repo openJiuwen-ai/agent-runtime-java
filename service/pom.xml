@@ -42,6 +42,7 @@
         <module>agent-service-spec</module>
         <module>agent-service-adapters</module>
         <module>agent-service-app</module>
+        <module>agent-service-demo</module>
     </modules>
 
     <!-- Aggregator (packaging=pom): skip spring-boot:run so -pl bootstrap -am works -->

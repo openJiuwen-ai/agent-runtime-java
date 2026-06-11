@@ -1,0 +1,14 @@
+server:
+  port: 8090
+
+openjiuwen:
+  demo:
+    llm:
+      auto-discover: true
+  service:
+    query:
+      mvc:
+        enabled: true
+      webflux:
+        enabled: true
+      legacy-path-enabled: true
