@@ -93,11 +93,10 @@ public class AgentServiceAutoConfiguration {
             DefaultAgentReadiness readiness,
             ObjectProvider<AgentHandler> agentHandlerProvider,
             AgentHandlerLoader agentHandlerLoader,
-            ServiceProperties serviceProperties,
             LifecycleProperties lifecycleProperties) {
         return new InitPhaseExecutor(
                 identity, hooks, readiness, agentHandlerProvider, agentHandlerLoader,
-                serviceProperties, lifecycleProperties);
+                lifecycleProperties);
     }
 
     @Bean

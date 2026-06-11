@@ -13,21 +13,11 @@ public class ServiceProperties {
      */
     private String agentId;
 
-    private boolean autoStartRunner = true;
-
     public String getAgentId() {
         return agentId;
     }
 
     public void setAgentId(String agentId) {
         this.agentId = agentId;
-    }
-
-    public boolean isAutoStartRunner() {
-        return autoStartRunner;
-    }
-
-    public void setAutoStartRunner(boolean autoStartRunner) {
-        this.autoStartRunner = autoStartRunner;
     }
 }

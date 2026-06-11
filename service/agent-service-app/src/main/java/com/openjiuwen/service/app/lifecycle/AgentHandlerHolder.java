@@ -37,7 +37,10 @@ public final class AgentHandlerHolder implements AgentHandler {
 
     @Override
     public void start() {
-        requireHandler().start();
+        AgentHandler handler = delegate;
+        if (handler != null) {
+            handler.start();
+        }
     }
 
     @Override

@@ -50,6 +50,37 @@ class DefaultAgentLifecycleManagerTest {
     }
 
     @Test
+    void initRunsHooksAfterHandlerLoadWhenAgentIdConfigured() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        AgentHandlerHolder holder = new AgentHandlerHolder();
+        ServiceProperties serviceProperties = new ServiceProperties();
+        serviceProperties.setAgentId("configured-agent");
+        AtomicInteger hookObservedLoaded = new AtomicInteger();
+
+        AgentInitHook hook = context -> {
+            if (holder.isLoaded()) {
+                hookObservedLoaded.incrementAndGet();
+            }
+        };
+
+        DefaultAgentLifecycleManager manager = newManager(
+                readiness,
+                holder,
+                List.of(hook),
+                List.of(),
+                List.of(),
+                new LifecycleProperties(),
+                new ActiveStreamRegistry(),
+                null,
+                serviceProperties);
+
+        manager.runInitPhase();
+
+        assertThat(hookObservedLoaded.get()).isEqualTo(1);
+        assertThat(readiness.isAgentLoaded()).isTrue();
+    }
+
+    @Test
     void initRunsHooksInOrderAndMarksAgentLoadedWhenHandlerPresent() {
         DefaultAgentReadiness readiness = new DefaultAgentReadiness();
         List<String> order = new ArrayList<>();
@@ -208,8 +239,7 @@ class DefaultAgentLifecycleManagerTest {
                 initHooks, shutdownHooks, interruptHandlers);
         AgentHandlerLoader agentHandlerLoader = new AgentHandlerLoader(serviceProperties);
         InitPhaseExecutor initExecutor = new InitPhaseExecutor(
-                identity, hooks, readiness, providerOf(agentHandler), agentHandlerLoader,
-                serviceProperties, properties);
+                identity, hooks, readiness, providerOf(agentHandler), agentHandlerLoader, properties);
         ShutdownPhaseExecutor shutdownExecutor = new ShutdownPhaseExecutor(
                 identity, hooks, readiness, registry, providerOf(agentHandler), properties);
         ActiveStreamInterruptor interruptor = new ActiveStreamInterruptor(

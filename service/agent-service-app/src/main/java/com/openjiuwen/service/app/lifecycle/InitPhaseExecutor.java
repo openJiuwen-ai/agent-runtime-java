@@ -1,7 +1,6 @@
 package com.openjiuwen.service.app.lifecycle;
 
 import com.openjiuwen.service.app.config.LifecycleProperties;
-import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.spec.lifecycle.AgentInitHook;
 import com.openjiuwen.service.spec.lifecycle.AgentLifecycleContext;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
@@ -11,7 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
- * Runs {@link AgentInitHook}s, performs built-in Agent loading, starts handler via
+ * Loads {@link AgentHandler}, runs {@link AgentInitHook}s, starts handler via
  * {@link AgentHandler#start()}, and updates readiness after init.
  */
 public final class InitPhaseExecutor {
@@ -23,7 +22,6 @@ public final class InitPhaseExecutor {
     private final DefaultAgentReadiness readiness;
     private final ObjectProvider<AgentHandler> agentHandlerProvider;
     private final AgentHandlerLoader agentHandlerLoader;
-    private final ServiceProperties serviceProperties;
     private final LifecycleProperties properties;
 
     public InitPhaseExecutor(
@@ -32,14 +30,12 @@ public final class InitPhaseExecutor {
             DefaultAgentReadiness readiness,
             ObjectProvider<AgentHandler> agentHandlerProvider,
             AgentHandlerLoader agentHandlerLoader,
-            ServiceProperties serviceProperties,
             LifecycleProperties properties) {
         this.identity = identity;
         this.hooks = hooks;
         this.readiness = readiness;
         this.agentHandlerProvider = agentHandlerProvider;
         this.agentHandlerLoader = agentHandlerLoader;
-        this.serviceProperties = serviceProperties;
         this.properties = properties;
     }
 
@@ -49,21 +45,21 @@ public final class InitPhaseExecutor {
                 appName, hooks.initHooks().size());
         AgentLifecycleContext context = new AgentLifecycleContext(appName);
         try {
-            for (AgentInitHook hook : hooks.initHooks()) {
-                log.debug("Running AgentInitHook: {}", hook.getClass().getName());
-                hook.onInit(context);
-            }
             AgentHandler handler = agentHandlerProvider.getIfAvailable();
-            if (handler instanceof AgentHandlerHolder holder) {
-                agentHandlerLoader.loadInto(holder, context);
-            }
             if (handler == null) {
                 readiness.markAgentLoaded(false);
                 log.warn("Agent init phase completed for application '{}' without AgentHandler bean, agent_loaded=false",
                         appName);
                 return;
             }
-            if (serviceProperties.isAutoStartRunner()) {
+            if (handler instanceof AgentHandlerHolder holder) {
+                agentHandlerLoader.loadInto(holder, context);
+            }
+            for (AgentInitHook hook : hooks.initHooks()) {
+                log.debug("Running AgentInitHook: {}", hook.getClass().getName());
+                hook.onInit(context);
+            }
+            if (isAgentLoaded(handler)) {
                 handler.start();
             }
             if (isAgentLoaded(handler)) {

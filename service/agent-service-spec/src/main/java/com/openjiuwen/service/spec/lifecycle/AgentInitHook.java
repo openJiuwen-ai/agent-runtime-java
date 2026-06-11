@@ -2,7 +2,8 @@ package com.openjiuwen.service.spec.lifecycle;
 
 /**
  * Optional hook during the AgentApp init phase (after Spring context is ready).
- * <p>Agent loading is performed by Agent Service; use this for warmup or auxiliary setup only.
+ * <p>Runs after the {@link com.openjiuwen.service.spec.spi.AgentHandler} is loaded; use for
+ * warmup or auxiliary setup that depends on a ready handler.
  */
 public interface AgentInitHook {
 
