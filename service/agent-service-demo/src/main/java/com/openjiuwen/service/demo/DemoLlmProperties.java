@@ -4,11 +4,13 @@
 
 package com.openjiuwen.service.demo;
 
+import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
 import java.util.Map;
 
+@Data
 @ConfigurationProperties(prefix = "openjiuwen.demo.llm")
 public class DemoLlmProperties {
 
@@ -25,14 +27,6 @@ public class DemoLlmProperties {
     private Double topP = 0.8;
     private Duration timeout = Duration.ofSeconds(60);
     private int contextWindowLimit = 10;
-
-    public Boolean getEnabled() {
-        return enabled;
-    }
-
-    public void setEnabled(Boolean enabled) {
-        this.enabled = enabled;
-    }
 
     boolean shouldUseLlm() {
         if (enabled != null) {
@@ -74,64 +68,20 @@ public class DemoLlmProperties {
         }
     }
 
-    public String getConfigFile() {
-        return configFile;
-    }
-
-    public void setConfigFile(String configFile) {
-        this.configFile = configFile;
-    }
-
-    public boolean isAutoDiscover() {
-        return autoDiscover;
-    }
-
-    public void setAutoDiscover(boolean autoDiscover) {
-        this.autoDiscover = autoDiscover;
-    }
-
-    public String getProvider() {
-        return provider;
-    }
-
     public void setProvider(String provider) {
         this.provider = hasText(provider) ? provider : "OpenAI";
-    }
-
-    public String getApiKey() {
-        return apiKey;
     }
 
     public void setApiKey(String apiKey) {
         this.apiKey = apiKey != null ? apiKey : "";
     }
 
-    public String getApiBase() {
-        return apiBase;
-    }
-
     public void setApiBase(String apiBase) {
         this.apiBase = apiBase != null ? apiBase : "";
     }
 
-    public String getModelName() {
-        return modelName;
-    }
-
     public void setModelName(String modelName) {
         this.modelName = modelName != null ? modelName : "";
-    }
-
-    public boolean isSslVerify() {
-        return sslVerify;
-    }
-
-    public void setSslVerify(boolean sslVerify) {
-        this.sslVerify = sslVerify;
-    }
-
-    public String getSystemPrompt() {
-        return systemPrompt;
     }
 
     public void setSystemPrompt(String systemPrompt) {
@@ -140,32 +90,8 @@ public class DemoLlmProperties {
                 : "You are a helpful assistant. Answer concisely and accurately.";
     }
 
-    public Double getTemperature() {
-        return temperature;
-    }
-
-    public void setTemperature(Double temperature) {
-        this.temperature = temperature;
-    }
-
-    public Double getTopP() {
-        return topP;
-    }
-
-    public void setTopP(Double topP) {
-        this.topP = topP;
-    }
-
-    public Duration getTimeout() {
-        return timeout;
-    }
-
     public void setTimeout(Duration timeout) {
         this.timeout = timeout != null ? timeout : Duration.ofSeconds(60);
-    }
-
-    public int getContextWindowLimit() {
-        return contextWindowLimit;
     }
 
     public void setContextWindowLimit(int contextWindowLimit) {

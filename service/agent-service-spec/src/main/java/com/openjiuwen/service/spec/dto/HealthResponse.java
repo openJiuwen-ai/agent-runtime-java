@@ -5,10 +5,12 @@
 package com.openjiuwen.service.spec.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
 
 /**
  * Lightweight health response aligned with Python AgentApp.
  */
+@Data
 public class HealthResponse {
 
     private String status;
@@ -30,48 +32,6 @@ public class HealthResponse {
         this.app = app;
         this.version = version;
         this.processUp = processUp;
-        this.agentLoaded = agentLoaded;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
-    }
-
-    public String getApp() {
-        return app;
-    }
-
-    public void setApp(String app) {
-        this.app = app;
-    }
-
-    public String getVersion() {
-        return version;
-    }
-
-    public void setVersion(String version) {
-        this.version = version;
-    }
-
-    @JsonProperty("process_up")
-    public boolean isProcessUp() {
-        return processUp;
-    }
-
-    public void setProcessUp(boolean processUp) {
-        this.processUp = processUp;
-    }
-
-    @JsonProperty("agent_loaded")
-    public boolean isAgentLoaded() {
-        return agentLoaded;
-    }
-
-    public void setAgentLoaded(boolean agentLoaded) {
         this.agentLoaded = agentLoaded;
     }
 }

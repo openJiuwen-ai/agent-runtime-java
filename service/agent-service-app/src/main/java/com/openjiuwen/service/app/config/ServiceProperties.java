@@ -4,11 +4,13 @@
 
 package com.openjiuwen.service.app.config;
 
+import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Agent Service runtime configuration.
  */
+@Data
 @ConfigurationProperties(prefix = "openjiuwen.service")
 public class ServiceProperties {
 
@@ -21,20 +23,4 @@ public class ServiceProperties {
      * Version reported by the Agent Service health probe.
      */
     private String version = "0.1.0";
-
-    public String getAgentId() {
-        return agentId;
-    }
-
-    public void setAgentId(String agentId) {
-        this.agentId = agentId;
-    }
-
-    public String getVersion() {
-        return version;
-    }
-
-    public void setVersion(String version) {
-        this.version = version;
-    }
 }

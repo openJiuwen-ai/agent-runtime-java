@@ -6,6 +6,7 @@ package com.openjiuwen.service.spec.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -15,6 +16,7 @@ import java.util.Map;
 /**
  * External Query API request body (aligned with Python {@code QueryRequest}).
  */
+@Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class QueryRequest {
 
@@ -54,59 +56,15 @@ public class QueryRequest {
         }
     }
 
-    public String getConversationId() {
-        return conversationId;
-    }
-
-    public void setConversationId(String conversationId) {
-        this.conversationId = conversationId;
-    }
-
-    public List<Map<String, Object>> getMessages() {
-        return messages;
-    }
-
     public void setMessages(List<Map<String, Object>> messages) {
         this.messages = messages != null ? messages : new ArrayList<>();
-    }
-
-    public String getUserId() {
-        return userId;
     }
 
     public void setUserId(String userId) {
         this.userId = userId != null ? userId : "anonymous";
     }
 
-    public String getSpaceId() {
-        return spaceId;
-    }
-
     public void setSpaceId(String spaceId) {
         this.spaceId = spaceId != null ? spaceId : "default";
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public void setTenantId(String tenantId) {
-        this.tenantId = tenantId;
-    }
-
-    public boolean isStream() {
-        return stream;
-    }
-
-    public void setStream(boolean stream) {
-        this.stream = stream;
-    }
-
-    public String getMessage() {
-        return message;
-    }
-
-    public void setMessage(String message) {
-        this.message = message;
     }
 }
