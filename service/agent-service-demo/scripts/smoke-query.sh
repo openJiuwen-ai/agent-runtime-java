@@ -83,10 +83,25 @@ post_json() {
     -d "$body"
 }
 
+get_json() {
+  local path="$1"
+  local out_file="$2"
+  curl -sS -o "$out_file" -w '%{http_code}' "$BASE_URL$path"
+}
+
 pass() {
   pass_count=$((pass_count + 1))
   printf 'PASS %s\n' "$1"
 }
+
+print_step "0" "GET /health returns process and agent readiness"
+body_file="$TMP_DIR/health.json"
+status="$(get_json "/health" "$body_file")"
+assert_status "$status" "200" "health"
+assert_json "$body_file" \
+  'data["status"] == "healthy" and data["app"] == "demo-agent-service" and data["version"] == "0.1.0" and data["process_up"] == True and data["agent_loaded"] == True' \
+  "health response shape"
+pass "health"
 
 print_step "1" "non-streaming POST /v1/query returns aggregated JSON"
 body_file="$TMP_DIR/non_stream.json"
