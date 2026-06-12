@@ -27,6 +27,20 @@ class DemoAgentApplicationTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void demoApplicationServesHealthApi() throws Exception {
+        ResponseEntity<String> resp = rest.getForEntity("/health", String.class);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
+        assertThat(json).containsEntry("status", "healthy");
+        assertThat(json).containsEntry("app", "demo-agent-service");
+        assertThat(json).containsEntry("version", "0.1.0");
+        assertThat(json).containsEntry("process_up", true);
+        assertThat(json).containsEntry("agent_loaded", true);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void demoApplicationStartsAndServesQueryApi() throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);

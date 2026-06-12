@@ -10,7 +10,8 @@ openjiuwen:
     llm:
       auto-discover: true
   service:
-    # Lifecycle (Issue #5); defaults apply when omitted
+    version: 0.1.0
+    # Lifecycle; defaults apply when omitted
     # lifecycle:
     #   shutdown-timeout-ms: 30000   # max wait (ms) to drain active streams on shutdown
     #   init-fail-fast: true         # fail startup when an AgentInitHook throws

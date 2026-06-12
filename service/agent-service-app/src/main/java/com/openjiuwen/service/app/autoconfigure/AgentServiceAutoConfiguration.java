@@ -1,13 +1,13 @@
 package com.openjiuwen.service.app.autoconfigure;
 
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
-import com.openjiuwen.service.app.lifecycle.AgentHandlerLoader;
 import com.openjiuwen.service.app.config.LifecycleProperties;
 import com.openjiuwen.service.app.config.QueryProperties;
 import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamInterruptor;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.AgentHandlerHolder;
+import com.openjiuwen.service.app.lifecycle.AgentHandlerLoader;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleBootstrap;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleHooks;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleManager;
@@ -27,7 +27,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;

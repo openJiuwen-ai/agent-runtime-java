@@ -13,11 +13,24 @@ public class ServiceProperties {
      */
     private String agentId;
 
+    /**
+     * Version reported by the Agent Service health probe.
+     */
+    private String version = "0.1.0";
+
     public String getAgentId() {
         return agentId;
     }
 
     public void setAgentId(String agentId) {
         this.agentId = agentId;
+    }
+
+    public String getVersion() {
+        return version;
+    }
+
+    public void setVersion(String version) {
+        this.version = version;
     }
 }

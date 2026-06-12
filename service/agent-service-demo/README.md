@@ -22,13 +22,35 @@ Query API -> ServeOrchestrator -> CoreAgentHandler -> Runner -> LlmAgent
 
 ## 接口
 
-当前 demo 只接入 Issue #3 Query API：
+当前 demo 接入 Agent Service 基础端点：
 
+- `GET /health`
 - `POST /v1/query`
 - `POST /query`
 - `POST /v1/query/reactive`，仅在应用以 WebFlux 模式启动时使用
+- `POST /v1/reset_conversation`
+- `POST /reset_conversation`
 
-当前 demo 已随 Agent Service 自动装配暴露 `POST /v1/reset_conversation`（及 legacy `/reset_conversation`）；`/health` 与 A2A 仍归后续 Issue。
+`GET /health` 返回轻量进程和 Agent 就绪状态：
+
+```json
+{
+  "status": "healthy",
+  "app": "demo-agent-service",
+  "version": "0.1.0",
+  "process_up": true,
+  "agent_loaded": true
+}
+```
+
+其中 `version` 来自显式配置项 `openjiuwen.service.version`。
+
+K8s 探针建议：
+
+- liveness：HTTP 200 且 `process_up == true`
+- readiness：HTTP 200 且 `agent_loaded == true`
+
+当前 demo 不暴露 A2A 端点，因为该能力不属于当前实现范围。
 
 ## 基础示例
 
