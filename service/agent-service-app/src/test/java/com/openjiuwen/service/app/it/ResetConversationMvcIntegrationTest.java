@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.it;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.annotation.DirtiesContext;
 
 import java.util.Map;
 
@@ -26,6 +28,9 @@ class ResetConversationMvcIntegrationTest {
 
     @Autowired
     private TestRestTemplate rest;
+
+    @Autowired
+    private DefaultAgentReadiness readiness;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -61,6 +66,41 @@ class ResetConversationMvcIntegrationTest {
     void missingConversationIdReturns400() {
         ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_V1, Map.of());
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void blankConversationIdReturns400WithErrorBody() throws Exception {
+        ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
+                Map.of("conversation_id", ""));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
+        assertThat(json).containsEntry("type", "error");
+        assertThat(json).containsEntry("error", "conversation_id is required");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void legacyResetPathReturnsOk() throws Exception {
+        ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_LEGACY,
+                Map.of("conversation_id", "legacy-c1"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
+        assertThat(json).containsEntry("status", "ok");
+        assertThat(json.get("message")).asString().contains("legacy-c1");
+    }
+
+    @Test
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+    void resetReturns503WhenAgentNotReady() {
+        readiness.markShuttingDown();
+
+        ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
+                Map.of("conversation_id", "shutdown-c1"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     private static Map<String, Object> queryBody(String message, String conversationId) {

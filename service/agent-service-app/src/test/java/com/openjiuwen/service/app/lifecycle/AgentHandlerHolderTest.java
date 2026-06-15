@@ -9,6 +9,7 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,6 +44,26 @@ class AgentHandlerHolderTest {
         assertThat(holder.query(request("hello")).getResult()).isEqualTo("demo:hello");
     }
 
+    @Test
+    void delegatesClearSessionAfterHandlerSet() {
+        AtomicBoolean cleared = new AtomicBoolean(false);
+        AgentHandlerHolder holder = new AgentHandlerHolder();
+        holder.setHandler(new DemoAgentHandler(cleared));
+
+        holder.clearSession("c1");
+
+        assertThat(cleared.get()).isTrue();
+    }
+
+    @Test
+    void clearSessionNoOpBeforeAgentLoaded() {
+        AgentHandlerHolder holder = new AgentHandlerHolder();
+
+        holder.clearSession("c1");
+
+        assertThat(holder.isLoaded()).isFalse();
+    }
+
     private static QueryStreamObserver noopObserver() {
         return new QueryStreamObserver() {
             @Override
@@ -67,6 +88,16 @@ class AgentHandlerHolderTest {
     }
 
     private static final class DemoAgentHandler implements com.openjiuwen.service.spec.spi.AgentHandler {
+        private final AtomicBoolean cleared;
+
+        private DemoAgentHandler() {
+            this.cleared = null;
+        }
+
+        private DemoAgentHandler(AtomicBoolean cleared) {
+            this.cleared = cleared;
+        }
+
         @Override
         public com.openjiuwen.service.spec.dto.QueryResponse query(
                 com.openjiuwen.service.spec.dto.ServeRequest request) {
@@ -78,6 +109,13 @@ class AgentHandlerHolderTest {
         public void streamQuery(
                 com.openjiuwen.service.spec.dto.ServeRequest request,
                 QueryStreamObserver observer) {
+        }
+
+        @Override
+        public void clearSession(String conversationId) {
+            if (cleared != null) {
+                cleared.set(true);
+            }
         }
     }
 }
