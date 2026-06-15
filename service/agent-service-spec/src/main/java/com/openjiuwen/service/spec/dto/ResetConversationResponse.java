@@ -1,8 +1,15 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+ */
+
 package com.openjiuwen.service.spec.dto;
+
+import lombok.Data;
 
 /**
  * Reset conversation API response (aligned with Python AgentApp).
  */
+@Data
 public class ResetConversationResponse {
 
     private String status;
@@ -18,21 +25,5 @@ public class ResetConversationResponse {
 
     public static ResetConversationResponse ok(String conversationId) {
         return new ResetConversationResponse("ok", "Conversation " + conversationId + " reset");
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
-    }
-
-    public String getMessage() {
-        return message;
-    }
-
-    public void setMessage(String message) {
-        this.message = message;
     }
 }

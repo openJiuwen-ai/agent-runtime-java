@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+ */
+
 /**
  * Agent framework adapters ({@link com.openjiuwen.service.spec.spi.AgentHandler} implementations).
  */
