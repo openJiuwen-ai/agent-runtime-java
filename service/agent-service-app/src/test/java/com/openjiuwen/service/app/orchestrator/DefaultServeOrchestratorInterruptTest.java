@@ -77,4 +77,40 @@ class DefaultServeOrchestratorInterruptTest {
         assertThat(chunks).isNotEmpty();
         assertThat(registry.activeCount()).isZero();
     }
+
+    @Test
+    void syncQueryNotAffectedByInterrupt() throws Exception {
+        ActiveStreamRegistry registry = new ActiveStreamRegistry();
+        java.util.concurrent.atomic.AtomicBoolean queryFinished = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        AgentHandler handler = new AgentHandler() {
+            @Override
+            public com.openjiuwen.service.spec.dto.QueryResponse query(ServeRequest request) {
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+                queryFinished.set(true);
+                return new com.openjiuwen.service.spec.dto.QueryResponse("sync-ok", request.getConversationId());
+            }
+
+            @Override
+            public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
+            }
+        };
+
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, registry);
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("sync-conv");
+
+        Thread worker = new Thread(() -> orchestrator.query(request));
+        worker.start();
+        Thread.sleep(50);
+        orchestrator.cancelActive("sync-conv");
+        worker.join(5000);
+
+        assertThat(queryFinished.get()).isTrue();
+        assertThat(registry.activeCount()).isZero();
+    }
 }

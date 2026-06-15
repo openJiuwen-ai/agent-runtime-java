@@ -26,12 +26,37 @@ class AgentHandlerHolderTest {
     }
 
     @Test
+    void rejectsStreamQueryBeforeAgentLoaded() {
+        AgentHandlerHolder holder = new AgentHandlerHolder();
+
+        assertThatThrownBy(() -> holder.streamQuery(new ServeRequest(), noopObserver()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Agent not loaded");
+    }
+
+    @Test
     void delegatesAfterHandlerSet() {
         AgentHandlerHolder holder = new AgentHandlerHolder();
         holder.setHandler(new DemoAgentHandler());
 
         assertThat(holder.isLoaded()).isTrue();
         assertThat(holder.query(request("hello")).getResult()).isEqualTo("demo:hello");
+    }
+
+    private static QueryStreamObserver noopObserver() {
+        return new QueryStreamObserver() {
+            @Override
+            public void onNext(com.openjiuwen.service.spec.dto.QueryChunk chunk) {
+            }
+
+            @Override
+            public void onError(Throwable error) {
+            }
+
+            @Override
+            public void onComplete() {
+            }
+        };
     }
 
     private static ServeRequest request(String message) {

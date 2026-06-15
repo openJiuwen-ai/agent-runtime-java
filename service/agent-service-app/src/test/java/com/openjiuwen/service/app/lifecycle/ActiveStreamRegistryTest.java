@@ -46,4 +46,17 @@ class ActiveStreamRegistryTest {
 
         assertThat(registry.awaitDrain(1000L)).isTrue();
     }
+
+    @Test
+    void cancelAllCancelsEveryConversation() {
+        ActiveStreamRegistry registry = new ActiveStreamRegistry();
+        StreamCancellationHandle first = registry.register("c1");
+        StreamCancellationHandle second = registry.register("c2");
+
+        registry.cancelAll();
+
+        assertThat(first.isCancelled()).isTrue();
+        assertThat(second.isCancelled()).isTrue();
+        assertThat(registry.activeCount()).isZero();
+    }
 }
