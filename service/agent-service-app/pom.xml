@@ -59,10 +59,5 @@
             <artifactId>reactor-test</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>com.openjiuwen</groupId>
-            <artifactId>agent-service-adapters-agentcore</artifactId>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 </project>
