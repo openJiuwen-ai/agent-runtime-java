@@ -69,7 +69,7 @@
             </dependency>
             <dependency>
                 <groupId>com.openjiuwen</groupId>
-                <artifactId>agent-service-adapters</artifactId>
+                <artifactId>agent-service-adapters-agentcore</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
