@@ -20,6 +20,7 @@ import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -147,6 +148,85 @@ class DefaultAgentLifecycleManagerTest {
         assertThat(order).containsExactly("second", "first");
         assertThat(readiness.isAgentLoaded()).isFalse();
         assertThat(readiness.isProcessUp()).isFalse();
+    }
+
+    @Test
+    void initFailFastFalseDoesNotThrowAndKeepsAgentNotLoaded() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        AgentInitHook failing = context -> {
+            throw new IllegalStateException("init failed");
+        };
+        LifecycleProperties properties = new LifecycleProperties();
+        properties.setInitFailFast(false);
+
+        DefaultAgentLifecycleManager manager = newManager(
+                readiness,
+                stubAgentHandler(),
+                List.of(failing),
+                List.of(),
+                List.of(),
+                properties);
+
+        manager.runInitPhase();
+
+        assertThat(readiness.isAgentLoaded()).isFalse();
+    }
+
+    @Test
+    void fullInitShutdownWorkflowRunsHooksAndHandlerLifecycle() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        ActiveStreamRegistry registry = new ActiveStreamRegistry();
+        AtomicBoolean startCalled = new AtomicBoolean(false);
+        AtomicBoolean stopCalled = new AtomicBoolean(false);
+        List<String> initOrder = new ArrayList<>();
+        List<String> shutdownOrder = new ArrayList<>();
+
+        AgentHandler handler = new AgentHandler() {
+            @Override
+            public com.openjiuwen.service.spec.dto.QueryResponse query(
+                    com.openjiuwen.service.spec.dto.ServeRequest request) {
+                return null;
+            }
+
+            @Override
+            public void streamQuery(com.openjiuwen.service.spec.dto.ServeRequest request,
+                                    com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
+            }
+
+            @Override
+            public void start() {
+                startCalled.set(true);
+            }
+
+            @Override
+            public void stop() {
+                stopCalled.set(true);
+            }
+        };
+
+        DefaultAgentLifecycleManager manager = newManager(
+                readiness,
+                handler,
+                List.of(context -> initOrder.add("init")),
+                List.of(context -> shutdownOrder.add("shutdown")),
+                List.of(),
+                new LifecycleProperties(),
+                registry,
+                null);
+
+        manager.runInitPhase();
+        assertThat(initOrder).containsExactly("init");
+        assertThat(startCalled.get()).isTrue();
+        assertThat(readiness.isAgentLoaded()).isTrue();
+
+        registry.register("active-conv");
+        manager.runShutdownPhase();
+
+        assertThat(shutdownOrder).containsExactly("shutdown");
+        assertThat(stopCalled.get()).isTrue();
+        assertThat(readiness.isAgentLoaded()).isFalse();
+        assertThat(readiness.isProcessUp()).isFalse();
+        assertThat(registry.activeCount()).isZero();
     }
 
     @Test

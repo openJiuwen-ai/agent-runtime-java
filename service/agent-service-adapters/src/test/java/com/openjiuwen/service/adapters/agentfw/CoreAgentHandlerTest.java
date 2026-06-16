@@ -122,6 +122,21 @@ class CoreAgentHandlerTest {
         handler.stop();
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void clearSessionReleasesRunnerSessionMemory() {
+        CoreAgentHandler handler = new CoreAgentHandler(new SessionEchoAgent());
+
+        handler.query(request("c-reset-session", "a"));
+        QueryResponse second = handler.query(request("c-reset-session", "b"));
+        assertThat((Map<String, Object>) second.getResult()).containsEntry("content", "turn2:b|prev=a");
+
+        handler.clearSession("c-reset-session");
+
+        QueryResponse third = handler.query(request("c-reset-session", "c"));
+        assertThat((Map<String, Object>) third.getResult()).containsEntry("content", "turn1:c");
+    }
+
     public static class CapturingAgent {
         private Object lastInputs;
 
