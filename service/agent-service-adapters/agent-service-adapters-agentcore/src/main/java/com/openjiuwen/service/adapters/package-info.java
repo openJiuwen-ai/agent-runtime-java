@@ -3,6 +3,6 @@
  */
 
 /**
- * Adapters layer: AgentFW, Middleware, ExternalSvc.
+ * AgentCore adapter leaf module ({@code agent-service-adapters-agentcore}).
  */
 package com.openjiuwen.service.adapters;

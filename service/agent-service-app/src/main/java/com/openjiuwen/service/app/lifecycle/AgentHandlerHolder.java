@@ -10,8 +10,7 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 /**
- * Internal lazy {@link AgentHandler} used when no custom {@code AgentHandler} bean is registered.
- * Populated by {@link AgentHandlerLoader} during the init phase.
+ * Placeholder {@link AgentHandler} when no custom bean and no {@code agent-id} is configured.
  */
 public final class AgentHandlerHolder implements AgentHandler {
 

@@ -11,7 +11,6 @@ import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamInterruptor;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.AgentHandlerHolder;
-import com.openjiuwen.service.app.lifecycle.AgentHandlerLoader;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleBootstrap;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleHooks;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleManager;
@@ -31,6 +30,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
@@ -45,14 +45,9 @@ public class AgentServiceAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(AgentHandler.class)
+    @ConditionalOnProperty(prefix = "openjiuwen.service", name = "agent-id", havingValue = "", matchIfMissing = true)
     public AgentHandlerHolder agentHandlerHolder() {
         return new AgentHandlerHolder();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(AgentHandlerLoader.class)
-    public AgentHandlerLoader agentHandlerLoader(ServiceProperties serviceProperties) {
-        return new AgentHandlerLoader(serviceProperties);
     }
 
     @Bean
@@ -95,11 +90,9 @@ public class AgentServiceAutoConfiguration {
             AgentLifecycleHooks hooks,
             DefaultAgentReadiness readiness,
             ObjectProvider<AgentHandler> agentHandlerProvider,
-            AgentHandlerLoader agentHandlerLoader,
             LifecycleProperties lifecycleProperties) {
         return new InitPhaseExecutor(
-                identity, hooks, readiness, agentHandlerProvider, agentHandlerLoader,
-                lifecycleProperties);
+                identity, hooks, readiness, agentHandlerProvider, lifecycleProperties);
     }
 
     @Bean
