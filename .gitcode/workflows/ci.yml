@@ -1,0 +1,41 @@
+name: agent-runtime-java-ci
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  build:
+    runs-on: euleros-2.10.1
+    steps:
+      - uses: checkout-action@0.0.1
+
+      - name: Checkout submodules
+        run: |
+          cd repo_workspace
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Set up Java 17
+        uses: setup-java@0.0.1
+        with:
+          java-version: "17"
+
+      - name: Check
+        run: |
+          cd repo_workspace
+          mvn -B -ntp test
+
+      - name: Compile
+        run: |
+          cd repo_workspace
+          mvn -B -ntp -DskipTests compile
+
+      - name: Package
+        run: |
+          cd repo_workspace
+          mvn -B -ntp -DskipTests package
