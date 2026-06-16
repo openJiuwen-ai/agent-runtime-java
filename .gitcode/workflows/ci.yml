@@ -10,9 +10,11 @@ on:
 
 jobs:
   build:
+    name: Check Compile Package
     runs-on: euleros-2.10.1
     steps:
-      - uses: checkout-action@0.0.1
+      - name: Checkout repository
+        uses: checkout-action@0.0.1
 
       - name: Checkout submodules
         run: |
