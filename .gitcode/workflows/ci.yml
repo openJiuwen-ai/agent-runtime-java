@@ -1,6 +1,5 @@
 name: agent-runtime-java-ci
 
-# 触发条件：push/PR到develop分支
 on:
   push:
     branches:
@@ -12,22 +11,28 @@ on:
 jobs:
   build:
     name: Check Compile Package
-    # GitCode官方内置欧拉镜像，合规可用
     runs-on: euleros-2.10.1
     steps:
-      # 1. 拉取代码+递归子模块（平台标准内置插件，0.0.1是官方示范版本）
-      - name: Checkout repository
+      # 官方标准 checkout-action 拉代码步骤，补齐必填参数
+      - name: checkout_task_1
         uses: checkout-action@0.0.1
         with:
-          submodules: recursive
+          # 固定拉取当前触发流水线的commit，无需手动写分支名
+          ref: $CI_COMMIT_SHA
+          # 当前仓库内置环境变量，自动填充仓库地址
+          repository: $CI_REPO_FULL_NAME
+          # 流水线内置授权token，无需手动填写
+          token: $CI_TOKEN
+          # GitCode平台域名，固定为官方地址
+          gitcode-server-url: https://gitcode.com
 
-      # 2. 初始化子模块兜底（with参数失效时备用）
-      - name: Sync Submodules
+      # 递归同步更新子模块（插件with不支持submodules参数，单独执行shell）
+      - name: Sync Recursive Submodules
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
 
-      # 3. 配置Java17环境，平台内置setup-java插件
+      # Java17环境配置（保持三段式版本规范，去v前缀）
       - name: Set up Java 17
         uses: setup-java@0.0.1
         with:
@@ -35,10 +40,9 @@ jobs:
           distribution: temurin
           cache: maven
 
-      # 4. 单元测试
       - name: Unit Test
         run: mvn -B -ntp test
 
-      # 修复非法字符&，改用And，符合平台名称校验规则
+      # 移除非法符号 &，符合平台名称校验规则
       - name: Compile And Package
         run: mvn -B -ntp -DskipTests compile package
