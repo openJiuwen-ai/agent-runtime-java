@@ -84,4 +84,28 @@ class QueryWebFluxIntegrationTest {
         assertThat(result.get("content")).isEqualTo("turn1:json");
         assertThat(result).doesNotContainKey("events");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void blankConversationIdReturnsBadRequestBody() throws Exception {
+        Map<String, Object> body = Map.of(
+                "messages", List.of(userMessage("blank")),
+                "conversation_id", " ",
+                "stream", false);
+
+        byte[] bytes = webTestClient.post()
+                .uri("/v1/query/reactive")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody()
+                .returnResult()
+                .getResponseBody();
+
+        Map<String, Object> json = mapper.readValue(bytes, Map.class);
+        assertThat(json).containsEntry("type", "error");
+        assertThat(json).containsEntry("error", "conversation_id is required");
+    }
 }

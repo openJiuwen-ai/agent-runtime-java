@@ -242,6 +242,15 @@ curl -s http://localhost:8090/v1/query \
 BASE_URL=http://localhost:18090 agent-service-demo/scripts/smoke-query.sh
 ```
 
+## Example
+
+`example` 目录提供面向转测的最小可执行样例：
+
+- `example/health`: Issue #8 Health 探针示例，包含最小启动类、L1 场景启动类、运行说明、smoke 脚本和 L1 脚本。
+- `example/query`: Issue #3 Query REST 示例，包含最小 `AgentHandler`、L1 场景启动类、运行说明、smoke 脚本和 L1 脚本。
+
+这些 example 只用于验证 REST 服务接入，不依赖真实大模型，也不包含正式测试设计文档。
+
 ## 配置示例
 
 ```yaml

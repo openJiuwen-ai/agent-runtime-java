@@ -51,6 +51,52 @@ class QueryRequestTest {
     }
 
     @Test
+    void messagesTakePrecedenceOverSingleMessageField() {
+        QueryRequest req = new QueryRequest();
+        req.setConversationId("c-priority");
+        req.setMessage("ignored");
+        req.setMessages(List.of(Map.of("role", "user", "content", "real")));
+
+        req.normalizeMessages();
+        ServeRequest serve = ServeRequest.fromQueryRequest(req);
+
+        assertThat(req.getMessages()).hasSize(1);
+        assertThat(serve.lastUserQuery()).isEqualTo("real");
+    }
+
+    @Test
+    void lastUserQueryUsesLatestUserMessage() {
+        ServeRequest serve = new ServeRequest();
+        serve.setMessages(List.of(
+                Map.of("role", "user", "content", "first"),
+                Map.of("role", "assistant", "content", "ignored"),
+                Map.of("role", "user", "content", "latest")));
+
+        assertThat(serve.lastUserQuery()).isEqualTo("latest");
+    }
+
+    @Test
+    void lastUserQueryFallsBackToLastMessageWhenNoUserRoleExists() {
+        ServeRequest serve = new ServeRequest();
+        serve.setMessages(List.of(
+                Map.of("role", "assistant", "content", "first"),
+                Map.of("role", "tool", "content", "fallback")));
+
+        assertThat(serve.lastUserQuery()).isEqualTo("fallback");
+    }
+
+    @Test
+    void lastUserQueryReturnsEmptyStringWhenMessagesAreEmpty() {
+        QueryRequest req = new QueryRequest();
+        req.setConversationId("c-empty");
+
+        ServeRequest serve = ServeRequest.fromQueryRequest(req);
+
+        assertThat(serve.getMessages()).isEmpty();
+        assertThat(serve.lastUserQuery()).isEmpty();
+    }
+
+    @Test
     void serveRequestFromQueryRequestPreservesFields() {
         QueryRequest req = new QueryRequest();
         req.setConversationId("c2");

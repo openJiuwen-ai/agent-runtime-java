@@ -59,17 +59,8 @@ public class QueryMvcController {
         return handleQuery(request, headers, response);
     }
 
-    @PostMapping(AgentServicePaths.QUERY_LEGACY)
-    @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled",
-            havingValue = "true", matchIfMissing = true)
-    public SseEmitter queryLegacy(@RequestBody QueryRequest request,
-                                  @RequestHeader HttpHeaders headers,
-                                  HttpServletResponse response) throws IOException {
-        return handleQuery(request, headers, response);
-    }
-
-    private SseEmitter handleQuery(QueryRequest request, HttpHeaders headers,
-                                   HttpServletResponse response) throws IOException {
+    SseEmitter handleQuery(QueryRequest request, HttpHeaders headers,
+                           HttpServletResponse response) throws IOException {
         QueryIngressSupport.ValidationResult validation = QueryIngressSupport.validateAndBuild(request, headers);
         if (!validation.valid()) {
             writeJson(response, validation.errorStatus(), validation.errorBody());
@@ -162,5 +153,26 @@ public class QueryMvcController {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getOutputStream(), value);
+    }
+}
+
+@RestController
+@ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+@ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled",
+        havingValue = "true", matchIfMissing = true)
+class QueryLegacyMvcController {
+
+    private final QueryMvcController delegate;
+
+    QueryLegacyMvcController(QueryMvcController delegate) {
+        this.delegate = delegate;
+    }
+
+    @PostMapping(AgentServicePaths.QUERY_LEGACY)
+    public SseEmitter queryLegacy(@RequestBody QueryRequest request,
+                                  @RequestHeader HttpHeaders headers,
+                                  HttpServletResponse response) throws IOException {
+        return delegate.handleQuery(request, headers, response);
     }
 }

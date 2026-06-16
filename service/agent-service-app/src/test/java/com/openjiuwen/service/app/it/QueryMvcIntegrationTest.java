@@ -63,6 +63,16 @@ class QueryMvcIntegrationTest {
         return Map.of("role", "user", "content", content);
     }
 
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> responseJson(ResponseEntity<String> response) throws Exception {
+        return mapper.readValue(response.getBody(), Map.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> result(ResponseEntity<String> response) throws Exception {
+        return (Map<String, Object>) responseJson(response).get("result");
+    }
+
     @Test
     void streamingQueryReturnsPythonStyleSseChunk() {
         Map<String, Object> body = Map.of(
@@ -102,6 +112,45 @@ class QueryMvcIntegrationTest {
         assertThat(result).containsEntry("role", "assistant");
         assertThat(result).containsEntry("content", "turn1:hi");
         assertThat(result).doesNotContainKey("events");
+    }
+
+    @Test
+    void messagesTakePrecedenceOverMessageField() throws Exception {
+        Map<String, Object> body = Map.of(
+                "message", "ignored",
+                "messages", List.of(userMessage("real")),
+                "conversation_id", "c-priority",
+                "stream", false);
+
+        Map<String, Object> result = result(postQuery("/v1/query", body));
+
+        assertThat(result).containsEntry("content", "turn1:real");
+        assertThat(result).containsEntry("messages_size", 1);
+    }
+
+    @Test
+    void assistantOnlyMessagesFallBackToLastMessageContent() throws Exception {
+        Map<String, Object> body = Map.of(
+                "messages", List.of(Map.of("role", "assistant", "content", "fallback")),
+                "conversation_id", "c-fallback",
+                "stream", false);
+
+        Map<String, Object> result = result(postQuery("/v1/query", body));
+
+        assertThat(result).containsEntry("content", "turn1:fallback");
+        assertThat(result).containsEntry("messages_size", 1);
+    }
+
+    @Test
+    void emptyMessageListProducesEmptyQuery() throws Exception {
+        Map<String, Object> body = Map.of(
+                "conversation_id", "c-empty",
+                "stream", false);
+
+        Map<String, Object> result = result(postQuery("/v1/query", body));
+
+        assertThat(result).containsEntry("content", "turn1:");
+        assertThat(result).containsEntry("messages_size", 0);
     }
 
     @Test
@@ -159,6 +208,27 @@ class QueryMvcIntegrationTest {
     }
 
     @Test
+    void blankTenantHeadersDoNotOverrideBodyFields() throws Exception {
+        Map<String, Object> body = Map.of(
+                "messages", List.of(userMessage("ctx")),
+                "conversation_id", "c-blank-context",
+                "user_id", "body-user",
+                "space_id", "body-space",
+                "tenant_id", "body-tenant",
+                "stream", false);
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-User-ID", " ");
+        headers.set("X-Space-ID", " ");
+        headers.set("X-Tenant-ID", " ");
+
+        Map<String, Object> result = result(postQuery("/v1/query", body, headers));
+
+        assertThat(result).containsEntry("user_id", "body-user");
+        assertThat(result).containsEntry("space_id", "body-space");
+        assertThat(result).containsEntry("tenant_id", "body-tenant");
+    }
+
+    @Test
     void missingConversationIdReturnsBadRequest() {
         Map<String, Object> body = Map.of(
                 "messages", List.of(userMessage("hi")), "stream", false);
@@ -166,5 +236,20 @@ class QueryMvcIntegrationTest {
         ResponseEntity<String> resp = postQuery("/v1/query", body);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void blankConversationIdReturnsBadRequestBody() throws Exception {
+        Map<String, Object> body = Map.of(
+                "conversation_id", " ",
+                "messages", List.of(userMessage("hi")),
+                "stream", false);
+
+        ResponseEntity<String> resp = postQuery("/v1/query", body);
+        Map<String, Object> json = responseJson(resp);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(json).containsEntry("type", "error");
+        assertThat(json).containsEntry("error", "conversation_id is required");
     }
 }

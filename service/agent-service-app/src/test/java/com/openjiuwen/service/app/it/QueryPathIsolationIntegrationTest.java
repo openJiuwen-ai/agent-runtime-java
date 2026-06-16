@@ -73,6 +73,31 @@ class QueryPathIsolationIntegrationTest {
         }
     }
 
+    @Nested
+    @TestPropertySource(properties = {
+            "openjiuwen.service.query.webflux.enabled=false",
+            "openjiuwen.service.query.legacy-path-enabled=false"
+    })
+    class WhenLegacyPathDisabled {
+
+        @Autowired
+        private TestRestTemplate rest;
+
+        private final ObjectMapper mapper = new ObjectMapper();
+
+        @Test
+        void legacyPathIsNotRegisteredWhileMainPathRemainsAvailable() throws Exception {
+            Map<String, Object> body = body("main-only", "c-main-only");
+
+            ResponseEntity<String> mainResp = post(rest, AgentServicePaths.QUERY_V1, body);
+            assertThat(mainResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(result(mainResp, mapper).get("content")).isEqualTo("turn1:main-only");
+
+            ResponseEntity<String> legacyResp = post(rest, AgentServicePaths.QUERY_LEGACY, body);
+            assertThat(legacyResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        }
+    }
+
     private static Map<String, Object> body(String content, String conversationId) {
         return Map.of(
                 "messages", List.of(Map.of("role", "user", "content", content)),
