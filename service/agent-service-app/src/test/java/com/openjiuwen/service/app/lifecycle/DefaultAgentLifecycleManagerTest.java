@@ -129,6 +129,29 @@ class DefaultAgentLifecycleManagerTest {
     }
 
     @Test
+    void initFailureWithFailFastDisabledKeepsProcessUpAndAgentNotLoaded() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        AgentInitHook failing = context -> {
+            throw new IllegalStateException("init failed");
+        };
+        LifecycleProperties properties = new LifecycleProperties();
+        properties.setInitFailFast(false);
+
+        DefaultAgentLifecycleManager manager = newManager(
+                readiness,
+                stubAgentHandler(),
+                List.of(failing),
+                List.of(),
+                List.of(),
+                properties);
+
+        manager.runInitPhase();
+
+        assertThat(readiness.isProcessUp()).isTrue();
+        assertThat(readiness.isAgentLoaded()).isFalse();
+    }
+
+    @Test
     void shutdownRunsHooksInReverseOrderAndClearsReadiness() {
         DefaultAgentReadiness readiness = new DefaultAgentReadiness();
         List<String> order = new ArrayList<>();

@@ -14,6 +14,7 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import java.util.Map;
@@ -44,6 +45,7 @@ class HealthAutoConfigurationIntegrationTest {
         ResponseEntity<String> resp = rest.getForEntity(AgentServicePaths.HEALTH, String.class);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getHeaders().getContentType().toString()).startsWith(MediaType.APPLICATION_JSON_VALUE);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
         assertThat(json).containsEntry("status", "healthy");
         assertThat(json).containsEntry("process_up", true);
@@ -60,6 +62,7 @@ class HealthAutoConfigurationIntegrationTest {
         ResponseEntity<String> resp = rest.getForEntity(AgentServicePaths.HEALTH, String.class);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getHeaders().getContentType().toString()).startsWith(MediaType.APPLICATION_JSON_VALUE);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
         assertThat(json).containsEntry("status", "healthy");
         assertThat(json).containsEntry("process_up", true);
