@@ -1,5 +1,6 @@
 name: agent-runtime-java-ci
 
+# 触发条件：push/PR到develop分支
 on:
   push:
     branches:
@@ -11,28 +12,33 @@ on:
 jobs:
   build:
     name: Check Compile Package
-    # 确认平台支持 euleros-2.10.1，不支持就替换 ubuntu-latest
+    # GitCode官方内置欧拉镜像，合规可用
     runs-on: euleros-2.10.1
     steps:
-      # 修复1：使用官方标准 checkout action
+      # 1. 拉取代码+递归子模块（平台标准内置插件，0.0.1是官方示范版本）
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: checkout-action@0.0.1
         with:
-          # 自动同步拉取子模块，无需手动写git submodule命令
           submodules: recursive
 
-      # 修复2：官方Java安装Action，稳定版本
+      # 2. 初始化子模块兜底（with参数失效时备用）
+      - name: Sync Submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      # 3. 配置Java17环境，平台内置setup-java插件
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: setup-java@0.0.1
         with:
           java-version: "17"
           distribution: temurin
-          # 缓存maven依赖，大幅提升构建速度
           cache: maven
 
-      # 无需 cd repo_workspace，代码就在当前目录
+      # 4. 单元测试
       - name: Unit Test
         run: mvn -B -ntp test
 
-      - name: Compile & Package
+      # 修复非法字符&，改用And，符合平台名称校验规则
+      - name: Compile And Package
         run: mvn -B -ntp -DskipTests compile package
