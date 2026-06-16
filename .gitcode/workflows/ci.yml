@@ -11,33 +11,28 @@ on:
 jobs:
   build:
     name: Check Compile Package
+    # 确认平台支持 euleros-2.10.1，不支持就替换 ubuntu-latest
     runs-on: euleros-2.10.1
     steps:
+      # 修复1：使用官方标准 checkout action
       - name: Checkout repository
-        uses: checkout-action@0.0.1
+        uses: actions/checkout@v4
+        with:
+          # 自动同步拉取子模块，无需手动写git submodule命令
+          submodules: recursive
 
-      - name: Checkout submodules
-        run: |
-          cd repo_workspace
-          git submodule sync --recursive
-          git submodule update --init --recursive
-
+      # 修复2：官方Java安装Action，稳定版本
       - name: Set up Java 17
-        uses: setup-java@0.0.1
+        uses: actions/setup-java@v4
         with:
           java-version: "17"
+          distribution: temurin
+          # 缓存maven依赖，大幅提升构建速度
+          cache: maven
 
-      - name: Check
-        run: |
-          cd repo_workspace
-          mvn -B -ntp test
+      # 无需 cd repo_workspace，代码就在当前目录
+      - name: Unit Test
+        run: mvn -B -ntp test
 
-      - name: Compile
-        run: |
-          cd repo_workspace
-          mvn -B -ntp -DskipTests compile
-
-      - name: Package
-        run: |
-          cd repo_workspace
-          mvn -B -ntp -DskipTests package
+      - name: Compile & Package
+        run: mvn -B -ntp -DskipTests compile package
