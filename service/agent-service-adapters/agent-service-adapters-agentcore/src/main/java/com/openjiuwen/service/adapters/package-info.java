@@ -3,6 +3,9 @@
  */
 
 /**
- * AgentCore adapter leaf module ({@code agent-service-adapters-agentcore}).
+ * AgentCore adapter leaf ({@code agent-service-adapters-agentcore}):
+ * {@link com.openjiuwen.service.adapters.agentfw} handler plus engine-specific
+ * {@code middleware} / {@code external} wiring into agent-core-java SPI and factories.
+ * <p>Shared clients and DFX live in {@code agent-service-adapters-common}.
  */
 package com.openjiuwen.service.adapters;

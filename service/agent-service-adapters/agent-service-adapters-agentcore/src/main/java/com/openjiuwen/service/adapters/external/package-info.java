@@ -3,6 +3,7 @@
  */
 
 /**
- * External service adapters (MCP, Plugin HTTP, RAG outbound SPI).
+ * AgentCore external <em>registration</em>: bind {@code adapters-common} egress clients/DFX into
+ * agent-core-java outbound SPI (e.g. {@code McpClient}, Tool HTTP) during service init.
  */
 package com.openjiuwen.service.adapters.external;

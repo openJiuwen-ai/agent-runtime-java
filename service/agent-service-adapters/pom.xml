@@ -16,9 +16,10 @@
     <packaging>pom</packaging>
 
     <name>agent-service-adapters</name>
-    <description>Adapters aggregator: AgentFW / Middleware / ExternalSvc leaf modules</description>
+    <description>Adapters aggregator: common + engine-specific leaf modules</description>
 
     <modules>
+        <module>agent-service-adapters-common</module>
         <module>agent-service-adapters-agentcore</module>
     </modules>
 </project>

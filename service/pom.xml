@@ -33,6 +33,11 @@
             </dependency>
             <dependency>
                 <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-service-adapters-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-service-adapters-agentcore</artifactId>
                 <version>${project.version}</version>
             </dependency>
