@@ -4,7 +4,6 @@
 
 package com.openjiuwen.service.app.lifecycle;
 
-import com.openjiuwen.service.adapters.agentfw.CoreAgentHandler;
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
 import com.openjiuwen.service.app.config.LifecycleProperties;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
@@ -30,9 +29,9 @@ import static org.mockito.Mockito.mock;
 class DefaultAgentLifecycleManagerTest {
 
     @Test
-    void initMarksAgentLoadedWhenCoreHandlerBeanPresent() {
+    void initMarksAgentLoadedWhenHandlerBeanPresent() {
         DefaultAgentReadiness readiness = new DefaultAgentReadiness();
-        AgentHandler handler = new CoreAgentHandler("configured-agent");
+        AgentHandler handler = stubAgentHandler();
 
         DefaultAgentLifecycleManager manager = newManager(
                 readiness,
@@ -47,9 +46,9 @@ class DefaultAgentLifecycleManagerTest {
     }
 
     @Test
-    void initRunsHooksWhenCoreHandlerBeanPresent() {
+    void initRunsHooksWhenHandlerBeanPresent() {
         DefaultAgentReadiness readiness = new DefaultAgentReadiness();
-        AgentHandler handler = new CoreAgentHandler("configured-agent");
+        AgentHandler handler = stubAgentHandler();
         AtomicInteger hookRunCount = new AtomicInteger();
 
         AgentInitHook hook = context -> hookRunCount.incrementAndGet();
