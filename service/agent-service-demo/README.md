@@ -1,5 +1,7 @@
 # Agent Service Demo 示例
 
+上级文档：[service/README.md](../README.md) · [开发指南](../../documents/zh/2.开发指南/README.md) · [HTTP 对话面](../../documents/zh/2.开发指南/HTTP对话面.md)
+
 这是 Issue #12 的最小 Spring Boot 示例工程，目前串联的是 Issue #3 Query API 链路。
 
 ## 启动
