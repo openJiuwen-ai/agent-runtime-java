@@ -79,6 +79,16 @@
             </dependency>
             <dependency>
                 <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-service-adapters-agentcore-ext</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-service-adapters-versatile</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-service-app</artifactId>
                 <version>${project.version}</version>
             </dependency>

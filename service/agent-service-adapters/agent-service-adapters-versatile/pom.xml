@@ -12,11 +12,11 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>agent-service-adapters-agentcore</artifactId>
+    <artifactId>agent-service-adapters-versatile</artifactId>
     <packaging>jar</packaging>
 
-    <name>agent-service-adapters-agentcore</name>
-    <description>AgentFW adapter for OpenJiuwen agent-core-java (JiuwenCoreAgentHandler)</description>
+    <name>agent-service-adapters-versatile</name>
+    <description>Versatile adapter: AgentHandler over remote Versatile RESTful low-code workflow services</description>
 
     <dependencies>
         <dependency>
@@ -28,12 +28,12 @@
             <artifactId>agent-service-spec</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.openjiuwen</groupId>
-            <artifactId>agent-core-java</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

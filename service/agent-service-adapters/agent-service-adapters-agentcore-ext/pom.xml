@@ -12,16 +12,20 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>agent-service-adapters-agentcore</artifactId>
+    <artifactId>agent-service-adapters-agentcore-ext</artifactId>
     <packaging>jar</packaging>
 
-    <name>agent-service-adapters-agentcore</name>
-    <description>AgentFW adapter for OpenJiuwen agent-core-java (JiuwenCoreAgentHandler)</description>
+    <name>agent-service-adapters-agentcore-ext</name>
+    <description>AgentCore extension adapter: interrupt-aware runtime for high-code calling low-code workflows</description>
 
     <dependencies>
         <dependency>
             <groupId>com.openjiuwen</groupId>
             <artifactId>agent-service-adapters-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.openjiuwen</groupId>
+            <artifactId>agent-service-adapters-agentcore</artifactId>
         </dependency>
         <dependency>
             <groupId>com.openjiuwen</groupId>
