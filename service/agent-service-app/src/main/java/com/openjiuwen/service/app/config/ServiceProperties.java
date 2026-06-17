@@ -15,7 +15,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class ServiceProperties {
 
     /**
-     * Agent id registered in {@code Runner.resourceMgr()} for the default {@code CoreAgentHandler}.
+     * Agent id registered in {@code Runner.resourceMgr()} for the default {@code JiuwenCoreAgentHandler}.
      */
     private String agentId;
 

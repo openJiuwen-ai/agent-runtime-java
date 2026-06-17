@@ -15,7 +15,7 @@ mvn -pl agent-service-demo -am spring-boot:run
 默认情况下，demo 使用本地 mock handler，返回稳定的 `demo:<message>` 内容。如果能读取到大模型配置，demo 会切到正式 Core 链路：
 
 ```text
-Query API -> ServeOrchestrator -> CoreAgentHandler -> Runner -> LlmAgent
+Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> LlmAgent
 ```
 
 在正式 Core 链路下，同一个 `conversation_id` 会走 Core 的 Session/Context 机制，支持多轮上下文。即使本地存在大模型配置，也可以通过 `openjiuwen.demo.llm.enabled=false` 强制使用 mock handler。

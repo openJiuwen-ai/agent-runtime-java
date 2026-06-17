@@ -1,1 +1,1 @@
-com.openjiuwen.service.adapters.autoconfigure.AgentCoreAdaptersAutoConfiguration
+com.openjiuwen.service.adapters.agentcore.autoconfigure.AgentCoreAdaptersAutoConfiguration
