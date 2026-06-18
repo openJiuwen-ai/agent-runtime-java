@@ -137,6 +137,23 @@ class JiuwenCoreAgentHandlerTest {
         assertThat((Map<String, Object>) third.getResult()).containsEntry("content", "turn1:c");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void clearSessionSkipsBlankId() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());
+
+        handler.query(request("c-blank-clear", "a"));
+        QueryResponse second = handler.query(request("c-blank-clear", "b"));
+        assertThat((Map<String, Object>) second.getResult()).containsEntry("content", "turn2:b|prev=a");
+
+        handler.clearSession(null);
+        handler.clearSession("");
+        handler.clearSession("   ");
+
+        QueryResponse third = handler.query(request("c-blank-clear", "c"));
+        assertThat((Map<String, Object>) third.getResult()).containsEntry("content", "turn3:c|prev=a,b");
+    }
+
     public static class CapturingAgent {
         private Object lastInputs;
 
