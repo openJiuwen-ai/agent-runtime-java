@@ -88,6 +88,24 @@ HTTP 出站由 `VersatileHttpClient` 完成，**不**经过 Core Runner。
 | 镜像只做壳，执行在 Versatile | `versatile` |
 | 完全自定义运行时 | 自定义 `@Bean AgentHandler` |
 
+## 自定义 Handler 模板
+
+第三方可在业务镜像中提供 `@Bean AgentHandler`，覆盖 adapter 默认装配。最小实现见
+`agent-service-demo` 模块中的 `EchoProxyAgentHandler`（`com.openjiuwen.service.demo.examples`）：
+
+```java
+@Bean
+AgentHandler agentHandler() {
+    return new EchoProxyAgentHandler("my-prefix:");
+}
+```
+
+要点：
+
+- 实现 `query` / `streamQuery`，入参为 `ServeRequest`，出参为 `QueryResponse` / `QueryChunk`。
+- 生命周期 `start` / `stop` / `clearSession` 按需覆写；**非 Core 后端勿调用 `Runner.start()`**。
+- 同模块还有 `DemoAgentHandler`（Mock 默认路径）；与 `VersatileAgentHandler`、`CustomAgentHandler`（`AgentServiceAutoConfigurationMvcIntegrationTest`）同属异构接入样例。
+
 ## 延伸阅读
 
 - Core Runner：[vendor/agent-core-java · 执行器 Runner](../../vendor/agent-core-java/documents/zh/2.开发指南/高阶用法/执行器Runner.md)

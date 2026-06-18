@@ -22,6 +22,16 @@ Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> LlmAgent
 
 在正式 Core 链路下，同一个 `conversation_id` 会走 Core 的 Session/Context 机制，支持多轮上下文。即使本地存在大模型配置，也可以通过 `openjiuwen.demo.llm.enabled=false` 强制使用 mock handler。
 
+## Handler 样例（Issue #10）
+
+| 类 | 用途 |
+| --- | --- |
+| `DemoAgentHandler` | 默认 mock，返回 `demo:` + 用户消息 |
+| `examples/EchoProxyAgentHandler` | 最小自定义 `AgentHandler` 模板（前缀回显，可复制改为 HTTP 代理等） |
+| `it/AgentCoreHandlerAutoConfigurationIntegrationTest` | AC1：仅 `agent-id`、无 `@Bean`，验证 agentcore 自动装配全链路 |
+
+详见 [Adapters 与 Handler](../../documents/zh/2.开发指南/Adapters与Handler.md#自定义-handler-模板)。
+
 ## 接口
 
 当前 demo 接入 Agent Service 基础端点：

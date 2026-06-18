@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class VersatileAgentHandlerTest {
 
@@ -48,5 +49,30 @@ class VersatileAgentHandlerTest {
         assertThat(response.getConversationId()).isEqualTo("c1");
         assertThat(response.getResult()).isInstanceOf(Map.class);
         assertThat(((Map<?, ?>) response.getResult()).get("content")).isEqualTo("low-code-reply");
+    }
+
+    @Test
+    void querySurfacesRemoteFailure() {
+        VersatileProperties properties = new VersatileProperties();
+        properties.setBaseUrl("http://localhost:8080");
+
+        VersatileHttpClient client = new VersatileHttpClient(properties) {
+            @Override
+            public Map<String, Object> postQuery(Map<String, Object> body) {
+                throw new IllegalStateException("remote-down");
+            }
+        };
+
+        VersatileAgentHandler handler = new VersatileAgentHandler(client, properties);
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-fail");
+        request.setMessages(List.of(Map.of("role", "user", "content", "hello")));
+
+        assertThatThrownBy(() -> handler.query(request))
+                .isInstanceOf(VersatileAgentHandler.VersatileInvocationException.class)
+                .hasMessageContaining("Versatile query failed")
+                .cause()
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("remote-down");
     }
 }
