@@ -21,7 +21,6 @@
     </parent>
 
     <modules>
-        <module>vendor/agent-core-java</module>
         <module>service</module>
     </modules>
 

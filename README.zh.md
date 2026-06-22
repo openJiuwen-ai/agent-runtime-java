@@ -23,16 +23,15 @@
 ### 环境要求
 
 - **操作系统**：Windows、Linux、macOS。
-- **Java 版本**：Java 17 或更高（仓库构建）；Agent Core 子模块要求 Java 21。
+- **Java 版本**：Java 17 或更高。
 - **构建工具**：Maven 3.9+。
-- **Git Submodule**：首次克隆后需初始化 `vendor/agent-core-java`。
+- **agent-core-java**：Maven 依赖 `com.openjiuwen:agent-core-java:0.1.12`（见根 `pom.xml`）。需先 clone [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java) 并 checkout `0.1.12` 后 `mvn install`，或从机构私服拉取同版本制品。
 
 ### 从源码构建
 
 ```bash
 git clone <repository-url>
 cd agent-runtime-java
-git submodule update --init --recursive
 mvn clean install -DskipTests
 ```
 
@@ -78,7 +77,7 @@ mock 模式下预期：`{"result":{"content":"demo:hello",...}}`。
 
 ## 架构设计
 
-**Agent Runtime Java** 承载 **Agent Distributed Runtime** 的 Java 实现：从左到右为 **中间件**、**Gateway + 分布式运行时**、**外部服务**（LLM、MCP、A2A、RAG 等）。当前仓库以 **Agent Server（`service/`）** 与 **Agent-Core（Submodule）** 为主；**Agent Runtime Manager**、完整 Gateway 等将随 `manager/*` 等模块补充。
+**Agent Runtime Java** 承载 **Agent Distributed Runtime** 的 Java 实现：从左到右为 **中间件**、**Gateway + 分布式运行时**、**外部服务**（LLM、MCP、A2A、RAG 等）。当前仓库以 **Agent Server（`service/`）** 为主；**Agent-Core** 通过 Maven 依赖独立仓库 **agent-core-java**；**Agent Runtime Manager**、完整 Gateway 等将随 `manager/*` 等模块补充。
 
 ```text
 中间件          Gateway · Manager · Session · Agent Server · Infra          外部服务
@@ -89,7 +88,7 @@ mock 模式下预期：`{"result":{"content":"demo:hello",...}}`。
 
 | 逻辑块 | 本仓库 | 状态 |
 |--------|--------|------|
-| **Agent-Core** | `vendor/agent-core-java` | ✅ Submodule |
+| **Agent-Core** | Maven `agent-core-java`（独立仓库） | ✅ |
 | **Agent Server** | `service/*` | ✅ |
 | **Agent Runtime Manager** | `manager/*`（规划） | ⏳ |
 | **Agent Gateway** | 机构网关 + HTTP Query | 🔌 / 部分 |
@@ -135,7 +134,6 @@ Controller **禁止**绕过 Orchestrator 直连 Runner。
 
 ```text
 agent-runtime-java/
-├── vendor/agent-core-java/          # Git Submodule · Agent Core SDK
 ├── service/
 │   ├── agent-service-spec/          # 契约：paths / dto / spi
 │   ├── agent-service-adapters/      # 聚合：common / agentcore / agentcore-ext / versatile
@@ -164,7 +162,7 @@ agent-runtime-java/
 - [A2A 与平台边界](documents/zh/2.开发指南/A2A与平台边界.md)
 - [Service 模块说明](service/README.md)
 
-Agent Core 文档见 [vendor/agent-core-java/documents/zh/SUMMARY.md](vendor/agent-core-java/documents/zh/SUMMARY.md)。
+Agent Core 文档见 [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/SUMMARY.md)（独立仓库）。
 
 ## 参与贡献
 

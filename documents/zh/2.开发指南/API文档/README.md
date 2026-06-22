@@ -6,7 +6,7 @@
 
 - 结论以 `service/agent-service-spec` 与 `service/agent-service-app` 源码及集成测试为准。
 - 叙事式教程见同级 [开发指南](../README.md) 各栏目。
-- Agent Core API 见 [vendor/agent-core-java · API 文档](../../vendor/agent-core-java/documents/zh/2.开发指南/API文档/README.md)。
+- Agent Core API 见 [agent-core-java · API 文档](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/2.开发指南/API文档/README.md)（独立仓库）。
 
 ## 模块入口
 
