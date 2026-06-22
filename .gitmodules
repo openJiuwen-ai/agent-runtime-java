@@ -1,4 +1,0 @@
-[submodule "vendor/agent-core-java"]
-	path = vendor/agent-core-java
-	url = https://gitcode.com/openJiuwen/agent-core-java.git
-	branch = 0.1.12

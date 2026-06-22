@@ -108,5 +108,5 @@ AgentHandler agentHandler() {
 
 ## 延伸阅读
 
-- Core Runner：[vendor/agent-core-java · 执行器 Runner](../../vendor/agent-core-java/documents/zh/2.开发指南/高阶用法/执行器Runner.md)
+- Core Runner：[agent-core-java · 执行器 Runner](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/2.开发指南/高阶用法/执行器Runner.md)
 - Versatile 适配与 A2A 边界：[A2A 与平台边界](A2A与平台边界.md)

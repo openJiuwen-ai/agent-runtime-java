@@ -6,7 +6,7 @@
 
 - 教程按 **② Agent Service** 能力组织：快速上手、架构、HTTP 对话面、自定义服务、Adapters、生命周期、A2A 边界。
 - 页面内容以当前仓库中的 **`service/` 模块源码**、`agent-service-demo` 与测试为准。
-- **Agent Core**（模型、工作流、Runner 等）请参阅 [vendor/agent-core-java/documents/zh/2.开发指南/README.md](../../vendor/agent-core-java/documents/zh/2.开发指南/README.md)。
+- **Agent Core**（模型、工作流、Runner 等）请参阅 [agent-core-java 开发指南](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/2.开发指南/README.md)（独立仓库，Maven 依赖 `0.1.12`）。
 
 ## 入口
 
@@ -29,7 +29,7 @@
 
 ## 文档说明
 
-- Agent Runtime Java 与 Agent Core Java **分仓维护**（本仓通过 submodule 引用 Core）。
+- Agent Runtime Java 与 Agent Core Java **分仓维护**（本仓通过 Maven 依赖 `agent-core-java`，版本由根 `pom.xml` 的 `agent-core.version` 管理）。
 - Service 层文档 **不以** Python `a2a_service` 进程内逻辑作为 Agent 镜像默认能力。
 - 推荐路径：先读 [快速开始](快速开始.md) 与 [架构概述](架构概述.md)，再按场景阅读 HTTP / Adapters / 生命周期栏目。
 

@@ -23,16 +23,15 @@ This repository does **not** implement the platform Deploy Manager or standalone
 ### Requirements
 
 - **OS**: Windows, Linux, macOS.
-- **Java**: 17+ for this repo build; `vendor/agent-core-java` submodule requires Java 21.
+- **Java**: 17+.
 - **Build**: Maven 3.9+.
-- **Submodule**: run `git submodule update --init --recursive` after clone.
+- **agent-core-java**: Maven dependency `com.openjiuwen:agent-core-java:0.1.12` (see root `pom.xml`). Clone [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java), checkout `0.1.12`, and `mvn install` locally, or resolve from your artifact repository.
 
 ### Build from Source
 
 ```bash
 git clone <repository-url>
 cd agent-runtime-java
-git submodule update --init --recursive
 mvn clean install -DskipTests
 ```
 
@@ -76,7 +75,7 @@ Provide a `@Bean AgentHandler` or set `openjiuwen.service.agent-id` for the defa
 
 ## Architecture
 
-**Agent Runtime Java** implements the **Agent Distributed Runtime** in Java: **middleware** (left), **Gateway + distributed runtime** (center), and **external services** (right: LLM, MCP, A2A, RAG, etc.). This repo currently ships **Agent Server** (`service/`) and **Agent-Core** (submodule); **Agent Runtime Manager** and full Gateway modules are planned under `manager/*`.
+**Agent Runtime Java** implements the **Agent Distributed Runtime** in Java: **middleware** (left), **Gateway + distributed runtime** (center), and **external services** (right: LLM, MCP, A2A, RAG, etc.). This repo currently ships **Agent Server** (`service/`); **Agent-Core** is consumed as a Maven dependency from the separate **agent-core-java** repository; **Agent Runtime Manager** and full Gateway modules are planned under `manager/*`.
 
 See [Logical Architecture](documents/zh/2.开发指南/逻辑架构.md) (Chinese) and [Architecture Overview](documents/zh/2.开发指南/架构概述.md).
 
@@ -116,7 +115,6 @@ Controllers must **not** bypass the orchestrator to call Runner directly.
 
 ```text
 agent-runtime-java/
-├── vendor/agent-core-java/          # Submodule · Agent Core SDK
 ├── service/
 │   ├── agent-service-spec/
 │   ├── agent-service-adapters/
@@ -141,7 +139,7 @@ Recommended reading:
 - [Building Agent Service](documents/zh/2.开发指南/开发Agent Service.md)
 - [Service Modules](service/README.md)
 
-Agent Core docs: [vendor/agent-core-java/documents/zh/SUMMARY.md](vendor/agent-core-java/documents/zh/SUMMARY.md).
+Agent Core docs: [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/SUMMARY.md) (separate repository).
 
 ## Contributing
 
@@ -149,4 +147,4 @@ We welcome issues, documentation improvements, code contributions, and usage fee
 
 ## License
 
-Apache-2.0 License (see submodule LICENSE files where applicable).
+Apache-2.0 License.
