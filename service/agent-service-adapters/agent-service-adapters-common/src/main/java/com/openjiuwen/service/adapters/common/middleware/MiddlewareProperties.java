@@ -10,7 +10,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Binds {@code openjiuwen.service.middleware.*}.
+ * Binds {@code openjiuwen.service.middleware.*} for checkpointer, Redis endpoints, and P2 placeholders.
+ *
+ * @since 0.1.0
  */
 @ConfigurationProperties(prefix = "openjiuwen.service.middleware")
 public class MiddlewareProperties {

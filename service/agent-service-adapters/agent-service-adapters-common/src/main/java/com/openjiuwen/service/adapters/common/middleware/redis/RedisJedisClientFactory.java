@@ -8,13 +8,13 @@ import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import redis.clients.jedis.DefaultJedisClientConfig;
 import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisClientConfig;
 
 /**
  * Creates Jedis clients for middleware Redis connections (adapter-side Redis SDK).
+ *
+ * @since 0.1.0
  */
 public final class RedisJedisClientFactory {
-
     private RedisJedisClientFactory() {
     }
 

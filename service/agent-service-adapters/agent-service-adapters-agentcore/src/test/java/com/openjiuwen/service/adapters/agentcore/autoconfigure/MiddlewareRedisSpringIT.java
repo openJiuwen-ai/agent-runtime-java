@@ -21,22 +21,25 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.params.ScanParams;
-import redis.clients.jedis.resps.ScanResult;
 
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.params.ScanParams;
+import redis.clients.jedis.resps.ScanResult;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * Spring full-chain IT: properties → {@link MiddlewareAdaptersAutoConfiguration}
+ * Spring full-chain IT: properties → middleware auto-configuration
  * → {@link MiddlewareAdapterRegistrar} → {@link JiuwenCoreAgentHandler#start()} + two queries
  * against local passwordless Redis.
+ *
+ * @since 0.1.0
  */
 @Tag("system-test")
 class MiddlewareRedisSpringIT {
@@ -71,7 +74,7 @@ class MiddlewareRedisSpringIT {
 
     @Test
     @SuppressWarnings("unchecked")
-    void redisCheckpointerFromSpringContextRestoresSessionAcrossHandlerRestarts() {
+    void springContextRedisRestoresSessionOnRestart() {
         assumeTrue(isLocalRedisReachable(), "Local Redis on 127.0.0.1:6379 is required for this IT");
 
         String conversationId = "c-spring-redis-it";

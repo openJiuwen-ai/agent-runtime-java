@@ -14,9 +14,10 @@ import java.util.Map;
 
 /**
  * Builds AgentCore {@code RunnerConfig.checkpointerConfig} maps from service middleware properties.
+ *
+ * @since 0.1.0
  */
 public final class AgentCoreCheckpointerConfigAssembler {
-
     public static final String TYPE_IN_MEMORY = "in_memory";
     public static final String TYPE_REDIS = "redis";
 

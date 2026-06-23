@@ -30,6 +30,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Integration tests against a real Redis (Testcontainers or local 127.0.0.1:6379).
+ *
+ * @since 0.1.0
  */
 @Tag("system-test")
 class RedisCheckpointerMiddlewareIT {
@@ -50,21 +52,23 @@ class RedisCheckpointerMiddlewareIT {
 
     @Test
     @SuppressWarnings("unchecked")
-    void redisCheckpointerRestoresSessionAcrossHandlerRestarts() {
+    void dockerRedisRestoresSessionOnHandlerRestart() {
         assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker is required for Redis IT");
 
         try (GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
                 .withExposedPorts(6379)) {
             redis.start();
 
-            SessionRestoreResult result = runSessionRestoreAcrossHandlerRestarts(
+            RedisSessionItContext ctx = new RedisSessionItContext(
                     redis.getHost(),
                     redis.getMappedPort(6379),
                     "",
                     "c-redis-it",
                     new PassthroughCredentialDecryptor(),
-                    true,
-                    null);
+                    null,
+                    "a",
+                    "b");
+            SessionRestoreResult result = runSessionRestoreAcrossHandlerRestarts(ctx, true);
 
             assertThat((Map<String, Object>) result.first().getResult()).containsEntry("content", "turn1:a");
             assertThat((Map<String, Object>) result.second().getResult()).containsEntry("content", "turn2:b|prev=a");
@@ -73,36 +77,14 @@ class RedisCheckpointerMiddlewareIT {
 
     @Test
     @SuppressWarnings("unchecked")
-    void redisCheckpointerRestoresSessionAcrossHandlerRestartsOnLocalRedis() {
+    void localRedisRestoresSessionOnHandlerRestart() {
         assumeTrue(isLocalRedisReachable(), "Local Redis on 127.0.0.1:6379 is required for this IT");
 
         String conversationId = "c-redis-local-it";
         localRedisCleanupPrefix = conversationId + ":";
         deleteRedisKeysByPrefix(LOCAL_REDIS_HOST, LOCAL_REDIS_PORT, localRedisCleanupPrefix, null);
 
-        SessionRestoreResult result = runSessionRestoreAcrossHandlerRestarts(
-                LOCAL_REDIS_HOST,
-                LOCAL_REDIS_PORT,
-                "",
-                conversationId,
-                new PassthroughCredentialDecryptor(),
-                true,
-                null);
-
-        assertThat((Map<String, Object>) result.first().getResult()).containsEntry("content", "turn1:a");
-        assertThat((Map<String, Object>) result.second().getResult()).containsEntry("content", "turn2:b|prev=a");
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void redisCheckpointerRestoresSessionOnLocalRedisSameHandler() {
-        assumeTrue(isLocalRedisReachable(), "Local Redis on 127.0.0.1:6379 is required for this IT");
-
-        String conversationId = "c-redis-local-same";
-        localRedisCleanupPrefix = conversationId + ":";
-        deleteRedisKeysByPrefix(LOCAL_REDIS_HOST, LOCAL_REDIS_PORT, localRedisCleanupPrefix, null);
-
-        SessionRestoreResult result = runTwoTurnsSameHandler(
+        RedisSessionItContext ctx = new RedisSessionItContext(
                 LOCAL_REDIS_HOST,
                 LOCAL_REDIS_PORT,
                 "",
@@ -111,6 +93,7 @@ class RedisCheckpointerMiddlewareIT {
                 null,
                 "a",
                 "b");
+        SessionRestoreResult result = runSessionRestoreAcrossHandlerRestarts(ctx, true);
 
         assertThat((Map<String, Object>) result.first().getResult()).containsEntry("content", "turn1:a");
         assertThat((Map<String, Object>) result.second().getResult()).containsEntry("content", "turn2:b|prev=a");
@@ -118,7 +101,31 @@ class RedisCheckpointerMiddlewareIT {
 
     @Test
     @SuppressWarnings("unchecked")
-    void redisCheckpointerWithEncryptedPasswordPassthrough() {
+    void localRedisRestoresSessionSameHandler() {
+        assumeTrue(isLocalRedisReachable(), "Local Redis on 127.0.0.1:6379 is required for this IT");
+
+        String conversationId = "c-redis-local-same";
+        localRedisCleanupPrefix = conversationId + ":";
+        deleteRedisKeysByPrefix(LOCAL_REDIS_HOST, LOCAL_REDIS_PORT, localRedisCleanupPrefix, null);
+
+        RedisSessionItContext ctx = new RedisSessionItContext(
+                LOCAL_REDIS_HOST,
+                LOCAL_REDIS_PORT,
+                "",
+                conversationId,
+                new PassthroughCredentialDecryptor(),
+                null,
+                "a",
+                "b");
+        SessionRestoreResult result = runTwoTurnsSameHandler(ctx);
+
+        assertThat((Map<String, Object>) result.first().getResult()).containsEntry("content", "turn1:a");
+        assertThat((Map<String, Object>) result.second().getResult()).containsEntry("content", "turn2:b|prev=a");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void redisAuthWithPassthroughDecryptor() {
         assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker is required for Redis IT");
 
         try (GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
@@ -126,7 +133,7 @@ class RedisCheckpointerMiddlewareIT {
                 .withCommand("redis-server", "--requirepass", "secret")) {
             redis.start();
 
-            SessionRestoreResult result = runTwoTurnsSameHandler(
+            RedisSessionItContext ctx = new RedisSessionItContext(
                     redis.getHost(),
                     redis.getMappedPort(6379),
                     "secret",
@@ -135,6 +142,7 @@ class RedisCheckpointerMiddlewareIT {
                     null,
                     "x",
                     "y");
+            SessionRestoreResult result = runTwoTurnsSameHandler(ctx);
 
             assertThat((Map<String, Object>) result.first().getResult()).containsEntry("content", "turn1:x");
             assertThat((Map<String, Object>) result.second().getResult()).containsEntry("content", "turn2:y|prev=x");
@@ -143,7 +151,7 @@ class RedisCheckpointerMiddlewareIT {
 
     @Test
     @SuppressWarnings("unchecked")
-    void customCredentialDecryptorConnectsToPasswordProtectedRedis() {
+    void customDecryptorConnectsToAuthRedis() {
         assumeTrue(DockerClientFactory.instance().isDockerAvailable(), "Docker is required for Redis IT");
 
         try (GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
@@ -153,7 +161,7 @@ class RedisCheckpointerMiddlewareIT {
 
             CredentialDecryptor decryptor = ciphertext ->
                     ciphertext != null && ciphertext.startsWith("ENC:") ? ciphertext.substring(4) : ciphertext;
-            SessionRestoreResult result = runTwoTurnsSameHandler(
+            RedisSessionItContext ctx = new RedisSessionItContext(
                     redis.getHost(),
                     redis.getMappedPort(6379),
                     "ENC:real-secret",
@@ -162,62 +170,52 @@ class RedisCheckpointerMiddlewareIT {
                     "real-secret",
                     "one",
                     "two");
+            SessionRestoreResult result = runTwoTurnsSameHandler(ctx);
 
             assertThat((Map<String, Object>) result.first().getResult()).containsEntry("content", "turn1:one");
-            assertThat((Map<String, Object>) result.second().getResult()).containsEntry("content", "turn2:two|prev=one");
+            Map<String, Object> second = (Map<String, Object>) result.second().getResult();
+            assertThat(second).containsEntry("content", "turn2:two|prev=one");
         }
     }
 
     private static SessionRestoreResult runSessionRestoreAcrossHandlerRestarts(
-            String host,
-            int port,
-            String encryptedPassword,
-            String conversationId,
-            CredentialDecryptor decryptor,
-            boolean verifyRedisKeys,
-            String redisPasswordForAdmin) {
-        MiddlewareProperties properties = redisProperties(host, port, encryptedPassword);
-        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties, decryptor);
+            RedisSessionItContext ctx, boolean verifyRedisKeys) {
+        MiddlewareProperties properties = redisProperties(ctx.host(), ctx.port(), ctx.encryptedPassword());
+        DefaultMiddlewareAdapterRegistrar registrar =
+                new DefaultMiddlewareAdapterRegistrar(properties, ctx.decryptor());
 
         resetRunnerEnvironment();
         JiuwenCoreAgentHandler firstHandler =
                 new JiuwenCoreAgentHandler(new JiuwenCoreAgentHandlerTest.SessionEchoAgent(), registrar);
         firstHandler.start();
-        QueryResponse first = firstHandler.query(request(conversationId, "a"));
+        QueryResponse first = firstHandler.query(request(ctx.conversationId(), ctx.firstQuery()));
         firstHandler.stop();
 
         if (verifyRedisKeys) {
-            assertThat(countRedisKeys(host, port, conversationId + ":", redisPasswordForAdmin))
+            assertThat(countRedisKeys(ctx.host(), ctx.port(), ctx.conversationId() + ":", ctx.redisPasswordForAdmin()))
                     .isGreaterThan(0);
         }
 
         JiuwenCoreAgentHandler secondHandler =
                 new JiuwenCoreAgentHandler(new JiuwenCoreAgentHandlerTest.SessionEchoAgent(), registrar);
         secondHandler.start();
-        QueryResponse second = secondHandler.query(request(conversationId, "b"));
+        QueryResponse second = secondHandler.query(request(ctx.conversationId(), ctx.secondQuery()));
         secondHandler.stop();
 
         return new SessionRestoreResult(first, second);
     }
 
-    private static SessionRestoreResult runTwoTurnsSameHandler(
-            String host,
-            int port,
-            String encryptedPassword,
-            String conversationId,
-            CredentialDecryptor decryptor,
-            String redisPasswordForAdmin,
-            String firstQuery,
-            String secondQuery) {
-        MiddlewareProperties properties = redisProperties(host, port, encryptedPassword);
-        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties, decryptor);
+    private static SessionRestoreResult runTwoTurnsSameHandler(RedisSessionItContext ctx) {
+        MiddlewareProperties properties = redisProperties(ctx.host(), ctx.port(), ctx.encryptedPassword());
+        DefaultMiddlewareAdapterRegistrar registrar =
+                new DefaultMiddlewareAdapterRegistrar(properties, ctx.decryptor());
 
         resetRunnerEnvironment();
         JiuwenCoreAgentHandler handler =
                 new JiuwenCoreAgentHandler(new JiuwenCoreAgentHandlerTest.SessionEchoAgent(), registrar);
         handler.start();
-        QueryResponse first = handler.query(request(conversationId, firstQuery));
-        QueryResponse second = handler.query(request(conversationId, secondQuery));
+        QueryResponse first = handler.query(request(ctx.conversationId(), ctx.firstQuery()));
+        QueryResponse second = handler.query(request(ctx.conversationId(), ctx.secondQuery()));
         handler.stop();
 
         return new SessionRestoreResult(first, second);
@@ -299,6 +297,17 @@ class RedisCheckpointerMiddlewareIT {
             cursor = scan.getCursor();
         } while (!ScanParams.SCAN_POINTER_START.equals(cursor));
         return count;
+    }
+
+    private record RedisSessionItContext(
+            String host,
+            int port,
+            String encryptedPassword,
+            String conversationId,
+            CredentialDecryptor decryptor,
+            String redisPasswordForAdmin,
+            String firstQuery,
+            String secondQuery) {
     }
 
     private record SessionRestoreResult(QueryResponse first, QueryResponse second) {

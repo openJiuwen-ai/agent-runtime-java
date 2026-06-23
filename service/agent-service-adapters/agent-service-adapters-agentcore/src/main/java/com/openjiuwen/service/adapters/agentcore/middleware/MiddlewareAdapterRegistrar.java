@@ -8,6 +8,8 @@ import com.openjiuwen.core.runner.RunnerConfig;
 
 /**
  * Applies middleware adapter configuration to Core {@link RunnerConfig} before {@code Runner.start()}.
+ *
+ * @since 0.1.0
  */
 public interface MiddlewareAdapterRegistrar {
 

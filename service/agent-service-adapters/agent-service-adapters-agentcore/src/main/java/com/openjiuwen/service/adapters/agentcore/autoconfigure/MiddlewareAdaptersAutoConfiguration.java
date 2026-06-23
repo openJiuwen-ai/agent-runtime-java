@@ -14,6 +14,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
+/**
+ * Auto-configuration for middleware adapters: binds {@link MiddlewareProperties},
+ * registers {@link MiddlewareAdapterRegistrar}, and applies checkpointer settings to {@link RunnerConfig}.
+ *
+ * @since 0.1.0
+ */
 @AutoConfiguration(before = AgentCoreAdaptersAutoConfiguration.class)
 @ConditionalOnClass(RunnerConfig.class)
 @EnableConfigurationProperties(MiddlewareProperties.class)

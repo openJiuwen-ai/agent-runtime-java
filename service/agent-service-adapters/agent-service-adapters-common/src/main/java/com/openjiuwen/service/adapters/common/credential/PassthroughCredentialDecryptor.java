@@ -11,6 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Default decryptor that returns the input unchanged. Suitable for dev/local only.
+ *
+ * @since 0.1.0
  */
 public class PassthroughCredentialDecryptor implements CredentialDecryptor {
 
@@ -20,7 +22,8 @@ public class PassthroughCredentialDecryptor implements CredentialDecryptor {
     @Override
     public String decrypt(String ciphertext) {
         if (ciphertext != null && !ciphertext.isBlank() && WARNED.compareAndSet(false, true)) {
-            log.warn("Passthrough CredentialDecryptor is active: encrypted-password values are not actually decrypted");
+            log.warn(
+                    "Passthrough CredentialDecryptor is active: encrypted-password is not decrypted");
         }
         return ciphertext;
     }

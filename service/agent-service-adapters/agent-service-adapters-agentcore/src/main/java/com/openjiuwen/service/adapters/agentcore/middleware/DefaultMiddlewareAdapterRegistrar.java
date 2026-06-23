@@ -12,6 +12,8 @@ import java.util.Map;
 
 /**
  * Default registrar: writes {@link RunnerConfig#getCheckpointerConfig()} from service properties.
+ *
+ * @since 0.1.0
  */
 public class DefaultMiddlewareAdapterRegistrar implements MiddlewareAdapterRegistrar {
 

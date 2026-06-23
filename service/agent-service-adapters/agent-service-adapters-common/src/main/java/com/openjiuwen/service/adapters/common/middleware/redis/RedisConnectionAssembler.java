@@ -14,13 +14,15 @@ import java.util.Map;
 
 /**
  * Engine-agnostic Redis connection description from middleware properties.
+ *
+ * @since 0.1.0
  */
 public final class RedisConnectionAssembler {
-
     private RedisConnectionAssembler() {
     }
 
-    public static MiddlewareProperties.RedisEndpoint resolveEndpoint(MiddlewareProperties properties, String redisRef) {
+    public static MiddlewareProperties.RedisEndpoint resolveEndpoint(
+            MiddlewareProperties properties, String redisRef) {
         String ref = redisRef;
         if (ref == null || ref.isBlank()) {
             ref = "default";
