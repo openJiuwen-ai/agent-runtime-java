@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.MediaType;
@@ -26,6 +26,11 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Verifies reactive query returns service unavailable when the agent is not loaded.
+ *
+ * @since 0.1.0
+ */
 @SpringBootTest(classes = QueryWebFluxUnavailableIntegrationTest.AgentNotLoadedApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
@@ -34,7 +39,6 @@ import static org.assertj.core.api.Assertions.assertThat;
         "openjiuwen.service.query.webflux.enabled=true"
 })
 class QueryWebFluxUnavailableIntegrationTest {
-
     @Autowired
     private WebTestClient webTestClient;
 
@@ -65,7 +69,6 @@ class QueryWebFluxUnavailableIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class AgentNotLoadedApplication {
-
         @Bean
         AgentHandler agentHandler() {
             return new UnusedAgentHandler();

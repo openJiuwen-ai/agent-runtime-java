@@ -18,6 +18,11 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * WebFlux {@code /v1/query/reactive} integration tests against {@link TestServiceApplication}.
+ *
+ * @since 0.1.0
+ */
 @SpringBootTest(classes = TestServiceApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
@@ -26,7 +31,6 @@ import static org.assertj.core.api.Assertions.assertThat;
         "openjiuwen.service.query.webflux.enabled=true"
 })
 class QueryWebFluxIntegrationTest {
-
     @Autowired
     private WebTestClient webTestClient;
 

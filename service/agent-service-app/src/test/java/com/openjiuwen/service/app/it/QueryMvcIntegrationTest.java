@@ -23,11 +23,15 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * MVC {@code /v1/query} integration tests against {@link TestServiceApplication}.
+ *
+ * @since 0.1.0
+ */
 @SpringBootTest(classes = TestServiceApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class QueryMvcIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 
@@ -218,10 +222,8 @@ class QueryMvcIntegrationTest {
                 "space_id", "body-space",
                 "tenant_id", "body-tenant",
                 "stream", false);
+        // SB 4 RestClient rejects whitespace-only header values; absent headers match isBlank() semantics.
         HttpHeaders headers = new HttpHeaders();
-        headers.set("X-User-ID", " ");
-        headers.set("X-Space-ID", " ");
-        headers.set("X-Tenant-ID", " ");
 
         Map<String, Object> result = result(postQuery("/v1/query", body, headers));
 
