@@ -10,7 +10,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -29,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = TestServiceApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=true")
+@AutoConfigureTestRestTemplate
 class QueryPathIsolationIntegrationTest {
 
     @Autowired
@@ -53,6 +55,7 @@ class QueryPathIsolationIntegrationTest {
 
     @Nested
     @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
+    @AutoConfigureTestRestTemplate
     class WhenWebFluxDisabled {
 
         @Autowired

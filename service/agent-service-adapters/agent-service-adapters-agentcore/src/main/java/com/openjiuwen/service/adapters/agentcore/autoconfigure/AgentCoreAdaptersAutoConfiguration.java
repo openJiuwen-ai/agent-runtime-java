@@ -5,7 +5,9 @@
 package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
+import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
@@ -19,7 +21,8 @@ public class AgentCoreAdaptersAutoConfiguration {
     @ConditionalOnMissingBean(AgentHandler.class)
     @ConditionalOnExpression("'${openjiuwen.service.agent-id:}' != '' "
             + "&& '${openjiuwen.service.handler:agentcore}' == 'agentcore'")
-    public AgentHandler coreAgentHandler(@Value("${openjiuwen.service.agent-id}") String agentId) {
-        return new JiuwenCoreAgentHandler(agentId);
+    public AgentHandler coreAgentHandler(@Value("${openjiuwen.service.agent-id}") String agentId,
+                                         @Autowired(required = false) MiddlewareAdapterRegistrar registrar) {
+        return new JiuwenCoreAgentHandler(agentId, registrar);
     }
 }

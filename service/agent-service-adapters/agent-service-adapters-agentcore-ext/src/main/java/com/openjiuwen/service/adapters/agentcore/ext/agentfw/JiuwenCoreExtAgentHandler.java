@@ -34,6 +34,11 @@ public class JiuwenCoreExtAgentHandler extends JiuwenCoreAgentHandler {
         super(agent);
     }
 
+    public JiuwenCoreExtAgentHandler(Object agent,
+                                     com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar registrar) {
+        super(agent, registrar);
+    }
+
     @Override
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         try {
