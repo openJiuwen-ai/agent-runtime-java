@@ -11,7 +11,7 @@
     <packaging>pom</packaging>
 
     <name>agent-runtime-java</name>
-    <description>Agent Runtime Java - A2A Service and Versatile Adapter</description>
+    <description>Agent Runtime Java - A2A Service and Agent Service Adapters</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -74,16 +74,6 @@
             <dependency>
                 <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-service-adapters-agentcore</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.openjiuwen</groupId>
-                <artifactId>agent-service-adapters-agentcore-ext</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.openjiuwen</groupId>
-                <artifactId>agent-service-adapters-versatile</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

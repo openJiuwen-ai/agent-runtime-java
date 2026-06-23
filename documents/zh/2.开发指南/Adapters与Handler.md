@@ -21,9 +21,9 @@ public interface AgentHandler {
 | 模块 | Handler | 选型条件 |
 | --- | --- | --- |
 | `agent-service-adapters-agentcore` | `JiuwenCoreAgentHandler` | `openjiuwen.service.agent-id` 非空且 `handler=agentcore`（默认） |
-| `agent-service-adapters-agentcore-ext` | `JiuwenCoreExtAgentHandler` | `agent-id` 非空且 `handler=agentcore-ext` |
-| `agent-service-adapters-versatile` | `VersatileAgentHandler` | `handler=versatile` 且 `versatile.base-url` 非空 |
-| `agent-service-adapters-common` | 共享 middleware / external 占位 | 被其他 leaf 依赖 |
+| `agent-service-adapters-common` | 共享 middleware / external 占位 | 被 agentcore leaf 依赖 |
+
+`agentcore-ext`、`versatile` 等扩展 Handler **不在本仓库 adapters 内实现**；人机中断、远端低码等场景由业务镜像自定义 `@Bean AgentHandler` 或在外部模块接入。
 
 ## 配置示例
 
@@ -38,55 +38,26 @@ openjiuwen:
 
 `JiuwenCoreAgentHandler` 通过 `agent-id` 从 `Runner.resourceMgr()` 加载 Agent 并调用 `Runner.query` / `stream`。
 
-### Agent Core Ext（中断 / 挂起）
-
-```yaml
-openjiuwen:
-  service:
-    handler: agentcore-ext
-    agent-id: my-ext-agent
-```
-
-扩展 Handler 继承 Core 能力，并映射 Core 中断事件到 Service 层可观测语义（高码挂起/恢复场景）。
-
-### Versatile（远端低码）
-
-```yaml
-openjiuwen:
-  service:
-    handler: versatile
-    versatile:
-      base-url: https://versatile.example.com
-      query-path: /v1/query          # 可选，默认 /v1/query
-      stream-path: /v1/query/stream  # 可选
-```
-
-HTTP 出站由 `VersatileHttpClient` 完成，**不**经过 Core Runner。
-
 ## 自动装配规则
 
-- 各 leaf 使用 `@ConditionalOnMissingBean(AgentHandler.class)`：已有 `@Bean AgentHandler` 时不装配默认 Handler。
-- `agentcore` 与 `agentcore-ext`、`versatile` 通过 `openjiuwen.service.handler` 互斥。
-- AutoConfiguration 注册在各自模块的 `META-INF/spring/...AutoConfiguration.imports`。
+- `agent-service-adapters-agentcore` 使用 `@ConditionalOnMissingBean(AgentHandler.class)`：已有 `@Bean AgentHandler` 时不装配默认 Handler。
+- AutoConfiguration 注册在 `META-INF/spring/...AutoConfiguration.imports`。
 
 ## 包结构约定
 
-每个 adapter leaf 使用 **独立根包**，例如：
+adapter leaf 使用独立根包，例如：
 
 - `com.openjiuwen.service.adapters.agentcore.agentfw`
-- `com.openjiuwen.service.adapters.agentcore.ext.agentfw`
-- `com.openjiuwen.service.adapters.versatile.external`
+- `com.openjiuwen.service.adapters.common.middleware`
 
-子包含 `agentfw`、`middleware`、`external`、`autoconfigure`，与架构 **Ingress/Egress** 划分一致。
+子包含 `agentfw`、`middleware`、`autoconfigure`，与架构 Ingress/Egress 划分一致。
 
 ## 选型建议
 
-| 场景 | 推荐 Handler |
+| 场景 | 推荐方式 |
 | --- | --- |
-| 高码 Workflow / LlmAgent | `agentcore` |
-| 高码 + 人机中断 / INPUT_REQUIRED | `agentcore-ext` |
-| 镜像只做壳，执行在 Versatile | `versatile` |
-| 完全自定义运行时 | 自定义 `@Bean AgentHandler` |
+| 高码 Workflow / LlmAgent | `agentcore` + `agent-id` |
+| 人机中断 / 远端低码 / 其他引擎 | 自定义 `@Bean AgentHandler` 或外部 adapter 模块 |
 
 ## 自定义 Handler 模板
 
@@ -104,9 +75,9 @@ AgentHandler agentHandler() {
 
 - 实现 `query` / `streamQuery`，入参为 `ServeRequest`，出参为 `QueryResponse` / `QueryChunk`。
 - 生命周期 `start` / `stop` / `clearSession` 按需覆写；**非 Core 后端勿调用 `Runner.start()`**。
-- 同模块还有 `DemoAgentHandler`（Mock 默认路径）；与 `VersatileAgentHandler`、`CustomAgentHandler`（`AgentServiceAutoConfigurationMvcIntegrationTest`）同属异构接入样例。
+- 同模块还有 `DemoAgentHandler`（Mock 默认路径）等异构接入样例。
 
 ## 延伸阅读
 
 - Core Runner：[agent-core-java · 执行器 Runner](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/2.开发指南/高阶用法/执行器Runner.md)
-- Versatile 适配与 A2A 边界：[A2A 与平台边界](A2A与平台边界.md)
+- A2A 与平台边界：[A2A 与平台边界](A2A与平台边界.md)

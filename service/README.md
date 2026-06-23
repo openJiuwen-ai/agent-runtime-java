@@ -11,9 +11,7 @@ service/                              packaging=pom · agent-service
 ├── agent-service-spec                契约 + SPI（纯 Java）
 ├── agent-service-adapters/             Adapters 聚合
 │   ├── agent-service-adapters-common
-│   ├── agent-service-adapters-agentcore
-│   ├── agent-service-adapters-agentcore-ext
-│   └── agent-service-adapters-versatile
+│   └── agent-service-adapters-agentcore
 ├── agent-service-app                 Controller + Orchestrator + Lifecycle + AutoConfig
 └── agent-service-demo                可运行示例
 ```
@@ -48,10 +46,8 @@ mvn -pl agent-service-demo -am spring-boot:run
 | 模块 | 说明 | 文档 |
 | --- | --- | --- |
 | **spec** | 路径、DTO、`AgentHandler` / `ServeOrchestrator` SPI | [spec.README](../documents/zh/2.开发指南/API文档/com.openjiuwen.service/spec.README.md) |
-| **adapters-common** | 共享 middleware / external 包结构 | 包内 `package-info` |
+| **adapters-common** | 共享 middleware / credential | 包内 `package-info` |
 | **adapters-agentcore** | `JiuwenCoreAgentHandler` | [Adapters 与 Handler](../documents/zh/2.开发指南/Adapters与Handler.md) |
-| **adapters-agentcore-ext** | `JiuwenCoreExtAgentHandler`、中断映射 | 同上 |
-| **adapters-versatile** | `VersatileAgentHandler`、HTTP 客户端 | 同上 |
 | **app** | Ingress Controller、默认 Orchestrator、Lifecycle | [HTTP 对话面](../documents/zh/2.开发指南/HTTP对话面.md) |
 | **demo** | 最小 Spring Boot 示例 | [agent-service-demo/README.md](agent-service-demo/README.md) |
 

@@ -16,7 +16,7 @@ This repository does **not** implement the platform Deploy Manager or standalone
 
 - **Clear module boundaries**: `spec` (contracts & SPI) → `adapters` (engine bindings) → `app` (Ingress + Orchestrator), one-way dependencies for custom images.
 
-- **Multiple Handler backends**: default **Agent Core** path; optional **agentcore-ext** (interrupt/hold) and **versatile** (remote low-code HTTP).
+- **Single Core Handler path**: default **Agent Core**; other backends via custom `AgentHandler`.
 
 ## Quick Start
 
@@ -82,7 +82,7 @@ See [Logical Architecture](documents/zh/2.开发指南/逻辑架构.md) (Chinese
 **Data plane call chain**:
 
 ```text
-HTTP Controller → ServeOrchestrator → AgentHandler → (Core Runner / Versatile HTTP)
+HTTP Controller → ServeOrchestrator → AgentHandler → Core Runner
 ```
 
 Controllers must **not** bypass the orchestrator to call Runner directly.
@@ -101,8 +101,7 @@ Controllers must **not** bypass the orchestrator to call Runner directly.
 | Handler | Configuration | Backend |
 |---------|---------------|---------|
 | **agentcore** (default) | `openjiuwen.service.agent-id` | `JiuwenCoreAgentHandler` → Core `Runner` |
-| **agentcore-ext** | `handler=agentcore-ext` + `agent-id` | interrupt / hold-resume |
-| **versatile** | `handler=versatile` + `versatile.base-url` | remote Versatile HTTP |
+| **custom** | `@Bean AgentHandler` | override default binding |
 | **custom** | `@Bean AgentHandler` | overrides auto-config |
 
 ### Out of Scope (current P0)
