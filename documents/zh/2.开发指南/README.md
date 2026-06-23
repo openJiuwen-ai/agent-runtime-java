@@ -19,7 +19,7 @@
 | [架构概述](架构概述.md) | 当前仓库模块、数据面调用链 | `agent-service-spec` / `app` / `adapters` |
 | [HTTP 对话面](HTTP对话面.md) | `/query`、`/health`、`/reset_conversation` 契约 | `AgentServicePaths`、Controller 测试 |
 | [开发 Agent Service](开发Agent Service.md) | 如何写 Spring Boot 镜像、覆盖 Handler | `AgentServiceAutoConfiguration`、demo |
-| [Adapters 与 Handler](Adapters与Handler.md) | agentcore / ext / versatile 选型 | `agent-service-adapters-*` |
+| [Adapters 与 Handler](Adapters与Handler.md) | agentcore 与自定义 Handler | `agent-service-adapters-*` |
 | [生命周期与探针](生命周期与探针.md) | init、就绪、interrupt、流式 cancel | `DefaultAgentLifecycleManager` |
 | [A2A 与平台边界](A2A与平台边界.md) | 为何不做进程内 A2A、平台 A2A 怎么走 | 架构定案、Issue #4 |
 

@@ -15,7 +15,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -34,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = AgentServiceAutoConfigurationMvcIntegrationTest.MinimalAgentApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
+@AutoConfigureTestRestTemplate
 class AgentServiceAutoConfigurationMvcIntegrationTest {
 
     @Autowired

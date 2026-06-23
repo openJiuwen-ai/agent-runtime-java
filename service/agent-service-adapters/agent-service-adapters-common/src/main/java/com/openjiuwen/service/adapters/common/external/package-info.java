@@ -6,6 +6,6 @@
  * Engine-agnostic external egress: HTTP client templates, MCP transport setup, retry/timeout
  * DFX, and shared outbound configuration.
  * <p>Binding into an execution engine SPI is done in the engine leaf {@code external} package
- * (e.g. {@code agentcore.external}, {@code versatile.external}).
+ * Outbound integration types for adapter modules (custom {@code AgentHandler} implementations).
  */
 package com.openjiuwen.service.adapters.common.external;

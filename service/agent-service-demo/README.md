@@ -2,7 +2,7 @@
 
 上级文档：[service/README.md](../README.md) · [开发指南](../../documents/zh/2.开发指南/README.md) · [HTTP 对话面](../../documents/zh/2.开发指南/HTTP对话面.md)
 
-这是 Issue #12 的最小 Spring Boot 示例工程，目前串联的是 Issue #3 Query API 链路。
+这是 Issue #12 的最小 Spring Boot 示例工程，串联 Query API（#3）、Middleware Checkpointer（#9）与 AgentCore Handler（#10）等链路。
 
 ## 启动
 
@@ -265,6 +265,15 @@ BASE_URL=http://localhost:18090 agent-service-demo/scripts/smoke-query.sh
 
 ## 配置示例
 
+`src/main/resources/application.yml` 已包含 Issue #9 **middleware** 配置（默认 `checkpointer.type=in_memory`）。本地 Redis checkpoint 可启用 profile：
+
+```bash
+mvn -pl agent-service-demo -am spring-boot:run \
+  -Dspring-boot.run.profiles=redis-checkpointer
+```
+
+需本机 `127.0.0.1:6379` 无密码 Redis；正式 LLM 模式下多轮会话可跨进程恢复。
+
 ```yaml
 server:
   port: 8090
@@ -274,6 +283,7 @@ openjiuwen:
     llm:
       auto-discover: true
   service:
+    version: 0.1.0
     enabled: true
     query:
       enabled: true
@@ -282,4 +292,23 @@ openjiuwen:
       webflux:
         enabled: true
       legacy-path-enabled: true
+    middleware:
+      checkpointer:
+        type: in_memory        # in_memory | redis
+        redis-ref: default
+      session-store:
+        type: none             # P2 placeholder
+      object-storage:
+        type: none
+      vector-store:
+        type: none
+      redis:
+        default:
+          host: 127.0.0.1
+          port: 6379
+          database: 0
+          timeout-ms: 3000
+          encrypted-password: ""   # Passthrough decrypt; no plain password field
 ```
+
+将 `checkpointer.type` 改为 `redis` 即写入 `RunnerConfig.checkpointerConfig` 并走 Core Redis checkpointer。自定义解密实现可注册 `@Bean CredentialDecryptor`（与 Issue #11 External 共用）。

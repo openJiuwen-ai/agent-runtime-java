@@ -5,6 +5,8 @@
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import com.openjiuwen.core.runner.Runner;
+import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.session.stream.TraceSchema;
@@ -39,19 +41,28 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private static final String INPUT_TENANT_ID = "tenant_id";
 
     private final Object agent;
+    private final MiddlewareAdapterRegistrar middlewareAdapterRegistrar;
 
     protected Object getAgent() {
         return agent;
     }
 
     public JiuwenCoreAgentHandler(Object agent) {
+        this(agent, null);
+    }
+
+    public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar) {
         this.agent = agent;
+        this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
     }
 
     @Override
     public void start() {
         if (!RUNNER_STARTED.compareAndSet(false, true)) {
             return;
+        }
+        if (middlewareAdapterRegistrar != null) {
+            middlewareAdapterRegistrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
         }
         log.info("Starting AgentCore Runner");
         Runner.start();

@@ -19,7 +19,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -34,7 +35,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * AC1: app + agentcore adapter assembly â€” pure {@code agent-id} without business {@code @Bean AgentHandler}.
+ * AC1: app + agentcore adapter assembly — pure {@code agent-id} without business {@code @Bean AgentHandler}.
  */
 @SpringBootTest(classes = AgentCoreHandlerAutoConfigurationIntegrationTest.CoreAgentApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -42,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "openjiuwen.service.agent-id=it-agent",
         "openjiuwen.service.query.webflux.enabled=false"
 })
+@AutoConfigureTestRestTemplate
 class AgentCoreHandlerAutoConfigurationIntegrationTest {
 
     private static final String AGENT_ID = "it-agent";

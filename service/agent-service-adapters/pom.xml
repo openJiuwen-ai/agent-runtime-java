@@ -21,7 +21,5 @@
     <modules>
         <module>agent-service-adapters-common</module>
         <module>agent-service-adapters-agentcore</module>
-        <module>agent-service-adapters-agentcore-ext</module>
-        <module>agent-service-adapters-versatile</module>
     </modules>
 </project>

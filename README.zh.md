@@ -16,7 +16,7 @@
 
 - **清晰的模块边界**：`spec`（契约与 SPI）→ `adapters`（引擎适配）→ `app`（Ingress + Orchestrator），依赖单向、便于定制镜像。
 
-- **多种 Handler 后端**：默认 **Agent Core** 高码链路；可选 **agentcore-ext**（中断/挂起扩展）、**versatile**（HTTP 调远端低码）。
+- **单一 Core Handler 后端**：默认 **Agent Core** 高码链路；其他执行后端通过自定义 `AgentHandler` 接入。
 
 ## 快速开始
 
@@ -97,7 +97,7 @@ mock 模式下预期：`{"result":{"content":"demo:hello",...}}`。
 **Agent Server 数据面调用链**：
 
 ```text
-HTTP Controller → ServeOrchestrator → AgentHandler → (Core Runner / Versatile HTTP)
+HTTP Controller → ServeOrchestrator → AgentHandler → Core Runner
 ```
 
 Controller **禁止**绕过 Orchestrator 直连 Runner。
@@ -116,9 +116,7 @@ Controller **禁止**绕过 Orchestrator 直连 Runner。
 | Handler 选型 | 配置 | 说明 |
 |--------------|------|------|
 | **agentcore**（默认） | `openjiuwen.service.agent-id` | `JiuwenCoreAgentHandler` → Core `Runner` |
-| **agentcore-ext** | `handler=agentcore-ext` + `agent-id` | 中断事件、挂起/恢复扩展 |
-| **versatile** | `handler=versatile` + `versatile.base-url` | HTTP 调远端 Versatile |
-| **自定义** | `@Bean AgentHandler` | 覆盖默认装配 |
+| **自定义** | `@Bean AgentHandler` | 覆盖默认装配（中断、远端引擎等） |
 
 ### 生命周期
 
@@ -136,7 +134,7 @@ Controller **禁止**绕过 Orchestrator 直连 Runner。
 agent-runtime-java/
 ├── service/
 │   ├── agent-service-spec/          # 契约：paths / dto / spi
-│   ├── agent-service-adapters/      # 聚合：common / agentcore / agentcore-ext / versatile
+│   ├── agent-service-adapters/      # 聚合：common / agentcore
 │   ├── agent-service-app/           # Controller + Orchestrator + Lifecycle + AutoConfig
 │   └── agent-service-demo/          # 可运行示例
 ├── documents/zh/                    # 中文开发指南

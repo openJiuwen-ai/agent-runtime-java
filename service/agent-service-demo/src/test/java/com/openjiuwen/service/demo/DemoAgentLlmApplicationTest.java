@@ -22,7 +22,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -42,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(classes = DemoAgentApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 class DemoAgentLlmApplicationTest {
 
     private static final String TEST_PROVIDER = "DemoCoreMemoryProvider";
@@ -81,13 +83,13 @@ class DemoAgentLlmApplicationTest {
     @SuppressWarnings("unchecked")
     void configuredLlmUsesCoreSessionForMultiTurnContext() throws Exception {
         ResponseEntity<String> first = postQuery(Map.of(
-                "message", "我叫小明",
+                "message", "????",
                 "conversation_id", "memory-c1",
                 "stream", false));
         assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
 
         ResponseEntity<String> second = postQuery(Map.of(
-                "message", "我叫什么",
+                "message", "????",
                 "conversation_id", "memory-c1",
                 "stream", false));
 
@@ -95,12 +97,12 @@ class DemoAgentLlmApplicationTest {
         Map<String, Object> json = mapper.readValue(second.getBody(), Map.class);
         Map<String, Object> result = (Map<String, Object>) json.get("result");
         assertThat(result).containsEntry("role", "assistant");
-        assertThat(result.get("content")).asString().contains("小明");
+        assertThat(result.get("content")).asString().contains("??");
 
         assertThat(MODEL_MESSAGES).hasSizeGreaterThanOrEqualTo(2);
         List<Map<String, Object>> secondCallMessages = MODEL_MESSAGES.get(MODEL_MESSAGES.size() - 1);
         assertThat(secondCallMessages).extracting(message -> String.valueOf(message.get("content")))
-                .contains("我叫小明", "我叫什么");
+                .contains("????", "????");
     }
 
     private ResponseEntity<String> postQuery(Map<String, Object> body) {
@@ -137,10 +139,10 @@ class DemoAgentLlmApplicationTest {
             String joined = converted.stream()
                     .map(message -> String.valueOf(message.get("content")))
                     .reduce("", (left, right) -> left + "\n" + right);
-            if (joined.contains("我叫小明") && joined.contains("我叫什么")) {
-                return new AssistantMessage("你叫小明");
+            if (joined.contains("????") && joined.contains("????")) {
+                return new AssistantMessage("????");
             }
-            return new AssistantMessage("好的，小明");
+            return new AssistantMessage("?????");
         }
 
         @Override
