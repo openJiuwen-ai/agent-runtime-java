@@ -4,9 +4,12 @@
 
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
+import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
+import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -91,6 +94,30 @@ class JiuwenCoreAgentHandlerTest {
         assertThat(agent.nextCount.get()).isEqualTo(1);
     }
 
+    @Test
+    void queryProvidesStableAgentIdForPlainAgentSession() {
+        SessionMetadataAgent agent = new SessionMetadataAgent();
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
+
+        handler.query(request("c-plain-agent", "hello"));
+
+        assertThat(agent.agentId).isEqualTo(
+                "service-agentcore:" + SessionMetadataAgent.class.getName());
+    }
+
+    @Test
+    void stringAgentIdProvidesStableAgentIdForCoreSession() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("it-agent");
+
+        Object session = handler.runnerSession(request("c-string-agent", "hello"));
+
+        assertThat(session).isInstanceOf(AgentSessionApi.class);
+        if (!(session instanceof AgentSessionApi agentSession)) {
+            throw new AssertionError("Expected AgentSessionApi session");
+        }
+        assertThat(agentSession.getAgentId()).isEqualTo("it-agent");
+    }
+
     private static ServeRequest request(String conversationId, String content) {
         ServeRequest request = new ServeRequest();
         request.setConversationId(conversationId);
@@ -119,6 +146,19 @@ class JiuwenCoreAgentHandlerTest {
         handler.start();
 
         assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isTrue();
+        handler.stop();
+    }
+
+    @Test
+    void startRegistersExternalServicesOnceBeforeRunnerStarts() {
+        RecordingRegistrar registrar = new RecordingRegistrar();
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id", registrar);
+
+        handler.start();
+        handler.start();
+
+        assertThat(registrar.registerToCalls).isZero();
+        assertThat(registrar.registerToRunnerCalls).isEqualTo(1);
         handler.stop();
     }
 
@@ -200,6 +240,32 @@ class JiuwenCoreAgentHandlerTest {
                     return new OutputSchema("llm_output", index, payload);
                 }
             };
+        }
+    }
+
+    public static class SessionMetadataAgent {
+        private String agentId;
+
+        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+            if (session instanceof AgentSessionApi agentSession) {
+                this.agentId = agentSession.getAgentId();
+            }
+            return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "ok"))).iterator();
+        }
+    }
+
+    private static final class RecordingRegistrar implements ExternalSvcAdapterRegistrar {
+        private int registerToCalls;
+        private int registerToRunnerCalls;
+
+        @Override
+        public void registerTo(RunnerConfig runnerConfig) {
+            registerToCalls++;
+        }
+
+        @Override
+        public void registerToRunner() {
+            registerToRunnerCalls++;
         }
     }
 }

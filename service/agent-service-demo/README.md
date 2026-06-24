@@ -32,6 +32,14 @@ Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> LlmAgent
 
 详见 [Adapters 与 Handler](../../documents/zh/2.开发指南/Adapters与Handler.md#自定义-handler-模板)。
 
+## External Adapter 示例
+
+| 目录 | 用途 |
+| --- | --- |
+| `example/mcp` | MCP 配置、Mock MCP Server、Tool 调用示例 |
+| `example/remote` | A2A Remote 出站装饰和 Core `RemoteClientFactory` 示例 |
+| `example/sandbox` | Sandbox 启用配置、服务 URL 校验、Core `SandboxClient` 创建示例 |
+
 ## 接口
 
 当前 demo 接入 Agent Service 基础端点：
@@ -260,8 +268,36 @@ BASE_URL=http://localhost:18090 agent-service-demo/scripts/smoke-query.sh
 
 - `example/health`: Issue #8 Health 探针示例，包含最小启动类、L1 场景启动类、运行说明、smoke 脚本和 L1 脚本。
 - `example/query`: Issue #3 Query REST 示例，包含最小 `AgentHandler`、L1 场景启动类、运行说明、smoke 脚本和 L1 脚本。
+- `example/mcp`: Issue #11 外部 MCP 示例，包含本地 Mock MCP Server、`mcp` profile 配置和启动说明。
+- `example/remote`: Issue #11 A2A Remote 示例，展示 `A2A` provider 注册和 Remote 出站治理配置。
 
-这些 example 只用于验证 REST 服务接入，不依赖真实大模型，也不包含正式测试设计文档。
+这些 example 用于演示 Agent Service 的典型接入方式，不包含正式测试设计文档。`health` 和 `query` 示例不依赖真实大模型；`mcp` 示例需要启用正式 Core 链路，并建议配合真实大模型配置使用；`remote` 示例只演示 A2A Remote client 创建链路，真实调用需要外部 A2A server。
+
+## 外部 MCP 示例（Issue #11）
+
+demo 提供 `mcp` profile 展示外部 MCP 出站配置，配置文件位于 `src/main/resources/application-mcp.yml`。它不会在默认启动时生效，需要显式启用：
+
+```bash
+OPENJIUWEN_API_CONFIG=/path/to/apiconfig.json \
+DEMO_MCP_SERVER_PATH=http://localhost:18080/mcp \
+mvn -pl agent-service-demo -am spring-boot:run \
+  -Dspring-boot.run.profiles=mcp \
+  -Dspring-boot.run.arguments="--openjiuwen.demo.llm.enabled=true"
+```
+
+完整本地演示，包括如何启动 Mock MCP Server、如何配置超时、重试和熔断，见 [example/mcp/README.md](example/mcp/README.md)。
+
+## A2A Remote 示例（Issue #11）
+
+demo 提供 `a2a-remote` profile 展示 A2A Remote 对端地址和出站治理配置，配置文件位于 `src/main/resources/application-a2a-remote.yml`。其中 `openjiuwen.service.external.remote.clients[].url` 是对端 A2A 服务地址。它不会在默认启动时生效，需要显式启用：
+
+```bash
+mvn -pl agent-service-demo -am spring-boot:run \
+  -Dspring-boot.run.profiles=a2a-remote \
+  -Dspring-boot.run.arguments="--openjiuwen.demo.llm.enabled=true"
+```
+
+完整本地示例，包括如何启动 Mock A2A Server、如何通过 Core `RemoteClientFactory` 创建被装饰的 A2A client 并执行一次 `invoke`，见 [example/remote/README.md](example/remote/README.md)。
 
 ## 配置示例
 
