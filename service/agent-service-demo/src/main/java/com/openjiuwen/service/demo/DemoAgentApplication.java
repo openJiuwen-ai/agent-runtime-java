@@ -10,7 +10,9 @@ import com.openjiuwen.core.application.schema.LlmAgentConfig;
 import com.openjiuwen.core.foundation.llm.schema.BaseModelInfo;
 import com.openjiuwen.core.foundation.llm.schema.ModelConfig;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
+import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -30,13 +32,15 @@ public class DemoAgentApplication {
     }
 
     @Bean
-    AgentHandler demoAgentHandler(DemoLlmProperties llmProperties) {
+    AgentHandler demoAgentHandler(DemoLlmProperties llmProperties,
+            ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
         if (!Boolean.FALSE.equals(llmProperties.getEnabled())) {
             ApiConfigLoader.load(llmProperties.getConfigFile(), llmProperties.isAutoDiscover())
                     .ifPresent(llmProperties::applyFromFile);
         }
         if (llmProperties.shouldUseLlm()) {
-            return new JiuwenCoreAgentHandler(buildLlmAgent(llmProperties));
+            return new JiuwenCoreAgentHandler(buildLlmAgent(llmProperties),
+                    externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
         }
         return new DemoAgentHandler();
     }

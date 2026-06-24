@@ -4,12 +4,15 @@
 
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
+import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
-import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
+import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.session.stream.TraceSchema;
+import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
+import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -18,10 +21,14 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -39,21 +46,37 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private static final String INPUT_USER_ID = "user_id";
     private static final String INPUT_SPACE_ID = "space_id";
     private static final String INPUT_TENANT_ID = "tenant_id";
+    private static final String DEFAULT_AGENT_SESSION_ID = "default_session";
+    private static final String SYNTHETIC_AGENT_ID_PREFIX = "service-agentcore:";
 
     private final Object agent;
     private final MiddlewareAdapterRegistrar middlewareAdapterRegistrar;
+    private final ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar;
 
     protected Object getAgent() {
         return agent;
     }
 
     public JiuwenCoreAgentHandler(Object agent) {
-        this(agent, null);
+        this(agent, null, ExternalSvcAdapterRegistrar.noop());
     }
 
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar) {
+        this(agent, middlewareAdapterRegistrar, ExternalSvcAdapterRegistrar.noop());
+    }
+
+    public JiuwenCoreAgentHandler(Object agent, ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
+        this(agent, null, externalSvcAdapterRegistrar);
+    }
+
+    public JiuwenCoreAgentHandler(Object agent,
+                                  MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
+                                  ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
+        this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
+                ? externalSvcAdapterRegistrar
+                : ExternalSvcAdapterRegistrar.noop();
     }
 
     @Override
@@ -65,7 +88,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             middlewareAdapterRegistrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
         }
         log.info("Starting AgentCore Runner");
-        Runner.start();
+        try {
+            externalSvcAdapterRegistrar.registerToRunner();
+            Runner.start();
+        } catch (RuntimeException | Error ex) {
+            RUNNER_STARTED.set(false);
+            throw ex;
+        }
     }
 
     @Override
@@ -100,12 +129,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     @Override
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         try {
+            List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
             Iterator<Object> source = Runner.runAgentStreaming(
                     agent,
                     buildInputs(request),
-                    request.getConversationId(),
+                    runnerSession(request),
                     null,
-                    List.of(StreamMode.OUTPUT));
+                    streamModes);
             while (!observer.isCancelled() && source.hasNext()) {
                 if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
                     break;
@@ -125,12 +155,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     public QueryResponse query(ServeRequest request) {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
+        List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
         Iterator<Object> source = Runner.runAgentStreaming(
                 agent,
                 buildInputs(request),
-                request.getConversationId(),
+                runnerSession(request),
                 null,
-                List.of(StreamMode.OUTPUT));
+                streamModes);
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
             lastPayload = payload;
@@ -156,6 +187,47 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             inputs.put(INPUT_QUERY, query);
         }
         return inputs;
+    }
+
+    protected Object runnerSession(ServeRequest request) {
+        String conversationId = request.getConversationId();
+        if (hasAgentCard(agent)) {
+            return conversationId;
+        }
+        String sessionId = conversationId != null && !conversationId.isBlank()
+                ? conversationId
+                : DEFAULT_AGENT_SESSION_ID;
+        String agentId = agent instanceof String stringAgentId
+                ? stringAgentId
+                : SYNTHETIC_AGENT_ID_PREFIX + agent.getClass().getName();
+        String agentName = agent instanceof String stringAgentId
+                ? stringAgentId
+                : agent.getClass().getSimpleName();
+        BaseCard card = BaseCard.builder()
+                .id(agentId)
+                .name(agentName)
+                .description("Synthetic card for AgentCore session")
+                .build();
+        return new AgentSessionApi(sessionId, null, card, List.of(StreamMode.OUTPUT));
+    }
+
+    private static boolean hasAgentCard(Object target) {
+        if (target == null) {
+            return false;
+        }
+        try {
+            Method getter = target.getClass().getMethod("getCard");
+            return getter.invoke(target) != null;
+        } catch (ReflectiveOperationException ignored) {
+            // Fall through to field access.
+        }
+        try {
+            Field field = target.getClass().getDeclaredField("card");
+            field.setAccessible(true);
+            return field.get(target) != null;
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
     }
 
     protected static Object normalizeChunk(Object chunk) {
@@ -187,19 +259,29 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         Object type = map.get("type");
         Object rawPayload = map.get("payload");
-        Object text = firstNonNull(map.get("content"), map.get("delta"), map.get("output"), map.get("response"));
+        Optional<Object> text = firstNonNull(
+                map.get("content"),
+                map.get("delta"),
+                map.get("output"),
+                map.get("response"));
         if (rawPayload instanceof Map<?, ?> payloadMap) {
-            text = firstNonNull(payloadMap.get("content"), payloadMap.get("delta"),
-                    payloadMap.get("output"), payloadMap.get("response"), text);
+            Optional<Object> payloadText = firstNonNull(
+                    payloadMap.get("content"),
+                    payloadMap.get("delta"),
+                    payloadMap.get("output"),
+                    payloadMap.get("response"));
+            if (payloadText.isPresent()) {
+                text = payloadText;
+            }
         }
-        if (text == null) {
+        if (text.isEmpty()) {
             return;
         }
         String typeText = type == null ? "" : String.valueOf(type);
         if ("answer".equals(typeText) && !content.isEmpty()) {
             return;
         }
-        content.append(stringify(text));
+        content.append(stringify(text.get()));
     }
 
     protected static Map<String, Object> errorEvent(Exception ex) {
@@ -209,13 +291,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return error;
     }
 
-    private static Object firstNonNull(Object... values) {
-        for (Object value : values) {
-            if (value != null) {
-                return value;
-            }
-        }
-        return null;
+    private static Optional<Object> firstNonNull(Object... values) {
+        return Arrays.stream(values)
+                .filter(value -> value != null)
+                .findFirst();
     }
 
     protected static String stringify(Object value) {

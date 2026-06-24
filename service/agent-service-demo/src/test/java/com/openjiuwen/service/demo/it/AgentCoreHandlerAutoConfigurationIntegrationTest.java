@@ -35,7 +35,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * AC1: app + agentcore adapter assembly — pure {@code agent-id} without business {@code @Bean AgentHandler}.
+ * AC1: app + agentcore adapter assembly - pure {@code agent-id} without business {@code @Bean AgentHandler}.
  */
 @SpringBootTest(classes = AgentCoreHandlerAutoConfigurationIntegrationTest.CoreAgentApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

@@ -3,8 +3,8 @@
  */
 
 /**
- * Engine-agnostic external egress: HTTP client templates, MCP transport setup, retry/timeout
- * DFX, and shared outbound configuration.
+ * Engine-agnostic external egress: retry / timeout / circuit breaker / audit DFX,
+ * shared error semantics, and outbound execution helpers.
  * <p>Binding into an execution engine SPI is done in the engine leaf {@code external} package
  * Outbound integration types for adapter modules (custom {@code AgentHandler} implementations).
  */
