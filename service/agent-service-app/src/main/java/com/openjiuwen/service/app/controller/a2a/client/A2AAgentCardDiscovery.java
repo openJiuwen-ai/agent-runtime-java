@@ -6,8 +6,12 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
+import jakarta.annotation.PreDestroy;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.slf4j.Logger;
@@ -26,11 +30,13 @@ import org.springframework.web.client.RestClient;
 public class A2AAgentCardDiscovery {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentCardDiscovery.class);
     private static final long RETRY_INTERVAL_SECONDS = 30L;
+    private static final long SHUTDOWN_TIMEOUT_SECONDS = 5L;
 
     private final A2AProperties properties;
     private final A2ARemoteAgentCardRegistry registry;
     private final RestClient restClient;
-    private final ScheduledThreadPoolExecutor retryExecutor;
+    private final ScheduledExecutorService retryExecutor;
+    private final Map<String, ScheduledFuture<?>> retryFutures = new ConcurrentHashMap<>();
 
     /**
      * Constructs the agent card discovery service.
@@ -42,7 +48,7 @@ public class A2AAgentCardDiscovery {
         this.properties = properties;
         this.registry = registry;
         this.restClient = RestClient.create();
-        this.retryExecutor = new ScheduledThreadPoolExecutor(1, r -> {
+        this.retryExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "a2a-discovery-retry");
             t.setDaemon(true);
             t.setUncaughtExceptionHandler((thread, ex) ->
@@ -71,18 +77,24 @@ public class A2AAgentCardDiscovery {
         } catch (org.springframework.web.client.RestClientException e) {
             log.warn("Failed to discover {}, retry every {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
                     e.getMessage());
-            retryExecutor.scheduleWithFixedDelay(() -> {
+            ScheduledFuture<?> future = retryExecutor.scheduleWithFixedDelay(() -> {
                 try {
                     discoverAndRegister(remote);
                     log.info("Retry successful, discovered remote agent '{}'", remote.getName());
-                    throw new CancellationException();
-                } catch (CancellationException ex) {
-                    throw ex;
+                    cancelRetry(remote.getName());
                 } catch (org.springframework.web.client.RestClientException ex) {
                     log.warn("Retry {} failed, will retry in {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
                             ex.getMessage());
                 }
             }, RETRY_INTERVAL_SECONDS, RETRY_INTERVAL_SECONDS, TimeUnit.SECONDS);
+            retryFutures.put(remote.getName(), future);
+        }
+    }
+
+    private void cancelRetry(String agentName) {
+        ScheduledFuture<?> future = retryFutures.remove(agentName);
+        if (future != null) {
+            future.cancel(false);
         }
     }
 
@@ -95,5 +107,25 @@ public class A2AAgentCardDiscovery {
     AgentCard fetchCard(String baseUrl) {
         String cardUrl = baseUrl.replaceAll("/$", "") + "/.well-known/agent-card.json";
         return restClient.get().uri(cardUrl).accept(MediaType.APPLICATION_JSON).retrieve().body(AgentCard.class);
+    }
+
+    /**
+     * Shuts down the retry executor gracefully, cancelling all pending retries and waiting for any in-flight
+     * task to complete before forcing termination.
+     */
+    @PreDestroy
+    public void shutdown() {
+        log.info("Shutting down A2A discovery retry executor");
+        retryFutures.values().forEach(f -> f.cancel(false));
+        retryFutures.clear();
+        retryExecutor.shutdown();
+        try {
+            if (!retryExecutor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                retryExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            retryExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }
