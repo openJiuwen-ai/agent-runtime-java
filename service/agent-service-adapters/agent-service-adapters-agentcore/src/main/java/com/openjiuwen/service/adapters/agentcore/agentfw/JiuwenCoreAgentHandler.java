@@ -11,6 +11,9 @@ import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.session.stream.TraceSchema;
+import com.openjiuwen.core.session.interaction.InteractionOutput;
+import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
+import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -39,6 +42,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static final Logger log = LoggerFactory.getLogger(JiuwenCoreAgentHandler.class);
     private static final AtomicBoolean RUNNER_STARTED = new AtomicBoolean(false);
+
+    /** agent-core-java OutputSchema type name for tool-call interrupts. */
+    private static final String INTERACTION_TYPE = "__interaction__";
 
     private static final String INPUT_QUERY = "query";
     private static final String INPUT_CONVERSATION_ID = "conversation_id";
@@ -130,8 +136,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         String convId = request.getConversationId();
         String query = request.lastUserQuery();
-        log.info("JiuwenCoreAgentHandler streamQuery convId={} query={} msgCount={}",
-                convId, query, request.getMessages() != null ? request.getMessages().size() : 0);
+        log.info("JiuwenCoreAgentHandler streamQuery convId={} textLen={} msgCount={}",
+                convId, query != null ? query.length() : 0,
+                request.getMessages() != null ? request.getMessages().size() : 0);
         try {
             List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
             Iterator<Object> source = Runner.runAgentStreaming(
@@ -176,7 +183,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
-        if (lastPayload instanceof Map<?,?> raw && "__interaction__".equals(raw.get("type"))) {
+        if (lastPayload instanceof Map<?,?> raw && INTERACTION_TYPE.equals(raw.get("type"))) {
             @SuppressWarnings("unchecked")
             Map<String, Object> m = (Map<String, Object>) raw;
             result.put("_interrupt", m);
@@ -247,7 +254,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     protected static Object normalizeChunk(Object chunk) {
         if (chunk instanceof OutputSchema output) {
             // agent-core-java interrupt: map __interaction__ to structured form
-            if ("__interaction__".equals(output.getType())) {
+            if (INTERACTION_TYPE.equals(output.getType())) {
                 log.info("JiuwenCoreAgentHandler interrupt detected type={}", output.getType());
                 return toInterruptData(output);
             }
@@ -280,36 +287,31 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private static String mapToQueryChunkType(Object normalized) {
         if (!(normalized instanceof Map<?, ?> m)) return QueryChunk.TYPE_CHUNK;
         Object rawType = m.get("type");
-        if ("__interaction__".equals(rawType)) return QueryChunk.TYPE_INTERRUPT;
+        if (INTERACTION_TYPE.equals(rawType)) return QueryChunk.TYPE_INTERRUPT;
         if ("answer".equals(rawType)) return QueryChunk.TYPE_ANSWER;
         return QueryChunk.TYPE_CHUNK;
     }
 
     /**
      * Extract structured interrupt data from an InteractionOutput payload.
-     * Uses reflection to avoid a hard compile-scope dependency on agent-core internals.
      */
     private static Map<String, Object> toInterruptData(OutputSchema output) {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("type", "__interaction__");
+        data.put("type", INTERACTION_TYPE);
         data.put("index", output.getIndex());
         Object payload = output.getPayload();
         data.put("payload", payload);
-        // Extract structured fields from ToolCallInterruptRequest via reflection
-        try {
-            Object value = payload.getClass().getMethod("getValue").invoke(payload);
-            if (value != null) {
-                Object message = value.getClass().getMethod("getMessage").invoke(value);
-                if (message instanceof String s) data.put("message", s);
-                Object toolName = value.getClass().getMethod("getToolName").invoke(value);
-                if (toolName instanceof String s) data.put("toolName", s);
-                Object toolCallId = value.getClass().getMethod("getToolCallId").invoke(value);
-                if (toolCallId instanceof String s) data.put("toolCallId", s);
-                Object ctx = value.getClass().getMethod("getContext").invoke(value);
-                if (ctx instanceof Map<?,?> m) data.put("context", m);
+
+        if (payload instanceof InteractionOutput io) {
+            Object value = io.getValue();
+            if (value instanceof InterruptRequest req) {
+                if (req.getMessage() != null) data.put("message", req.getMessage());
+                if (req.getContext() != null) data.put("context", req.getContext());
+                if (value instanceof ToolCallInterruptRequest tcr) {
+                    if (tcr.getToolCallId() != null) data.put("toolCallId", tcr.getToolCallId());
+                    if (tcr.getToolName() != null) data.put("toolName", tcr.getToolName());
+                }
             }
-        } catch (Exception ignored) {
-            // Non-InteractionOutput payload or missing getters; raw data is sufficient
         }
         return data;
     }

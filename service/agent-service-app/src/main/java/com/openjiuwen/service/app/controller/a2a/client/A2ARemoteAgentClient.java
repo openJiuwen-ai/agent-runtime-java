@@ -36,6 +36,7 @@ public class A2ARemoteAgentClient {
     private static final Map<String, Object> ANSWER_META = Map.of("answer", true);
 
     private final A2ARemoteAgentCardRegistry registry;
+    private final Map<String, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry) {
         this.registry = registry;
@@ -87,11 +88,12 @@ public class A2ARemoteAgentClient {
         return new RemoteCallSetup(entry, msgBuilder.build(), ctxId, metadata);
     }
 
-    private static Client createClient(AgentCard card, boolean streaming) {
-        return Client.builder(card)
-                .clientConfig(new ClientConfig.Builder().setStreaming(streaming).build())
-                .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig())
-                .build();
+    private Client createClient(AgentCard card, boolean streaming) {
+        return clientCache.computeIfAbsent(card.name() + ":" + streaming, k ->
+                Client.builder(card)
+                        .clientConfig(new ClientConfig.Builder().setStreaming(streaming).build())
+                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig())
+                        .build());
     }
 
     /** Shared: handle INPUT_REQUIRED status on a CompletableFuture. */

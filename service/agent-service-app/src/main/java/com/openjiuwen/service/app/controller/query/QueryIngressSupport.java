@@ -10,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Shared ingress logic for Query controllers (header binding, validation, DTO mapping).
@@ -19,6 +20,10 @@ public final class QueryIngressSupport {
     public static final String HEADER_USER_ID = "X-User-ID";
     public static final String HEADER_SPACE_ID = "X-Space-ID";
     public static final String HEADER_TENANT_ID = "X-Tenant-ID";
+
+    private static final Set<String> EXCLUDED_HEADERS = Set.of(
+            "authorization", "cookie", "set-cookie", "x-api-key",
+            "proxy-authorization", "x-csrf-token");
 
     private QueryIngressSupport() {
     }
@@ -71,7 +76,11 @@ public final class QueryIngressSupport {
         Map<String, Object> metadata = new LinkedHashMap<>();
 
         Map<String, String> headerMap = new LinkedHashMap<>();
-        headers.forEach((k, v) -> headerMap.put(k.toLowerCase(), v.get(0)));
+        headers.forEach((k, v) -> {
+            if (!EXCLUDED_HEADERS.contains(k.toLowerCase())) {
+                headerMap.put(k.toLowerCase(), v.get(0));
+            }
+        });
         metadata.put("headers", headerMap);
 
         metadata.put("query", queryParams != null ? queryParams : Map.of());
