@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+ */
+
+
 package com.openjiuwen.a2a;
 
 import com.openjiuwen.service.spec.dto.QueryChunk;

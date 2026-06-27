@@ -50,8 +50,8 @@ public class A2AAgentExecutor implements AgentExecutor {
     public void execute(RequestContext ctx, AgentEmitter emitter) {
         A2AMessageContext msgCtx = A2AMessageContext.from(ctx);
         ServeRequest req = adapter.toServeRequest(msgCtx);
-        if (ctx.getCallContext().getState().get("_a2a_stream") instanceof Boolean stream) {
-            req.setStream(stream);
+        if (ctx.getCallContext().getState().get("_a2a_stream") instanceof Boolean isStream) {
+            req.setStream(isStream);
         }
 
         boolean isResume = ctx.getTask() != null;

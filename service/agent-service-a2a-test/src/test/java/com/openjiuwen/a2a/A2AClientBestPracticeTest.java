@@ -1,9 +1,17 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+ */
+
+
 package com.openjiuwen.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
@@ -47,6 +55,7 @@ import org.springframework.context.ConfigurableApplicationContext;
  */
 class A2AClientBestPracticeTest {
 
+    private static final Logger log = LoggerFactory.getLogger(A2AClientBestPracticeTest.class);
     private static ConfigurableApplicationContext agentB;
     private static String agentBBaseUrl;
     private static AgentCard agentCard;
@@ -71,10 +80,10 @@ class A2AClientBestPracticeTest {
                 .httpClient(httpClient)
                 .build()
                 .getAgentCard();
-        System.out.println("AgentCard fetched: " + agentCard.name());
-        System.out.println("  URL: " + agentCard.url());
+        log.info("AgentCard fetched: " + agentCard.name());
+        log.info("  URL: " + agentCard.url());
         agentCard.supportedInterfaces().forEach(iface ->
-                System.out.println("  Interface: " + iface.protocolBinding() + " → " + iface.url()));
+                log.info("  Interface: " + iface.protocolBinding() + " → " + iface.url()));
     }
 
     @AfterAll
@@ -96,8 +105,8 @@ class A2AClientBestPracticeTest {
                        "\"params\":{\"message\":{\"role\":\"ROLE_USER\"," +
                        "\"parts\":[{\"text\":\"hello\"}]}}}");
         var response = postBuilder.post();
-        System.out.println("Status: " + response.status());
-        System.out.println("Body: " + response.body().substring(0, Math.min(300, response.body().length())));
+        log.info("Status: " + response.status());
+        log.info("Body: " + response.body().substring(0, Math.min(300, response.body().length())));
         assertThat(response.success()).isTrue();
     }
 
@@ -114,7 +123,7 @@ class A2AClientBestPracticeTest {
         // Correct parameter order: (requestId, method, payload)
         String body = JSONRPCUtils.toJsonRPCRequest(
                 null, "SendMessage", protoReq);
-        System.out.println("JSON-RPC body: " + body);
+        log.info("JSON-RPC body: " + body);
 
         // Post this exact body directly
         java.net.http.HttpClient http11 = java.net.http.HttpClient.newBuilder()
@@ -127,8 +136,8 @@ class A2AClientBestPracticeTest {
                 .build();
         var response = http11.send(request,
                 java.net.http.HttpResponse.BodyHandlers.ofString());
-        System.out.println("Status: " + response.statusCode());
-        System.out.println("Body: " + response.body().substring(0,
+        log.info("Status: " + response.statusCode());
+        log.info("Body: " + response.body().substring(0,
                 Math.min(200, response.body().length())));
         assertThat(response.statusCode()).isEqualTo(200);
     }
@@ -145,7 +154,7 @@ class A2AClientBestPracticeTest {
         var config = new JSONRPCTransportConfig(jdkClient);
         var iface = agentCard.supportedInterfaces().get(0);
         var transport = provider.create(config, agentCard, iface);
-        System.out.println("Transport created: " + transport.getClass().getSimpleName());
+        log.info("Transport created: " + transport.getClass().getSimpleName());
 
         var params = MessageSendParams.builder()
                 .message(Message.builder()
@@ -156,7 +165,7 @@ class A2AClientBestPracticeTest {
                         .build())
                 .build();
         var result = transport.sendMessage(params, null);
-        System.out.println("Result class: " + result.getClass().getSimpleName());
+        log.info("Result class: " + result.getClass().getSimpleName());
         assertThat(result instanceof Task && ((Task) result).status().state().isFinal()).isTrue();
     }
 
@@ -188,10 +197,10 @@ class A2AClientBestPracticeTest {
                 .addHeader("A2A-Version", "1.0")
                 .body(transportBody);
         var response = postBuilder.post();
-        System.out.println("=== Via JdkA2AHttpClient.createPost() ===");
-        System.out.println("URL: " + transportUrl);
-        System.out.println("Status: " + response.status());
-        System.out.println("Body: " + response.body().substring(0, Math.min(200, response.body().length())));
+        log.info("=== Via JdkA2AHttpClient.createPost() ===");
+        log.info("URL: " + transportUrl);
+        log.info("Status: " + response.status());
+        log.info("Body: " + response.body().substring(0, Math.min(200, response.body().length())));
         assertThat(response.success()).isTrue();
     }
 
@@ -199,15 +208,15 @@ class A2AClientBestPracticeTest {
     void buildBaseUrlTest() {
         // Verify the URL JSONRPCTransport will actually use
         var iface = agentCard.supportedInterfaces().get(0);
-        System.out.println("Interface URL: " + iface.url());
+        log.info("Interface URL: " + iface.url());
         String builtUrl = org.a2aproject.sdk.util.Utils.buildBaseUrl(iface, null);
-        System.out.println("buildBaseUrl result: " + builtUrl);
+        log.info("buildBaseUrl result: " + builtUrl);
         // Create the exact same URI as the transport uses
         var uri = java.net.URI.create(builtUrl);
-        System.out.println("URI: " + uri);
-        System.out.println("  host: " + uri.getHost());
-        System.out.println("  port: " + uri.getPort());
-        System.out.println("  path: " + uri.getPath());
+        log.info("URI: " + uri);
+        log.info("  host: " + uri.getHost());
+        log.info("  port: " + uri.getPort());
+        log.info("  path: " + uri.getPath());
     }
 
     @Test
@@ -227,8 +236,8 @@ class A2AClientBestPracticeTest {
                 .build();
         java.net.http.HttpResponse<String> response = client.send(request,
                 java.net.http.HttpResponse.BodyHandlers.ofString());
-        System.out.println("Status: " + response.statusCode());
-        System.out.println("Body: " + response.body().substring(0, Math.min(300, response.body().length())));
+        log.info("Status: " + response.statusCode());
+        log.info("Body: " + response.body().substring(0, Math.min(300, response.body().length())));
         assertThat(response.statusCode()).isEqualTo(200);
     }
 
@@ -239,7 +248,7 @@ class A2AClientBestPracticeTest {
         CompletableFuture<Task> finalTask = new CompletableFuture<>();
         List<BiConsumer<ClientEvent, AgentCard>> consumers = new ArrayList<>();
         consumers.add((event, card) -> {
-            System.out.println("Received event: " + event.getClass().getSimpleName());
+            log.info("Received event: " + event.getClass().getSimpleName());
             if (event instanceof MessageEvent msgEvent) {
                 Message msg = msgEvent.getMessage();
                 StringBuilder sb = new StringBuilder();
@@ -251,7 +260,7 @@ class A2AClientBestPracticeTest {
                 responseText.complete(sb.toString());
             } else if (event instanceof TaskEvent te) {
                 Task task = te.getTask();
-                System.out.println("  Task state: " + task.status().state());
+                log.info("  Task state: " + task.status().state());
                 if (task.status().state().isFinal()) {
                     finalTask.complete(task);
                     // Extract text from artifacts if not already captured
@@ -272,8 +281,7 @@ class A2AClientBestPracticeTest {
         });
 
         Consumer<Throwable> errorHandler = error -> {
-            System.err.println("Streaming error: " + error.getMessage());
-            error.printStackTrace();
+            log.error("Streaming error: {}", error.getMessage(), error);
             if (!responseText.isDone()) responseText.completeExceptionally(error);
             if (!finalTask.isDone()) finalTask.completeExceptionally(error);
         };
@@ -294,7 +302,7 @@ class A2AClientBestPracticeTest {
                 .withTransport(JSONRPCTransport.class,
                         new JSONRPCTransportConfig(jdkClient))
                 .build();
-        System.out.println("Client built successfully");
+        log.info("Client built successfully");
 
         // 2. Send message per official pattern (with contextId)
         Message message = Message.builder()
@@ -302,15 +310,15 @@ class A2AClientBestPracticeTest {
                 .contextId(java.util.UUID.randomUUID().toString())
                 .parts(List.<Part<?>>of(new TextPart("Find hotels in Beijing")))
                 .build();
-        System.out.println("Sending message...");
+        log.info("Sending message...");
         client.sendMessage(message);
-        System.out.println("Message sent, waiting for response...");
+        log.info("Message sent, waiting for response...");
 
         // 3. Wait for response
         String text = responseText.get(30, TimeUnit.SECONDS);
-        System.out.println("Response: " + text);
+        log.info("Response: " + text);
 
         assertThat(text).isNotBlank();
-        System.out.println("=== TEST PASSED ===");
+        log.info("=== TEST PASSED ===");
     }
 }

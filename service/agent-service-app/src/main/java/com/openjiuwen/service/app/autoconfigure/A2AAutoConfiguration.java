@@ -47,12 +47,12 @@ import java.util.concurrent.Executors;
 @EnableConfigurationProperties(A2AProperties.class)
 public class A2AAutoConfiguration {
 
-    // ======================== SDK Infrastructure ========================
+    // ======================== SDK event bus & task store ========================
 
     @Bean
     @ConditionalOnMissingBean
     public MainEventBus a2aMainEventBus() {
-        return new MainEventBus();
+        return new MainEventBus(); // single event bus for all A2A task queues
     }
 
     @Bean
@@ -69,19 +69,22 @@ public class A2AAutoConfiguration {
             Jedis jedis = RedisJedisClientFactory.createClient(endpoint, pwd);
             return new RedisTaskStore(jedis);
         }
-        return new InMemoryTaskStore();
+        return new InMemoryTaskStore(); // default: in-memory, restart-safe only for dev
     }
+
+    // ======================== SDK push notification & queue ========================
 
     @Bean
     @ConditionalOnMissingBean
     public PushNotificationConfigStore a2aPushNotificationConfigStore() {
-        return new InMemoryPushNotificationConfigStore();
+        return new InMemoryPushNotificationConfigStore(); // no persistent push config needed
     }
 
+    /** No-op sender — push notifications disabled by default. */
     @Bean
     @ConditionalOnMissingBean
     public PushNotificationSender a2aPushNotificationSender() {
-        return (event, task) -> {};
+        return (event, task) -> {}; // noop: push notification not implemented
     }
 
     @Bean
@@ -101,10 +104,10 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public A2AConfigProvider a2aConfigProvider() {
-        return new DefaultValuesConfigProvider();
+        return new DefaultValuesConfigProvider(); // SDK defaults: 30s agent timeout, 5s consumption
     }
 
-    // ======================== Business Beans ========================
+    // ======================== A2A protocol adapter & executor ========================
 
     @Bean
     @ConditionalOnMissingBean
@@ -119,10 +122,12 @@ public class A2AAutoConfiguration {
         return new A2AAgentExecutor(orchestrator, adapter);
     }
 
+    // ======================== A2A client — remote agent registry & discovery ========================
+
     @Bean
     @ConditionalOnMissingBean
     public A2ARemoteAgentCardRegistry a2aRemoteAgentCardRegistry() {
-        return new A2ARemoteAgentCardRegistry();
+        return new A2ARemoteAgentCardRegistry(); // ConcurrentHashMap-backed registry
     }
 
     @Bean
@@ -137,6 +142,8 @@ public class A2AAutoConfiguration {
             A2ARemoteAgentCardRegistry registry) {
         return new A2AAgentCardDiscovery(props, registry);
     }
+
+    // ======================== orchestrator & request handler ========================
 
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)

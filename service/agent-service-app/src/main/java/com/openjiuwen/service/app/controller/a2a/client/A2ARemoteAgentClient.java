@@ -88,10 +88,10 @@ public class A2ARemoteAgentClient {
         return new RemoteCallSetup(entry, msgBuilder.build(), ctxId, metadata);
     }
 
-    private Client createClient(AgentCard card, boolean streaming) {
-        return clientCache.computeIfAbsent(card.name() + ":" + streaming, k ->
+    private Client createClient(AgentCard card, boolean isStreaming) {
+        return clientCache.computeIfAbsent(card.name() + ":" + isStreaming, k ->
                 Client.builder(card)
-                        .clientConfig(new ClientConfig.Builder().setStreaming(streaming).build())
+                        .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
                         .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig())
                         .build());
     }
@@ -131,10 +131,10 @@ public class A2ARemoteAgentClient {
                     handleArtifact(aue, result, streamObserver);
                 } else if (tue.getUpdateEvent() instanceof TaskStatusUpdateEvent sue) {
                     handleStatusUpdate(sue, result);
-                }
+                } // else: ignore unknown update event types
             } else if (event instanceof TaskEvent te) {
                 handleTaskEvent(te, result);
-            }
+            } // else: ignore unknown event types
         }), result::completeExceptionally, null);
 
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
@@ -165,7 +165,7 @@ public class A2ARemoteAgentClient {
             handleInputRequired(result, sue.taskId(), statusText);
         } else if (sue.status().state().isFinal() && !result.isDone()) {
             result.complete("");
-        }
+        } // else: intermediate states (WORKING, SUBMITTED) — no action needed
     }
 
     /** Shared: handle TaskEvent (fallback when stream ends without explicit answer). */
@@ -182,7 +182,7 @@ public class A2ARemoteAgentClient {
                     ? extractText(task.artifacts().get(0).parts()) : "";
             log.info("A2A remote result ({} chars)", text.length());
             result.complete(text);
-        }
+        } // else: intermediate states — no action needed
     }
 
     /**
@@ -193,7 +193,6 @@ public class A2ARemoteAgentClient {
                             Map<String, Object> metadata)
             throws RemoteInputRequiredException {
         var setup = prepareCall(agentName, message, contextId, taskId, metadata);
-        int timeout = setup.entry.timeoutSeconds();
         log.info("A2A sync call agent={} taskId={} contextId={} textLen={}",
                 agentName, taskId != null ? taskId : "new", setup.contextId,
                 message != null ? message.length() : 0);
@@ -213,18 +212,19 @@ public class A2ARemoteAgentClient {
                 result::completeExceptionally,
                 null);
 
+        int timeout = setup.entry.timeoutSeconds();
         try {
             return result.get(timeout, TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
-            throw new RuntimeException("Remote agent '" + agentName + "' timed out after " + timeout + "s", e);
+            throw new RemoteAgentException("Remote agent '" + agentName + "' timed out after " + timeout + "s", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while waiting for remote agent '" + agentName + "'", e);
+            throw new RemoteAgentException("Interrupted while waiting for remote agent '" + agentName + "'", e);
         } catch (java.util.concurrent.ExecutionException e) {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
                 throw rie;
             }
-            throw new RuntimeException("Remote agent '" + agentName + "' failed", e.getCause());
+            throw new RemoteAgentException("Remote agent '" + agentName + "' failed", e.getCause());
         }
     }
 
@@ -245,5 +245,12 @@ public class A2ARemoteAgentClient {
             this.remoteTaskId = remoteTaskId;
         }
         public String getRemoteTaskId() { return remoteTaskId; }
+    }
+
+    /** Wraps remote agent call failures (timeout, interrupted, execution error). */
+    public static class RemoteAgentException extends RuntimeException {
+        public RemoteAgentException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 }
