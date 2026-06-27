@@ -103,10 +103,7 @@ public class QueryWebFluxController {
                 }
                 try {
                     sink.next(ServerSentEvent.builder(QuerySseSupport.toSseData(chunk, objectMapper)).build());
-                } catch (RuntimeException ex) {
-                    cancelled.set(true);
-                    throw new CancellationException(ex.getMessage());
-                } catch (Exception ex) {
+                } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException ex) {
                     cancelled.set(true);
                     throw new CancellationException(ex.getMessage());
                 }

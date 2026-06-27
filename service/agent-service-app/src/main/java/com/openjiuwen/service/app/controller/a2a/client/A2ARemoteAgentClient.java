@@ -38,7 +38,6 @@ import org.slf4j.LoggerFactory;
  * @since 0.1.0
  */
 public class A2ARemoteAgentClient {
-
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
     private static final Map<String, Object> ANSWER_META = Map.of("answer", true);
 

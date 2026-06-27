@@ -7,9 +7,7 @@ package com.openjiuwen.service.app.controller.a2a.client;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.slf4j.Logger;
@@ -26,7 +24,6 @@ import org.springframework.web.client.RestClient;
  * @since 0.1.0
  */
 public class A2AAgentCardDiscovery {
-
     private static final Logger log = LoggerFactory.getLogger(A2AAgentCardDiscovery.class);
     private static final long RETRY_INTERVAL_SECONDS = 30L;
 
@@ -71,7 +68,7 @@ public class A2AAgentCardDiscovery {
     private void tryDiscover(RemoteAgentProperties remote) {
         try {
             discoverAndRegister(remote);
-        } catch (RuntimeException e) {
+        } catch (org.springframework.web.client.RestClientException e) {
             log.warn("Failed to discover {}, retry every {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
                     e.getMessage());
             retryExecutor.scheduleWithFixedDelay(() -> {
@@ -81,7 +78,7 @@ public class A2AAgentCardDiscovery {
                     throw new CancellationException();
                 } catch (CancellationException ex) {
                     throw ex;
-                } catch (RuntimeException ex) {
+                } catch (org.springframework.web.client.RestClientException ex) {
                     log.warn("Retry {} failed, will retry in {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
                             ex.getMessage());
                 }

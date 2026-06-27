@@ -35,7 +35,6 @@ import org.slf4j.LoggerFactory;
  * @since 0.1.0
  */
 public class A2AAgentExecutor implements AgentExecutor {
-
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
 
     private final ServeOrchestrator orchestrator;
@@ -71,7 +70,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             } else {
                 executeQuery(msgCtx, ctx, req, emitter);
             }
-        } catch (RuntimeException ex) {
+        } catch (IllegalStateException | NullPointerException ex) {
             log.error("Agent execution failed for contextId={}", ctx.getContextId(), ex);
             emitter.fail();
         }

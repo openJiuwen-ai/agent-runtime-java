@@ -18,7 +18,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class A2ARemoteAgentCardRegistry {
-
     /**
      * Default timeout in seconds for remote agent calls.
      */

@@ -18,8 +18,10 @@ public class QueryChunk {
 
     /** Final answer chunk type. */
     public static final String TYPE_ANSWER = "answer";
+
     /** Streaming intermediate chunk type. */
     public static final String TYPE_CHUNK = "chunk";
+
     /** Error chunk type. */
     public static final String TYPE_ERROR = "error";
 

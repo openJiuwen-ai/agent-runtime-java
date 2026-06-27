@@ -38,7 +38,6 @@ import org.slf4j.LoggerFactory;
  * Default {@link AgentHandler} for OpenJiuwen agent-core-java, delegating to {@code Runner}.
  */
 public class JiuwenCoreAgentHandler implements AgentHandler {
-
     private static final Logger log = LoggerFactory.getLogger(JiuwenCoreAgentHandler.class);
     private static final AtomicBoolean RUNNER_STARTED = new AtomicBoolean(false);
 

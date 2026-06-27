@@ -44,7 +44,6 @@ import org.springframework.core.env.Environment;
 @EnableConfigurationProperties({ServiceProperties.class, QueryProperties.class, LifecycleProperties.class})
 @ComponentScan(basePackages = "com.openjiuwen.service.app.controller")
 public class AgentServiceAutoConfiguration {
-
     @Bean
     @ConditionalOnMissingBean(AgentHandler.class)
     @ConditionalOnProperty(prefix = "openjiuwen.service", name = "agent-id", havingValue = "", matchIfMissing = true)

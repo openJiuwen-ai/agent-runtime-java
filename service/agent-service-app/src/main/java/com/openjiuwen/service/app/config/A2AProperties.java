@@ -17,7 +17,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "openjiuwen.service.a2a")
 @Data
 public class A2AProperties {
-
     /**
      * Public base URL for AgentCard {@code supportedInterfaces[].url}; auto-detected from HTTP request if blank.
      */
@@ -46,8 +45,9 @@ public class A2AProperties {
 
     private int taskCompletionTimeoutSeconds = 300;
 
-    // ======================== Inner classes ========================
-
+    /**
+     * Skill definition for the AgentCard.
+     */
     @Data
     public static class SkillProperties {
         private String id;
@@ -59,6 +59,9 @@ public class A2AProperties {
         private List<String> outputModes = List.of("text");
     }
 
+    /**
+     * Remote agent discovery configuration.
+     */
     @Data
     public static class RemoteAgentProperties {
         private String name;

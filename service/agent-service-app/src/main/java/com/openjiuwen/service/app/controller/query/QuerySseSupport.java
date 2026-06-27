@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.controller.query;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 
@@ -28,15 +29,15 @@ public final class QuerySseSupport {
         return fallback;
     }
 
-    public static String toJson(QueryChunk chunk, ObjectMapper objectMapper) throws Exception {
+    public static String toJson(QueryChunk chunk, ObjectMapper objectMapper) throws JsonProcessingException {
         return objectMapper.writeValueAsString(payload(chunk));
     }
 
-    public static String toSseData(QueryChunk chunk, ObjectMapper objectMapper) throws Exception {
+    public static String toSseData(QueryChunk chunk, ObjectMapper objectMapper) throws JsonProcessingException {
         return " " + toJson(chunk, objectMapper);
     }
 
-    public static byte[] toSseBytes(QueryChunk chunk, ObjectMapper objectMapper) throws Exception {
+    public static byte[] toSseBytes(QueryChunk chunk, ObjectMapper objectMapper) throws JsonProcessingException {
         return ("data: " + toJson(chunk, objectMapper) + "\n\n").getBytes(StandardCharsets.UTF_8);
     }
 }

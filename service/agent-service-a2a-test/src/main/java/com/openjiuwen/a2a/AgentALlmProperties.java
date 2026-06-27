@@ -10,6 +10,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * LLM configuration properties for Agent A.
+ *
+ * @since 0.1.0
  */
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.agenta.llm")

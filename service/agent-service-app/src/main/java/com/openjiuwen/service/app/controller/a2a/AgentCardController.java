@@ -27,7 +27,6 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 public class AgentCardController {
-
     private final A2AProperties a2aProperties;
     private final AgentServiceIdentity identity;
     private final ServiceProperties serviceProperties;

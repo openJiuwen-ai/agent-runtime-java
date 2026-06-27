@@ -125,9 +125,6 @@ public class QueryMvcController {
                 } catch (IOException | RuntimeException ex) {
                     cancelled.set(true);
                     throw new CancellationException(ex.getMessage());
-                } catch (Exception ex) {
-                    cancelled.set(true);
-                    throw new RuntimeException(ex);
                 }
             }
 

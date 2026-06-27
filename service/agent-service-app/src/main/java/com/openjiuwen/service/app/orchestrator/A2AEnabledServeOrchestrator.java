@@ -42,7 +42,6 @@ import org.slf4j.LoggerFactory;
  * @since 0.1.0
  */
 public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
-
     private static final Logger log = LoggerFactory.getLogger(A2AEnabledServeOrchestrator.class);
 
     private final AgentHandler agentHandler;
@@ -336,17 +335,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     }
 
     /**
-     * Structured interrupt data decoded from a {@code QueryChunk("interrupt")}.
-     */
-    private record InterruptData(String kind, String agentName, String message, String toolCallId, String toolName,
-            String streamMode) {
-        static final String KIND_ASK_USER = "ask_user";
-        static final String KIND_A2A_DELEGATE = "a2a_delegate";
-        static final InterruptData EMPTY = new InterruptData(KIND_ASK_USER, "", "", "", "", "");
-        static final String STREAM_MODE_SSE = "sse";
-    }
-
-    /**
      * No-op stream observer used as a sentinel in sync/query mode.
      */
     private static final QueryStreamObserver NOOP_OBSERVER = new QueryStreamObserver() {
@@ -367,6 +355,17 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             return false;
         }
     };
+
+    /**
+     * Structured interrupt data decoded from a {@code QueryChunk("interrupt")}.
+     */
+    private record InterruptData(String kind, String agentName, String message, String toolCallId, String toolName,
+            String streamMode) {
+        static final String KIND_ASK_USER = "ask_user";
+        static final String KIND_A2A_DELEGATE = "a2a_delegate";
+        static final InterruptData EMPTY = new InterruptData(KIND_ASK_USER, "", "", "", "", "");
+        static final String STREAM_MODE_SSE = "sse";
+    }
 
     /**
      * Sync variant of {@link #tryResumePending} for non-streaming query mode.

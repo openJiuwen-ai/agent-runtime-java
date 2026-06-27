@@ -24,6 +24,7 @@ import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.grpc.utils.JSONRPCUtils;
 import org.a2aproject.sdk.grpc.utils.ProtoUtils;
 import org.a2aproject.sdk.spec.AgentCard;
+import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.Part;
@@ -53,7 +54,6 @@ import org.springframework.context.ConfigurableApplicationContext;
  * </ol>
  */
 class A2AClientBestPracticeTest {
-
     private static final Logger log = LoggerFactory.getLogger(A2AClientBestPracticeTest.class);
     private static ConfigurableApplicationContext agentB;
     private static String agentBBaseUrl;
@@ -296,14 +296,19 @@ class A2AClientBestPracticeTest {
     private static void extractAndComplete(CompletableFuture<String> responseText, Task task) {
         StringBuilder sb = new StringBuilder();
         for (var artifact : task.artifacts()) {
-            if (artifact.parts() != null) {
-                for (Part<?> p : artifact.parts()) {
-                    if (p instanceof TextPart tp) {
-                        sb.append(tp.text());
-                    }
-                }
-            }
+            appendArtifactText(artifact, sb);
         }
         responseText.complete(sb.toString());
+    }
+
+    private static void appendArtifactText(Artifact artifact, StringBuilder sb) {
+        if (artifact.parts() == null) {
+            return;
+        }
+        for (Part<?> p : artifact.parts()) {
+            if (p instanceof TextPart tp) {
+                sb.append(tp.text());
+            }
+        }
     }
 }

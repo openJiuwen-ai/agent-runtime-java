@@ -47,7 +47,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  */
 @RestController
 public class A2aJsonRpcController {
-
     private static final Logger log = LoggerFactory.getLogger(A2aJsonRpcController.class);
     private static final Gson GSON = new Gson();
 
@@ -99,7 +98,7 @@ public class A2aJsonRpcController {
                 case "GetTask" -> handleGetTask(rawBody, id, ctx);
                 default -> badRequest(new A2AError(-32601, "Method not found: " + method, Map.of()), id);
             };
-        } catch (RuntimeException e) {
+        } catch (IllegalStateException | IllegalArgumentException | NullPointerException e) {
             log.error("A2A request failed", e);
             return badRequest(new A2AError(-32603, "Internal error", Map.of()), id);
         } catch (org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
@@ -116,6 +115,8 @@ public class A2aJsonRpcController {
 
             /**
              * Called when the subscription is established.
+             *
+             * @param s the flow subscription
              */
             public void onSubscribe(Flow.Subscription s) {
                 sub = s;
@@ -124,6 +125,8 @@ public class A2aJsonRpcController {
 
             /**
              * Called when a new streaming event is received.
+             *
+             * @param e the streaming event
              */
             public void onNext(StreamingEventKind e) {
                 try {
@@ -140,6 +143,8 @@ public class A2aJsonRpcController {
 
             /**
              * Called when the stream encounters an error.
+             *
+             * @param t the error
              */
             public void onError(Throwable t) {
                 emitter.completeWithError(t);
@@ -182,15 +187,19 @@ public class A2aJsonRpcController {
         if (m.has("parts")) {
             for (var el : m.getAsJsonArray("parts")) {
                 var obj = el.getAsJsonObject();
-                if (obj.has("text") && !obj.get("text").isJsonNull()) {
-                    String text = obj.get("text").getAsString();
-                    if (!text.isBlank()) {
-                        parts.add(new TextPart(text));
-                    }
-                }
+                extractTextPart(obj, parts);
             }
         }
         return parts;
+    }
+
+    private static void extractTextPart(JsonObject obj, List<Part<?>> parts) {
+        if (obj.has("text") && !obj.get("text").isJsonNull()) {
+            String text = obj.get("text").getAsString();
+            if (!text.isBlank()) {
+                parts.add(new TextPart(text));
+            }
+        }
     }
 
     private static Message buildMessage(JsonObject m, List<Part<?>> parts) {
@@ -208,7 +217,8 @@ public class A2aJsonRpcController {
         String contextId = (rawContextId != null && !rawContextId.isBlank()) ? rawContextId : null;
         String rawTaskId = m.has("taskId") && !m.get("taskId").isJsonNull() ? m.get("taskId").getAsString() : null;
         String taskId = (rawTaskId != null && !rawTaskId.isBlank()) ? rawTaskId : null;
-        return Message.builder().role(role).parts(parts).contextId(contextId).taskId(taskId).messageId(messageId).build();
+        return Message.builder().role(role).parts(parts)
+                .contextId(contextId).taskId(taskId).messageId(messageId).build();
     }
 
     /**

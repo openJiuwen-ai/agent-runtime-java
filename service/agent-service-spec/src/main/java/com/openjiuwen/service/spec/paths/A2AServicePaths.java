@@ -10,7 +10,6 @@ package com.openjiuwen.service.spec.paths;
  * @since 0.1.0
  */
 public final class A2AServicePaths {
-
     /** A2A standard Agent Card path */
     public static final String WELL_KNOWN_AGENT_CARD = "/.well-known/agent-card.json";
 

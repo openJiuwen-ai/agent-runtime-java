@@ -54,7 +54,6 @@ import redis.clients.jedis.Jedis;
 @ConditionalOnClass(AgentExecutor.class)
 @EnableConfigurationProperties(A2AProperties.class)
 public class A2AAutoConfiguration {
-
     /**
      * Creates the SDK main event bus bean.
      *
