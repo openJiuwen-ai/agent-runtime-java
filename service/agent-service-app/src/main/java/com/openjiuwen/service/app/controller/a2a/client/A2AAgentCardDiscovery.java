@@ -125,7 +125,6 @@ public class A2AAgentCardDiscovery {
             }
         } catch (InterruptedException e) {
             retryExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
         }
     }
 }
