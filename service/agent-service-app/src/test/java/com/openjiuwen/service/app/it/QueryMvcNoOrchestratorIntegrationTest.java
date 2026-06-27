@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.it;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.autoconfigure.AgentServiceAutoConfiguration;
 import com.openjiuwen.service.app.controller.query.QueryMvcController;
 import org.junit.jupiter.api.Test;
@@ -60,7 +61,7 @@ class QueryMvcNoOrchestratorIntegrationTest {
     }
 
     @SpringBootConfiguration
-    @EnableAutoConfiguration(exclude = AgentServiceAutoConfiguration.class)
+    @EnableAutoConfiguration(exclude = {AgentServiceAutoConfiguration.class, A2AAutoConfiguration.class})
     @Import(QueryMvcController.class)
     static class QueryOnlyApplication {
     }

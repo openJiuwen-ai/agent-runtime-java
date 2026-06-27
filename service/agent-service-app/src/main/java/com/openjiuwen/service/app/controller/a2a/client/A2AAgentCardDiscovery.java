@@ -1,0 +1,88 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+ */
+
+package com.openjiuwen.service.app.controller.a2a.client;
+
+import com.openjiuwen.service.app.config.A2AProperties;
+import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
+import org.a2aproject.sdk.spec.AgentCard;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.http.MediaType;
+import org.springframework.web.client.RestClient;
+
+import java.util.concurrent.*;
+
+/**
+ * Fetches AgentCards from configured remote A2A servers at startup.
+ * Successful fetches are cached permanently; failures are retried every 30s.
+ *
+ * @since 0.1.0
+ */
+public class A2AAgentCardDiscovery {
+
+    private static final Logger log = LoggerFactory.getLogger(A2AAgentCardDiscovery.class);
+    private static final long RETRY_INTERVAL_SECONDS = 30;
+
+    private final A2AProperties properties;
+    private final A2ARemoteAgentCardRegistry registry;
+    private final RestClient restClient;
+    private final ScheduledExecutorService retryExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "a2a-discovery-retry");
+                t.setDaemon(true);
+                return t;
+            });
+
+    public A2AAgentCardDiscovery(A2AProperties properties,
+                                  A2ARemoteAgentCardRegistry registry) {
+        this.properties = properties;
+        this.registry = registry;
+        this.restClient = RestClient.create();
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void discoverAll() {
+        if (properties.getRemoteAgents().isEmpty()) return;
+        log.info("Discovering {} remote A2A agent(s)", properties.getRemoteAgents().size());
+        for (var remote : properties.getRemoteAgents()) {
+            tryDiscover(remote);
+        }
+    }
+
+    private void tryDiscover(RemoteAgentProperties remote) {
+        try {
+            discoverAndRegister(remote);
+        } catch (Exception e) {
+            log.warn("Failed to discover {}, retry every {}s: {}",
+                    remote.getName(), RETRY_INTERVAL_SECONDS, e.getMessage());
+            retryExecutor.scheduleWithFixedDelay(() -> {
+                try {
+                    discoverAndRegister(remote);
+                    log.info("Retry successful, discovered remote agent '{}'", remote.getName());
+                    throw new CancellationException();
+                } catch (CancellationException ex) {
+                    throw ex;
+                } catch (Exception ex) {
+                    log.warn("Retry {} failed, will retry in {}s: {}",
+                            remote.getName(), RETRY_INTERVAL_SECONDS, ex.getMessage());
+                }
+            }, RETRY_INTERVAL_SECONDS, RETRY_INTERVAL_SECONDS, TimeUnit.SECONDS);
+        }
+    }
+
+    private void discoverAndRegister(RemoteAgentProperties remote) {
+        AgentCard card = fetchCard(remote.getUrl());
+        registry.register(remote.getName(), card, remote.getTimeoutSeconds());
+        log.info("Discovered remote agent '{}'", remote.getName());
+    }
+
+    AgentCard fetchCard(String baseUrl) {
+        String cardUrl = baseUrl.replaceAll("/$", "") + "/.well-known/agent-card.json";
+        return restClient.get().uri(cardUrl).accept(MediaType.APPLICATION_JSON)
+                .retrieve().body(AgentCard.class);
+    }
+}

@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.QueryResponse;
+import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
@@ -27,6 +28,8 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -62,6 +65,7 @@ public class QueryWebFluxController {
         if (!validation.valid()) {
             return Mono.just(ResponseEntity.status(validation.errorStatus()).body(validation.errorBody()));
         }
+        buildMetadata(validation.serveRequest(), request, headers);
         if (!isAgentReady()) {
             return Mono.just(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(QueryIngressSupport.agentNotReady()));
@@ -128,5 +132,14 @@ public class QueryWebFluxController {
                 return cancelled.get() || sink.isCancelled();
             }
         });
+    }
+
+    void buildMetadata(ServeRequest sr, QueryRequest request, HttpHeaders headers) {
+        Map<String, Object> bodyMap = new LinkedHashMap<>();
+        bodyMap.put("conversation_id", request.getConversationId());
+        bodyMap.put("stream", request.isStream());
+        if (request.getMessage() != null) bodyMap.put("message", request.getMessage());
+        sr.setMetadata(QueryIngressSupport.buildMetadata(
+                headers, Map.of(), AgentServicePaths.QUERY_V1_REACTIVE, bodyMap));
     }
 }

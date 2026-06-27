@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.QueryResponse;
+import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
@@ -26,10 +27,13 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
@@ -53,19 +57,23 @@ public class QueryMvcController {
     }
 
     @PostMapping(AgentServicePaths.QUERY_V1)
-    public SseEmitter queryV1(@RequestBody QueryRequest request,
+    public SseEmitter queryV1(@RequestBody String rawBody,
                               @RequestHeader HttpHeaders headers,
+                              HttpServletRequest servletRequest,
                               HttpServletResponse response) throws IOException {
-        return handleQuery(request, headers, response);
+        return handleQuery(rawBody, headers, servletRequest, response);
     }
 
-    SseEmitter handleQuery(QueryRequest request, HttpHeaders headers,
+    SseEmitter handleQuery(String rawBody, HttpHeaders headers,
+                           HttpServletRequest servletRequest,
                            HttpServletResponse response) throws IOException {
+        QueryRequest request = objectMapper.readValue(rawBody, QueryRequest.class);
         QueryIngressSupport.ValidationResult validation = QueryIngressSupport.validateAndBuild(request, headers);
         if (!validation.valid()) {
             writeJson(response, validation.errorStatus(), validation.errorBody());
             return null;
         }
+        validateAndBuildMetadata(validation.serveRequest(), headers, servletRequest, rawBody);
         if (!isAgentReady()) {
             writeJson(response, HttpStatus.SERVICE_UNAVAILABLE.value(), QueryIngressSupport.agentNotReady());
             return null;
@@ -154,6 +162,23 @@ public class QueryMvcController {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getOutputStream(), value);
     }
+
+    void validateAndBuildMetadata(ServeRequest sr,
+                                          HttpHeaders headers, HttpServletRequest servletRequest,
+                                          String rawBody) {
+        Map<String, String> queryMap = new LinkedHashMap<>();
+        servletRequest.getParameterMap().forEach((k, v) -> queryMap.put(k, v[0]));
+        Map<String, Object> bodyMap;
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(rawBody, Map.class);
+            bodyMap = parsed;
+        } catch (Exception e) {
+            bodyMap = Map.of("_parse_error", "body_size=" + rawBody.length());
+        }
+        sr.setMetadata(QueryIngressSupport.buildMetadata(
+                headers, queryMap, servletRequest.getRequestURI(), bodyMap));
+    }
 }
 
 @RestController
@@ -170,9 +195,10 @@ class QueryLegacyMvcController {
     }
 
     @PostMapping(AgentServicePaths.QUERY_LEGACY)
-    public SseEmitter queryLegacy(@RequestBody QueryRequest request,
+    public SseEmitter queryLegacy(@RequestBody String rawBody,
                                   @RequestHeader HttpHeaders headers,
+                                  HttpServletRequest servletRequest,
                                   HttpServletResponse response) throws IOException {
-        return delegate.handleQuery(request, headers, response);
+        return delegate.handleQuery(rawBody, headers, servletRequest, response);
     }
 }

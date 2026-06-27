@@ -71,6 +71,10 @@ class MultiTurnEchoHandler implements AgentHandler {
             result.put("tenant_id", request.getTenantId());
         }
         result.put("messages_size", request.getMessages().size());
+        // Expose metadata for test verification
+        if (request.getMetadata() != null && !request.getMetadata().isEmpty()) {
+            result.put("_metadata", request.getMetadata());
+        }
         return result;
     }
 }

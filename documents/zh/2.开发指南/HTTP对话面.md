@@ -13,7 +13,7 @@ Agent Service 对外 **Ingress** 与 Python `AgentApp` 对齐（设计共识 **C
 | `/v1/reset_conversation` | POST | 清空会话上下文 |
 | `/reset_conversation` | POST | 兼容路径 |
 
-**本期不提供**：Agent Card、`POST /a2a/` JSON-RPC、`GET /agent_detail`（可选 501）。
+A2A 入口（Agent Card + JSON-RPC）见 [A2A 开发指导](A2A开发指导.md)。
 
 ## GET /health
 

@@ -62,6 +62,25 @@ public final class QueryIngressSupport {
         }
     }
 
+    /**
+     * Build request metadata for telemetry/audit, collecting headers, query, path, and body.
+     */
+    public static Map<String, Object> buildMetadata(HttpHeaders headers,
+                                                     Map<String, String> queryParams,
+                                                     String path, Map<String, Object> bodyMap) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+
+        Map<String, String> headerMap = new LinkedHashMap<>();
+        headers.forEach((k, v) -> headerMap.put(k.toLowerCase(), v.get(0)));
+        metadata.put("headers", headerMap);
+
+        metadata.put("query", queryParams != null ? queryParams : Map.of());
+        metadata.put("path", path != null ? path : "");
+        metadata.put("body", bodyMap != null ? bodyMap : Map.of());
+
+        return metadata;
+    }
+
     public static Map<String, Object> serviceUnavailable() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("type", "error");

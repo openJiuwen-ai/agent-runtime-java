@@ -7,6 +7,7 @@ package com.openjiuwen.service.spec.dto;
 import lombok.Data;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -22,6 +23,7 @@ public class ServeRequest {
     private String spaceId;
     private String tenantId;
     private boolean stream = true;
+    private Map<String, Object> metadata = new LinkedHashMap<>();
 
     public static ServeRequest fromQueryRequest(QueryRequest request) {
         request.normalizeMessages();

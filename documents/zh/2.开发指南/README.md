@@ -21,7 +21,8 @@
 | [开发 Agent Service](开发Agent Service.md) | 如何写 Spring Boot 镜像、覆盖 Handler | `AgentServiceAutoConfiguration`、demo |
 | [Adapters 与 Handler](Adapters与Handler.md) | agentcore 与自定义 Handler | `agent-service-adapters-*` |
 | [生命周期与探针](生命周期与探针.md) | init、就绪、interrupt、流式 cancel | `DefaultAgentLifecycleManager` |
-| [A2A 与平台边界](A2A与平台边界.md) | 为何不做进程内 A2A、平台 A2A 怎么走 | 架构定案、Issue #4 |
+| [A2A 与平台边界](A2A与平台边界.md) | 进程内 A2A vs 平台 A2A、两种形态共存 | 架构定案、Issue #4 |
+| [A2A 开发指导](A2A开发指导.md) | AgentCard、JSON-RPC、远端调用、中断-恢复 | `A2aJsonRpcController`、`A2AAgentExecutor` |
 
 ### API 文档
 

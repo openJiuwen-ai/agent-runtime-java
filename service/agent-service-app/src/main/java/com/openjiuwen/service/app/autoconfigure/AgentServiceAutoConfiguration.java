@@ -18,7 +18,6 @@ import com.openjiuwen.service.app.lifecycle.DefaultAgentLifecycleManager;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.app.lifecycle.InitPhaseExecutor;
 import com.openjiuwen.service.app.lifecycle.ShutdownPhaseExecutor;
-import com.openjiuwen.service.app.orchestrator.DefaultServeOrchestrator;
 import com.openjiuwen.service.spec.lifecycle.AgentInitHook;
 import com.openjiuwen.service.spec.lifecycle.AgentInterruptHandler;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
@@ -28,7 +27,6 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -131,10 +129,4 @@ public class AgentServiceAutoConfiguration {
         return new AgentLifecycleBootstrap(lifecycleManager);
     }
 
-    @Bean
-    @ConditionalOnMissingBean(ServeOrchestrator.class)
-    @ConditionalOnBean(AgentHandler.class)
-    public ServeOrchestrator serveOrchestrator(AgentHandler agentHandler, ActiveStreamRegistry streamRegistry) {
-        return new DefaultServeOrchestrator(agentHandler, streamRegistry);
-    }
 }

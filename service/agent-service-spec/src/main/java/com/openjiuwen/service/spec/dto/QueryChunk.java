@@ -12,7 +12,13 @@ import lombok.Data;
 @Data
 public class QueryChunk {
 
-    private String type = "chunk";
+    /** Standard chunk types */
+    public static final String TYPE_INTERRUPT = "interrupt";
+    public static final String TYPE_ANSWER = "answer";
+    public static final String TYPE_CHUNK = "chunk";
+    public static final String TYPE_ERROR = "error";
+
+    private String type = TYPE_CHUNK;
     private Object data;
 
     public QueryChunk() {
