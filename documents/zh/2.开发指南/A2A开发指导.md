@@ -40,16 +40,19 @@ A2A Client                         Agent Service（本仓）
 
 ## 配置
 
-所有 A2A 配置在 `openjiuwen.service.a2a` 下：
+AgentCard 的 `name` 和 `version` 复用系统已有配置，其余 A2A 配置在 `openjiuwen.service.a2a` 下：
 
 ```yaml
+spring:
+  application:
+    name: "My Agent"             # AgentCard name
+
 openjiuwen:
   service:
+    version: "1.0.0"            # AgentCard version
     a2a:
       # AgentCard 内容
-      agent-name: "My Agent"
       agent-description: "A helpful assistant"
-      agent-version: "1.0.0"
       is-streaming: true
       is-push-notifications: false
       default-input-modes: ["text", "text/plain"]

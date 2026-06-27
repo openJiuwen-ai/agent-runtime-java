@@ -23,9 +23,7 @@ public class A2AProperties {
      */
     private String publicUrl;
 
-    private String agentName = "Agent Runtime";
     private String agentDescription = "OpenJiuwen Agent Runtime Service";
-    private String agentVersion = "0.1.0";
     private String documentationUrl;
     private String iconUrl;
 

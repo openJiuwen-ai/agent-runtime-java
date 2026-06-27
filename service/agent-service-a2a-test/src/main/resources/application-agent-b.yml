@@ -6,6 +6,10 @@
 #       -Dspring-boot.run.profiles=agent-b
 # ============================================================================
 
+spring:
+  application:
+    name: "AgentB"
+
 server:
   port: 18091
 
@@ -13,7 +17,6 @@ openjiuwen:
   service:
     a2a:
       # --- Agent Card ---
-      agent-name: "AgentB"
       agent-description: "A2A Agent B — remote ReAct LLM agent"
       provider-organization: "OpenJiuwen"
       is-streaming: true
