@@ -5,7 +5,10 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.openjiuwen.service.spec.dto.ServeRequest;
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
@@ -20,12 +23,17 @@ import org.slf4j.LoggerFactory;
  * @since 0.1.0
  */
 public class A2AProtocolAdapter {
-
     private static final Logger log = LoggerFactory.getLogger(A2AProtocolAdapter.class);
 
     private static final Map<String, String> ROLE_MAP = Map.of("ROLE_USER", "user", "ROLE_AGENT", "assistant",
             "ROLE_SYSTEM", "system");
 
+    /**
+     * Converts an A2A message context into an internal {@link ServeRequest}.
+     *
+     * @param ctx the A2A message context
+     * @return the serve request
+     */
     public ServeRequest toServeRequest(A2AMessageContext ctx) {
         ServeRequest req = new ServeRequest();
         req.setConversationId(ctx.getContextId());
@@ -64,6 +72,6 @@ public class A2AProtocolAdapter {
     }
 
     static String normalizeRole(String raw) {
-        return ROLE_MAP.getOrDefault(raw, raw.toLowerCase());
+        return ROLE_MAP.getOrDefault(raw, raw.toLowerCase(Locale.ROOT));
     }
 }

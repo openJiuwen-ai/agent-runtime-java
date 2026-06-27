@@ -264,21 +264,32 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     /**
-     * Map the internal agent-core OutputSchema type to a standard {@link QueryChunk} type, so downstream code never
+     * Maps the internal agent-core OutputSchema type to a standard {@link QueryChunk} type, so downstream code never
      * sees agent-core-internal type strings.
+     *
+     * @param normalized the normalized chunk data
+     * @return the QueryChunk type string
      */
     private static String mapToQueryChunkType(Object normalized) {
-        if (!(normalized instanceof Map<?, ?> m))
+        if (!(normalized instanceof Map<?, ?> m)) {
             return QueryChunk.TYPE_CHUNK;
+        }
         Object rawType = m.get("type");
-        if (INTERACTION_TYPE.equals(rawType))
+        if (INTERACTION_TYPE.equals(rawType)) {
             return QueryChunk.TYPE_INTERRUPT;
-        if ("answer".equals(rawType))
+        }
+        if ("answer".equals(rawType)) {
             return QueryChunk.TYPE_ANSWER;
+        }
         return QueryChunk.TYPE_CHUNK;
     }
 
-    /** Extract structured interrupt data from an InteractionOutput payload. */
+    /**
+     * Extracts structured interrupt data from an InteractionOutput payload.
+     *
+     * @param output the OutputSchema containing the interaction payload
+     * @return structured interrupt data map
+     */
     private static Map<String, Object> toInterruptData(OutputSchema output) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("type", INTERACTION_TYPE);
@@ -287,21 +298,33 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         data.put("payload", payload);
 
         if (payload instanceof InteractionOutput io) {
-            Object value = io.getValue();
-            if (value instanceof InterruptRequest req) {
-                if (req.getMessage() != null)
-                    data.put("message", req.getMessage());
-                if (req.getContext() != null)
-                    data.put("context", req.getContext());
-                if (value instanceof ToolCallInterruptRequest tcr) {
-                    if (tcr.getToolCallId() != null)
-                        data.put("toolCallId", tcr.getToolCallId());
-                    if (tcr.getToolName() != null)
-                        data.put("toolName", tcr.getToolName());
-                }
-            }
+            extractInteractionData(io, data);
         }
         return data;
+    }
+
+    private static void extractInteractionData(InteractionOutput io, Map<String, Object> data) {
+        Object value = io.getValue();
+        if (value instanceof InterruptRequest req) {
+            if (req.getMessage() != null) {
+                data.put("message", req.getMessage());
+            }
+            if (req.getContext() != null) {
+                data.put("context", req.getContext());
+            }
+            if (value instanceof ToolCallInterruptRequest tcr) {
+                extractToolCallData(tcr, data);
+            }
+        }
+    }
+
+    private static void extractToolCallData(ToolCallInterruptRequest tcr, Map<String, Object> data) {
+        if (tcr.getToolCallId() != null) {
+            data.put("toolCallId", tcr.getToolCallId());
+        }
+        if (tcr.getToolName() != null) {
+            data.put("toolName", tcr.getToolName());
+        }
     }
 
     protected static void appendContent(Object payload, StringBuilder content) {

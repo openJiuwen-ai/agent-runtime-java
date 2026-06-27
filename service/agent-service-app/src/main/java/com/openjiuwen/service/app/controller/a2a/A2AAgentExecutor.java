@@ -11,13 +11,16 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.agentexecution.RequestContext;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
-import org.a2aproject.sdk.spec.*;
+import org.a2aproject.sdk.spec.Message;
+import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,109 +67,127 @@ public class A2AAgentExecutor implements AgentExecutor {
 
         try {
             if (req.isStream()) {
-                AtomicBoolean cancelled = new AtomicBoolean(false);
-                AtomicBoolean interrupted = new AtomicBoolean(false);
-                activeCancellations.put(ctx.getContextId(), cancelled);
-                try {
-                    orchestrator.streamQuery(req, new QueryStreamObserver() {
-                        @Override
-                        public void onNext(QueryChunk chunk) {
-                            if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
-                                log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
-                                        msgCtx.getContextId(),
-                                        chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
-                                Message statusMsg = toStatusMessage(chunk);
-                                emitter.requiresInput(statusMsg);
-                                closeEventQueue(emitter, msgCtx.getTaskId());
-                                interrupted.set(true);
-                                return;
-                            }
-                            List<Part<?>> parts = chunkMapper.toParts(chunk);
-                            if (parts.isEmpty())
-                                return;
-                            Map<String, Object> metadata = QueryChunk.TYPE_ANSWER.equals(chunk.getType())
-                                    ? Map.of("answer", true)
-                                    : null;
-                            emitter.addArtifact(parts, null, null, metadata);
-                        }
-
-                        @Override
-                        public void onComplete() {
-                            if (interrupted.get()) {
-                                log.info("A2A stream ended after interrupt (COMPLETED suppressed) taskId={}",
-                                        msgCtx.getTaskId());
-                            } else {
-                                log.info("A2A stream complete taskId={}", msgCtx.getTaskId());
-                                emitter.complete();
-                            }
-                        }
-
-                        @Override
-                        public void onError(Throwable error) {
-                            log.error("A2A agent stream error taskId={} contextId={}", msgCtx.getTaskId(),
-                                    msgCtx.getContextId(), error);
-                            emitter.fail();
-                        }
-
-                        @Override
-                        public boolean isCancelled() {
-                            return cancelled.get();
-                        }
-                    });
-                } finally {
-                    activeCancellations.remove(ctx.getContextId());
-                }
+                executeStreaming(msgCtx, ctx, req, emitter);
             } else {
-                QueryResponse response = orchestrator.query(req);
-                if (response.getResult() instanceof Map<?, ?> result
-                        && result.get("_interrupt") instanceof Map<?, ?> interruptData) {
-                    log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(),
-                            msgCtx.getContextId());
-                    Message statusMsg = toStatusMessageFromMap(interruptData);
-                    emitter.requiresInput(statusMsg);
-                    closeEventQueue(emitter, msgCtx.getTaskId());
-                } else if (response.getResult() instanceof Map<?, ?> result) {
-                    Object content = result.get("content");
-                    if (content != null) {
-                        emitter.addArtifact(List.of(new TextPart(String.valueOf(content))));
-                    }
-                    emitter.complete();
-                } else {
-                    emitter.complete();
-                }
+                executeQuery(msgCtx, ctx, req, emitter);
             }
-        } catch (Exception ex) {
+        } catch (RuntimeException ex) {
             log.error("Agent execution failed for contextId={}", ctx.getContextId(), ex);
             emitter.fail();
         }
     }
 
-    private static Message toStatusMessage(QueryChunk chunk) {
-        if (chunk.getData() instanceof Map<?, ?> m && m.get("message") instanceof String s && !s.isBlank()) {
-            return Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(s))).build();
+    private void executeStreaming(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
+            AgentEmitter emitter) {
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        AtomicBoolean interrupted = new AtomicBoolean(false);
+        activeCancellations.put(ctx.getContextId(), cancelled);
+        try {
+            orchestrator.streamQuery(req, new QueryStreamObserver() {
+                @Override
+                public void onNext(QueryChunk chunk) {
+                    if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
+                        log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
+                                msgCtx.getContextId(),
+                                chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
+                        Message statusMsg = toStatusMessage(chunk).orElse(null);
+                        emitter.requiresInput(statusMsg);
+                        closeEventQueue(emitter, msgCtx.getTaskId());
+                        interrupted.set(true);
+                        return;
+                    }
+                    List<Part<?>> parts = chunkMapper.toParts(chunk);
+                    if (parts.isEmpty()) {
+                        return;
+                    }
+                    Map<String, Object> metadata = QueryChunk.TYPE_ANSWER.equals(chunk.getType())
+                            ? Map.of("answer", true)
+                            : null;
+                    emitter.addArtifact(parts, null, null, metadata);
+                }
+
+                @Override
+                public void onComplete() {
+                    if (interrupted.get()) {
+                        log.info("A2A stream ended after interrupt (COMPLETED suppressed) taskId={}",
+                                msgCtx.getTaskId());
+                    } else {
+                        log.info("A2A stream complete taskId={}", msgCtx.getTaskId());
+                        emitter.complete();
+                    }
+                }
+
+                @Override
+                public void onError(Throwable error) {
+                    log.error("A2A agent stream error taskId={} contextId={}", msgCtx.getTaskId(),
+                            msgCtx.getContextId(), error);
+                    emitter.fail();
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return cancelled.get();
+                }
+            });
+        } finally {
+            activeCancellations.remove(ctx.getContextId());
         }
-        return null;
     }
 
-    private static Message toStatusMessageFromMap(Map<?, ?> interruptData) {
-        if (interruptData.get("message") instanceof String s && !s.isBlank()) {
-            return Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(s))).build();
+    private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
+            AgentEmitter emitter) {
+        QueryResponse response = orchestrator.query(req);
+        if (response.getResult() instanceof Map<?, ?> result
+                && result.get("_interrupt") instanceof Map<?, ?> interruptData) {
+            log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(),
+                    msgCtx.getContextId());
+            Message statusMsg = toStatusMessageFromMap(interruptData).orElse(null);
+            emitter.requiresInput(statusMsg);
+            closeEventQueue(emitter, msgCtx.getTaskId());
+        } else if (response.getResult() instanceof Map<?, ?> result) {
+            Object content = result.get("content");
+            if (content != null) {
+                emitter.addArtifact(List.of(new TextPart(String.valueOf(content))));
+            }
+            emitter.complete();
+        } else {
+            emitter.complete();
         }
-        return null;
+    }
+
+    private static Optional<Message> toStatusMessage(QueryChunk chunk) {
+        if (chunk.getData() instanceof Map<?, ?> m && m.get("message") instanceof String s && !s.isBlank()) {
+            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT)
+                    .parts(List.of(new TextPart(s))).build());
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<Message> toStatusMessageFromMap(Map<?, ?> interruptData) {
+        if (interruptData.get("message") instanceof String s && !s.isBlank()) {
+            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT)
+                    .parts(List.of(new TextPart(s))).build());
+        }
+        return Optional.empty();
     }
 
     /**
-     * Close the emitter's underlying event queue so the SSE stream terminates without changing the task state
+     * Closes the emitter's underlying event queue so the SSE stream terminates without changing the task state
      * (preserving INPUT_REQUIRED for resume).
+     *
+     * @param emitter the agent emitter
+     * @param taskId the A2A task ID for logging
      */
     private static void closeEventQueue(AgentEmitter emitter, String taskId) {
         try {
             var f = emitter.getClass().getDeclaredField("eventQueue");
             f.setAccessible(true);
-            var q = (org.a2aproject.sdk.server.events.EventQueue) f.get(emitter);
-            q.close(false, false);
+            Object queueObj = f.get(emitter);
+            if (queueObj instanceof org.a2aproject.sdk.server.events.EventQueue q) {
+                q.close(false, false);
+            }
             log.info("A2A eventQueue closed (INPUT_REQUIRED preserved) taskId={}", taskId);
-        } catch (Exception e) {
+        } catch (ReflectiveOperationException | SecurityException e) {
             log.warn("A2A closeEventQueue failed, falling back to complete() taskId={}", taskId, e);
             emitter.complete();
         }

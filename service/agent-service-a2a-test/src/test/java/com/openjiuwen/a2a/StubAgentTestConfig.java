@@ -15,7 +15,6 @@ import org.springframework.context.annotation.Primary;
  */
 @TestConfiguration
 class StubAgentTestConfig {
-
     @Bean
     @Primary
     AgentHandler stubAgentHandler() {

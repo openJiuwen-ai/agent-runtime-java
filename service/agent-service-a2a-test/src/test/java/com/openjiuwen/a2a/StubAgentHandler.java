@@ -17,7 +17,6 @@ import java.util.Map;
  * A2A integration testing.
  */
 class StubAgentHandler implements AgentHandler {
-
     @Override
     public QueryResponse query(ServeRequest request) {
         return new QueryResponse(stubResult(request), request.getConversationId());

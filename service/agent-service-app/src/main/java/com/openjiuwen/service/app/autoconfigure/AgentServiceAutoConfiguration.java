@@ -35,6 +35,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.core.env.Environment;
 
+/**
+ * Auto-configuration for the agent service lifecycle, identity, and stream management beans.
+ *
+ * @since 0.1.0
+ */
 @AutoConfiguration
 @EnableConfigurationProperties({ServiceProperties.class, QueryProperties.class, LifecycleProperties.class})
 @ComponentScan(basePackages = "com.openjiuwen.service.app.controller")
@@ -71,6 +76,14 @@ public class AgentServiceAutoConfiguration {
         return readiness;
     }
 
+    /**
+     * Creates the agent lifecycle hooks bean from registered init, shutdown, and interrupt handlers.
+     *
+     * @param initHooks the init hook implementations
+     * @param shutdownHooks the shutdown hook implementations
+     * @param interruptHandlers the interrupt handler implementations
+     * @return the lifecycle hooks aggregate
+     */
     @Bean
     @ConditionalOnMissingBean(AgentLifecycleHooks.class)
     public AgentLifecycleHooks agentLifecycleHooks(List<AgentInitHook> initHooks, List<AgentShutdownHook> shutdownHooks,
@@ -78,6 +91,16 @@ public class AgentServiceAutoConfiguration {
         return new AgentLifecycleHooks(initHooks, shutdownHooks, interruptHandlers);
     }
 
+    /**
+     * Creates the init-phase executor bean.
+     *
+     * @param identity the agent service identity
+     * @param hooks the lifecycle hooks
+     * @param readiness the agent readiness tracker
+     * @param agentHandlerProvider the agent handler provider
+     * @param lifecycleProperties the lifecycle configuration
+     * @return the init phase executor
+     */
     @Bean
     @ConditionalOnMissingBean(InitPhaseExecutor.class)
     public InitPhaseExecutor initPhaseExecutor(AgentServiceIdentity identity, AgentLifecycleHooks hooks,
@@ -86,6 +109,17 @@ public class AgentServiceAutoConfiguration {
         return new InitPhaseExecutor(identity, hooks, readiness, agentHandlerProvider, lifecycleProperties);
     }
 
+    /**
+     * Creates the shutdown-phase executor bean.
+     *
+     * @param identity the agent service identity
+     * @param hooks the lifecycle hooks
+     * @param readiness the agent readiness tracker
+     * @param streamRegistry the active stream registry
+     * @param agentHandlerProvider the agent handler provider
+     * @param lifecycleProperties the lifecycle configuration
+     * @return the shutdown phase executor
+     */
     @Bean
     @ConditionalOnMissingBean(ShutdownPhaseExecutor.class)
     public ShutdownPhaseExecutor shutdownPhaseExecutor(AgentServiceIdentity identity, AgentLifecycleHooks hooks,
@@ -95,6 +129,13 @@ public class AgentServiceAutoConfiguration {
                 lifecycleProperties);
     }
 
+    /**
+     * Creates the active stream interruptor bean.
+     *
+     * @param orchestratorProvider the orchestrator provider
+     * @param hooks the lifecycle hooks
+     * @return the active stream interruptor
+     */
     @Bean
     @ConditionalOnMissingBean(ActiveStreamInterruptor.class)
     public ActiveStreamInterruptor activeStreamInterruptor(ObjectProvider<ServeOrchestrator> orchestratorProvider,
@@ -102,6 +143,14 @@ public class AgentServiceAutoConfiguration {
         return new ActiveStreamInterruptor(orchestratorProvider, hooks.interruptHandlers());
     }
 
+    /**
+     * Creates the agent lifecycle manager bean.
+     *
+     * @param initPhaseExecutor the init phase executor
+     * @param shutdownPhaseExecutor the shutdown phase executor
+     * @param streamInterruptor the stream interruptor
+     * @return the default agent lifecycle manager
+     */
     @Bean
     @ConditionalOnMissingBean(AgentLifecycleManager.class)
     public DefaultAgentLifecycleManager agentLifecycleManager(InitPhaseExecutor initPhaseExecutor,
@@ -109,6 +158,12 @@ public class AgentServiceAutoConfiguration {
         return new DefaultAgentLifecycleManager(initPhaseExecutor, shutdownPhaseExecutor, streamInterruptor);
     }
 
+    /**
+     * Creates the agent lifecycle bootstrap bean.
+     *
+     * @param lifecycleManager the lifecycle manager
+     * @return the lifecycle bootstrap
+     */
     @Bean
     @ConditionalOnMissingBean(AgentLifecycleBootstrap.class)
     public AgentLifecycleBootstrap agentLifecycleBootstrap(AgentLifecycleManager lifecycleManager) {

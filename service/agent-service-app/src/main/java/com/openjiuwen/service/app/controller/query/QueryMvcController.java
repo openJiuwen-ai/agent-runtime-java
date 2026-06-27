@@ -41,7 +41,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class QueryMvcController {
-
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
     private final ObjectProvider<AgentReadiness> readinessProvider;
     private final ObjectMapper objectMapper;
@@ -53,6 +52,16 @@ public class QueryMvcController {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Handles {@code POST /v1/query} requests.
+     *
+     * @param rawBody the raw request body
+     * @param headers the HTTP headers
+     * @param servletRequest the servlet request
+     * @param response the servlet response
+     * @return an SSE emitter for streaming, or null for sync responses
+     * @throws IOException on write errors
+     */
     @PostMapping(AgentServicePaths.QUERY_V1)
     public SseEmitter queryV1(@RequestBody String rawBody, @RequestHeader HttpHeaders headers,
             HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
@@ -163,7 +172,8 @@ public class QueryMvcController {
             @SuppressWarnings("unchecked")
             Map<String, Object> parsed = objectMapper.readValue(rawBody, Map.class);
             bodyMap = parsed;
-        } catch (Exception e) { // fallback to raw body on parse error
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            // fallback to raw body on parse error
             bodyMap = Map.of("_parse_error", "body_size=" + rawBody.length());
         }
         sr.setMetadata(QueryIngressSupport.buildMetadata(headers, queryMap, servletRequest.getRequestURI(), bodyMap));
@@ -173,7 +183,8 @@ public class QueryMvcController {
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
-@ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled",
+        havingValue = "true", matchIfMissing = true)
 class QueryLegacyMvcController {
 
     private final QueryMvcController delegate;
@@ -182,6 +193,16 @@ class QueryLegacyMvcController {
         this.delegate = delegate;
     }
 
+    /**
+     * Handles legacy {@code POST /query} requests.
+     *
+     * @param rawBody the raw request body
+     * @param headers the HTTP headers
+     * @param servletRequest the servlet request
+     * @param response the servlet response
+     * @return result from the delegate controller
+     * @throws IOException on write errors
+     */
     @PostMapping(AgentServicePaths.QUERY_LEGACY)
     public SseEmitter queryLegacy(@RequestBody String rawBody, @RequestHeader HttpHeaders headers,
             HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {

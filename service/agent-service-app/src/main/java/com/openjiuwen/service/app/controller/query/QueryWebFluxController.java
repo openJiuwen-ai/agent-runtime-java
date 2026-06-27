@@ -32,12 +32,16 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** WebFlux stack Query controller ({@code POST /v1/query/reactive}). */
+/**
+ * WebFlux stack Query controller ({@code POST /v1/query/reactive}).
+ *
+ * @since 0.1.0
+ */
 @RestController
 @ConditionalOnClass(name = "reactor.core.publisher.Flux")
-@ConditionalOnProperty(prefix = "openjiuwen.service.query.webflux", name = "enabled", havingValue = "true", matchIfMissing = false)
+@ConditionalOnProperty(prefix = "openjiuwen.service.query.webflux", name = "enabled", havingValue = "true",
+        matchIfMissing = false)
 public class QueryWebFluxController {
-
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
     private final ObjectProvider<AgentReadiness> readinessProvider;
     private final ObjectMapper objectMapper;
@@ -99,6 +103,9 @@ public class QueryWebFluxController {
                 }
                 try {
                     sink.next(ServerSentEvent.builder(QuerySseSupport.toSseData(chunk, objectMapper)).build());
+                } catch (RuntimeException ex) {
+                    cancelled.set(true);
+                    throw new CancellationException(ex.getMessage());
                 } catch (Exception ex) {
                     cancelled.set(true);
                     throw new CancellationException(ex.getMessage());
@@ -130,8 +137,9 @@ public class QueryWebFluxController {
         Map<String, Object> bodyMap = new LinkedHashMap<>();
         bodyMap.put("conversation_id", request.getConversationId());
         bodyMap.put("stream", request.isStream());
-        if (request.getMessage() != null)
+        if (request.getMessage() != null) {
             bodyMap.put("message", request.getMessage());
+        }
         sr.setMetadata(
                 QueryIngressSupport.buildMetadata(headers, Map.of(), AgentServicePaths.QUERY_V1_REACTIVE, bodyMap));
     }

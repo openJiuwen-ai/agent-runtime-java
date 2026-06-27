@@ -5,9 +5,16 @@
 package com.openjiuwen.service.app.orchestrator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
@@ -23,13 +30,20 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
 import org.a2aproject.sdk.server.tasks.TaskStore;
-import org.a2aproject.sdk.spec.*;
+import org.a2aproject.sdk.spec.AgentCapabilities;
+import org.a2aproject.sdk.spec.AgentCard;
+import org.a2aproject.sdk.spec.AgentInterface;
+import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+/**
+ * Unit tests for the A2A-enabled serve orchestrator.
+ */
 class A2AEnabledServeOrchestratorTest {
-
     private AgentHandler agentHandler;
     private TaskStore taskStore;
     private A2ARemoteAgentCardRegistry registry;
@@ -47,8 +61,6 @@ class A2AEnabledServeOrchestratorTest {
         when(streamRegistry.register(anyString())).thenReturn(mock(StreamCancellationHandle.class));
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry);
     }
-
-    // ==================== normal delegation ====================
 
     @Test
     void normalChunksPassThroughToObserver() {
@@ -84,8 +96,6 @@ class A2AEnabledServeOrchestratorTest {
 
         assertThat(completed.get()).isTrue();
     }
-
-    // ==================== a2a_interrupt handling ====================
 
     @Test
     void a2aInterruptCreatesShadowTaskInInputRequired() {
@@ -130,8 +140,6 @@ class A2AEnabledServeOrchestratorTest {
         verify(taskStore, never()).save(any(), anyBoolean());
     }
 
-    // ==================== pending shadow task routing ====================
-
     @Test
     void pendingTaskRoutesToResume() {
         Task pending = Task.builder().id("c-pending").contextId("c-pending")
@@ -165,8 +173,6 @@ class A2AEnabledServeOrchestratorTest {
         verify(agentHandler).streamQuery(any(), any());
     }
 
-    // ==================== resetConversation ====================
-
     @Test
     void resetConversationCleansTaskStore() {
         when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of(
@@ -191,8 +197,6 @@ class A2AEnabledServeOrchestratorTest {
         verify(agentHandler).clearSession("c-empty");
         verify(taskStore, never()).delete(any());
     }
-
-    // ==================== helpers ====================
 
     private static ServeRequest req(String convId) {
         ServeRequest r = new ServeRequest();

@@ -10,10 +10,13 @@ import java.util.List;
 import java.util.Map;
 import lombok.Data;
 
-/** Protocol-neutral orchestration request (Ingress DTO → internal model). */
+/**
+ * Protocol-neutral orchestration request (Ingress DTO → internal model).
+ *
+ * @since 0.1.0
+ */
 @Data
 public class ServeRequest {
-
     private String conversationId;
     private List<Map<String, Object>> messages = new ArrayList<>();
     private String userId;
@@ -34,7 +37,11 @@ public class ServeRequest {
         return serveRequest;
     }
 
-    /** Extract the latest user message content as the agent query. */
+    /**
+     * Extract the latest user message content as the agent query.
+     *
+     * @return the latest user message content, or empty string if none found
+     */
     public String lastUserQuery() {
         for (int i = messages.size() - 1; i >= 0; i--) {
             Map<String, Object> m = messages.get(i);

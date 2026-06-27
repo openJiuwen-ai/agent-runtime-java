@@ -22,11 +22,10 @@ import org.springframework.web.client.RestClient;
  * Starts both agents, then verifies: - Agent cards are reachable - A2A SendMessage returns valid JSON-RPC responses
  */
 class A2aInterruptScenarioTest {
-
     private static ConfigurableApplicationContext agentA;
     private static ConfigurableApplicationContext agentB;
 
-    private static final RestClient client = RestClient.create();
+    private static final RestClient REST_CLIENT = RestClient.create();
     private static String urlA;
     private static String urlB;
 
@@ -47,30 +46,33 @@ class A2aInterruptScenarioTest {
 
     @AfterAll
     static void stopAgents() {
-        if (agentA != null)
+        if (agentA != null) {
             agentA.close();
-        if (agentB != null)
+        }
+        if (agentB != null) {
             agentB.close();
+        }
     }
 
     @Test
     void agentACardIsReachable() {
-        var card = client.get().uri(urlA + "/.well-known/agent-card.json").retrieve().body(String.class);
+        var card = REST_CLIENT.get().uri(urlA + "/.well-known/agent-card.json").retrieve().body(String.class);
         assertThat(card).contains("AgentA");
     }
 
     @Test
     void agentBCardIsReachable() {
-        var card = client.get().uri(urlB + "/.well-known/agent-card.json").retrieve().body(String.class);
+        var card = REST_CLIENT.get().uri(urlB + "/.well-known/agent-card.json").retrieve().body(String.class);
         assertThat(card).contains("AgentB");
     }
 
     @Test
     @SuppressWarnings("unchecked")
     void agentARespondsToSendMessage() {
-        var resp = client.post().uri(urlA + "/a2a/").header("Content-Type", "application/json")
+        var resp = REST_CLIENT.post().uri(urlA + "/a2a/").header("Content-Type", "application/json")
                 .body(Map.of("jsonrpc", "2.0", "id", 1, "method", "SendMessage", "params", Map.of("message",
-                        Map.of("role", "ROLE_USER", "contextId", "ctx-a", "parts", List.of(Map.of("text", "Hello!"))))))
+                        Map.of("role", "ROLE_USER", "contextId", "ctx-a",
+                                "parts", List.of(Map.of("text", "Hello!"))))))
                 .retrieve().body(String.class);
         assertThat(resp).contains("\"jsonrpc\"");
         assertThat(resp).contains("\"id\"");
@@ -79,9 +81,10 @@ class A2aInterruptScenarioTest {
     @Test
     @SuppressWarnings("unchecked")
     void agentBRespondsToSendMessage() {
-        var resp = client.post().uri(urlB + "/a2a/").header("Content-Type", "application/json")
+        var resp = REST_CLIENT.post().uri(urlB + "/a2a/").header("Content-Type", "application/json")
                 .body(Map.of("jsonrpc", "2.0", "id", 1, "method", "SendMessage", "params", Map.of("message",
-                        Map.of("role", "ROLE_USER", "contextId", "ctx-b", "parts", List.of(Map.of("text", "Hello!"))))))
+                        Map.of("role", "ROLE_USER", "contextId", "ctx-b",
+                                "parts", List.of(Map.of("text", "Hello!"))))))
                 .retrieve().body(String.class);
         assertThat(resp).contains("\"jsonrpc\"");
         assertThat(resp).contains("\"id\"");

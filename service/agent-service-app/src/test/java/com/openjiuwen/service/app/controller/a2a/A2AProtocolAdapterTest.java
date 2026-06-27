@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
  * part texts.
  */
 class A2AProtocolAdapterTest {
-
     private final A2AProtocolAdapter adapter = new A2AProtocolAdapter();
 
     @Test

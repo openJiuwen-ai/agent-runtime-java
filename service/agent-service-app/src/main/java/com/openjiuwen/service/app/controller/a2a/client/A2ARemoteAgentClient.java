@@ -18,7 +18,16 @@ import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.client.config.ClientConfig;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
-import org.a2aproject.sdk.spec.*;
+import org.a2aproject.sdk.spec.AgentCard;
+import org.a2aproject.sdk.spec.Artifact;
+import org.a2aproject.sdk.spec.Message;
+import org.a2aproject.sdk.spec.MessageSendParams;
+import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
+import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
+import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,6 +45,11 @@ public class A2ARemoteAgentClient {
     private final A2ARemoteAgentCardRegistry registry;
     private final Map<String, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
+    /**
+     * Constructs the remote agent client.
+     *
+     * @param registry the remote agent card registry
+     */
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry) {
         this.registry = registry;
     }
@@ -45,14 +59,11 @@ public class A2ARemoteAgentClient {
      * {@code streamObserver}; the artifact with {@code metadata.answer=true} is captured as the tool-result text
      * returned via the future.
      *
-     * @param agentName
-     *            registered remote agent name
-     * @param message
-     *            text payload to send
-     * @param contextId
-     *            conversation context ID (shared across calls to same remote)
-     * @param streamObserver
-     *            observer for forwarding streaming chunks to the client
+     * @param agentName registered remote agent name
+     * @param message text payload to send
+     * @param contextId conversation context ID (shared across calls to same remote)
+     * @param streamObserver observer for forwarding streaming chunks to the client
+     * @param metadata additional metadata for the call
      * @return future resolving to the final-answer text (tool result for resume)
      */
     public CompletableFuture<String> callStreaming(String agentName, String message, String contextId,
@@ -61,18 +72,27 @@ public class A2ARemoteAgentClient {
     }
 
     /**
-     * Call a remote agent via streaming, optionally resuming an existing task.
+     * Parameter object bundling the result of {@link #prepareCall}.
      *
-     * @param contextId
-     *            conversation context ID (shared across calls to same remote)
-     * @param taskId
-     *            remote task ID to resume, or null for a new task
+     * @param entry the resolved remote agent entry
+     * @param message the built SDK message
+     * @param contextId the context/conversation ID
+     * @param metadata the metadata map
      */
-    /** Shared setup: resolve agent entry, build message, create client. */
     private record RemoteCallSetup(A2ARemoteAgentCardRegistry.RemoteAgentEntry entry, Message message, String contextId,
             Map<String, Object> metadata) {
     }
 
+    /**
+     * Resolves the remote agent entry and builds the SDK message.
+     *
+     * @param agentName the remote agent name
+     * @param message the text payload
+     * @param contextId the context/conversation ID
+     * @param taskId the optional task ID for resume
+     * @param metadata the metadata map
+     * @return the prepared call setup
+     */
     private RemoteCallSetup prepareCall(String agentName, String message, String contextId, String taskId,
             Map<String, Object> metadata) {
         var entry = registry.get(agentName)
@@ -86,16 +106,30 @@ public class A2ARemoteAgentClient {
         return new RemoteCallSetup(entry, msgBuilder.build(), ctxId, metadata);
     }
 
+    /**
+     * Creates or retrieves a cached SDK {@link Client} for the given card and streaming mode.
+     *
+     * @param card the agent card
+     * @param isStreaming whether the client should be in streaming mode
+     * @return the SDK client
+     */
     private Client createClient(AgentCard card, boolean isStreaming) {
         return clientCache.computeIfAbsent(card.name() + ":" + isStreaming,
                 k -> Client.builder(card).clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
                         .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig()).build());
     }
 
-    /** Shared: handle INPUT_REQUIRED status on a CompletableFuture. */
+    /**
+     * Completes the future exceptionally with a {@link RemoteInputRequiredException} if not already done.
+     *
+     * @param future the future to complete
+     * @param remoteTaskId the remote task ID
+     * @param statusText the status message text
+     */
     private static void handleInputRequired(CompletableFuture<String> future, String remoteTaskId, String statusText) {
-        if (future.isDone())
+        if (future.isDone()) {
             return;
+        }
         future.completeExceptionally(
                 new RemoteInputRequiredException(statusText.isBlank() ? "Remote agent requires input" : statusText,
                         remoteTaskId != null ? remoteTaskId : ""));
@@ -104,6 +138,14 @@ public class A2ARemoteAgentClient {
     /**
      * Call a remote agent via streaming SendMessage. Streaming chunks (non-answer metadata) are forwarded to
      * streamObserver; the artifact with metadata.answer=true is captured as the final result.
+     *
+     * @param agentName registered remote agent name
+     * @param message text payload to send
+     * @param contextId conversation context ID
+     * @param taskId remote task ID to resume, or null for a new task
+     * @param streamObserver observer for forwarding streaming chunks
+     * @param metadata additional metadata for the call
+     * @return future resolving to the final-answer text
      */
     public CompletableFuture<String> callStreaming(String agentName, String message, String contextId, String taskId,
             QueryStreamObserver streamObserver, Map<String, Object> metadata) {
@@ -120,10 +162,14 @@ public class A2ARemoteAgentClient {
                     handleArtifact(aue, result, streamObserver);
                 } else if (tue.getUpdateEvent() instanceof TaskStatusUpdateEvent sue) {
                     handleStatusUpdate(sue, result);
-                } // else: ignore unknown update event types
+                } else {
+                    log.debug("Unknown update event type: {}", tue.getUpdateEvent().getClass().getSimpleName());
+                }
             } else if (event instanceof TaskEvent te) {
                 handleTaskEvent(te, result);
-            } // else: ignore unknown event types
+            } else {
+                log.debug("Unknown event type: {}", event.getClass().getSimpleName());
+            }
         }), result::completeExceptionally, null);
 
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
@@ -131,27 +177,37 @@ public class A2ARemoteAgentClient {
     }
 
     /**
-     * Streaming: forward non-answer chunks to observer, capture answer artifact.
+     * Streaming: forwards non-answer chunks to observer, captures answer artifact.
+     *
+     * @param aue the task artifact update event
+     * @param result the result future to complete with the answer text
+     * @param streamObserver the observer for forwarding streaming chunks
      */
     private void handleArtifact(TaskArtifactUpdateEvent aue, CompletableFuture<String> result,
             QueryStreamObserver streamObserver) {
         Artifact a = aue.artifact();
-        if (a == null || a.parts() == null)
+        if (a == null || a.parts() == null) {
             return;
+        }
         String text = extractText(a.parts());
-        if (text.isEmpty())
+        if (text.isEmpty()) {
             return;
+        }
         if (a.metadata() != null && Boolean.TRUE.equals(a.metadata().get("answer"))) {
             log.info("Remote answer artifact ({} chars)", text.length());
-            if (!result.isDone())
+            if (!result.isDone()) {
                 result.complete(text);
+            }
         } else {
             streamObserver.onNext(new QueryChunk("chunk", text));
         }
     }
 
     /**
-     * Shared: handle TaskStatusUpdateEvent (INPUT_REQUIRED or final without answer).
+     * Handles {@link TaskStatusUpdateEvent}: INPUT_REQUIRED or final-without-answer.
+     *
+     * @param sue the task status update event
+     * @param result the result future
      */
     private void handleStatusUpdate(TaskStatusUpdateEvent sue, CompletableFuture<String> result) {
         if (sue.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED) {
@@ -160,15 +216,21 @@ public class A2ARemoteAgentClient {
             handleInputRequired(result, sue.taskId(), statusText);
         } else if (sue.status().state().isFinal() && !result.isDone()) {
             result.complete("");
-        } // else: intermediate states (WORKING, SUBMITTED) — no action needed
+        } else {
+            log.debug("Intermediate status state: {}", sue.status().state());
+        }
     }
 
     /**
-     * Shared: handle TaskEvent (fallback when stream ends without explicit answer).
+     * Handles {@link TaskEvent}: fallback when stream ends without explicit answer artifact.
+     *
+     * @param te the task event
+     * @param result the result future
      */
     private void handleTaskEvent(TaskEvent te, CompletableFuture<String> result) {
-        if (result.isDone())
+        if (result.isDone()) {
             return;
+        }
         Task task = te.getTask();
         if (task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED) {
             String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";
@@ -180,12 +242,22 @@ public class A2ARemoteAgentClient {
                     : "";
             log.info("A2A remote result ({} chars)", text.length());
             result.complete(text);
-        } // else: intermediate states — no action needed
+        } else {
+            log.debug("Intermediate task state: {}", task.status().state());
+        }
     }
 
     /**
      * Call a remote agent via non-streaming SendMessage (synchronous). Blocks until the remote agent completes or
      * requires input.
+     *
+     * @param agentName registered remote agent name
+     * @param message text payload to send
+     * @param contextId conversation context ID
+     * @param taskId remote task ID to resume, or null for a new task
+     * @param metadata additional metadata for the call
+     * @return the final-answer text from the remote agent
+     * @throws RemoteInputRequiredException if the remote agent requires user input
      */
     public String callSync(String agentName, String message, String contextId, String taskId,
             Map<String, Object> metadata) throws RemoteInputRequiredException {
@@ -199,6 +271,8 @@ public class A2ARemoteAgentClient {
         client.sendMessage(params, List.of((BiConsumer<ClientEvent, AgentCard>) (event, c) -> {
             if (event instanceof TaskEvent te) {
                 handleTaskEvent(te, result);
+            } else {
+                log.debug("Unknown event type in sync call: {}", event.getClass().getSimpleName());
             }
         }), result::completeExceptionally, null);
 
@@ -208,7 +282,6 @@ public class A2ARemoteAgentClient {
         } catch (java.util.concurrent.TimeoutException e) {
             throw new RemoteAgentException("Remote agent '" + agentName + "' timed out after " + timeout + "s", e);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             throw new RemoteAgentException("Interrupted while waiting for remote agent '" + agentName + "'", e);
         } catch (java.util.concurrent.ExecutionException e) {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
@@ -219,12 +292,14 @@ public class A2ARemoteAgentClient {
     }
 
     private static String extractText(List<Part<?>> parts) {
-        if (parts == null || parts.isEmpty())
+        if (parts == null || parts.isEmpty()) {
             return "";
+        }
         StringBuilder sb = new StringBuilder();
         for (Part<?> p : parts) {
-            if (p instanceof TextPart tp)
+            if (p instanceof TextPart tp) {
                 sb.append(tp.text());
+            }
         }
         return sb.toString();
     }
@@ -233,11 +308,22 @@ public class A2ARemoteAgentClient {
     public static class RemoteInputRequiredException extends RuntimeException {
         private final String remoteTaskId;
 
+        /**
+         * Constructs the exception.
+         *
+         * @param message the error message
+         * @param remoteTaskId the remote task ID
+         */
         public RemoteInputRequiredException(String message, String remoteTaskId) {
             super(message);
             this.remoteTaskId = remoteTaskId;
         }
 
+        /**
+         * Returns the remote task ID associated with this input-required state.
+         *
+         * @return the remote task ID
+         */
         public String getRemoteTaskId() {
             return remoteTaskId;
         }
@@ -245,6 +331,12 @@ public class A2ARemoteAgentClient {
 
     /** Wraps remote agent call failures (timeout, interrupted, execution error). */
     public static class RemoteAgentException extends RuntimeException {
+        /**
+         * Constructs the exception.
+         *
+         * @param message the error message
+         * @param cause the underlying cause
+         */
         public RemoteAgentException(String message, Throwable cause) {
             super(message, cause);
         }

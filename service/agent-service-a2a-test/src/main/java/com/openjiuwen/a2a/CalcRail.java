@@ -18,9 +18,10 @@ import org.slf4j.LoggerFactory;
 /**
  * Calculator mock tool for Agent B. First call: ask-user interrupt (INPUT_REQUIRED). Resume call: reject with synthetic
  * result.
+ *
+ * @since 0.1.0
  */
 public class CalcRail extends BaseInterruptRail {
-
     private static final Logger log = LoggerFactory.getLogger(CalcRail.class);
     private static final String TOOL_NAME = "calc";
 

@@ -53,6 +53,9 @@ public final class QueryIngressSupport {
         }
     }
 
+    /**
+     * Validation result containing the resolved {@link ServeRequest} or error details.
+     */
     public record ValidationResult(boolean valid, int errorStatus, Map<String, Object> errorBody,
             ServeRequest serveRequest) {
 
@@ -66,7 +69,13 @@ public final class QueryIngressSupport {
     }
 
     /**
-     * Build request metadata for telemetry/audit, collecting headers, query, path, and body.
+     * Builds request metadata for telemetry/audit, collecting headers, query, path, and body.
+     *
+     * @param headers the HTTP request headers
+     * @param queryParams the query parameters from the request
+     * @param path the request URI path
+     * @param bodyMap the parsed request body as a map
+     * @return a new metadata map with filtered headers, query params, path, and body
      */
     public static Map<String, Object> buildMetadata(HttpHeaders headers, Map<String, String> queryParams, String path,
             Map<String, Object> bodyMap) {
@@ -87,6 +96,11 @@ public final class QueryIngressSupport {
         return metadata;
     }
 
+    /**
+     * Returns a standard "service unavailable" error body.
+     *
+     * @return the error body map
+     */
     public static Map<String, Object> serviceUnavailable() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("type", "error");
@@ -94,6 +108,11 @@ public final class QueryIngressSupport {
         return body;
     }
 
+    /**
+     * Returns a standard "agent not ready" error body.
+     *
+     * @return the error body map
+     */
     public static Map<String, Object> agentNotReady() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("type", "error");

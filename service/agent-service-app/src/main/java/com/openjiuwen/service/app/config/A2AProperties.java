@@ -18,14 +18,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @Data
 public class A2AProperties {
 
-    // ======================== Service URL ========================
-
     /**
      * Public base URL for AgentCard {@code supportedInterfaces[].url}; auto-detected from HTTP request if blank.
      */
     private String publicUrl;
-
-    // ======================== Agent Card fields ========================
 
     private String agentName = "Agent Runtime";
     private String agentDescription = "OpenJiuwen Agent Runtime Service";
@@ -33,36 +29,22 @@ public class A2AProperties {
     private String documentationUrl;
     private String iconUrl;
 
-    // ======================== Capabilities ========================
-
-    private boolean streaming = true;
-    private boolean pushNotifications = false;
-    private boolean extendedAgentCard = false;
-
-    // ======================== I/O Modes ========================
+    private boolean isStreaming = true;
+    private boolean isPushNotifications = false;
+    private boolean isExtendedAgentCard = false;
 
     private List<String> defaultInputModes = List.of("text", "text/plain");
     private List<String> defaultOutputModes = List.of("text", "text/plain");
 
-    // ======================== Provider ========================
-
     private String providerOrganization = "OpenJiuwen";
     private String providerUrl = "https://gitcode.com/openJiuwen";
 
-    // ======================== Skills ========================
-
     private List<SkillProperties> skills = List.of();
-
-    // ======================== Remote Agents ========================
 
     private List<RemoteAgentProperties> remoteAgents = List.of();
 
-    // ======================== Paths ========================
-
     private String jsonRpcPath = "/a2a";
     private String agentCardPath = "/a2a/.well-known/agent-card.json";
-
-    // ======================== Timeout ========================
 
     private int taskCompletionTimeoutSeconds = 300;
 

@@ -16,7 +16,7 @@ openjiuwen:
       agent-name: "AgentA"
       agent-description: "A2A Agent A — ReAct LLM agent with Agent B as remote"
       provider-organization: "OpenJiuwen"
-      streaming: true
+      is-streaming: true
       default-input-modes: ["text", "text/plain"]
       default-output-modes: ["text", "text/plain"]
       # --- Remote Agents ---

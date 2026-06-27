@@ -11,9 +11,6 @@ package com.openjiuwen.service.spec.paths;
  */
 public final class A2AServicePaths {
 
-    private A2AServicePaths() {
-    }
-
     /** A2A standard Agent Card path */
     public static final String WELL_KNOWN_AGENT_CARD = "/.well-known/agent-card.json";
 
@@ -23,11 +20,15 @@ public final class A2AServicePaths {
     /** JSON-RPC and prefixed card mount prefix */
     public static final String A2A_PREFIX = "/a2a";
 
-    /** A2A JSON-RPC main entry (both with and without trailing slash) */
+    /** A2A JSON-RPC main entry (with trailing slash) */
     public static final String A2A_JSONRPC = "/a2a/";
 
+    /** A2A JSON-RPC main entry (without trailing slash) */
     public static final String A2A_JSONRPC_NO_SLASH = "/a2a";
 
     /** Compatible Python a2a_service mount prefix */
     public static final String A2A_WELL_KNOWN_CARD = "/a2a/.well-known/agent-card.json";
+
+    private A2AServicePaths() {
+    }
 }

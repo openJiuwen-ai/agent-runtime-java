@@ -18,11 +18,12 @@ import org.springframework.context.annotation.Bean;
 
 /**
  * Agent A: a real ReAct LLM agent that knows about Agent B as a remote agent.
+ *
+ * @since 0.1.0
  */
 @SpringBootApplication(scanBasePackages = "com.openjiuwen.service.app")
 @EnableConfigurationProperties(AgentALlmProperties.class)
 public class AgentAApp {
-
     private static final String AGENT_ID = "a2a-agent-a";
 
     public static void main(String[] args) {

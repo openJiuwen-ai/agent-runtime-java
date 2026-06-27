@@ -72,16 +72,18 @@ class A2AClientBestPracticeTest {
                 .version(java.net.http.HttpClient.Version.HTTP_1_1).build();
         var httpClient = new org.a2aproject.sdk.client.http.JdkA2AHttpClient(http11);
         agentCard = A2ACardResolver.builder().baseUrl(agentBBaseUrl).httpClient(httpClient).build().getAgentCard();
-        log.info("AgentCard fetched: " + agentCard.name());
-        log.info("  URL: " + agentCard.url());
+        log.info("AgentCard fetched: {}", agentCard.name());
+        log.info("  URL: {}", agentCard.url());
         agentCard.supportedInterfaces()
-                .forEach(iface -> log.info("  Interface: " + iface.protocolBinding() + " → " + iface.url()));
+                .forEach(iface -> log.info("  Interface: {} → {}",
+                        iface.protocolBinding(), iface.url()));
     }
 
     @AfterAll
     static void stopAgentB() {
-        if (agentB != null)
+        if (agentB != null) {
             agentB.close();
+        }
     }
 
     @Test
@@ -92,10 +94,11 @@ class A2AClientBestPracticeTest {
         var jdkClient = new org.a2aproject.sdk.client.http.JdkA2AHttpClient(http11);
         var postBuilder = jdkClient.createPost().url(agentBBaseUrl).addHeader("Content-Type", "application/json")
                 .body("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"SendMessage\","
-                        + "\"params\":{\"message\":{\"role\":\"ROLE_USER\"," + "\"parts\":[{\"text\":\"hello\"}]}}}");
+                        + "\"params\":{\"message\":{\"role\":\"ROLE_USER\","
+                        + "\"parts\":[{\"text\":\"hello\"}]}}}");
         var response = postBuilder.post();
-        log.info("Status: " + response.status());
-        log.info("Body: " + response.body().substring(0, Math.min(300, response.body().length())));
+        log.info("Status: {}", response.status());
+        log.info("Body: {}", response.body().substring(0, Math.min(300, response.body().length())));
         assertThat(response.success()).isTrue();
     }
 
@@ -108,7 +111,7 @@ class A2AClientBestPracticeTest {
         var protoReq = ProtoUtils.ToProto.sendMessageRequest(params);
         // Correct parameter order: (requestId, method, payload)
         String body = JSONRPCUtils.toJsonRPCRequest(null, "SendMessage", protoReq);
-        log.info("JSON-RPC body: " + body);
+        log.info("JSON-RPC body: {}", body);
 
         // Post this exact body directly
         java.net.http.HttpClient http11 = java.net.http.HttpClient.newBuilder()
@@ -117,8 +120,8 @@ class A2AClientBestPracticeTest {
                 .header("Content-Type", "application/json")
                 .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body)).build();
         var response = http11.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
-        log.info("Status: " + response.statusCode());
-        log.info("Body: " + response.body().substring(0, Math.min(200, response.body().length())));
+        log.info("Status: {}", response.statusCode());
+        log.info("Body: {}", response.body().substring(0, Math.min(200, response.body().length())));
         assertThat(response.statusCode()).isEqualTo(200);
     }
 
@@ -133,13 +136,13 @@ class A2AClientBestPracticeTest {
         var config = new JSONRPCTransportConfig(jdkClient);
         var iface = agentCard.supportedInterfaces().get(0);
         var transport = provider.create(config, agentCard, iface);
-        log.info("Transport created: " + transport.getClass().getSimpleName());
+        log.info("Transport created: {}", transport.getClass().getSimpleName());
 
         var params = MessageSendParams.builder().message(Message.builder().role(Message.Role.ROLE_USER)
                 .contextId(java.util.UUID.randomUUID().toString()).messageId(java.util.UUID.randomUUID().toString())
                 .parts(List.<Part<?>>of(new TextPart("hello"))).build()).build();
         var result = transport.sendMessage(params, null);
-        log.info("Result class: " + result.getClass().getSimpleName());
+        log.info("Result class: {}", result.getClass().getSimpleName());
         assertThat(result instanceof Task && ((Task) result).status().state().isFinal()).isTrue();
     }
 
@@ -165,9 +168,9 @@ class A2AClientBestPracticeTest {
                 .addHeader("A2A-Version", "1.0").body(transportBody);
         var response = postBuilder.post();
         log.info("=== Via JdkA2AHttpClient.createPost() ===");
-        log.info("URL: " + transportUrl);
-        log.info("Status: " + response.status());
-        log.info("Body: " + response.body().substring(0, Math.min(200, response.body().length())));
+        log.info("URL: {}", transportUrl);
+        log.info("Status: {}", response.status());
+        log.info("Body: {}", response.body().substring(0, Math.min(200, response.body().length())));
         assertThat(response.success()).isTrue();
     }
 
@@ -175,15 +178,15 @@ class A2AClientBestPracticeTest {
     void buildBaseUrlTest() {
         // Verify the URL JSONRPCTransport will actually use
         var iface = agentCard.supportedInterfaces().get(0);
-        log.info("Interface URL: " + iface.url());
+        log.info("Interface URL: {}", iface.url());
         String builtUrl = org.a2aproject.sdk.util.Utils.buildBaseUrl(iface, null);
-        log.info("buildBaseUrl result: " + builtUrl);
+        log.info("buildBaseUrl result: {}", builtUrl);
         // Create the exact same URI as the transport uses
         var uri = java.net.URI.create(builtUrl);
-        log.info("URI: " + uri);
-        log.info("  host: " + uri.getHost());
-        log.info("  port: " + uri.getPort());
-        log.info("  path: " + uri.getPath());
+        log.info("URI: {}", uri);
+        log.info("  host: {}", uri.getHost());
+        log.info("  port: {}", uri.getPort());
+        log.info("  path: {}", uri.getPath());
     }
 
     @Test
@@ -201,57 +204,26 @@ class A2AClientBestPracticeTest {
                 .build();
         java.net.http.HttpResponse<String> response = client.send(request,
                 java.net.http.HttpResponse.BodyHandlers.ofString());
-        log.info("Status: " + response.statusCode());
-        log.info("Body: " + response.body().substring(0, Math.min(300, response.body().length())));
+        log.info("Status: {}", response.statusCode());
+        log.info("Body: {}", response.body().substring(0, Math.min(300, response.body().length())));
         assertThat(response.statusCode()).isEqualTo(200);
     }
 
     @Test
     void shouldSendMessageAndReceiveResponse() throws Exception {
-        // 1. Build client per official pattern
         CompletableFuture<String> responseText = new CompletableFuture<>();
         CompletableFuture<Task> finalTask = new CompletableFuture<>();
         List<BiConsumer<ClientEvent, AgentCard>> consumers = new ArrayList<>();
-        consumers.add((event, card) -> {
-            log.info("Received event: " + event.getClass().getSimpleName());
-            if (event instanceof MessageEvent msgEvent) {
-                Message msg = msgEvent.getMessage();
-                StringBuilder sb = new StringBuilder();
-                if (msg.parts() != null) {
-                    for (Part<?> p : msg.parts()) {
-                        if (p instanceof TextPart tp)
-                            sb.append(tp.text());
-                    }
-                }
-                responseText.complete(sb.toString());
-            } else if (event instanceof TaskEvent te) {
-                Task task = te.getTask();
-                log.info("  Task state: " + task.status().state());
-                if (task.status().state().isFinal()) {
-                    finalTask.complete(task);
-                    // Extract text from artifacts if not already captured
-                    if (!responseText.isDone() && task.artifacts() != null && !task.artifacts().isEmpty()) {
-                        StringBuilder sb = new StringBuilder();
-                        for (var artifact : task.artifacts()) {
-                            if (artifact.parts() != null) {
-                                for (Part<?> p : artifact.parts()) {
-                                    if (p instanceof TextPart tp)
-                                        sb.append(tp.text());
-                                }
-                            }
-                        }
-                        responseText.complete(sb.toString());
-                    }
-                }
-            }
-        });
+        consumers.add(createEventConsumer(responseText, finalTask));
 
         Consumer<Throwable> errorHandler = error -> {
             log.error("Streaming error: {}", error.getMessage(), error);
-            if (!responseText.isDone())
+            if (!responseText.isDone()) {
                 responseText.completeExceptionally(error);
-            if (!finalTask.isDone())
+            }
+            if (!finalTask.isDone()) {
                 finalTask.completeExceptionally(error);
+            }
         };
 
         // Use HTTP/1.1 — same pattern as raw HttpClient test that works
@@ -265,7 +237,7 @@ class A2AClientBestPracticeTest {
                 .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig(jdkClient)).build();
         log.info("Client built successfully");
 
-        // 2. Send message per official pattern (with contextId)
+        // Send message per official pattern (with contextId)
         Message message = Message.builder().role(Message.Role.ROLE_USER)
                 .contextId(java.util.UUID.randomUUID().toString())
                 .parts(List.<Part<?>>of(new TextPart("Find hotels in Beijing"))).build();
@@ -273,11 +245,65 @@ class A2AClientBestPracticeTest {
         client.sendMessage(message);
         log.info("Message sent, waiting for response...");
 
-        // 3. Wait for response
+        // Wait for response
         String text = responseText.get(30, TimeUnit.SECONDS);
-        log.info("Response: " + text);
+        log.info("Response: {}", text);
 
         assertThat(text).isNotBlank();
         log.info("=== TEST PASSED ===");
+    }
+
+    private static BiConsumer<ClientEvent, AgentCard> createEventConsumer(
+            CompletableFuture<String> responseText, CompletableFuture<Task> finalTask) {
+        return (event, card) -> {
+            log.info("Received event: {}", event.getClass().getSimpleName());
+            if (event instanceof MessageEvent msgEvent) {
+                handleMessageEvent(msgEvent, responseText);
+            } else if (event instanceof TaskEvent te) {
+                handleTaskEventForTest(te, responseText, finalTask);
+            } else {
+                log.debug("Unknown event: {}", event.getClass().getSimpleName());
+            }
+        };
+    }
+
+    private static void handleMessageEvent(MessageEvent msgEvent, CompletableFuture<String> responseText) {
+        Message msg = msgEvent.getMessage();
+        StringBuilder sb = new StringBuilder();
+        if (msg.parts() != null) {
+            for (Part<?> p : msg.parts()) {
+                if (p instanceof TextPart tp) {
+                    sb.append(tp.text());
+                }
+            }
+        }
+        responseText.complete(sb.toString());
+    }
+
+    private static void handleTaskEventForTest(TaskEvent te, CompletableFuture<String> responseText,
+            CompletableFuture<Task> finalTask) {
+        Task task = te.getTask();
+        log.info("  Task state: {}", task.status().state());
+        if (task.status().state().isFinal()) {
+            finalTask.complete(task);
+            // Extract text from artifacts if not already captured
+            if (!responseText.isDone() && task.artifacts() != null && !task.artifacts().isEmpty()) {
+                extractAndComplete(responseText, task);
+            }
+        }
+    }
+
+    private static void extractAndComplete(CompletableFuture<String> responseText, Task task) {
+        StringBuilder sb = new StringBuilder();
+        for (var artifact : task.artifacts()) {
+            if (artifact.parts() != null) {
+                for (Part<?> p : artifact.parts()) {
+                    if (p instanceof TextPart tp) {
+                        sb.append(tp.text());
+                    }
+                }
+            }
+        }
+        responseText.complete(sb.toString());
     }
 }

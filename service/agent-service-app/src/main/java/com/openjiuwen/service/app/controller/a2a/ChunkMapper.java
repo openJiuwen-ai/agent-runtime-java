@@ -17,15 +17,22 @@ import org.a2aproject.sdk.spec.TextPart;
  * @since 0.1.0
  */
 public class ChunkMapper {
-
     private static final Gson GSON = new com.google.gson.GsonBuilder().disableHtmlEscaping().create();
 
+    /**
+     * Converts a {@link QueryChunk} to a list of A2A SDK {@link Part} objects.
+     *
+     * @param chunk the query chunk to convert
+     * @return the list of parts, never null
+     */
     public List<Part<?>> toParts(QueryChunk chunk) {
-        if (chunk == null || chunk.getData() == null)
+        if (chunk == null || chunk.getData() == null) {
             return List.of();
+        }
         Object data = chunk.getData();
-        if (data instanceof String s)
+        if (data instanceof String s) {
             return List.of(new TextPart(s));
+        }
         return List.of(new TextPart(GSON.toJson(data)));
     }
 }

@@ -8,15 +8,17 @@ import java.time.Duration;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+/**
+ * LLM configuration properties for Agent A.
+ */
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.agenta.llm")
 public class AgentALlmProperties {
-
     private String provider = "OpenAI";
     private String apiKey = "";
     private String apiBase = "";
     private String modelName = "";
-    private boolean sslVerify = true;
+    private boolean isSslVerify = true;
     private String systemPrompt = "You are a helpful assistant. Answer concisely and accurately.";
     private Double temperature = 0.6;
     private Double topP = 0.8;

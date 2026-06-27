@@ -50,8 +50,8 @@ openjiuwen:
       agent-name: "My Agent"
       agent-description: "A helpful assistant"
       agent-version: "1.0.0"
-      streaming: true
-      push-notifications: false
+      is-streaming: true
+      is-push-notifications: false
       default-input-modes: ["text", "text/plain"]
       default-output-modes: ["text", "text/plain"]
       # 端点

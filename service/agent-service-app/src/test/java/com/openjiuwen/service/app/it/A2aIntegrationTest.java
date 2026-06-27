@@ -14,12 +14,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
+/**
+ * Integration tests for A2A JSON-RPC endpoints and Query REST endpoints.
+ */
 @SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class A2aIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -57,15 +64,16 @@ class A2aIntegrationTest {
     @SuppressWarnings("unchecked")
     private String firstArtifactText(Map<String, Object> task) {
         var artifacts = (List<Map<String, Object>>) task.get("artifacts");
-        if (artifacts == null || artifacts.isEmpty())
-            return null;
+        if (artifacts == null || artifacts.isEmpty()) {
+            return "";
+        }
         var parts = (List<Map<String, Object>>) artifacts.get(0).get("parts");
-        if (parts == null || parts.isEmpty())
-            return null;
-        return (String) parts.get(0).get("text");
+        if (parts == null || parts.isEmpty()) {
+            return "";
+        }
+        Object textObj = parts.get(0).get("text");
+        return textObj instanceof String s ? s : "";
     }
-
-    // ======================== AgentCard ========================
 
     @Test
     void agentCardAccessibleOnAllPaths() throws Exception {
@@ -78,8 +86,6 @@ class A2aIntegrationTest {
         var prefixed = json(rest.getForObject("/a2a/.well-known/agent-card.json", String.class));
         assertThat(prefixed).isEqualTo(std);
     }
-
-    // ======================== SendMessage ========================
 
     @Test
     @SuppressWarnings("unchecked")
@@ -116,8 +122,6 @@ class A2aIntegrationTest {
         assertThat(err.get("code")).isEqualTo(-32601);
     }
 
-    // ======================== SendStreamingMessage SSE ========================
-
     @Test
     void sendStreamingMessageReturnsSseWithTaskEvents() {
         var resp = postA2a(rpc("SendStreamingMessage", 4, msgParams("ss", "c-sse")));
@@ -127,24 +131,24 @@ class A2aIntegrationTest {
         assertThat(resp.getBody()).contains("event:jsonrpc");
     }
 
-    // ======================== GetTask ========================
-
     @Test
     @SuppressWarnings("unchecked")
     void getTaskRetrievesCreatedTask() throws Exception {
         var createResp = postA2a(rpc("SendMessage", 5, msgParams("gt", "c-get")));
         var created = json(createResp.getBody());
-        String taskId = (String) taskFrom(created).get("id");
+        Object taskIdObj = taskFrom(created).get("id");
+        String taskId = taskIdObj instanceof String s ? s : String.valueOf(taskIdObj);
 
         var getResp = postA2a(rpc("GetTask", 6, Map.of("id", taskId)));
         var got = json(getResp.getBody());
-        Map<String, Object> gotTask = (Map<String, Object>) got.get("result");
+        Object gotResult = got.get("result");
+        if (!(gotResult instanceof Map<?, ?> gotTask)) {
+            throw new AssertionError("Expected result to be a map");
+        }
 
         assertThat(gotTask.get("id")).isEqualTo(taskId);
         assertThat(gotTask.get("contextId")).isEqualTo("c-get");
     }
-
-    // ======================== ResetConversation ========================
 
     @Test
     void resetConversationClearsSession() throws Exception {
@@ -160,8 +164,6 @@ class A2aIntegrationTest {
         var after = json(afterResp.getBody());
         assertThat(firstArtifactText(taskFrom(after))).isEqualTo("turn1:after-reset");
     }
-
-    // ======================== Query REST metadata ========================
 
     @Test
     @SuppressWarnings("unchecked")
@@ -180,19 +182,16 @@ class A2aIntegrationTest {
         Map<String, Object> meta = (Map<String, Object>) result.get("_metadata");
 
         assertThat(meta).isNotNull();
-        // headers captured
         assertThat(meta).containsKey("headers");
         Map<String, Object> hdrs = (Map<String, Object>) meta.get("headers");
         assertThat(hdrs).containsEntry("x-user-id", "test-user");
-        // query params captured
         assertThat(meta).containsKey("query");
         Map<String, Object> q = (Map<String, Object>) meta.get("query");
         assertThat(q).containsEntry("type", "controller");
         assertThat(q).containsEntry("workspace_id", "10");
-        // path captured
         assertThat(meta).containsKey("path");
-        assertThat((String) meta.get("path")).isEqualTo("/v1/query");
-        // body preserved as-is (not reconstructed)
+        Object pathObj = meta.get("path");
+        assertThat(pathObj instanceof String s ? s : "").isEqualTo("/v1/query");
         assertThat(meta).containsKey("body");
         Map<String, Object> b = (Map<String, Object>) meta.get("body");
         assertThat(b).containsEntry("conversation_id", "c-meta");

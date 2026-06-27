@@ -6,7 +6,11 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
-import java.util.concurrent.*;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,27 +28,40 @@ import org.springframework.web.client.RestClient;
 public class A2AAgentCardDiscovery {
 
     private static final Logger log = LoggerFactory.getLogger(A2AAgentCardDiscovery.class);
-    private static final long RETRY_INTERVAL_SECONDS = 30;
+    private static final long RETRY_INTERVAL_SECONDS = 30L;
 
     private final A2AProperties properties;
     private final A2ARemoteAgentCardRegistry registry;
     private final RestClient restClient;
-    private final ScheduledExecutorService retryExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-        Thread t = new Thread(r, "a2a-discovery-retry");
-        t.setDaemon(true);
-        return t;
-    });
+    private final ScheduledThreadPoolExecutor retryExecutor;
 
+    /**
+     * Constructs the agent card discovery service.
+     *
+     * @param properties the A2A configuration properties
+     * @param registry the remote agent card registry
+     */
     public A2AAgentCardDiscovery(A2AProperties properties, A2ARemoteAgentCardRegistry registry) {
         this.properties = properties;
         this.registry = registry;
         this.restClient = RestClient.create();
+        this.retryExecutor = new ScheduledThreadPoolExecutor(1, r -> {
+            Thread t = new Thread(r, "a2a-discovery-retry");
+            t.setDaemon(true);
+            t.setUncaughtExceptionHandler((thread, ex) ->
+                    log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
+            return t;
+        });
     }
 
+    /**
+     * Discovers all configured remote A2A agents on application startup.
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void discoverAll() {
-        if (properties.getRemoteAgents().isEmpty())
+        if (properties.getRemoteAgents().isEmpty()) {
             return;
+        }
         log.info("Discovering {} remote A2A agent(s)", properties.getRemoteAgents().size());
         for (var remote : properties.getRemoteAgents()) {
             tryDiscover(remote);
@@ -54,7 +71,7 @@ public class A2AAgentCardDiscovery {
     private void tryDiscover(RemoteAgentProperties remote) {
         try {
             discoverAndRegister(remote);
-        } catch (Exception e) { // retry on any discovery failure
+        } catch (RuntimeException e) {
             log.warn("Failed to discover {}, retry every {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
                     e.getMessage());
             retryExecutor.scheduleWithFixedDelay(() -> {
@@ -64,7 +81,7 @@ public class A2AAgentCardDiscovery {
                     throw new CancellationException();
                 } catch (CancellationException ex) {
                     throw ex;
-                } catch (Exception ex) {
+                } catch (RuntimeException ex) {
                     log.warn("Retry {} failed, will retry in {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
                             ex.getMessage());
                 }

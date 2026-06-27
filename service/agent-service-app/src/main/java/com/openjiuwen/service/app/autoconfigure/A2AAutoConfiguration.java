@@ -19,14 +19,23 @@ import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
 import org.a2aproject.sdk.server.config.DefaultValuesConfigProvider;
-import org.a2aproject.sdk.server.events.*;
+import org.a2aproject.sdk.server.events.InMemoryQueueManager;
+import org.a2aproject.sdk.server.events.MainEventBus;
+import org.a2aproject.sdk.server.events.MainEventBusProcessor;
+import org.a2aproject.sdk.server.events.QueueManager;
 import org.a2aproject.sdk.server.requesthandlers.DefaultRequestHandler;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
-import org.a2aproject.sdk.server.tasks.*;
+import org.a2aproject.sdk.server.tasks.InMemoryPushNotificationConfigStore;
+import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
+import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
+import org.a2aproject.sdk.server.tasks.PushNotificationSender;
+import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -46,14 +55,24 @@ import redis.clients.jedis.Jedis;
 @EnableConfigurationProperties(A2AProperties.class)
 public class A2AAutoConfiguration {
 
-    // ======================== SDK event bus & task store ========================
-
+    /**
+     * Creates the SDK main event bus bean.
+     *
+     * @return the main event bus
+     */
     @Bean
     @ConditionalOnMissingBean
     public MainEventBus a2aMainEventBus() {
-        return new MainEventBus(); // single event bus for all A2A task queues
+        return new MainEventBus();
     }
 
+    /**
+     * Creates the task store bean, using Redis if configured or in-memory as default.
+     *
+     * @param middlewareProvider the middleware properties provider
+     * @param decryptorProvider the credential decryptor provider
+     * @return the task store
+     */
     @Bean
     @ConditionalOnMissingBean
     public TaskStore a2aTaskStore(ObjectProvider<MiddlewareProperties> middlewareProvider,
@@ -67,32 +86,58 @@ public class A2AAutoConfiguration {
             Jedis jedis = RedisJedisClientFactory.createClient(endpoint, pwd);
             return new RedisTaskStore(jedis);
         }
-        return new InMemoryTaskStore(); // default: in-memory, restart-safe only for dev
+        return new InMemoryTaskStore();
     }
 
-    // ======================== SDK push notification & queue
-    // ========================
-
+    /**
+     * Creates the push notification config store bean.
+     *
+     * @return the push notification config store
+     */
     @Bean
     @ConditionalOnMissingBean
     public PushNotificationConfigStore a2aPushNotificationConfigStore() {
-        return new InMemoryPushNotificationConfigStore(); // no persistent push config needed
+        return new InMemoryPushNotificationConfigStore();
     }
 
-    /** No-op sender — push notifications disabled by default. */
+    /**
+     * Creates a no-op push notification sender bean (push notifications disabled by default).
+     *
+     * @return the no-op push notification sender
+     */
     @Bean
     @ConditionalOnMissingBean
     public PushNotificationSender a2aPushNotificationSender() {
         return (event, task) -> {
-        }; // noop: push notification not implemented
+        };
     }
 
+    /**
+     * Creates the queue manager bean backed by the task store.
+     *
+     * @param taskStore the task store
+     * @param mainEventBus the main event bus
+     * @return the queue manager
+     */
     @Bean
     @ConditionalOnMissingBean
     public QueueManager a2aQueueManager(TaskStore taskStore, MainEventBus mainEventBus) {
-        return new InMemoryQueueManager((TaskStateProvider) taskStore, mainEventBus);
+        if (taskStore instanceof InMemoryTaskStore inMemStore) {
+            return new InMemoryQueueManager(inMemStore, mainEventBus);
+        }
+        // Redis-backed task store: pass null as TaskStateProvider (queue mgr uses in-memory state)
+        return new InMemoryQueueManager(null, mainEventBus);
     }
 
+    /**
+     * Creates the main event bus processor bean.
+     *
+     * @param mainEventBus the main event bus
+     * @param taskStore the task store
+     * @param pushSender the push notification sender
+     * @param queueManager the queue manager
+     * @return the main event bus processor
+     */
     @Bean
     @ConditionalOnMissingBean
     public MainEventBusProcessor a2aMainEventBusProcessor(MainEventBus mainEventBus, TaskStore taskStore,
@@ -100,51 +145,87 @@ public class A2AAutoConfiguration {
         return new MainEventBusProcessor(mainEventBus, taskStore, pushSender, queueManager);
     }
 
+    /**
+     * Creates the A2A config provider bean with SDK defaults.
+     *
+     * @return the A2A config provider
+     */
     @Bean
     @ConditionalOnMissingBean
     public A2AConfigProvider a2aConfigProvider() {
-        return new DefaultValuesConfigProvider(); // SDK defaults: 30s agent timeout, 5s consumption
+        return new DefaultValuesConfigProvider();
     }
 
-    // ======================== A2A protocol adapter & executor
-    // ========================
-
+    /**
+     * Creates the A2A protocol adapter bean.
+     *
+     * @return the A2A protocol adapter
+     */
     @Bean
     @ConditionalOnMissingBean
     public A2AProtocolAdapter a2aProtocolAdapter() {
         return new A2AProtocolAdapter();
     }
 
+    /**
+     * Creates the A2A agent executor bean.
+     *
+     * @param orchestrator the serve orchestrator
+     * @param adapter the A2A protocol adapter
+     * @return the A2A agent executor
+     */
     @Bean
     @ConditionalOnMissingBean
     public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter) {
         return new A2AAgentExecutor(orchestrator, adapter);
     }
 
-    // ======================== A2A client — remote agent registry & discovery
-    // ========================
-
+    /**
+     * Creates the remote agent card registry bean.
+     *
+     * @return the remote agent card registry
+     */
     @Bean
     @ConditionalOnMissingBean
     public A2ARemoteAgentCardRegistry a2aRemoteAgentCardRegistry() {
-        return new A2ARemoteAgentCardRegistry(); // ConcurrentHashMap-backed registry
+        return new A2ARemoteAgentCardRegistry();
     }
 
+    /**
+     * Creates the remote agent client bean.
+     *
+     * @param registry the remote agent card registry
+     * @return the remote agent client
+     */
     @Bean
     @ConditionalOnMissingBean
     public A2ARemoteAgentClient a2aRemoteAgentClient(A2ARemoteAgentCardRegistry registry) {
         return new A2ARemoteAgentClient(registry);
     }
 
+    /**
+     * Creates the agent card discovery bean for fetching remote agent cards at startup.
+     *
+     * @param props the A2A properties
+     * @param registry the remote agent card registry
+     * @return the agent card discovery
+     */
     @Bean
     @ConditionalOnMissingBean
     public A2AAgentCardDiscovery a2aAgentCardDiscovery(A2AProperties props, A2ARemoteAgentCardRegistry registry) {
         return new A2AAgentCardDiscovery(props, registry);
     }
 
-    // ======================== orchestrator & request handler
-    // ========================
-
+    /**
+     * Creates the A2A-enabled serve orchestrator bean as the default orchestrator.
+     *
+     * @param agentHandler the agent handler
+     * @param taskStore the task store
+     * @param a2aClient the remote agent client
+     * @param registry the remote agent card registry
+     * @param streamRegistry the active stream registry
+     * @return the A2A-enabled serve orchestrator
+     */
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
@@ -152,13 +233,27 @@ public class A2AAutoConfiguration {
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry);
     }
 
+    /**
+     * Creates the A2A request handler bean with explicit thread pool executors.
+     *
+     * @param agentExecutor the agent executor
+     * @param taskStore the task store
+     * @param queueManager the queue manager
+     * @param pushConfigStore the push notification config store
+     * @param eventBusProcessor the event bus processor
+     * @return the request handler
+     */
     @Bean
     @ConditionalOnMissingBean
     public RequestHandler a2aRequestHandler(A2AAgentExecutor agentExecutor, TaskStore taskStore,
             QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
             MainEventBusProcessor eventBusProcessor) {
+        int cores = Runtime.getRuntime().availableProcessors();
+        var agentPool = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>());
+        var ioPool = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>());
         return DefaultRequestHandler.create(agentExecutor, taskStore, queueManager, pushConfigStore, eventBusProcessor,
-                Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()),
-                Executors.newFixedThreadPool(2));
+                agentPool, ioPool);
     }
 }
