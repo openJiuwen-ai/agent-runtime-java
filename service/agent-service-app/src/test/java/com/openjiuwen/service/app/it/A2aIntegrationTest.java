@@ -4,24 +4,24 @@
 
 package com.openjiuwen.service.app.it;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.resttestclient.TestRestTemplate;
-import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
-import org.springframework.http.*;
-import java.util.List;
-import java.util.Map;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = TestServiceApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.*;
+
+@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class A2aIntegrationTest {
 
-    @Autowired private TestRestTemplate rest;
+    @Autowired
+    private TestRestTemplate rest;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private ResponseEntity<String> postA2a(Map<String, Object> body) {
@@ -35,10 +35,8 @@ class A2aIntegrationTest {
     }
 
     private static Map<String, Object> msgParams(String text, String contextId) {
-        return Map.of("message", Map.of(
-                "role", "ROLE_USER",
-                "parts", List.of(Map.of("text", text)),
-                "contextId", contextId));
+        return Map.of("message",
+                Map.of("role", "ROLE_USER", "parts", List.of(Map.of("text", text)), "contextId", contextId));
     }
 
     @SuppressWarnings("unchecked")
@@ -59,9 +57,11 @@ class A2aIntegrationTest {
     @SuppressWarnings("unchecked")
     private String firstArtifactText(Map<String, Object> task) {
         var artifacts = (List<Map<String, Object>>) task.get("artifacts");
-        if (artifacts == null || artifacts.isEmpty()) return null;
+        if (artifacts == null || artifacts.isEmpty())
+            return null;
         var parts = (List<Map<String, Object>>) artifacts.get(0).get("parts");
-        if (parts == null || parts.isEmpty()) return null;
+        if (parts == null || parts.isEmpty())
+            return null;
         return (String) parts.get(0).get("text");
     }
 
@@ -109,7 +109,7 @@ class A2aIntegrationTest {
 
     @Test
     void unknownMethodReturnsJsonRpcError() throws Exception {
-        var resp = postA2a(Map.of("jsonrpc","2.0","id",99,"method","Bogus","params",Map.of()));
+        var resp = postA2a(Map.of("jsonrpc", "2.0", "id", 99, "method", "Bogus", "params", Map.of()));
 
         Map<String, Object> body = json(resp.getBody());
         Map<String, Object> err = (Map<String, Object>) body.get("error");
@@ -123,8 +123,7 @@ class A2aIntegrationTest {
         var resp = postA2a(rpc("SendStreamingMessage", 4, msgParams("ss", "c-sse")));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(resp.getHeaders().getContentType().toString())
-                .startsWith(MediaType.TEXT_EVENT_STREAM_VALUE);
+        assertThat(resp.getHeaders().getContentType().toString()).startsWith(MediaType.TEXT_EVENT_STREAM_VALUE);
         assertThat(resp.getBody()).contains("event:jsonrpc");
     }
 
@@ -172,9 +171,8 @@ class A2aIntegrationTest {
         h.set("X-User-ID", "test-user");
 
         var body = Map.of("conversation_id", "c-meta", "stream", false, "message", "hello-meta");
-        var resp = rest.postForEntity(
-                "/v1/query?type=controller&workspace_id=10",
-                new HttpEntity<>(body, h), String.class);
+        var resp = rest.postForEntity("/v1/query?type=controller&workspace_id=10", new HttpEntity<>(body, h),
+                String.class);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);

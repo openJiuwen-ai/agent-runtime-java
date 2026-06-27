@@ -4,31 +4,29 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
+
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.StreamCancellationHandle;
 import com.openjiuwen.service.spec.dto.QueryChunk;
-import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
-import org.a2aproject.sdk.server.tasks.TaskStore;
-import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
-import org.a2aproject.sdk.spec.*;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
+import org.a2aproject.sdk.server.tasks.TaskStore;
+import org.a2aproject.sdk.spec.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class A2AEnabledServeOrchestratorTest {
 
@@ -47,8 +45,7 @@ class A2AEnabledServeOrchestratorTest {
         registry = mock(A2ARemoteAgentCardRegistry.class);
         streamRegistry = mock(ActiveStreamRegistry.class);
         when(streamRegistry.register(anyString())).thenReturn(mock(StreamCancellationHandle.class));
-        orchestrator = new A2AEnabledServeOrchestrator(
-                agentHandler, taskStore, a2aClient, registry, streamRegistry);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry);
     }
 
     // ==================== normal delegation ====================
@@ -65,12 +62,24 @@ class A2AEnabledServeOrchestratorTest {
 
         AtomicBoolean completed = new AtomicBoolean(false);
         orchestrator.streamQuery(req("c1"), new QueryStreamObserver() {
-            @Override public void onNext(QueryChunk c) {
+            @Override
+            public void onNext(QueryChunk c) {
                 assertThat(c.getData()).isEqualTo("hello");
             }
-            @Override public void onComplete() { completed.set(true); }
-            @Override public void onError(Throwable e) {}
-            @Override public boolean isCancelled() { return false; }
+
+            @Override
+            public void onComplete() {
+                completed.set(true);
+            }
+
+            @Override
+            public void onError(Throwable e) {
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return false;
+            }
         });
 
         assertThat(completed.get()).isTrue();
@@ -85,9 +94,8 @@ class A2AEnabledServeOrchestratorTest {
         // Setup: agent produces a2a_interrupt chunk
         doAnswer(inv -> {
             QueryStreamObserver obs = inv.getArgument(1);
-            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
-                    "agentName", "hotel-agent",
-                    "toolName", "search")));
+            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT,
+                    Map.of("agentName", "hotel-agent", "toolName", "search")));
             obs.onComplete();
             return null;
         }).when(agentHandler).streamQuery(any(), any());
@@ -126,23 +134,19 @@ class A2AEnabledServeOrchestratorTest {
 
     @Test
     void pendingTaskRoutesToResume() {
-        Task pending = Task.builder()
-                .id("c-pending")
-                .contextId("c-pending")
-                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED,
-                        null, OffsetDateTime.now()))
-                .metadata(Map.of("_remote_url", "http://remote/a2a/",
-                        "_agent_name", "test",
-                        "_remote_task_id", "remote-task-123"))
+        Task pending = Task.builder().id("c-pending").contextId("c-pending")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
+                .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id",
+                        "remote-task-123"))
                 .build();
         when(registry.get("test")).thenReturn(
-                java.util.Optional.of(
-                        new A2ARemoteAgentCardRegistry.RemoteAgentEntry("test", testCard(), 300)));
+                java.util.Optional.of(new A2ARemoteAgentCardRegistry.RemoteAgentEntry("test", testCard(), 300)));
         when(taskStore.get("c-pending")).thenReturn(pending);
 
         orchestrator.streamQuery(req("c-pending"), mock(QueryStreamObserver.class));
 
-        // Verify pending check was made via get(); remote call attempts but may fail in unit test
+        // Verify pending check was made via get(); remote call attempts but may fail in
+        // unit test
         verify(taskStore).get("c-pending");
     }
 
@@ -165,14 +169,11 @@ class A2AEnabledServeOrchestratorTest {
 
     @Test
     void resetConversationCleansTaskStore() {
-        when(taskStore.list(any())).thenReturn(
-                new ListTasksResult(List.of(
-                        Task.builder().id("t1").contextId("c-reset")
-                                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
-                                .build(),
-                        Task.builder().id("t2").contextId("c-reset")
-                                .status(new TaskStatus(TaskState.TASK_STATE_WORKING))
-                                .build())));
+        when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of(
+                Task.builder().id("t1").contextId("c-reset").status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
+                        .build(),
+                Task.builder().id("t2").contextId("c-reset").status(new TaskStatus(TaskState.TASK_STATE_WORKING))
+                        .build())));
 
         orchestrator.resetConversation("c-reset");
 
@@ -201,14 +202,11 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     private static AgentCard testCard() {
-        return AgentCard.builder()
-                .name("test-agent").description("test").version("1.0")
-                .capabilities(new AgentCapabilities(true, false, false, List.of()))
-                .defaultInputModes(List.of()).defaultOutputModes(List.of())
-                .skills(List.of()).securitySchemes(Map.of()).securityRequirements(List.of())
-                .supportedInterfaces(List.of(
-                        new AgentInterface("jsonrpc", "http://remote/a2a/", null, "1.0")))
-                .signatures(List.of()).additionalInterfaces(List.of())
-                .build();
+        return AgentCard.builder().name("test-agent").description("test").version("1.0")
+                .capabilities(new AgentCapabilities(true, false, false, List.of())).defaultInputModes(List.of())
+                .defaultOutputModes(List.of()).skills(List.of()).securitySchemes(Map.of())
+                .securityRequirements(List.of())
+                .supportedInterfaces(List.of(new AgentInterface("jsonrpc", "http://remote/a2a/", null, "1.0")))
+                .signatures(List.of()).additionalInterfaces(List.of()).build();
     }
 }

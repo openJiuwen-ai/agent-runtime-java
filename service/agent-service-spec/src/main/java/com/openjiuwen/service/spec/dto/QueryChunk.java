@@ -6,14 +6,13 @@ package com.openjiuwen.service.spec.dto;
 
 import lombok.Data;
 
-/**
- * Single SSE / stream chunk envelope.
- */
+/** Single SSE / stream chunk envelope. */
 @Data
 public class QueryChunk {
 
     /** Standard chunk types */
     public static final String TYPE_INTERRUPT = "interrupt";
+
     public static final String TYPE_ANSWER = "answer";
     public static final String TYPE_CHUNK = "chunk";
     public static final String TYPE_ERROR = "error";

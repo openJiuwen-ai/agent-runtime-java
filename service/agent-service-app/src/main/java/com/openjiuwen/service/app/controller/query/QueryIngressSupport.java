@@ -6,11 +6,10 @@ package com.openjiuwen.service.app.controller.query;
 
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.ServeRequest;
-import org.springframework.http.HttpHeaders;
-
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.http.HttpHeaders;
 
 /**
  * Shared ingress logic for Query controllers (header binding, validation, DTO mapping).
@@ -21,8 +20,7 @@ public final class QueryIngressSupport {
     public static final String HEADER_SPACE_ID = "X-Space-ID";
     public static final String HEADER_TENANT_ID = "X-Tenant-ID";
 
-    private static final Set<String> EXCLUDED_HEADERS = Set.of(
-            "authorization", "cookie", "set-cookie", "x-api-key",
+    private static final Set<String> EXCLUDED_HEADERS = Set.of("authorization", "cookie", "set-cookie", "x-api-key",
             "proxy-authorization", "x-csrf-token");
 
     private QueryIngressSupport() {
@@ -56,7 +54,7 @@ public final class QueryIngressSupport {
     }
 
     public record ValidationResult(boolean valid, int errorStatus, Map<String, Object> errorBody,
-                                   ServeRequest serveRequest) {
+            ServeRequest serveRequest) {
 
         static ValidationResult ok(ServeRequest serveRequest) {
             return new ValidationResult(true, 0, null, serveRequest);
@@ -70,9 +68,8 @@ public final class QueryIngressSupport {
     /**
      * Build request metadata for telemetry/audit, collecting headers, query, path, and body.
      */
-    public static Map<String, Object> buildMetadata(HttpHeaders headers,
-                                                     Map<String, String> queryParams,
-                                                     String path, Map<String, Object> bodyMap) {
+    public static Map<String, Object> buildMetadata(HttpHeaders headers, Map<String, String> queryParams, String path,
+            Map<String, Object> bodyMap) {
         Map<String, Object> metadata = new LinkedHashMap<>();
 
         Map<String, String> headerMap = new LinkedHashMap<>();

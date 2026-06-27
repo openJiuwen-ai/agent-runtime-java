@@ -8,10 +8,10 @@ import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisConnectionAssembler;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisJedisClientFactory;
-import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
+import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
@@ -19,7 +19,7 @@ import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
-import org.springframework.beans.factory.ObjectProvider;
+import java.util.concurrent.Executors;
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
 import org.a2aproject.sdk.server.config.DefaultValuesConfigProvider;
@@ -27,6 +27,7 @@ import org.a2aproject.sdk.server.events.*;
 import org.a2aproject.sdk.server.requesthandlers.DefaultRequestHandler;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
 import org.a2aproject.sdk.server.tasks.*;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -34,11 +35,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import redis.clients.jedis.Jedis;
 
-import java.util.concurrent.Executors;
-
 /**
- * Auto-configuration for A2A Server + Client beans.
- * Activated only when {@code a2a-java-sdk-server-common} is on the classpath.
+ * Auto-configuration for A2A Server + Client beans. Activated only when {@code
+ * a2a-java-sdk-server-common} is on the classpath.
  *
  * @since 0.1.0
  */
@@ -58,10 +57,9 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public TaskStore a2aTaskStore(ObjectProvider<MiddlewareProperties> middlewareProvider,
-                                   ObjectProvider<CredentialDecryptor> decryptorProvider) {
+            ObjectProvider<CredentialDecryptor> decryptorProvider) {
         MiddlewareProperties middlewareProperties = middlewareProvider.getIfAvailable();
-        if (middlewareProperties != null
-                && "redis".equals(middlewareProperties.getCheckpointer().getType())) {
+        if (middlewareProperties != null && "redis".equals(middlewareProperties.getCheckpointer().getType())) {
             CredentialDecryptor decryptor = decryptorProvider.getIfAvailable();
             String ref = middlewareProperties.getCheckpointer().getRedisRef();
             var endpoint = RedisConnectionAssembler.resolveEndpoint(middlewareProperties, ref);
@@ -72,7 +70,8 @@ public class A2AAutoConfiguration {
         return new InMemoryTaskStore(); // default: in-memory, restart-safe only for dev
     }
 
-    // ======================== SDK push notification & queue ========================
+    // ======================== SDK push notification & queue
+    // ========================
 
     @Bean
     @ConditionalOnMissingBean
@@ -84,7 +83,8 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public PushNotificationSender a2aPushNotificationSender() {
-        return (event, task) -> {}; // noop: push notification not implemented
+        return (event, task) -> {
+        }; // noop: push notification not implemented
     }
 
     @Bean
@@ -95,8 +95,7 @@ public class A2AAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public MainEventBusProcessor a2aMainEventBusProcessor(
-            MainEventBus mainEventBus, TaskStore taskStore,
+    public MainEventBusProcessor a2aMainEventBusProcessor(MainEventBus mainEventBus, TaskStore taskStore,
             PushNotificationSender pushSender, QueueManager queueManager) {
         return new MainEventBusProcessor(mainEventBus, taskStore, pushSender, queueManager);
     }
@@ -107,7 +106,8 @@ public class A2AAutoConfiguration {
         return new DefaultValuesConfigProvider(); // SDK defaults: 30s agent timeout, 5s consumption
     }
 
-    // ======================== A2A protocol adapter & executor ========================
+    // ======================== A2A protocol adapter & executor
+    // ========================
 
     @Bean
     @ConditionalOnMissingBean
@@ -117,12 +117,12 @@ public class A2AAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator,
-                                              A2AProtocolAdapter adapter) {
+    public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter) {
         return new A2AAgentExecutor(orchestrator, adapter);
     }
 
-    // ======================== A2A client — remote agent registry & discovery ========================
+    // ======================== A2A client — remote agent registry & discovery
+    // ========================
 
     @Bean
     @ConditionalOnMissingBean
@@ -138,19 +138,17 @@ public class A2AAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public A2AAgentCardDiscovery a2aAgentCardDiscovery(A2AProperties props,
-            A2ARemoteAgentCardRegistry registry) {
+    public A2AAgentCardDiscovery a2aAgentCardDiscovery(A2AProperties props, A2ARemoteAgentCardRegistry registry) {
         return new A2AAgentCardDiscovery(props, registry);
     }
 
-    // ======================== orchestrator & request handler ========================
+    // ======================== orchestrator & request handler
+    // ========================
 
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)
-    public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(
-            AgentHandler agentHandler, TaskStore taskStore,
-            A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry,
-            ActiveStreamRegistry streamRegistry) {
+    public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
+            A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry) {
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry);
     }
 
@@ -159,9 +157,7 @@ public class A2AAutoConfiguration {
     public RequestHandler a2aRequestHandler(A2AAgentExecutor agentExecutor, TaskStore taskStore,
             QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
             MainEventBusProcessor eventBusProcessor) {
-        return DefaultRequestHandler.create(
-                agentExecutor, taskStore, queueManager,
-                pushConfigStore, eventBusProcessor,
+        return DefaultRequestHandler.create(agentExecutor, taskStore, queueManager, pushConfigStore, eventBusProcessor,
                 Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()),
                 Executors.newFixedThreadPool(2));
     }

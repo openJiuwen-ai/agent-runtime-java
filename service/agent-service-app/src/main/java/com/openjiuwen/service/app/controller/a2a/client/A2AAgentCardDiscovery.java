@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
+import java.util.concurrent.*;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,11 +15,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
-import java.util.concurrent.*;
-
 /**
- * Fetches AgentCards from configured remote A2A servers at startup.
- * Successful fetches are cached permanently; failures are retried every 30s.
+ * Fetches AgentCards from configured remote A2A servers at startup. Successful fetches are cached permanently; failures
+ * are retried every 30s.
  *
  * @since 0.1.0
  */
@@ -30,15 +29,13 @@ public class A2AAgentCardDiscovery {
     private final A2AProperties properties;
     private final A2ARemoteAgentCardRegistry registry;
     private final RestClient restClient;
-    private final ScheduledExecutorService retryExecutor =
-            Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "a2a-discovery-retry");
-                t.setDaemon(true);
-                return t;
-            });
+    private final ScheduledExecutorService retryExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "a2a-discovery-retry");
+        t.setDaemon(true);
+        return t;
+    });
 
-    public A2AAgentCardDiscovery(A2AProperties properties,
-                                  A2ARemoteAgentCardRegistry registry) {
+    public A2AAgentCardDiscovery(A2AProperties properties, A2ARemoteAgentCardRegistry registry) {
         this.properties = properties;
         this.registry = registry;
         this.restClient = RestClient.create();
@@ -46,7 +43,8 @@ public class A2AAgentCardDiscovery {
 
     @EventListener(ApplicationReadyEvent.class)
     public void discoverAll() {
-        if (properties.getRemoteAgents().isEmpty()) return;
+        if (properties.getRemoteAgents().isEmpty())
+            return;
         log.info("Discovering {} remote A2A agent(s)", properties.getRemoteAgents().size());
         for (var remote : properties.getRemoteAgents()) {
             tryDiscover(remote);
@@ -56,9 +54,9 @@ public class A2AAgentCardDiscovery {
     private void tryDiscover(RemoteAgentProperties remote) {
         try {
             discoverAndRegister(remote);
-        } catch (Exception e) {
-            log.warn("Failed to discover {}, retry every {}s: {}",
-                    remote.getName(), RETRY_INTERVAL_SECONDS, e.getMessage());
+        } catch (Exception e) { // retry on any discovery failure
+            log.warn("Failed to discover {}, retry every {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
+                    e.getMessage());
             retryExecutor.scheduleWithFixedDelay(() -> {
                 try {
                     discoverAndRegister(remote);
@@ -67,8 +65,8 @@ public class A2AAgentCardDiscovery {
                 } catch (CancellationException ex) {
                     throw ex;
                 } catch (Exception ex) {
-                    log.warn("Retry {} failed, will retry in {}s: {}",
-                            remote.getName(), RETRY_INTERVAL_SECONDS, ex.getMessage());
+                    log.warn("Retry {} failed, will retry in {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
+                            ex.getMessage());
                 }
             }, RETRY_INTERVAL_SECONDS, RETRY_INTERVAL_SECONDS, TimeUnit.SECONDS);
         }
@@ -82,7 +80,6 @@ public class A2AAgentCardDiscovery {
 
     AgentCard fetchCard(String baseUrl) {
         String cardUrl = baseUrl.replaceAll("/$", "") + "/.well-known/agent-card.json";
-        return restClient.get().uri(cardUrl).accept(MediaType.APPLICATION_JSON)
-                .retrieve().body(AgentCard.class);
+        return restClient.get().uri(cardUrl).accept(MediaType.APPLICATION_JSON).retrieve().body(AgentCard.class);
     }
 }

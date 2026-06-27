@@ -13,6 +13,14 @@ import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -25,16 +33,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-
-import java.io.IOException;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
-
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * MVC stack Query controller ({@code POST /v1/query} and legacy {@code POST /query}).
@@ -49,24 +47,20 @@ public class QueryMvcController {
     private final ObjectMapper objectMapper;
 
     public QueryMvcController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
-                              ObjectProvider<AgentReadiness> readinessProvider,
-                              ObjectMapper objectMapper) {
+            ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
         this.orchestratorProvider = orchestratorProvider;
         this.readinessProvider = readinessProvider;
         this.objectMapper = objectMapper;
     }
 
     @PostMapping(AgentServicePaths.QUERY_V1)
-    public SseEmitter queryV1(@RequestBody String rawBody,
-                              @RequestHeader HttpHeaders headers,
-                              HttpServletRequest servletRequest,
-                              HttpServletResponse response) throws IOException {
+    public SseEmitter queryV1(@RequestBody String rawBody, @RequestHeader HttpHeaders headers,
+            HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
         return handleQuery(rawBody, headers, servletRequest, response);
     }
 
-    SseEmitter handleQuery(String rawBody, HttpHeaders headers,
-                           HttpServletRequest servletRequest,
-                           HttpServletResponse response) throws IOException {
+    SseEmitter handleQuery(String rawBody, HttpHeaders headers, HttpServletRequest servletRequest,
+            HttpServletResponse response) throws IOException {
         QueryRequest request = objectMapper.readValue(rawBody, QueryRequest.class);
         QueryIngressSupport.ValidationResult validation = QueryIngressSupport.validateAndBuild(request, headers);
         if (!validation.valid()) {
@@ -92,8 +86,7 @@ public class QueryMvcController {
     }
 
     private SseEmitter streamResponse(ServeOrchestrator orchestrator,
-                                      com.openjiuwen.service.spec.dto.ServeRequest serveRequest,
-                                      HttpServletResponse response) {
+            com.openjiuwen.service.spec.dto.ServeRequest serveRequest, HttpServletResponse response) {
         response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE);
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
         response.setHeader(HttpHeaders.CONNECTION, "keep-alive");
@@ -111,9 +104,7 @@ public class QueryMvcController {
     }
 
     private void streamToEmitter(ServeOrchestrator orchestrator,
-                                 com.openjiuwen.service.spec.dto.ServeRequest serveRequest,
-                                 SseEmitter emitter,
-                                 AtomicBoolean cancelled) {
+            com.openjiuwen.service.spec.dto.ServeRequest serveRequest, SseEmitter emitter, AtomicBoolean cancelled) {
         orchestrator.streamQuery(serveRequest, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
@@ -163,9 +154,8 @@ public class QueryMvcController {
         objectMapper.writeValue(response.getOutputStream(), value);
     }
 
-    void validateAndBuildMetadata(ServeRequest sr,
-                                          HttpHeaders headers, HttpServletRequest servletRequest,
-                                          String rawBody) {
+    void validateAndBuildMetadata(ServeRequest sr, HttpHeaders headers, HttpServletRequest servletRequest,
+            String rawBody) {
         Map<String, String> queryMap = new LinkedHashMap<>();
         servletRequest.getParameterMap().forEach((k, v) -> queryMap.put(k, v[0]));
         Map<String, Object> bodyMap;
@@ -173,19 +163,17 @@ public class QueryMvcController {
             @SuppressWarnings("unchecked")
             Map<String, Object> parsed = objectMapper.readValue(rawBody, Map.class);
             bodyMap = parsed;
-        } catch (Exception e) {
+        } catch (Exception e) { // fallback to raw body on parse error
             bodyMap = Map.of("_parse_error", "body_size=" + rawBody.length());
         }
-        sr.setMetadata(QueryIngressSupport.buildMetadata(
-                headers, queryMap, servletRequest.getRequestURI(), bodyMap));
+        sr.setMetadata(QueryIngressSupport.buildMetadata(headers, queryMap, servletRequest.getRequestURI(), bodyMap));
     }
 }
 
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
-@ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled",
-        havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true", matchIfMissing = true)
 class QueryLegacyMvcController {
 
     private final QueryMvcController delegate;
@@ -195,10 +183,8 @@ class QueryLegacyMvcController {
     }
 
     @PostMapping(AgentServicePaths.QUERY_LEGACY)
-    public SseEmitter queryLegacy(@RequestBody String rawBody,
-                                  @RequestHeader HttpHeaders headers,
-                                  HttpServletRequest servletRequest,
-                                  HttpServletResponse response) throws IOException {
+    public SseEmitter queryLegacy(@RequestBody String rawBody, @RequestHeader HttpHeaders headers,
+            HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
         return delegate.handleQuery(rawBody, headers, servletRequest, response);
     }
 }

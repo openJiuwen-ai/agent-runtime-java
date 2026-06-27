@@ -5,7 +5,8 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
+import java.util.ArrayList;
+import java.util.List;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
@@ -15,12 +16,9 @@ import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.params.ScanParams;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
- * Redis-backed {@link TaskStore} using the same Redis connection as the
- * Checkpointer middleware. Task keys carry a 7-day TTL.
+ * Redis-backed {@link TaskStore} using the same Redis connection as the Checkpointer middleware. Task keys carry a
+ * 7-day TTL.
  *
  * @since 0.1.0
  */
@@ -67,11 +65,11 @@ public class RedisTaskStore implements TaskStore {
         List<Task> result = new ArrayList<>();
         String cursor = ScanParams.SCAN_POINTER_START;
         do {
-            var scanResult = jedis.scan(cursor,
-                    new ScanParams().match(KEY_PREFIX + "*").count(100));
+            var scanResult = jedis.scan(cursor, new ScanParams().match(KEY_PREFIX + "*").count(100));
             for (String key : scanResult.getResult()) {
                 byte[] data = jedis.get(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                if (data == null) continue;
+                if (data == null)
+                    continue;
                 Task t = GSON.fromJson(new String(data, java.nio.charset.StandardCharsets.UTF_8), Task.class);
                 if (t != null && matches(t, params)) {
                     result.add(t);
@@ -83,8 +81,7 @@ public class RedisTaskStore implements TaskStore {
     }
 
     private boolean matches(Task t, ListTasksParams params) {
-        if (params.contextId() != null && !params.contextId().isEmpty()
-                && !params.contextId().equals(t.contextId())) {
+        if (params.contextId() != null && !params.contextId().isEmpty() && !params.contextId().equals(t.contextId())) {
             return false;
         }
         if (params.status() != null && !params.status().equals(t.status().state())) {

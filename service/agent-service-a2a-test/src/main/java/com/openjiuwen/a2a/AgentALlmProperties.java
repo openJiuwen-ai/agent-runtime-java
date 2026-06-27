@@ -2,13 +2,11 @@
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
 
-
 package com.openjiuwen.a2a;
 
+import java.time.Duration;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-
-import java.time.Duration;
 
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.agenta.llm")

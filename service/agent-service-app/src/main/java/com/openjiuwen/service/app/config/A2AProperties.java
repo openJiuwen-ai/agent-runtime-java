@@ -4,14 +4,13 @@
 
 package com.openjiuwen.service.app.config;
 
+import java.util.List;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.List;
-
 /**
- * Binds {@code openjiuwen.service.a2a.*} for AgentCard content, remote agents,
- * JSON-RPC endpoints, and task configuration.
+ * Binds {@code openjiuwen.service.a2a.*} for AgentCard content, remote agents, JSON-RPC endpoints, and task
+ * configuration.
  *
  * @since 0.1.0
  */
@@ -21,8 +20,9 @@ public class A2AProperties {
 
     // ======================== Service URL ========================
 
-    /** Public base URL for AgentCard {@code supportedInterfaces[].url};
-     *  auto-detected from HTTP request if blank. */
+    /**
+     * Public base URL for AgentCard {@code supportedInterfaces[].url}; auto-detected from HTTP request if blank.
+     */
     private String publicUrl;
 
     // ======================== Agent Card fields ========================

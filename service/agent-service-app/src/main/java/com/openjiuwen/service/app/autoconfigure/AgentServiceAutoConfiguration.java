@@ -25,6 +25,7 @@ import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.lifecycle.AgentShutdownHook;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
+import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -33,8 +34,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.core.env.Environment;
-
-import java.util.List;
 
 @AutoConfiguration
 @EnableConfigurationProperties({ServiceProperties.class, QueryProperties.class, LifecycleProperties.class})
@@ -74,52 +73,39 @@ public class AgentServiceAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(AgentLifecycleHooks.class)
-    public AgentLifecycleHooks agentLifecycleHooks(
-            List<AgentInitHook> initHooks,
-            List<AgentShutdownHook> shutdownHooks,
+    public AgentLifecycleHooks agentLifecycleHooks(List<AgentInitHook> initHooks, List<AgentShutdownHook> shutdownHooks,
             List<AgentInterruptHandler> interruptHandlers) {
         return new AgentLifecycleHooks(initHooks, shutdownHooks, interruptHandlers);
     }
 
     @Bean
     @ConditionalOnMissingBean(InitPhaseExecutor.class)
-    public InitPhaseExecutor initPhaseExecutor(
-            AgentServiceIdentity identity,
-            AgentLifecycleHooks hooks,
-            DefaultAgentReadiness readiness,
-            ObjectProvider<AgentHandler> agentHandlerProvider,
+    public InitPhaseExecutor initPhaseExecutor(AgentServiceIdentity identity, AgentLifecycleHooks hooks,
+            DefaultAgentReadiness readiness, ObjectProvider<AgentHandler> agentHandlerProvider,
             LifecycleProperties lifecycleProperties) {
-        return new InitPhaseExecutor(
-                identity, hooks, readiness, agentHandlerProvider, lifecycleProperties);
+        return new InitPhaseExecutor(identity, hooks, readiness, agentHandlerProvider, lifecycleProperties);
     }
 
     @Bean
     @ConditionalOnMissingBean(ShutdownPhaseExecutor.class)
-    public ShutdownPhaseExecutor shutdownPhaseExecutor(
-            AgentServiceIdentity identity,
-            AgentLifecycleHooks hooks,
-            DefaultAgentReadiness readiness,
-            ActiveStreamRegistry streamRegistry,
-            ObjectProvider<AgentHandler> agentHandlerProvider,
-            LifecycleProperties lifecycleProperties) {
-        return new ShutdownPhaseExecutor(
-                identity, hooks, readiness, streamRegistry, agentHandlerProvider, lifecycleProperties);
+    public ShutdownPhaseExecutor shutdownPhaseExecutor(AgentServiceIdentity identity, AgentLifecycleHooks hooks,
+            DefaultAgentReadiness readiness, ActiveStreamRegistry streamRegistry,
+            ObjectProvider<AgentHandler> agentHandlerProvider, LifecycleProperties lifecycleProperties) {
+        return new ShutdownPhaseExecutor(identity, hooks, readiness, streamRegistry, agentHandlerProvider,
+                lifecycleProperties);
     }
 
     @Bean
     @ConditionalOnMissingBean(ActiveStreamInterruptor.class)
-    public ActiveStreamInterruptor activeStreamInterruptor(
-            ObjectProvider<ServeOrchestrator> orchestratorProvider,
+    public ActiveStreamInterruptor activeStreamInterruptor(ObjectProvider<ServeOrchestrator> orchestratorProvider,
             AgentLifecycleHooks hooks) {
         return new ActiveStreamInterruptor(orchestratorProvider, hooks.interruptHandlers());
     }
 
     @Bean
     @ConditionalOnMissingBean(AgentLifecycleManager.class)
-    public DefaultAgentLifecycleManager agentLifecycleManager(
-            InitPhaseExecutor initPhaseExecutor,
-            ShutdownPhaseExecutor shutdownPhaseExecutor,
-            ActiveStreamInterruptor streamInterruptor) {
+    public DefaultAgentLifecycleManager agentLifecycleManager(InitPhaseExecutor initPhaseExecutor,
+            ShutdownPhaseExecutor shutdownPhaseExecutor, ActiveStreamInterruptor streamInterruptor) {
         return new DefaultAgentLifecycleManager(initPhaseExecutor, shutdownPhaseExecutor, streamInterruptor);
     }
 
@@ -128,5 +114,4 @@ public class AgentServiceAutoConfiguration {
     public AgentLifecycleBootstrap agentLifecycleBootstrap(AgentLifecycleManager lifecycleManager) {
         return new AgentLifecycleBootstrap(lifecycleManager);
     }
-
 }

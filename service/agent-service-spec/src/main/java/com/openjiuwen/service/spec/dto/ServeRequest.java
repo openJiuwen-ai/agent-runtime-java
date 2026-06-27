@@ -4,16 +4,13 @@
 
 package com.openjiuwen.service.spec.dto;
 
-import lombok.Data;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import lombok.Data;
 
-/**
- * Protocol-neutral orchestration request (Ingress DTO → internal model).
- */
+/** Protocol-neutral orchestration request (Ingress DTO → internal model). */
 @Data
 public class ServeRequest {
 
@@ -37,9 +34,7 @@ public class ServeRequest {
         return serveRequest;
     }
 
-    /**
-     * Extract the latest user message content as the agent query.
-     */
+    /** Extract the latest user message content as the agent query. */
     public String lastUserQuery() {
         for (int i = messages.size() - 1; i >= 0; i--) {
             Map<String, Object> m = messages.get(i);

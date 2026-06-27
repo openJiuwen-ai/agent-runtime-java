@@ -8,10 +8,10 @@ import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
+import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.session.stream.TraceSchema;
-import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
@@ -21,9 +21,6 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -34,6 +31,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Default {@link AgentHandler} for OpenJiuwen agent-core-java, delegating to {@code Runner}.
@@ -75,9 +74,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         this(agent, null, externalSvcAdapterRegistrar);
     }
 
-    public JiuwenCoreAgentHandler(Object agent,
-                                  MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
-                                  ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
+    public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
+            ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
         this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
@@ -136,17 +134,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         String convId = request.getConversationId();
         String query = request.lastUserQuery();
-        log.info("JiuwenCoreAgentHandler streamQuery convId={} textLen={} msgCount={}",
-                convId, query != null ? query.length() : 0,
-                request.getMessages() != null ? request.getMessages().size() : 0);
+        log.info("JiuwenCoreAgentHandler streamQuery convId={} textLen={} msgCount={}", convId,
+                query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
         try {
             List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
-            Iterator<Object> source = Runner.runAgentStreaming(
-                    agent,
-                    buildInputs(request),
-                    runnerSession(request),
-                    null,
-                    streamModes);
+            Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request),
+                    null, streamModes);
             while (!observer.isCancelled() && source.hasNext()) {
                 if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
                     break;
@@ -170,11 +163,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
         List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
-        Iterator<Object> source = Runner.runAgentStreaming(
-                agent,
-                buildInputs(request),
-                runnerSession(request),
-                null,
+        Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request), null,
                 streamModes);
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
@@ -183,7 +172,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
-        if (lastPayload instanceof Map<?,?> raw && INTERACTION_TYPE.equals(raw.get("type"))) {
+        if (lastPayload instanceof Map<?, ?> raw && INTERACTION_TYPE.equals(raw.get("type"))) {
             @SuppressWarnings("unchecked")
             Map<String, Object> m = (Map<String, Object>) raw;
             result.put("_interrupt", m);
@@ -221,14 +210,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         String agentId = agent instanceof String stringAgentId
                 ? stringAgentId
                 : SYNTHETIC_AGENT_ID_PREFIX + agent.getClass().getName();
-        String agentName = agent instanceof String stringAgentId
-                ? stringAgentId
-                : agent.getClass().getSimpleName();
-        BaseCard card = BaseCard.builder()
-                .id(agentId)
-                .name(agentName)
-                .description("Synthetic card for AgentCore session")
-                .build();
+        String agentName = agent instanceof String stringAgentId ? stringAgentId : agent.getClass().getSimpleName();
+        BaseCard card = BaseCard.builder().id(agentId).name(agentName)
+                .description("Synthetic card for AgentCore session").build();
         return new AgentSessionApi(sessionId, null, card, List.of(StreamMode.OUTPUT));
     }
 
@@ -280,21 +264,21 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     /**
-     * Map the internal agent-core OutputSchema type to a standard
-     * {@link QueryChunk} type, so downstream code never sees
-     * agent-core-internal type strings.
+     * Map the internal agent-core OutputSchema type to a standard {@link QueryChunk} type, so downstream code never
+     * sees agent-core-internal type strings.
      */
     private static String mapToQueryChunkType(Object normalized) {
-        if (!(normalized instanceof Map<?, ?> m)) return QueryChunk.TYPE_CHUNK;
+        if (!(normalized instanceof Map<?, ?> m))
+            return QueryChunk.TYPE_CHUNK;
         Object rawType = m.get("type");
-        if (INTERACTION_TYPE.equals(rawType)) return QueryChunk.TYPE_INTERRUPT;
-        if ("answer".equals(rawType)) return QueryChunk.TYPE_ANSWER;
+        if (INTERACTION_TYPE.equals(rawType))
+            return QueryChunk.TYPE_INTERRUPT;
+        if ("answer".equals(rawType))
+            return QueryChunk.TYPE_ANSWER;
         return QueryChunk.TYPE_CHUNK;
     }
 
-    /**
-     * Extract structured interrupt data from an InteractionOutput payload.
-     */
+    /** Extract structured interrupt data from an InteractionOutput payload. */
     private static Map<String, Object> toInterruptData(OutputSchema output) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("type", INTERACTION_TYPE);
@@ -305,11 +289,15 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (payload instanceof InteractionOutput io) {
             Object value = io.getValue();
             if (value instanceof InterruptRequest req) {
-                if (req.getMessage() != null) data.put("message", req.getMessage());
-                if (req.getContext() != null) data.put("context", req.getContext());
+                if (req.getMessage() != null)
+                    data.put("message", req.getMessage());
+                if (req.getContext() != null)
+                    data.put("context", req.getContext());
                 if (value instanceof ToolCallInterruptRequest tcr) {
-                    if (tcr.getToolCallId() != null) data.put("toolCallId", tcr.getToolCallId());
-                    if (tcr.getToolName() != null) data.put("toolName", tcr.getToolName());
+                    if (tcr.getToolCallId() != null)
+                        data.put("toolCallId", tcr.getToolCallId());
+                    if (tcr.getToolName() != null)
+                        data.put("toolName", tcr.getToolName());
                 }
             }
         }
@@ -322,17 +310,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         Object type = map.get("type");
         Object rawPayload = map.get("payload");
-        Optional<Object> text = firstNonNull(
-                map.get("content"),
-                map.get("delta"),
-                map.get("output"),
+        Optional<Object> text = firstNonNull(map.get("content"), map.get("delta"), map.get("output"),
                 map.get("response"));
         if (rawPayload instanceof Map<?, ?> payloadMap) {
-            Optional<Object> payloadText = firstNonNull(
-                    payloadMap.get("content"),
-                    payloadMap.get("delta"),
-                    payloadMap.get("output"),
-                    payloadMap.get("response"));
+            Optional<Object> payloadText = firstNonNull(payloadMap.get("content"), payloadMap.get("delta"),
+                    payloadMap.get("output"), payloadMap.get("response"));
             if (payloadText.isPresent()) {
                 text = payloadText;
             }
@@ -355,9 +337,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private static Optional<Object> firstNonNull(Object... values) {
-        return Arrays.stream(values)
-                .filter(value -> value != null)
-                .findFirst();
+        return Arrays.stream(values).filter(value -> value != null).findFirst();
     }
 
     protected static String stringify(Object value) {

@@ -4,13 +4,12 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
-import org.a2aproject.sdk.spec.AgentCard;
-import org.springframework.stereotype.Component;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import org.a2aproject.sdk.spec.AgentCard;
+import org.springframework.stereotype.Component;
 
 /**
  * Thread-safe in-memory registry of discovered remote A2A AgentCards.
@@ -37,13 +36,16 @@ public class A2ARemoteAgentCardRegistry {
 
     public String resolveUrl(String name) {
         var entry = entries.get(name);
-        if (entry == null) return "";
+        if (entry == null)
+            return "";
         var ifaces = entry.card().supportedInterfaces();
-        if (ifaces == null || ifaces.isEmpty()) return "";
+        if (ifaces == null || ifaces.isEmpty())
+            return "";
         return ifaces.get(0).url();
     }
 
-    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds) {}
+    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds) {
+    }
 
     public void register(String name, AgentCard card, int timeoutSeconds) {
         entries.put(name, new RemoteAgentEntry(name, card, timeoutSeconds));

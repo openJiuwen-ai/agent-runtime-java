@@ -25,6 +25,7 @@ public final class A2AServicePaths {
 
     /** A2A JSON-RPC main entry (both with and without trailing slash) */
     public static final String A2A_JSONRPC = "/a2a/";
+
     public static final String A2A_JSONRPC_NO_SLASH = "/a2a";
 
     /** Compatible Python a2a_service mount prefix */
