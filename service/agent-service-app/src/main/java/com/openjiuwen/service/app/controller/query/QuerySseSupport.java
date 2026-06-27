@@ -16,7 +16,6 @@ import java.util.Map;
  * Shared SSE serialization helpers for MVC and WebFlux controllers.
  */
 public final class QuerySseSupport {
-
     private QuerySseSupport() {
     }
 
