@@ -4,9 +4,13 @@
 
 package com.openjiuwen.service.app.it;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.autoconfigure.AgentServiceAutoConfiguration;
 import com.openjiuwen.service.app.controller.query.QueryMvcController;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -20,10 +24,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-
-import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies MVC query returns service unavailable when no orchestrator is configured.
@@ -42,10 +42,8 @@ class QueryMvcNoOrchestratorIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void queryReturnsServiceUnavailableWhenNoOrchestratorIsConfigured() throws Exception {
-        ResponseEntity<String> response = postQuery("/v1/query", Map.of(
-                "message", "blocked",
-                "conversation_id", "c-no-orchestrator",
-                "stream", false));
+        ResponseEntity<String> response = postQuery("/v1/query",
+                Map.of("message", "blocked", "conversation_id", "c-no-orchestrator", "stream", false));
 
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
@@ -60,7 +58,7 @@ class QueryMvcNoOrchestratorIntegrationTest {
     }
 
     @SpringBootConfiguration
-    @EnableAutoConfiguration(exclude = AgentServiceAutoConfiguration.class)
+    @EnableAutoConfiguration(exclude = {AgentServiceAutoConfiguration.class, A2AAutoConfiguration.class})
     @Import(QueryMvcController.class)
     static class QueryOnlyApplication {
     }

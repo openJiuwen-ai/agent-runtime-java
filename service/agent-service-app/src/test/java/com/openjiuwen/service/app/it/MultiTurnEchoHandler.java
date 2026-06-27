@@ -9,7 +9,6 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -71,6 +70,10 @@ class MultiTurnEchoHandler implements AgentHandler {
             result.put("tenant_id", request.getTenantId());
         }
         result.put("messages_size", request.getMessages().size());
+        // Expose metadata for test verification
+        if (request.getMetadata() != null && !request.getMetadata().isEmpty()) {
+            result.put("_metadata", request.getMetadata());
+        }
         return result;
     }
 }

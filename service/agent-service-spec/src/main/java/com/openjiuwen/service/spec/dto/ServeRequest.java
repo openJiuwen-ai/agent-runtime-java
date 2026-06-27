@@ -4,24 +4,26 @@
 
 package com.openjiuwen.service.spec.dto;
 
-import lombok.Data;
-
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import lombok.Data;
 
 /**
  * Protocol-neutral orchestration request (Ingress DTO → internal model).
+ *
+ * @since 0.1.0
  */
 @Data
 public class ServeRequest {
-
     private String conversationId;
     private List<Map<String, Object>> messages = new ArrayList<>();
     private String userId;
     private String spaceId;
     private String tenantId;
     private boolean stream = true;
+    private Map<String, Object> metadata = new LinkedHashMap<>();
 
     public static ServeRequest fromQueryRequest(QueryRequest request) {
         request.normalizeMessages();
@@ -37,6 +39,8 @@ public class ServeRequest {
 
     /**
      * Extract the latest user message content as the agent query.
+     *
+     * @return the latest user message content, or empty string if none found
      */
     public String lastUserQuery() {
         for (int i = messages.size() - 1; i >= 0; i--) {

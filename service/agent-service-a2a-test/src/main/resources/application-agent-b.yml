@@ -1,0 +1,58 @@
+# ============================================================================
+# Agent B — real ReAct LLM agent, serves as remote for Agent A.
+#
+# Run manually:
+#   mvn -pl service/agent-service-a2a-test spring-boot:run \
+#       -Dspring-boot.run.profiles=agent-b
+# ============================================================================
+
+spring:
+  application:
+    name: "AgentB"
+
+server:
+  port: 18091
+
+openjiuwen:
+  service:
+    a2a:
+      # --- Agent Card ---
+      agent-description: "A2A Agent B — remote ReAct LLM agent"
+      provider-organization: "OpenJiuwen"
+      is-streaming: true
+      default-input-modes: ["text", "text/plain"]
+      default-output-modes: ["text", "text/plain"]
+      # --- Skills ---
+      skills:
+        - id: "general_chat"
+          name: "General Chat"
+          description: "Handle general conversation and Q&A using ReAct LLM reasoning"
+          tags: ["chat", "qa", "reasoning"]
+          examples: ["What is the capital of France?", "Explain how a transformer model works"]
+          input-modes: ["text", "text/plain"]
+          output-modes: ["text", "text/plain"]
+        - id: "calculation"
+          name: "Math Calculation"
+          description: "Perform mathematical calculations using a built-in calculator"
+          tags: ["math", "calculation", "arithmetic"]
+          examples: ["What is 1+1?", "Calculate 15 * 7", "What is the square root of 144?"]
+          input-modes: ["text", "text/plain"]
+          output-modes: ["text", "text/plain"]
+        - id: "hotel_search"
+          name: "Hotel Search"
+          description: "Search for hotels in a given city and return a ranked list"
+          tags: ["search", "hotels", "travel"]
+          examples: ["Find hotels in Beijing", "Search for 5-star hotels in Tokyo"]
+          input-modes: ["text", "text/plain"]
+          output-modes: ["text", "text/plain"]
+  agentb:
+    llm:
+      provider: "OpenAI"
+      api-key: "sk-your-key"
+      api-base: "http://127.0.0.1:4000/v1"
+      model-name: "gpt-5.4-mini"
+      temperature: 0.6
+      top-p: 0.8
+      timeout: 60s
+      context-window-limit: 10
+      system-prompt: "You are a helpful assistant with a calculator tool. Use the calc tool for math questions."

@@ -54,6 +54,7 @@
         <module>agent-service-adapters</module>
         <module>agent-service-app</module>
         <module>agent-service-demo</module>
+        <module>agent-service-a2a-test</module>
     </modules>
 
     <!-- Aggregator (packaging=pom): skip spring-boot:run so -pl bootstrap -am works -->

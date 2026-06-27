@@ -6,19 +6,21 @@ package com.openjiuwen.service.app.controller.query;
 
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.ServeRequest;
-import org.springframework.http.HttpHeaders;
-
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import org.springframework.http.HttpHeaders;
 
 /**
  * Shared ingress logic for Query controllers (header binding, validation, DTO mapping).
  */
 public final class QueryIngressSupport {
-
     public static final String HEADER_USER_ID = "X-User-ID";
     public static final String HEADER_SPACE_ID = "X-Space-ID";
     public static final String HEADER_TENANT_ID = "X-Tenant-ID";
+
+    private static final Set<String> EXCLUDED_HEADERS = Set.of("authorization", "cookie", "set-cookie", "x-api-key",
+            "proxy-authorization", "x-csrf-token");
 
     private QueryIngressSupport() {
     }
@@ -50,8 +52,11 @@ public final class QueryIngressSupport {
         }
     }
 
+    /**
+     * Validation result containing the resolved {@link ServeRequest} or error details.
+     */
     public record ValidationResult(boolean valid, int errorStatus, Map<String, Object> errorBody,
-                                   ServeRequest serveRequest) {
+            ServeRequest serveRequest) {
 
         static ValidationResult ok(ServeRequest serveRequest) {
             return new ValidationResult(true, 0, null, serveRequest);
@@ -62,6 +67,39 @@ public final class QueryIngressSupport {
         }
     }
 
+    /**
+     * Builds request metadata for telemetry/audit, collecting headers, query, path, and body.
+     *
+     * @param headers the HTTP request headers
+     * @param queryParams the query parameters from the request
+     * @param path the request URI path
+     * @param bodyMap the parsed request body as a map
+     * @return a new metadata map with filtered headers, query params, path, and body
+     */
+    public static Map<String, Object> buildMetadata(HttpHeaders headers, Map<String, String> queryParams, String path,
+            Map<String, Object> bodyMap) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+
+        Map<String, String> headerMap = new LinkedHashMap<>();
+        headers.forEach((k, v) -> {
+            if (!EXCLUDED_HEADERS.contains(k.toLowerCase())) {
+                headerMap.put(k.toLowerCase(), v.get(0));
+            }
+        });
+        metadata.put("headers", headerMap);
+
+        metadata.put("query", queryParams != null ? queryParams : Map.of());
+        metadata.put("path", path != null ? path : "");
+        metadata.put("body", bodyMap != null ? bodyMap : Map.of());
+
+        return metadata;
+    }
+
+    /**
+     * Returns a standard "service unavailable" error body.
+     *
+     * @return the error body map
+     */
     public static Map<String, Object> serviceUnavailable() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("type", "error");
@@ -69,6 +107,11 @@ public final class QueryIngressSupport {
         return body;
     }
 
+    /**
+     * Returns a standard "agent not ready" error body.
+     *
+     * @return the error body map
+     */
     public static Map<String, Object> agentNotReady() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("type", "error");

@@ -1,0 +1,56 @@
+# ============================================================================
+# Agent A — ReAct LLM agent that knows about Agent B as a remote agent.
+#
+# Run manually:
+#   mvn -pl service/agent-service-a2a-test spring-boot:run \
+#       -Dspring-boot.run.profiles=agent-a
+# ============================================================================
+
+spring:
+  application:
+    name: "AgentA"
+
+server:
+  port: 18090
+
+openjiuwen:
+  service:
+    a2a:
+      # --- Agent Card ---
+      agent-description: "A2A Agent A — ReAct LLM agent with Agent B as remote"
+      provider-organization: "OpenJiuwen"
+      is-streaming: true
+      default-input-modes: ["text", "text/plain"]
+      default-output-modes: ["text", "text/plain"]
+      # --- Remote Agents ---
+      remote-agents:
+        - name: agentb
+          url: "http://localhost:18091/a2a/"
+          timeout-seconds: 300
+      # --- Skills ---
+      skills:
+        - id: "general_chat"
+          name: "General Chat"
+          description: "Handle general conversation and Q&A using ReAct LLM reasoning"
+          tags: ["chat", "qa", "reasoning"]
+          examples: ["What is the capital of France?", "Explain how a transformer model works"]
+          input-modes: ["text", "text/plain"]
+          output-modes: ["text", "text/plain"]
+        - id: "delegate_to_agentb"
+          name: "Delegate to Agent B"
+          description: "Delegate tasks to remote Agent B (calculations, hotel search, etc.)"
+          tags: ["delegation", "remote", "agentb"]
+          examples: ["What is 1+1?", "Find hotels in Beijing", "Forward a task to Agent B"]
+          input-modes: ["text", "text/plain"]
+          output-modes: ["text", "text/plain"]
+  agenta:
+    llm:
+      provider: "OpenAI"
+      api-key: "sk-your-key"
+      api-base: "http://127.0.0.1:4000/v1"
+      model-name: "gpt-5.4-mini"
+      temperature: 0.6
+      top-p: 0.8
+      timeout: 60s
+      context-window-limit: 10
+      system-prompt: "You are a helpful assistant. For math calculations, delegate to Agent B using the delegate_to_agentb tool. For other questions, answer directly if you can."

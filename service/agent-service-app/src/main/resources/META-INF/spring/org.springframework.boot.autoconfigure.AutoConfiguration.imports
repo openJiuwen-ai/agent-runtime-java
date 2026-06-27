@@ -1,1 +1,2 @@
 com.openjiuwen.service.app.autoconfigure.AgentServiceAutoConfiguration
+com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration
