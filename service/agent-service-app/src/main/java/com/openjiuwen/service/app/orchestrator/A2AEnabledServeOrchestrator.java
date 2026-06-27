@@ -44,6 +44,28 @@ import org.slf4j.LoggerFactory;
 public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(A2AEnabledServeOrchestrator.class);
 
+    /**
+     * No-op stream observer used as a sentinel in sync/query mode.
+     */
+    private static final QueryStreamObserver NOOP_OBSERVER = new QueryStreamObserver() {
+        @Override
+        public void onNext(QueryChunk chunk) {
+        }
+
+        @Override
+        public void onComplete() {
+        }
+
+        @Override
+        public void onError(Throwable e) {
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false;
+        }
+    };
+
     private final AgentHandler agentHandler;
     private final TaskStore taskStore;
     private final A2ARemoteAgentClient a2aClient;
@@ -333,28 +355,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         }
         log.info("Reset {}: {} A2A tasks cleaned", conversationId, result.tasks().size());
     }
-
-    /**
-     * No-op stream observer used as a sentinel in sync/query mode.
-     */
-    private static final QueryStreamObserver NOOP_OBSERVER = new QueryStreamObserver() {
-        @Override
-        public void onNext(QueryChunk chunk) {
-        }
-
-        @Override
-        public void onComplete() {
-        }
-
-        @Override
-        public void onError(Throwable e) {
-        }
-
-        @Override
-        public boolean isCancelled() {
-            return false;
-        }
-    };
 
     /**
      * Structured interrupt data decoded from a {@code QueryChunk("interrupt")}.

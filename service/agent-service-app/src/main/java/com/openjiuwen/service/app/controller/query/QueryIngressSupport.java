@@ -15,7 +15,6 @@ import org.springframework.http.HttpHeaders;
  * Shared ingress logic for Query controllers (header binding, validation, DTO mapping).
  */
 public final class QueryIngressSupport {
-
     public static final String HEADER_USER_ID = "X-User-ID";
     public static final String HEADER_SPACE_ID = "X-Space-ID";
     public static final String HEADER_TENANT_ID = "X-Tenant-ID";
