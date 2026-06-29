@@ -49,10 +49,6 @@ public final class SandboxAdapterExample {
         server.setSandboxType(option(args, "--sandbox-type=", "jiuwenbox"));
         server.setLauncherType(option(args, "--launcher-type=", "pre_deploy"));
         server.setRootPath(option(args, "--root-path=", "."));
-        String invokePath = option(args, "--invoke-path=", "");
-        if (!invokePath.isBlank()) {
-            server.setExtraParams(Map.of("invoke_path", invokePath));
-        }
         properties.getSandbox().setServers(List.of(server));
 
         AgentCoreSandboxClientFactory factory = new DefaultAgentCoreSandboxClientFactory(properties);

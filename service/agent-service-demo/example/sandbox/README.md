@@ -2,6 +2,10 @@
 
 这个目录展示 Service external adapters 如何通过配置创建 Core `SandboxClient`。
 
+runtime 不再实现独立的 sandbox HTTP provider。sandbox 后端协议由 agent-core-java 的 provider 负责，
+标准后端入口是 `/api/v1/sandboxes`。runtime 这一层只负责读取外部服务配置、创建 core client，
+并统一套用 timeout、retry、circuit breaker、audit 等外部调用策略。
+
 ## 配置
 
 可以使用 `application-sandbox.yml`：
@@ -40,47 +44,8 @@ openjiuwen:
 ```
 
 `enabled=true` 时，`service-url` 必须是合法的 `http` 或 `https` URL，否则应用启动会失败。
-
-## 沙箱 HTTP 协议
-
-Service adapter 会把 Core Java 的 `SandboxClient.fs()/shell()/code()` 调用转成 HTTP：
-
-```http
-POST {service-url}/invoke
-Content-Type: application/json
-```
-
-请求体示例：
-
-```json
-{
-  "opType": "fs",
-  "method": "readFile",
-  "params": {
-    "path": "/tmp/demo.txt",
-    "mode": "text",
-    "encoding": "UTF-8"
-  },
-  "isolationKey": "session-1",
-  "sandboxId": "session-1"
-}
-```
-
-响应体使用 Core Java 的 result 结构：
-
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "path": "/tmp/demo.txt",
-    "content": "hello",
-    "mode": "text"
-  }
-}
-```
-
-如果沙箱服务不是 `/invoke`，可以用 `--invoke-path=/your/path` 覆盖。
+该地址应指向兼容 core `jiuwenbox` provider 的 sandbox 服务，例如服务基地址为
+`http://localhost:18090` 时，core provider 会使用该服务下的 `/api/v1/sandboxes` 标准接口。
 
 ## 运行示例
 
@@ -96,42 +61,18 @@ EXAMPLE_CP="agent-service-demo/target/classes:$(cat agent-service-demo/target/ex
 
 javac -d agent-service-demo/target/example-classes \
   -cp "$EXAMPLE_CP" \
-  agent-service-demo/example/sandbox/MockSandboxServerExample.java \
   agent-service-demo/example/sandbox/SandboxAdapterExample.java
 ```
 
-启动一个最小本地 mock 沙箱服务：
+运行 adapter 示例。默认只展示配置、校验和 client 创建：
 
 ```bash
-java -cp "agent-service-demo/target/example-classes:$EXAMPLE_CP" \
-  com.openjiuwen.service.demo.example.sandbox.MockSandboxServerExample \
-  --port=18090
-```
-
-这个 mock 服务默认不会执行真实 shell/code，也不提供进程隔离；它只返回符合 Core Java result 结构的响应，用来验证 Service sandbox adapter 的 HTTP 出站链路。
-
-如果希望 `read-file` 从本地目录读取文件，可以指定根目录：
-
-```bash
-mkdir -p /tmp/openjiuwen-sandbox/tmp
-echo "hello sandbox" > /tmp/openjiuwen-sandbox/tmp/demo.txt
-
-java -cp "agent-service-demo/target/example-classes:$EXAMPLE_CP" \
-  com.openjiuwen.service.demo.example.sandbox.MockSandboxServerExample \
-  --port=18090 \
-  --root-dir=/tmp/openjiuwen-sandbox
-```
-
-另开一个终端运行 adapter 示例。默认只展示配置、校验和 client 创建：
-
-```bash
-
 java -cp "agent-service-demo/target/example-classes:$EXAMPLE_CP" \
   com.openjiuwen.service.demo.example.sandbox.SandboxAdapterExample \
   --url=http://localhost:18090
 ```
 
-传入 `--operation` 后会向本地 mock 沙箱服务发起真实 HTTP 调用：
+传入 `--operation` 后会通过 core `SandboxClient` 调用配置的 sandbox 服务：
 
 ```bash
 java -cp "agent-service-demo/target/example-classes:$EXAMPLE_CP" \

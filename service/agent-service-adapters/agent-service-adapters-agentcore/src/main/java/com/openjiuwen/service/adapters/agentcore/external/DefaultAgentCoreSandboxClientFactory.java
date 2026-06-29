@@ -24,7 +24,6 @@ public class DefaultAgentCoreSandboxClientFactory implements AgentCoreSandboxCli
     public DefaultAgentCoreSandboxClientFactory(AgentCoreExternalProperties properties) {
         this.properties = properties != null ? properties : new AgentCoreExternalProperties();
         this.properties.getSandbox().validate();
-        HttpSandboxProviderRegistrar.register(this.properties.getSandbox());
     }
 
     @Override
