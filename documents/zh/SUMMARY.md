@@ -9,5 +9,6 @@
   - [Adapters 与 Handler](2.开发指南/Adapters与Handler.md)
   - [生命周期与探针](2.开发指南/生命周期与探针.md)
   - [A2A 与平台边界](2.开发指南/A2A与平台边界.md)
+  - [A2A 开发指导](2.开发指南/A2A开发指导.md)
   - [API 文档](2.开发指南/API文档/README.md)
     - [com.openjiuwen.service.spec](2.开发指南/API文档/com.openjiuwen.service/spec.README.md)

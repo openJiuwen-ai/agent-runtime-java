@@ -10,10 +10,11 @@
 service/                              packaging=pom · agent-service
 ├── agent-service-spec                契约 + SPI（纯 Java）
 ├── agent-service-adapters/             Adapters 聚合
-│   ├── agent-service-adapters-common
-│   └── agent-service-adapters-agentcore
+│   ├── agent-service-adapters-common   中间件客户端、凭证、外部调用 DFX（引擎无关）
+│   └── agent-service-adapters-agentcore  AgentHandler + Core 中间件/外部服务绑定
 ├── agent-service-app                 Controller + Orchestrator + Lifecycle + AutoConfig
-└── agent-service-demo                可运行示例
+├── agent-service-demo                可运行示例
+└── agent-service-a2a-test            A2A 集成与场景测试
 ```
 
 ## 依赖关系
@@ -46,10 +47,11 @@ mvn -pl agent-service-demo -am spring-boot:run
 | 模块 | 说明 | 文档 |
 | --- | --- | --- |
 | **spec** | 路径、DTO、`AgentHandler` / `ServeOrchestrator` SPI | [spec.README](../documents/zh/2.开发指南/API文档/com.openjiuwen.service/spec.README.md) |
-| **adapters-common** | 共享 middleware / credential | 包内 `package-info` |
-| **adapters-agentcore** | `JiuwenCoreAgentHandler` | [Adapters 与 Handler](../documents/zh/2.开发指南/Adapters与Handler.md) |
+| **adapters-common** | 中间件（Redis 等）、凭证解密、外部调用 DFX | 包内 `package-info` |
+| **adapters-agentcore** | `JiuwenCoreAgentHandler`；Checkpointer/MCP/远端/Sandbox 注册 | [Adapters 与 Handler](../documents/zh/2.开发指南/Adapters与Handler.md) |
 | **app** | Ingress Controller、默认 Orchestrator、Lifecycle | [HTTP 对话面](../documents/zh/2.开发指南/HTTP对话面.md) |
 | **demo** | 最小 Spring Boot 示例 | [agent-service-demo/README.md](agent-service-demo/README.md) |
+| **a2a-test** | A2A 集成与中断等场景测试 | [A2A 开发指导](../documents/zh/2.开发指南/A2A开发指导.md) |
 
 ## Service 专篇文档
 
