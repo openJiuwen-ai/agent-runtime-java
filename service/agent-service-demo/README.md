@@ -14,19 +14,21 @@ mvn -pl agent-service-demo -am spring-boot:run
 
 默认端口是 `8090`。
 
-默认情况下，demo 使用本地 mock handler，返回稳定的 `demo:<message>` 内容。如果能读取到大模型配置，demo 会切到正式 Core 链路：
+主 demo **固定**走 Core 链路，启动时会校验 LLM 配置：
 
 ```text
-Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> LlmAgent
+Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> ReActAgent
 ```
 
-在正式 Core 链路下，同一个 `conversation_id` 会走 Core 的 Session/Context 机制，支持多轮上下文。即使本地存在大模型配置，也可以通过 `openjiuwen.demo.llm.enabled=false` 强制使用 mock handler。
+必须提供 `openjiuwen.demo.llm` 的 `api-key`、`api-base`、`model-name`（通过 `application-base_local.yml` 或 `apiconfig.json`）。未配置时进程无法启动。
+
+配置方式见 [example/query/README.md](example/query/README.md)。
 
 ## Handler 样例（Issue #10）
 
 | 类 | 用途 |
 | --- | --- |
-| `DemoAgentHandler` | 默认 mock，返回 `demo:` + 用户消息 |
+| `DemoAgentApplication` | 装配 `ReActAgent` + `JiuwenCoreAgentHandler` |
 | `examples/EchoProxyAgentHandler` | 最小自定义 `AgentHandler` 模板（前缀回显，可复制改为 HTTP 代理等） |
 | `it/AgentCoreHandlerAutoConfigurationIntegrationTest` | AC1：仅 `agent-id`、无 `@Bean`，验证 agentcore 自动装配全链路 |
 
@@ -39,11 +41,11 @@ Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> LlmAgent
 | 目录 | 内容 |
 | --- | --- |
 | `example/query` | HTTP Query、SSE、`/health`（主模块 `agent-service-demo`） |
-| `example/redis` | 独立模块 `agent-service-demo-redis`（ReActAgent，不依赖 demo） |
+| `example/redis` | 独立模块 `agent-service-demo-redis`（ReActAgent，8091 端口） |
 | `example/mcp` | 独立模块 `agent-service-demo-mcp` |
 | `example/sandbox` | 独立模块 `agent-service-demo-sandbox` |
 
-A2A Remote 出站与 Health L1 矩阵等**内部验收**代码在 `src/test/`（含 `src/test/resources/scripts/`）。
+A2A Remote 出站与 Health L1 矩阵等**内部验收**代码在 `src/test/`（含 `src/test/resources/scripts/`）。`DemoAgentApplicationTest` 在测试内注册确定性 echo 模型，仅用于 JUnit，不影响 live server。
 
 ## 接口
 
@@ -87,13 +89,13 @@ curl -s http://localhost:8090/v1/query \
   -d '{"conversation_id":"demo-c1","message":"hello","stream":false}'
 ```
 
-mock handler 下的预期响应形状：
+典型响应形状（`content` 由大模型生成，非固定文本）：
 
 ```json
 {
   "result": {
     "role": "assistant",
-    "content": "demo:hello",
+    "content": "...",
     "conversation_id": "demo-c1"
   },
   "conversation_id": "demo-c1"
@@ -108,13 +110,14 @@ curl -N http://localhost:8090/v1/query \
   -d '{"conversation_id":"demo-c1","message":"stream hello","stream":true}'
 ```
 
-mock handler 下的预期响应：
+流式输出为 Core Runner 的 SSE chunk，常见形态：
 
 ```text
-data: {"role":"assistant","content":"demo:stream hello","conversation_id":"demo-c1"}
+data: {"type":"llm_output","index":0,"payload":{"content":"..."}}
+data: {"type":"answer","index":1,"payload":{"output":"..."}}
 ```
 
-## 真实大模型模式
+## 大模型配置
 
 demo 会从 `apiconfig.json` 读取模型配置，字段名和 agent-core 示例保持一致。可以复制 `apiconfig_example.json` 为本地 `apiconfig.json`，并填入自己的配置。`apiconfig.json` 会被 git 忽略。
 
@@ -186,13 +189,13 @@ mvn -pl service/agent-service-app -am \
 
 这个集成测试使用确定性的测试 handler，只验证 Flux SSE 传输链路，不会调用真实大模型。
 
-手工测试 WebFlux mock 流式时，从 `agent-runtime-java/service` 启动 demo：
+手工测试 WebFlux 流式时，从 `agent-runtime-java/service` 启动 demo：
 
 ```bash
 cd ./openjiuwen/agent-runtime-java/service
 
 mvn -pl agent-service-demo -am spring-boot:run \
-  -Dspring-boot.run.arguments="--spring.main.web-application-type=reactive --openjiuwen.service.query.webflux.enabled=true --server.port=8090 --openjiuwen.demo.llm.enabled=false"
+  -Dspring-boot.run.arguments="--spring.main.web-application-type=reactive --openjiuwen.service.query.webflux.enabled=true --server.port=8090"
 ```
 
 然后请求 reactive 端点：
@@ -204,72 +207,40 @@ curl -N -i http://localhost:8090/v1/query/reactive \
   -d '{"conversation_id":"demo-flux-1","message":"stream hello","stream":true}'
 ```
 
-mock handler 下的预期输出：
-
-```text
-HTTP/1.1 200
-Content-Type: text/event-stream;charset=UTF-8
-
-data: {"role":"assistant","content":"demo:stream hello","conversation_id":"demo-flux-1"}
-```
-
-如果要用 WebFlux 流式测试真实大模型，需要提供 `apiconfig.json` 并开启 demo LLM handler：
-
-```bash
-cd ./openjiuwen/agent-runtime-java/service
-
-OPENJIUWEN_API_CONFIG=./openjiuwen/agent-runtime-java/apiconfig.json \
-mvn -pl agent-service-demo -am spring-boot:run \
-  -Dspring-boot.run.arguments="--spring.main.web-application-type=reactive --openjiuwen.service.query.webflux.enabled=true --openjiuwen.demo.llm.enabled=true --server.port=8090"
-```
-
-然后请求：
-
-```bash
-curl -N -i http://localhost:8090/v1/query/reactive \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: text/event-stream' \
-  -d '{"conversation_id":"demo-flux-llm","message":"我叫小明","stream":true}'
-```
-
-真实模型模式会输出 Core Runner stream 事件，常见形态是多个 `llm_output` chunk，最后跟一个 `answer` 事件。如果响应仍是 `demo:<message>`，说明当前仍在使用 mock handler。
+真实模型模式下会输出 Core Runner stream 事件（多个 chunk + `answer`）。
 
 ## Smoke Test
 
-demo 启动后执行：
+完成 LLM 配置并启动 demo 后执行：
 
 ```bash
-agent-service-demo/scripts/smoke-query.sh
+bash agent-service-demo/example/query/smoke-query.sh
 ```
 
 脚本覆盖：
 
-- `POST /v1/query`，`stream=false`
-- `POST /v1/query`，`stream=true`
+- `GET /health`（校验 `app=demo-agent-service`）
+- `POST /v1/query`，`stream=false` / `stream=true`
 - 兼容路径 `POST /query`
 - `messages[]` 归一化为最新 user message
 - 省略 `stream` 时默认走 SSE
 - 缺少 `conversation_id` 时返回固定错误 JSON
 
-这个脚本期望使用默认 mock handler。如果本地存在 `apiconfig.json`，运行脚本前请用 `OPENJIUWEN_DEMO_LLM_ENABLED=false` 启动 demo。真实大模型模式下响应内容不可预测，建议用 curl 手工检查，或写 provider-specific 测试。
-
-示例：
+脚本对成功响应做结构断言（非空 assistant content），适用于真实大模型。测试不同 host 或端口：
 
 ```bash
-curl -s http://localhost:8090/v1/query \
-  -H 'Content-Type: application/json' \
-  -d '{"conversation_id":"demo-c1","message":"hello","stream":false}'
+BASE_URL=http://localhost:18090 bash agent-service-demo/example/query/smoke-query.sh
 ```
 
-测试不同 host 或端口时可以使用 `BASE_URL`：
+WebFlux 模式：
 
 ```bash
-BASE_URL=http://localhost:18090 agent-service-demo/scripts/smoke-query.sh
+MODE=flux bash agent-service-demo/example/query/smoke-query.sh
 ```
 
 ## Example
 
-开发者特性演示见 [example/README.md](example/README.md)。redis / mcp / sandbox 为**独立 Maven 子模块**（`ReActAgent` + `JiuwenCoreAgentHandler`，共用 `example/config/application-base.yml` 中 `openjiuwen.example.llm`）；query 使用主模块 `agent-service-demo`。内部 L1 转测脚本见 `src/test/resources/scripts/`。
+开发者特性演示见 [example/README.md](example/README.md)。redis / mcp / sandbox 为**独立 Maven 子模块**（`ReActAgent` + `JiuwenCoreAgentHandler`，与主 demo 共用 `example/config/application-base.yml` 中 `openjiuwen.demo.llm`）；query 使用主模块 `agent-service-demo`。内部 L1 转测脚本见 `src/test/resources/scripts/`。
 
 ## 外部 MCP 示例
 
@@ -277,7 +248,7 @@ BASE_URL=http://localhost:18090 agent-service-demo/scripts/smoke-query.sh
 
 ## Redis Checkpointer 示例
 
-独立模块 `agent-service-demo-redis`，需 **JiuwenCoreAgentHandler** + `apiconfig.json`；mock 模式无法演示 Checkpointer。见 [example/redis/README.md](example/redis/README.md)。
+独立模块 `agent-service-demo-redis`，需 **JiuwenCoreAgentHandler** + LLM 配置 + Redis。见 [example/redis/README.md](example/redis/README.md)。
 
 ## 配置示例
 

@@ -36,16 +36,19 @@ function Get-AssistantContent($payload) {
     return ($content | ConvertTo-Json -Compress)
 }
 
-function Assert-NotMock($content, $label) {
-    if ($content -like "demo:*") {
-        Write-Fail "${label}: got mock response. Start redis module on 8091, not main demo on 8090."
+function Assert-ExpectedApp($health, $expectedApp) {
+    if ($health.app -ne $expectedApp) {
+        Write-Fail "health: expected app=$expectedApp, got $($health.app). Start redis module on 8091, not main demo on 8090."
+    }
+    if ($health.status -ne "healthy" -or $health.agent_loaded -ne $true) {
+        Write-Fail "health: service not ready"
     }
 }
 
-Write-Step "1" "GET /health"
+Write-Step "1" "GET /health (demo-redis-agent-service on 8091)"
 try {
     $health = Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get
-    if ($health.status -ne "healthy") { Write-Fail "GET /health: status not healthy" }
+    Assert-ExpectedApp $health "demo-redis-agent-service"
     Write-Pass "GET /health"
 } catch {
     Write-Fail "GET /health: $($_.Exception.Message). Is redis module running on $BaseUrl ?"
@@ -58,8 +61,7 @@ $r1 = Invoke-QueryJson @{
     stream          = $false
 }
 $c1 = Get-AssistantContent $r1
-Assert-NotMock $c1 "round 1"
-Write-Pass "round 1 (Core path, not mock)"
+Write-Pass "round 1 (Core path on redis module)"
 
 Write-Step "3" "Round 2: recall the fact (Redis checkpointer)"
 $r2 = Invoke-QueryJson @{
@@ -68,7 +70,6 @@ $r2 = Invoke-QueryJson @{
     stream          = $false
 }
 $c2 = Get-AssistantContent $r2
-Assert-NotMock $c2 "round 2"
 if ($c2 -notmatch "REDIS-DEMO-42" -and $c2.ToLower() -notmatch "redis-demo-42") {
     Write-Fail "round 2: model did not recall REDIS-DEMO-42. Response: $c2"
 }

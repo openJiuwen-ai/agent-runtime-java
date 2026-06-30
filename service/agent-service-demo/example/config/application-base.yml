@@ -1,5 +1,4 @@
-# Shared configuration for example feature modules (redis / mcp / sandbox).
-# Main agent-service-demo uses openjiuwen.demo.llm; examples use openjiuwen.example.llm below.
+# Shared configuration for agent-service-demo and all example feature modules.
 
 spring:
   application:
@@ -13,19 +12,17 @@ openjiuwen:
   demo:
     llm:
       auto-discover: true
-  example:
-    llm:
-      auto-discover: true
       provider: OpenAI
-      api-key: ${OPENJIUWEN_EXAMPLE_LLM_API_KEY:}
-      api-base: ${OPENJIUWEN_EXAMPLE_LLM_API_BASE:}
-      model-name: ${OPENJIUWEN_EXAMPLE_LLM_MODEL_NAME:}
+      api-key: ${OPENJIUWEN_DEMO_LLM_API_KEY:}
+      api-base: ${OPENJIUWEN_DEMO_LLM_API_BASE:}
+      model-name: ${OPENJIUWEN_DEMO_LLM_MODEL_NAME:}
       ssl-verify: true
       system-prompt: "You are a helpful assistant. Answer concisely and accurately."
       temperature: 0.6
       top-p: 0.8
       timeout: 60s
       context-window-limit: 10
+      max-iterations: 5
   service:
     version: 0.1.0
     query:
