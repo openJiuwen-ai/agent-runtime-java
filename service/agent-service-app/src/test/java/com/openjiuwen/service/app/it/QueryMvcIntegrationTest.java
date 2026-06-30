@@ -20,6 +20,13 @@ import org.springframework.test.context.TestPropertySource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -69,6 +76,25 @@ class QueryMvcIntegrationTest {
         return Map.of("role", "user", "content", content);
     }
 
+    private static ThreadPoolExecutor fixedTestExecutor(String threadNamePrefix, int size,
+                                                        AtomicReference<Throwable> uncaught) {
+        AtomicInteger sequence = new AtomicInteger();
+        return new ThreadPoolExecutor(size, size, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(size),
+                task -> {
+                    Thread thread = new Thread(task, threadNamePrefix + "-" + sequence.incrementAndGet());
+                    thread.setUncaughtExceptionHandler((unused, error) -> uncaught.compareAndSet(null, error));
+                    return thread;
+                });
+    }
+
+    private static void shutdownExecutor(ThreadPoolExecutor executor) throws InterruptedException {
+        executor.shutdown();
+        if (!executor.awaitTermination(5L, TimeUnit.SECONDS)) {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5L, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> responseJson(ResponseEntity<String> response) throws Exception {
         return mapper.readValue(response.getBody(), Map.class);
@@ -97,6 +123,22 @@ class QueryMvcIntegrationTest {
         assertThat(events.get(0)).containsEntry("role", "assistant");
         assertThat(events.get(0)).containsEntry("content", "turn1:hello");
         assertThat(events.get(0)).doesNotContainKey("events");
+    }
+
+    @Test
+    void streamDefaultsToSseWhenOmitted() {
+        Map<String, Object> body = Map.of(
+                "messages", List.of(userMessage("default-stream")),
+                "conversation_id", "c-default-stream");
+
+        ResponseEntity<String> resp = postQuery("/v1/query", body);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getHeaders().getContentType().toString()).startsWith(MediaType.TEXT_EVENT_STREAM_VALUE);
+
+        List<Map<String, Object>> events = parseSse(resp.getBody());
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0)).containsEntry("content", "turn1:default-stream");
     }
 
     @Test
@@ -177,6 +219,62 @@ class QueryMvcIntegrationTest {
     }
 
     @Test
+    void differentConversationIdsKeepContextIsolated() throws Exception {
+        Map<String, Object> conv1Turn1 = result(postQuery("/v1/query", Map.of(
+                "messages", List.of(userMessage("a1")), "conversation_id", "c-isolated-1", "stream", false)));
+        Map<String, Object> conv2Turn1 = result(postQuery("/v1/query", Map.of(
+                "messages", List.of(userMessage("b1")), "conversation_id", "c-isolated-2", "stream", false)));
+        Map<String, Object> conv1Turn2 = result(postQuery("/v1/query", Map.of(
+                "messages", List.of(userMessage("a2")), "conversation_id", "c-isolated-1", "stream", false)));
+        Map<String, Object> conv2Turn2 = result(postQuery("/v1/query", Map.of(
+                "messages", List.of(userMessage("b2")), "conversation_id", "c-isolated-2", "stream", false)));
+
+        assertThat(conv1Turn1).containsEntry("content", "turn1:a1");
+        assertThat(conv2Turn1).containsEntry("content", "turn1:b1");
+        assertThat(conv1Turn2).containsEntry("content", "turn2:a2|prev=a1");
+        assertThat(conv2Turn2).containsEntry("content", "turn2:b2|prev=b1");
+        assertThat(conv1Turn2.get("content")).asString().doesNotContain("b1");
+        assertThat(conv2Turn2.get("content")).asString().doesNotContain("a1");
+    }
+
+    @Test
+    void concurrentStreamingQueriesUseIndependentConversationContext() throws Exception {
+        int concurrency = 3;
+        AtomicReference<Throwable> uncaught = new AtomicReference<>();
+        ThreadPoolExecutor executor = fixedTestExecutor("query-mvc-concurrent", concurrency, uncaught);
+        try {
+            List<CompletableFuture<Map<String, Object>>> futures = IntStream.range(0, concurrency)
+                    .mapToObj(index -> CompletableFuture.supplyAsync(
+                            () -> streamEvent("c-mvc-concurrent-" + index, "mvc-concurrent-" + index), executor))
+                    .toList();
+
+            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+
+            for (int index = 0; index < futures.size(); index++) {
+                Map<String, Object> event = futures.get(index).join();
+                assertThat(event).containsEntry("conversation_id", "c-mvc-concurrent-" + index);
+                assertThat(event).containsEntry("content", "turn1:mvc-concurrent-" + index);
+            }
+            assertThat(uncaught.get()).isNull();
+        } finally {
+            shutdownExecutor(executor);
+        }
+    }
+
+    private Map<String, Object> streamEvent(String conversationId, String content) {
+        ResponseEntity<String> response = postQuery("/v1/query", Map.of(
+                "messages", List.of(userMessage(content)),
+                "conversation_id", conversationId,
+                "stream", true));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getHeaders().getContentType().toString()).startsWith(MediaType.TEXT_EVENT_STREAM_VALUE);
+
+        List<Map<String, Object>> events = parseSse(response.getBody());
+        assertThat(events).hasSize(1);
+        return events.get(0);
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void legacyPathWorks() throws Exception {
         Map<String, Object> body = Map.of(
@@ -233,13 +331,16 @@ class QueryMvcIntegrationTest {
     }
 
     @Test
-    void missingConversationIdReturnsBadRequest() {
+    void missingConversationIdReturnsBadRequest() throws Exception {
         Map<String, Object> body = Map.of(
                 "messages", List.of(userMessage("hi")), "stream", false);
 
         ResponseEntity<String> resp = postQuery("/v1/query", body);
+        Map<String, Object> json = responseJson(resp);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(json).containsEntry("type", "error");
+        assertThat(json).containsEntry("error", "conversation_id is required");
     }
 
     @Test

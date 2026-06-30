@@ -15,6 +15,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DefaultServeOrchestratorTest {
@@ -87,6 +90,8 @@ class DefaultServeOrchestratorTest {
         ServeRequest request = new ServeRequest();
         request.setConversationId("c-error");
         List<QueryChunk> chunks = new ArrayList<>();
+        AtomicReference<Throwable> streamError = new AtomicReference<>();
+        AtomicBoolean completed = new AtomicBoolean();
 
         AgentHandler handler = new AgentHandler() {
             @Override
@@ -109,15 +114,20 @@ class DefaultServeOrchestratorTest {
 
             @Override
             public void onError(Throwable error) {
+                streamError.set(error);
             }
 
             @Override
             public void onComplete() {
+                completed.set(true);
             }
         });
 
         assertThat(chunks).hasSize(1);
+        assertThat(chunks.get(0).getType()).isEqualTo("error");
         assertThat((Map<String, Object>) chunks.get(0).getData()).containsEntry("type", "error");
         assertThat((Map<String, Object>) chunks.get(0).getData()).containsEntry("error", "boom");
+        assertThat(streamError.get()).isInstanceOf(RuntimeException.class).hasMessage("boom");
+        assertThat(completed.get()).isFalse();
     }
 }
