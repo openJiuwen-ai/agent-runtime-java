@@ -56,7 +56,7 @@ $env:OPENJIUWEN_API_CONFIG="C:\path\to\apiconfig.json"  # PowerShell
 
 ```bash
 mvn -pl agent-service-demo/example/a2a -am spring-boot:run \
-    -Dspring-boot.run.mainClass=com.openjiuwen.service.demo.example.a2a.A2aAgentBDemoApplication
+    -Dspring-boot.run.main-class=com.openjiuwen.service.demo.example.a2a.A2aAgentBDemoApplication
 ```
 
 启动成功后 `/health` 返回 `app=demo-a2a-agent-service`。
@@ -65,7 +65,7 @@ mvn -pl agent-service-demo/example/a2a -am spring-boot:run \
 
 ```bash
 mvn -pl agent-service-demo/example/a2a -am spring-boot:run \
-    -Dspring-boot.run.mainClass=com.openjiuwen.service.demo.example.a2a.A2aAgentADemoApplication
+    -Dspring-boot.run.main-class=com.openjiuwen.service.demo.example.a2a.A2aAgentADemoApplication
 ```
 
 > Agent A 启动时会通过 Agent Card 发现 Agent B。若 Agent B 未就绪，Agent A 仍可启动但委托调用会失败。

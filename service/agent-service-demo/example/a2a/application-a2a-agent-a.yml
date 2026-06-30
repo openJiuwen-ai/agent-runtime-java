@@ -10,33 +10,31 @@ openjiuwen:
       system-prompt: "You are a helpful assistant. For math calculations, delegate to Agent B using the delegate_to_agentb tool. For other questions, answer directly if you can."
   service:
     a2a:
-      server:
-        enabled: true
-        agent-card:
-          name: Agent A (A2A Demo)
-          description: Demo agent that delegates computation tasks to remote Agent B
-          url: http://localhost:18090
-        skills:
-          - id: general_chat
-            name: General Chat
-            description: Handle general conversation and Q&A using ReAct LLM reasoning
-            tags: [chat, qa, reasoning]
-            examples:
-              - What is the capital of France?
-              - Explain how a transformer model works
-            input-modes: [text, text/plain]
-            output-modes: [text, text/plain]
-          - id: delegate_to_agentb
-            name: Delegate to Agent B
-            description: Delegate computation tasks to remote Agent B
-            tags: [delegation, remote, agentb]
-            examples:
-              - What is 1+1?
-              - Calculate 15 * 7
-            input-modes: [text, text/plain]
-            output-modes: [text, text/plain]
-      remote:
-        agents:
-          agentb:
-            url: http://localhost:18091
-            path: /a2a/SendStreamingMessage
+      agent-description: "A2A Agent A — ReAct LLM agent that delegates computation tasks to remote Agent B"
+      provider-organization: OpenJiuwen
+      is-streaming: true
+      default-input-modes: [text, text/plain]
+      default-output-modes: [text, text/plain]
+      remote-agents:
+        - name: agentb
+          url: http://localhost:18091/a2a/
+          timeout-seconds: 300
+      skills:
+        - id: general_chat
+          name: General Chat
+          description: Handle general conversation and Q&A using ReAct LLM reasoning
+          tags: [chat, qa, reasoning]
+          examples:
+            - What is the capital of France?
+            - Explain how a transformer model works
+          input-modes: [text, text/plain]
+          output-modes: [text, text/plain]
+        - id: delegate_to_agentb
+          name: Delegate to Agent B
+          description: Delegate computation tasks to remote Agent B
+          tags: [delegation, remote, agentb]
+          examples:
+            - What is 1+1?
+            - Calculate 15 * 7
+          input-modes: [text, text/plain]
+          output-modes: [text, text/plain]

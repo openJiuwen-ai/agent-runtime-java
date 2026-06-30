@@ -54,8 +54,8 @@ wait_for_health() {
 print_step "0" "Starting Agent B (port 18091) ..."
 OPENJIUWEN_API_CONFIG="${OPENJIUWEN_API_CONFIG:-agent-service-demo/apiconfig.json}" \
   mvn -pl agent-service-demo/example/a2a -am spring-boot:run -q \
-  -Dspring-boot.run.mainClass=com.openjiuwen.service.demo.example.a2a.A2aAgentBDemoApplication \
-  -Dspring-boot.run.profiles=agent-b >"$TMP_DIR/agent-b.log" 2>&1 &
+  -Dspring-boot.run.main-class=com.openjiuwen.service.demo.example.a2a.A2aAgentBDemoApplication \
+  >"$TMP_DIR/agent-b.log" 2>&1 &
 AGENT_B_PID=$!
 
 wait_for_health "$BASE_URL_B" "Agent B"
@@ -64,8 +64,8 @@ pass "Agent B healthy on $BASE_URL_B"
 print_step "0b" "Starting Agent A (port 18090) ..."
 OPENJIUWEN_API_CONFIG="${OPENJIUWEN_API_CONFIG:-agent-service-demo/apiconfig.json}" \
   mvn -pl agent-service-demo/example/a2a -am spring-boot:run -q \
-  -Dspring-boot.run.mainClass=com.openjiuwen.service.demo.example.a2a.A2aAgentADemoApplication \
-  -Dspring-boot.run.profiles=agent-a >"$TMP_DIR/agent-a.log" 2>&1 &
+  -Dspring-boot.run.main-class=com.openjiuwen.service.demo.example.a2a.A2aAgentADemoApplication \
+  >"$TMP_DIR/agent-a.log" 2>&1 &
 AGENT_A_PID=$!
 
 wait_for_health "$BASE_URL_A" "Agent A"
