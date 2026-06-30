@@ -4,11 +4,11 @@
 
 ## 简介
 
-**openJiuwen Agent Runtime Java**（`agent-runtime-java`）将基于 **openJiuwen Agent Core Java** 的智能体封装为 **可部署的 Spring Boot HTTP 服务**（OCI 镜像）。本仓库提供 **Agent Service** 层：与 Python `AgentApp` 对齐的 HTTP 对话面、进程内 **A2A**（Agent Card + JSON-RPC）、会话重置、健康探针，以及通过 **Adapters** 接入执行后端（Core `Runner`）、中间件（如 Redis Checkpointer）与外部服务 egress（MCP、远端/A2A、Sandbox）。
+**openJiuwen Agent Runtime Java**（`agent-runtime-java`）是 **Agent Distributed Runtime 的 Java 实现仓库**（对应架构图中间 Runtime 大框）。当前 **已交付最多的是 `service/` 模块**，即图中的 **Agent Server**：Spring Boot HTTP 服务、进程内 A2A、Adapters 胶水，以及通过 Maven 依赖接入的 **Agent Core** 执行能力。
 
-**Agent Core**（图执行、Agent、工作流）在独立仓库 [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java) 中维护；本仓库专注 **服务化封装与数据面**。
+**Agent Core**（图执行、Agent、工作流）在独立仓库 [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java)；**Agent Runtime Manager** 等将规划在 **本仓** `manager/*`。与 Python 为 **同级 Runtime 实现**（Python 侧 Agent Server 常用 FastAPI / Yuanrong FaaS）。
 
-**不在本仓库**（规划在其他模块/服务）：平台 Deploy Manager、独立平台 A2A 网关、App 控制面（`/chat`、Session CRUD）。详见下文 [范围与路线图](#范围与路线图)。
+详见 [范围与路线图](#范围与路线图) 与 [逻辑架构](documents/zh/2.开发指南/逻辑架构.md)。
 
 ## 为什么选择 Agent Runtime Java？
 
@@ -100,19 +100,20 @@ curl -s http://localhost:8090/.well-known/agent-card.json
 
 ## 架构设计
 
-**Agent Runtime Java** 承载分布式 Agent 运行时的 Java 侧实现：左侧 **中间件**（Redis 等），中间 **Gateway + Agent Server**，右侧 **外部服务**（LLM、MCP、A2A 对等体、RAG 等）。
+**Agent Runtime Java** 对应架构图中的 **Agent Distributed Runtime（Java）**；**`service/`** 对应其中的 **Agent Server**。
 
 ```text
-中间件 (Redis…)  →  Agent Server（本仓：Spring Boot + Adapters + Core）  →  外部服务 (LLM, MCP, A2A…)
+中间件 (Redis…)  →  Runtime（本仓）· Agent Server（service/）  →  外部服务 (LLM, MCP, A2A…)
 ```
 
-| 逻辑组件 | 本仓库 | 状态 |
-|----------|--------|------|
-| **Agent Core** | Maven `agent-core-java`（独立仓库） | ✅ 依赖 |
-| **Agent Server** | `service/*` | ✅ |
-| **进程内 A2A** | `agent-service-app`（`controller.a2a`） | ✅ |
-| **Agent Runtime Manager** | 规划（`manager/*`） | ⏳ |
-| **平台 A2A 网关** | 规划（独立服务） | ⏳ |
+| 逻辑组件 | `agent-runtime-java` 内 | 状态 |
+|----------|---------------------------|------|
+| **Agent Distributed Runtime** | **仓库根** | ✅ Java 载体（持续扩展） |
+| **Agent Core** | Maven `agent-core-java` | ✅ 依赖 |
+| **Agent Server** | `service/*` | ✅ 当前主交付 |
+| **进程内 A2A** | `agent-service-app` | ✅ |
+| **Agent Runtime Manager** | `manager/*` | ⏳ 规划于 **本仓** |
+| **平台 A2A 网关** | `applications/*` 或机构侧 | ⏳ / 🔌 |
 
 深入阅读：[逻辑架构](documents/zh/2.开发指南/逻辑架构.md)、[架构概述](documents/zh/2.开发指南/架构概述.md)。
 
@@ -168,27 +169,26 @@ Adapters 负责将编排层接到 **执行后端**，并把 **中间件** 与 **
 
 ## 范围与路线图
 
-| 主题 | 本仓库 | 说明 |
-|------|--------|------|
-| HTTP Agent Service | ✅ | `service/*` |
-| 进程内 A2A Server | ✅ | Agent Card、JSON-RPC、TaskStore |
-| 平台 A2A 网关 | ❌ | 平台级多 Agent 路由 |
-| Deploy Manager REST | ❌ | 规划中的控制面 |
-| App 控制面 | ❌ | `/chat`、Session CRUD、Workspace 动态挂载 |
+| 主题 | 本仓路径 | 说明 |
+|------|----------|------|
+| Agent Server（HTTP + A2A） | ✅ `service/*` | 当前主交付 |
+| Agent Runtime Manager | ⏳ `manager/*` | 控制面，规划于 **本仓** |
+| 平台 A2A 网关 | ⏳ `applications/*` 等 | 或机构侧独立服务 |
+| App 控制面 | ❌ | `/chat`、Session CRUD 等不在 Server 范围 |
 
 ## 项目结构
 
 ```text
-agent-runtime-java/
-├── service/
-│   ├── agent-service-spec/           # 路径、DTO、SPI（AgentHandler、Orchestrator）
-│   ├── agent-service-adapters/       # common（中间件 + 外部 DFX）+ agentcore leaf
-│   │   ├── agent-service-adapters-common   # Redis 等中间件客户端、凭证、外部调用 DFX
-│   │   └── agent-service-adapters-agentcore # Handler + Core 中间件/外部服务注册
-│   ├── agent-service-app/            # Controller、编排器、A2A、自动装配
-│   ├── agent-service-demo/           # 可运行 Spring Boot 示例
-│   └── agent-service-a2a-test/       # A2A 集成与场景测试
-├── documents/zh/                     # 中文开发指南
+agent-runtime-java/                 # Agent Distributed Runtime（Java）
+├── service/                          # Agent Server
+│   ├── agent-service-spec/
+│   ├── agent-service-adapters/
+│   ├── agent-service-app/
+│   ├── agent-service-demo/
+│   └── agent-service-a2a-test/
+├── manager/（规划）                  # Agent Runtime Manager
+├── applications/（规划）
+├── documents/zh/
 │   └── SUMMARY.md
 ├── CONTRIBUTING.md
 ├── LICENSE

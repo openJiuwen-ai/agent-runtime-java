@@ -4,11 +4,11 @@
 
 ## Introduction
 
-**openJiuwen Agent Runtime Java** (`agent-runtime-java`) packages agents built on **openJiuwen Agent Core Java** into a **deployable Spring Boot HTTP service** (OCI image). It provides the **Agent Service** layer: HTTP ingress aligned with Python `AgentApp`, in-process **A2A** (Agent Card + JSON-RPC), session reset, health probes, and **Adapters** that bind execution backends (Core `Runner`), middleware (e.g. Redis Checkpointer), and external egress (MCP, remote/A2A, Sandbox).
+**openJiuwen Agent Runtime Java** (`agent-runtime-java`) is the **Java implementation repository for Agent Distributed Runtime** (the large Runtime box in the architecture diagram). **`service/`** is the **Agent Server** slice inside that Runtime — currently the main delivered module: Spring Boot HTTP ingress, in-process A2A, Adapters, and **Agent Core** via Maven.
 
-**Agent Core** (graph execution, agents, workflows) lives in the separate [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java) repository. This repository focuses on **service packaging and the data plane**.
+**Agent Core** lives in [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java). **Agent Runtime Manager** is planned under **`manager/*` in this same repo**. Python is a **peer Runtime** implementation (Agent Server often on FastAPI / Yuanrong FaaS).
 
-**Not in this repository** (planned elsewhere): platform Deploy Manager, standalone platform A2A gateway, App control plane (`/chat`, Session CRUD). See [Scope & roadmap](#scope--roadmap) below.
+See [Scope & roadmap](#scope--roadmap) and [Logical Architecture](documents/zh/2.开发指南/逻辑架构.md) (Chinese).
 
 ## Why Agent Runtime Java?
 
@@ -100,19 +100,20 @@ Provide a `@Bean AgentHandler` or set `openjiuwen.service.agent-id` for the defa
 
 ## Architecture
 
-**Agent Runtime Java** is the Java side of the distributed Agent runtime: **middleware** (Redis, etc.) on the left, **Gateway + Agent Server** in the center, **external services** (LLM, MCP, A2A peers, RAG) on the right.
+**Agent Runtime Java** maps to **Agent Distributed Runtime (Java)** in the architecture diagram; **`service/`** maps to **Agent Server** inside it.
 
 ```text
-Middleware (Redis…)  →  Agent Server (this repo: Spring Boot + Adapters + Core)  →  External (LLM, MCP, A2A…)
+Middleware (Redis…)  →  Runtime (this repo) · Agent Server (service/)  →  External (LLM, MCP, A2A…)
 ```
 
-| Logical component | In this repo | Status |
-|-------------------|--------------|--------|
-| **Agent Core** | Maven `agent-core-java` (separate repo) | ✅ dependency |
-| **Agent Server** | `service/*` | ✅ |
-| **In-process A2A** | `agent-service-app` (`controller.a2a`) | ✅ |
-| **Agent Runtime Manager** | planned (`manager/*`) | ⏳ |
-| **Platform A2A gateway** | planned (separate service) | ⏳ |
+| Logical component | In `agent-runtime-java` | Status |
+|-------------------|-------------------------|--------|
+| **Agent Distributed Runtime** | **repo root** | ✅ Java carrier (expanding) |
+| **Agent Core** | Maven `agent-core-java` | ✅ dependency |
+| **Agent Server** | `service/*` | ✅ main delivery today |
+| **In-process A2A** | `agent-service-app` | ✅ |
+| **Agent Runtime Manager** | `manager/*` | ⏳ planned **in this repo** |
+| **Platform A2A gateway** | `applications/*` or external | ⏳ / 🔌 |
 
 Deep dive (Chinese): [Logical Architecture](documents/zh/2.开发指南/逻辑架构.md), [Architecture Overview](documents/zh/2.开发指南/架构概述.md).
 
@@ -168,27 +169,26 @@ Details: [Adapters & Handler](documents/zh/2.开发指南/Adapters与Handler.md)
 
 ## Scope & roadmap
 
-| Topic | In this repo | Notes |
+| Topic | Path in repo | Notes |
 |-------|--------------|-------|
-| HTTP Agent Service | ✅ | `service/*` |
-| In-process A2A Server | ✅ | Agent Card, JSON-RPC, TaskStore |
-| Platform A2A gateway | ❌ | multi-agent routing at platform level |
-| Deploy Manager REST | ❌ | planned control plane |
-| App control plane | ❌ | `/chat`, Session CRUD, dynamic Workspace |
+| Agent Server (HTTP + A2A) | ✅ `service/*` | main delivery today |
+| Agent Runtime Manager | ⏳ `manager/*` | control plane, **this repo** |
+| Platform A2A gateway | ⏳ `applications/*` etc. | or external platform service |
+| App control plane | ❌ | `/chat`, Session CRUD not in Server scope |
 
 ## Project Structure
 
 ```text
-agent-runtime-java/
-├── service/
-│   ├── agent-service-spec/           # paths, DTOs, SPI (AgentHandler, Orchestrator)
-│   ├── agent-service-adapters/       # common (middleware + external DFX) + agentcore leaf
-│   │   ├── agent-service-adapters-common   # middleware clients (Redis), credential, external-call DFX
-│   │   └── agent-service-adapters-agentcore # Handler + Core middleware/external registration
-│   ├── agent-service-app/            # controllers, orchestrator, A2A, auto-config
-│   ├── agent-service-demo/           # runnable Spring Boot demo
-│   └── agent-service-a2a-test/       # A2A integration / scenario tests
-├── documents/zh/                     # Chinese development guide
+agent-runtime-java/                 # Agent Distributed Runtime (Java)
+├── service/                        # Agent Server
+│   ├── agent-service-spec/
+│   ├── agent-service-adapters/
+│   ├── agent-service-app/
+│   ├── agent-service-demo/
+│   └── agent-service-a2a-test/
+├── manager/（planned）             # Agent Runtime Manager
+├── applications/（planned）
+├── documents/zh/
 │   └── SUMMARY.md
 ├── CONTRIBUTING.md
 ├── LICENSE
