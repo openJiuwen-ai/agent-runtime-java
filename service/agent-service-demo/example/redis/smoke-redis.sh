@@ -75,27 +75,37 @@ else:
 PY
 }
 
-assert_not_mock() {
-  local content="$1"
-  local label="$2"
-  if [[ "$content" == demo:* ]]; then
-    cat >&2 <<EOF
-FAIL $label: got mock response "$content".
+assert_expected_app() {
+  local file="$1"
+  $PYTHON - "$file" "demo-redis-agent-service" <<'PY'
+import json
+import sys
 
-This smoke targets agent-service-demo-redis on port 8091 (ReActAgent + JiuwenCoreAgentHandler).
-Start:
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    data = json.load(f)
 
-  cd agent-runtime-java/service
-  mvn -pl agent-service-demo/example/redis -am spring-boot:run
-EOF
-    exit 1
-  fi
+expected = sys.argv[2]
+app = data.get("app", "")
+if app != expected:
+    print(
+        f"FAIL health: expected app={expected!r}, got {app!r}. "
+        "Start agent-service-demo-redis on port 8091, not main demo on 8090.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+if data.get("status") != "healthy" or data.get("agent_loaded") is not True:
+    print("FAIL health: service not ready", file=sys.stderr)
+    print(json.dumps(data, ensure_ascii=False, indent=2), file=sys.stderr)
+    sys.exit(1)
+PY
 }
 
-print_step "1" "GET /health"
+print_step "1" "GET /health (demo-redis-agent-service on 8091)"
 health_file="$TMP_DIR/health.json"
 health_status="$(curl -sS -o "$health_file" -w '%{http_code}' "$BASE_URL/health")"
 assert_status "$health_status" "200" "GET /health"
+assert_expected_app "$health_file"
 pass "GET /health"
 
 print_step "2" "Round 1: store a fact in Core Session (conversation_id=$CONV_ID)"
@@ -106,8 +116,7 @@ round1_status="$(request_json "/v1/query" \
 assert_status "$round1_status" "200" "round 1 query"
 assert_non_empty_json "$round1_file" "round 1"
 round1_content="$(extract_content "$round1_file")"
-assert_not_mock "$round1_content" "round 1"
-pass "round 1 (Core path, not mock)"
+pass "round 1 (Core path on redis module)"
 
 print_step "3" "Round 2: recall the fact (same conversation_id, Redis checkpointer)"
 round2_file="$TMP_DIR/round2.json"
@@ -117,7 +126,6 @@ round2_status="$(request_json "/v1/query" \
 assert_status "$round2_status" "200" "round 2 query"
 assert_non_empty_json "$round2_file" "round 2"
 round2_content="$(extract_content "$round2_file")"
-assert_not_mock "$round2_content" "round 2"
 
 $PYTHON - "$round2_content" <<'PY'
 import sys

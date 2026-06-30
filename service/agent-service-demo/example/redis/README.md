@@ -7,7 +7,7 @@
 | 目录 | `example/redis/` |
 | 默认端口 | **8091**（主 demo 为 8090，可同时运行） |
 | Agent | `ReActAgent`（`ExampleReActAgentFactory`） |
-| Handler | `JiuwenCoreAgentHandler`（走 Core Runner，非 mock） |
+| Handler | `JiuwenCoreAgentHandler`（走 Core Runner） |
 | Checkpointer | `openjiuwen.service.middleware.checkpointer.type: redis` |
 
 ## 这个示例解决什么问题
@@ -17,7 +17,7 @@
 1. **同一进程内**：相同 `conversation_id` 的多轮 Query 能带上前文上下文。
 2. **跨进程**（可选）：停止服务后重启，同一 `conversation_id` 仍可从 Redis 恢复会话。
 
-> 必须使用真实大模型 API。主 demo 的 mock 响应（`demo:*`）无法验证 Checkpointer。
+> 必须使用真实大模型 API，并与主 demo（8090）一样走 Core 链路；本模块额外启用 Redis checkpointer。
 
 ## 快速开始
 
@@ -49,7 +49,7 @@ redis-cli -h 127.0.0.1 -p 6379 ping
 
 ```bash
 cp ../config/application-base_local.example.yml ../config/application-base_local.yml
-# 编辑 application-base_local.yml，填写 openjiuwen.example.llm 下的 api-key / api-base / model-name
+# 编辑 application-base_local.yml，填写 openjiuwen.demo.llm 下的 api-key / api-base / model-name
 # 建议设置 auto-discover: false
 ```
 
@@ -63,7 +63,7 @@ $env:OPENJIUWEN_API_CONFIG="C:\path\to\apiconfig.json"  # PowerShell
 
 **方式 C — 环境变量**
 
-`application-base.yml` 支持占位符：`OPENJIUWEN_EXAMPLE_LLM_API_KEY`、`OPENJIUWEN_EXAMPLE_LLM_API_BASE`、`OPENJIUWEN_EXAMPLE_LLM_MODEL_NAME`。
+`application-base.yml` 支持占位符：`OPENJIUWEN_DEMO_LLM_API_KEY`、`OPENJIUWEN_DEMO_LLM_API_BASE`、`OPENJIUWEN_DEMO_LLM_MODEL_NAME`。
 
 ### 3. 启动服务
 
@@ -71,11 +71,13 @@ $env:OPENJIUWEN_API_CONFIG="C:\path\to\apiconfig.json"  # PowerShell
 mvn -pl agent-service-demo/example/redis -am spring-boot:run
 ```
 
-启动成功后监听 **http://localhost:8091**。日志中应能看到 Core Runner 与 Redis middleware 相关初始化，而非 mock handler。
+启动成功后监听 **http://localhost:8091**。`/health` 中 `app` 应为 `demo-redis-agent-service`。
 
 ### 4. 运行 smoke 脚本
 
-**Windows（推荐）**
+**同步 Query（非流式）**
+
+Windows（推荐）：
 
 ```powershell
 cd agent-service-demo\example\redis
@@ -83,7 +85,7 @@ cd agent-service-demo\example\redis
 # 可选: .\smoke-redis.ps1 -BaseUrl http://127.0.0.1:8091 -ConvId my-test-c1
 ```
 
-**Linux / Git Bash**
+Linux / Git Bash：
 
 ```bash
 cd agent-runtime-java/service
@@ -91,13 +93,37 @@ bash agent-service-demo/example/redis/smoke-redis.sh
 # 可选: BASE_URL=http://127.0.0.1:8091 CONV_ID=my-test-c1 bash ...
 ```
 
-脚本流程：
+**流式 Query（SSE）**
+
+Windows（推荐）：
+
+```powershell
+cd agent-service-demo\example\redis
+.\smoke-redis-stream.ps1
+# 可选: .\smoke-redis-stream.ps1 -ConvId redis-stream-c1 -CodeName REDIS-STREAM-42
+```
+
+Linux / Git Bash：
+
+```bash
+cd agent-runtime-java/service
+bash agent-service-demo/example/redis/smoke-redis-stream.sh
+# 可选: CONV_ID=redis-stream-c1 CODE_NAME=REDIS-STREAM-42 bash ...
+```
+
+同步脚本流程：
 
 1. `GET /health`
 2. 第一轮 Query：写入代号 `REDIS-DEMO-42`
 3. 第二轮 Query：追问代号，断言回复中包含 `REDIS-DEMO-42`
 
-若返回 `demo:*`，说明连到了 **8090 主 demo**，请确认本模块已在 **8091** 启动。
+流式脚本流程：
+
+1. `GET /health`
+2. 第一轮 `stream=true`：写入代号 `REDIS-STREAM-42`，校验 SSE 事件与非空聚合内容
+3. 第二轮 `stream=true`：追问代号，从 SSE 聚合文本中断言包含 `REDIS-STREAM-42`
+
+若 `/health` 返回 `app=demo-agent-service`，说明连到了 **8090 主 demo**，请确认本模块已在 **8091** 启动。
 
 ## 手动验证（可选）
 
@@ -131,7 +157,7 @@ spring:
 
 | 文件 | 作用 |
 | --- | --- |
-| `../config/application-base.yml` | `openjiuwen.example.llm`、Redis 连接、`checkpointer.type: in_memory`（默认） |
+| `../config/application-base.yml` | `openjiuwen.demo.llm`、Redis 连接、`checkpointer.type: in_memory`（默认） |
 | `../config/application-base_local.yml` | 本地 API 覆盖（勿提交） |
 | `application-redis-checkpointer.yml` | **`server.port: 8091`**、`checkpointer.type: redis` |
 
@@ -145,7 +171,7 @@ spring:
 | --- | --- | --- |
 | 启动报 `api-key` / `api-base` / `model-name` 未配置 | LLM 未填 | 配置 `application-base_local.yml` 或 `apiconfig.json` |
 | `Redis connection` / checkpoint 写入失败 | Redis 未启动或地址不对 | `redis-cli ping`；核对 host/port |
-| smoke 返回 `demo:*` | 连错服务 | 确认 8091 上是本模块，不是 8090 主 demo |
+| smoke 连错服务 | 8090 与 8091 端口混淆 | 确认 `/health` 中 `app=demo-redis-agent-service`，且 BASE_URL 指向 8091 |
 | 第二轮无法召回代号 | 模型未遵循指令，或未走 Core 路径 | 查看 8091 日志；换更强模型或重试；确认 `checkpointer.type=redis` |
 | `bash smoke-redis.sh` 报 `pipefail: invalid option` | 脚本 CRLF 换行 | Windows 用 `.\smoke-redis.ps1`，或 `sed -i 's/\r$//' smoke-redis.sh` |
 | smoke 通过但跨进程失败 | Redis 数据被清空或 conversation_id 不一致 | 确认 Redis 持久化策略；两轮使用相同 `conversation_id` |

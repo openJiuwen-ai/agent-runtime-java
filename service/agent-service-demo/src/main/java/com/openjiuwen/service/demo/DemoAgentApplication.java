@@ -12,6 +12,7 @@ import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalProperties;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
+import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,8 +59,7 @@ public class DemoAgentApplication {
     AgentHandler demoAgentHandler(DemoLlmProperties llmProperties,
             ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
             ObjectProvider<AgentCoreExternalProperties> externalPropertiesProvider) {
-        ApiConfigLoader.load(llmProperties.getConfigFile(), llmProperties.isAutoDiscover())
-                .ifPresent(llmProperties::applyFromFile);
+        llmProperties.applyApiConfigIfPresent();
         ReActAgent agent = buildReActAgent(llmProperties);
         bindMcpServers(agent, externalPropertiesProvider.getIfAvailable());
         return new JiuwenCoreAgentHandler(agent,

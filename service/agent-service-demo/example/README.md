@@ -1,10 +1,10 @@
 # Agent Service Demo — 特性示例
 
-面向开发者的**按需演示**。每个特性是**独立可运行的 Maven 子模块**，**不依赖**主工程 `agent-service-demo`：
+面向开发者的**按需演示**。每个特性是**独立可运行的 Maven 子模块**（redis / mcp / sandbox），与主开箱 demo 共用 `example/config/` 下的基础配置：
 
 - Agent：`ReActAgent`（由 `example/support` 工厂装配）
 - Handler：`JiuwenCoreAgentHandler`
-- 模型配置：`example/config/application-base.yml` 中的 `openjiuwen.example.llm`（可被 `apiconfig.json` 覆盖）
+- 模型配置：主 demo 与各特性模块共用 `openjiuwen.demo.llm`（`example/config/application-base.yml`）
 
 | 目录 | Maven 模块 | 默认端口 | 演示内容 |
 | --- | --- | --- | --- |
@@ -18,8 +18,8 @@
 ## 配置分层
 
 ```
-example/config/application-base.yml     ← openjiuwen.example.llm + service 默认
-example/support/                        ← ExampleLlmProperties、ReActAgent 工厂（非 demo）
+example/config/application-base.yml     ← openjiuwen.demo.llm + service 默认
+example/support/                        ← DemoLlmProperties、ReActAgent 工厂
 example/<feature>/application.yml       ← import base + 激活特性 profile
 example/<feature>/application-*.yml     ← 特性增量
 ```
@@ -47,10 +47,11 @@ spring:
 在 `agent-runtime-java/service` 下：
 
 ```bash
-# Redis 示例
+# 主开箱 demo（8090，openjiuwen.demo.llm，需配置 LLM）
+mvn -pl agent-service-demo -am spring-boot:run
+
+# Redis 示例（8091）
 mvn -pl agent-service-demo/example/redis -am spring-boot:run
 
 # MCP / Sandbox：见各子目录 README
 ```
-
-主开箱 demo：`mvn -pl agent-service-demo -am spring-boot:run`（仍用 `openjiuwen.demo.llm` + mock/LlmAgent）。

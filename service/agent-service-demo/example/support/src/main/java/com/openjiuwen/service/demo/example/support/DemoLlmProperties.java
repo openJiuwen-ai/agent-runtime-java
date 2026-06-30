@@ -2,7 +2,7 @@
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
 
-package com.openjiuwen.service.demo;
+package com.openjiuwen.service.demo.example.support;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -10,6 +10,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.time.Duration;
 import java.util.Map;
 
+/**
+ * Shared LLM configuration for agent-service-demo and all example feature modules.
+ * Bound from {@code openjiuwen.demo.llm} in {@code example/config/application-base.yml}.
+ */
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.demo.llm")
 public class DemoLlmProperties {
@@ -28,7 +32,11 @@ public class DemoLlmProperties {
     private int contextWindowLimit = 10;
     private int maxIterations = 5;
 
-    void requireConfigured() {
+    public void applyApiConfigIfPresent() {
+        ApiConfigLoader.load(configFile, autoDiscover).ifPresent(this::applyFromFile);
+    }
+
+    public void requireConfigured() {
         requireText(apiKey, "openjiuwen.demo.llm.api-key");
         requireText(apiBase, "openjiuwen.demo.llm.api-base");
         requireText(modelName, "openjiuwen.demo.llm.model-name");

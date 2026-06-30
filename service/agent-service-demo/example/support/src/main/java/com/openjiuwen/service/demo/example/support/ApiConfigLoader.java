@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-final class ExampleApiConfigLoader {
+final class ApiConfigLoader {
 
     static final String DEFAULT_FILE_NAME = "apiconfig.json";
     static final String KEY_API_BASE = "API_BASE";
@@ -29,7 +29,7 @@ final class ExampleApiConfigLoader {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int MAX_PARENT_LEVELS = 6;
 
-    private ExampleApiConfigLoader() {
+    private ApiConfigLoader() {
     }
 
     static Optional<Map<String, String>> load(String explicitPath, boolean autoDiscover) {
