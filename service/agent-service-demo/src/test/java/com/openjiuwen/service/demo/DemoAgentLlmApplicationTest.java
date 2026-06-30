@@ -17,13 +17,15 @@ import com.openjiuwen.core.foundation.llm.schema.UserMessage;
 import com.openjiuwen.core.foundation.llm.schema.ImageGenerationResponse;
 import com.openjiuwen.core.foundation.llm.schema.VideoGenerationResponse;
 import com.openjiuwen.core.runner.Runner;
+import com.openjiuwen.service.spec.spi.AgentHandler;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -44,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = DemoAgentApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DemoAgentLlmApplicationTest {
 
     private static final String TEST_PROVIDER = "DemoCoreMemoryProvider";
@@ -68,14 +71,17 @@ class DemoAgentLlmApplicationTest {
     }
 
     @AfterAll
-    static void cleanupRunner() {
+    void cleanupRunner() {
         Runner.release("memory-c1");
-        Runner.stop();
+        agentHandler.stop();
         MODEL_MESSAGES.clear();
     }
 
     @Autowired
     private TestRestTemplate rest;
+
+    @Autowired
+    private AgentHandler agentHandler;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
