@@ -5,6 +5,7 @@
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import com.openjiuwen.core.common.schema.BaseCard;
+import com.openjiuwen.core.controller.schema.ControllerOutput;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
@@ -159,6 +160,14 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     @Override
     public QueryResponse query(ServeRequest request) {
+        if (supportsInvoke(agent)) {
+            Object rawResult = Runner.runAgent(agent, buildInputs(request), runnerSession(request), null);
+            return toQueryResponse(rawResult, request.getConversationId());
+        }
+        return queryViaStreaming(request);
+    }
+
+    private QueryResponse queryViaStreaming(ServeRequest request) {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
         List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
@@ -169,17 +178,83 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             lastPayload = payload;
             appendContent(payload, content);
         }
+        return buildQueryResponse(lastPayload, content, request.getConversationId());
+    }
+
+    protected QueryResponse toQueryResponse(Object rawResult, String conversationId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("role", "assistant");
+        if (rawResult instanceof Map<?, ?> rawMap) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) rawMap;
+            if ("interrupt".equals(map.get("result_type")) && map.get("state") instanceof List<?> states) {
+                Object lastInterrupt = null;
+                for (Object state : states) {
+                    if (state instanceof OutputSchema outputSchema) {
+                        lastInterrupt = normalizeChunk(outputSchema);
+                    }
+                }
+                if (lastInterrupt instanceof Map<?, ?> interruptMap) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> interruptData = (Map<String, Object>) interruptMap;
+                    if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
+                        result.put("_interrupt", interruptData);
+                        result.put("content", interruptData.getOrDefault("message", ""));
+                        return new QueryResponse(result, conversationId);
+                    }
+                }
+            }
+            Object content = firstNonNull(map.get("output"), map.get("content"), map.get("response")).orElse(null);
+            result.put("content", stringify(content));
+            return new QueryResponse(result, conversationId);
+        }
+        if (rawResult instanceof ControllerOutput controllerOutput) {
+            return buildQueryResponseFromControllerOutput(controllerOutput, conversationId);
+        }
+        result.put("content", stringify(rawResult));
+        return new QueryResponse(result, conversationId);
+    }
+
+    private static QueryResponse buildQueryResponseFromControllerOutput(
+            ControllerOutput controllerOutput, String conversationId) {
+        StringBuilder content = new StringBuilder();
+        Object lastPayload = null;
+        Object data = controllerOutput.getData();
+        if (data instanceof List<?> items) {
+            for (Object item : items) {
+                Object payload = normalizeChunk(item);
+                lastPayload = payload;
+                appendContent(payload, content);
+            }
+        }
+        return buildQueryResponse(lastPayload, content, conversationId);
+    }
+
+    private static QueryResponse buildQueryResponse(Object lastPayload, StringBuilder content, String conversationId) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
         if (lastPayload instanceof Map<?, ?> raw && INTERACTION_TYPE.equals(raw.get("type"))) {
             @SuppressWarnings("unchecked")
-            Map<String, Object> m = (Map<String, Object>) raw;
-            result.put("_interrupt", m);
-            result.put("content", m.getOrDefault("message", ""));
+            Map<String, Object> interrupt = (Map<String, Object>) raw;
+            result.put("_interrupt", interrupt);
+            result.put("content", interrupt.getOrDefault("message", ""));
         } else {
             result.put("content", !content.isEmpty() ? content.toString() : stringify(lastPayload));
         }
-        return new QueryResponse(result, request.getConversationId());
+        return new QueryResponse(result, conversationId);
+    }
+
+    private static boolean supportsInvoke(Object agent) {
+        if (agent == null || agent instanceof String) {
+            // Resolved at runtime from agent-id; use streaming unless the instance exposes invoke.
+            return false;
+        }
+        for (Method method : agent.getClass().getMethods()) {
+            if ("invoke".equals(method.getName()) && method.getDeclaringClass() != Object.class) {
+                return true;
+            }
+        }
+        return false;
     }
 
     protected static Map<String, Object> buildInputs(ServeRequest request) {

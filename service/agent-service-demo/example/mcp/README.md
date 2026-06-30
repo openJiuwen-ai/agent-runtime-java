@@ -1,15 +1,16 @@
 # MCP External Service Example
 
-这个目录演示 Issue #11 的外部 MCP 出站适配能力。示例包含一个本地 JSON-RPC MCP 服务，以及 demo 应用里的 `mcp` profile 配置。
+演示如何挂载**外部 MCP Server**，让 Core Runner 在启动时注册 MCP Tool。
 
-## 文件说明
+## 文件
 
-- `MockMcpServerExample.java`: 本地 MCP server，监听 `/mcp`，提供 `demo_echo` 工具。
-- `src/main/resources/application-mcp.yml`: Agent Service demo 的 MCP profile 配置，展示 `server-path`、`client-type`、超时、重试和熔断参数。
+- `MockMcpServerExample.java`：本地 MCP Server（`/mcp`，提供 `demo_echo` 工具）
+- `application.yml` / `application-mcp.yml`：本模块 MCP 配置（共用 `../config/application-base.yml`）
+- Maven 模块：`agent-service-demo-mcp`
 
-## 运行前提
+## 前提
 
-以下命令假设当前目录是 `agent-runtime-java/service`。
+在 `agent-runtime-java/service` 目录执行。
 
 ## 编译 demo
 
@@ -47,16 +48,15 @@ curl -s 'http://localhost:18080/mcp' \
 
 预期响应包含 `demo_echo`。
 
-## 启动 Agent Service demo 并挂载 MCP
+## 启动 Agent Service（MCP 特性模块）
 
-另开一个终端，提供真实大模型配置后启动 demo。MCP 配置来自 `application-mcp.yml`。
+另开一个终端，启动 **MCP 特性模块**（ReActAgent + `JiuwenCoreAgentHandler`）。模型 API 见 `../config/application-base.yml` 中 `openjiuwen.example.llm`。
 
 ```bash
 OPENJIUWEN_API_CONFIG=/path/to/apiconfig.json \
 DEMO_MCP_SERVER_PATH=http://localhost:18080/mcp \
-mvn -pl agent-service-demo -am spring-boot:run \
-  -Dspring-boot.run.profiles=mcp \
-  -Dspring-boot.run.arguments="--server.port=8090 --openjiuwen.demo.llm.enabled=true"
+mvn -pl agent-service-demo/example/mcp -am spring-boot:run
+# 监听 http://localhost:8092
 ```
 
 启动日志中应能看到类似内容：
@@ -68,7 +68,7 @@ Registered external MCP server, serverId=demo-mcp, serverName=demo-mcp-tools
 然后通过 Query API 使用正式 Core 链路：
 
 ```bash
-curl -s http://localhost:8090/v1/query \
+curl -s http://localhost:8092/v1/query \
   -H 'Content-Type: application/json' \
   -d '{"conversation_id":"mcp-demo-c1","message":"请调用 demo_echo 工具，输入 text=hello","stream":false}'
 ```

@@ -118,6 +118,21 @@ class JiuwenCoreAgentHandlerTest {
         assertThat(agentSession.getAgentId()).isEqualTo("it-agent");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void syncQueryUsesInvokePathWhenAgentSupportsIt() {
+        InvokeEchoAgent agent = new InvokeEchoAgent();
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
+
+        QueryResponse first = handler.query(request("c-invoke-path", "a"));
+        QueryResponse second = handler.query(request("c-invoke-path", "b"));
+
+        assertThat(agent.invokeCount.get()).isEqualTo(2);
+        assertThat(agent.streamCount.get()).isZero();
+        assertThat((Map<String, Object>) first.getResult()).containsEntry("content", "turn1:a");
+        assertThat((Map<String, Object>) second.getResult()).containsEntry("content", "turn2:b|prev=a");
+    }
+
     private static ServeRequest request(String conversationId, String content) {
         ServeRequest request = new ServeRequest();
         request.setConversationId(conversationId);
@@ -219,6 +234,34 @@ class JiuwenCoreAgentHandlerTest {
             history.add(query);
             session.updateState(Map.of("history", history));
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", reply))).iterator();
+        }
+    }
+
+    public static class InvokeEchoAgent {
+        private final AtomicInteger invokeCount = new AtomicInteger();
+        private final AtomicInteger streamCount = new AtomicInteger();
+
+        @SuppressWarnings("unchecked")
+        public Object invoke(Object inputs, Session session) {
+            invokeCount.incrementAndGet();
+            Map<String, Object> inputMap = (Map<String, Object>) inputs;
+            String query = String.valueOf(inputMap.get("query"));
+            Object priorState = session.getState("history");
+            List<String> history = priorState instanceof List<?>
+                    ? new ArrayList<>((List<String>) priorState)
+                    : new ArrayList<>();
+            String reply = "turn" + (history.size() + 1) + ":" + query;
+            if (!history.isEmpty()) {
+                reply += "|prev=" + String.join(",", history);
+            }
+            history.add(query);
+            session.updateState(Map.of("history", history));
+            return Map.of("output", reply, "result_type", "answer");
+        }
+
+        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+            streamCount.incrementAndGet();
+            return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "stream"))).iterator();
         }
     }
 

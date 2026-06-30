@@ -115,7 +115,7 @@ body_file="$TMP_DIR/non_stream.json"
 status="$(request_json POST "/v1/query" '{"conversation_id":"query-c1","message":"hello","stream":false}' "$body_file")"
 assert_status "$status" "200" "non-streaming /v1/query"
 assert_json "$body_file" \
-  'data["conversation_id"] == "query-c1" and data["result"]["role"] == "assistant" and data["result"]["content"] == "query-example:hello" and data["result"]["conversation_id"] == "query-c1"' \
+  'data["conversation_id"] == "query-c1" and data["result"]["role"] == "assistant" and data["result"]["content"] == "demo:hello" and data["result"]["conversation_id"] == "query-c1"' \
   "non-streaming response"
 pass "non-streaming /v1/query"
 
@@ -124,7 +124,7 @@ body_file="$TMP_DIR/stream.txt"
 status="$(request_json POST "/v1/query" '{"conversation_id":"query-c2","message":"stream hello","stream":true}' "$body_file")"
 assert_status "$status" "200" "streaming /v1/query"
 assert_sse_json "$body_file" \
-  'len(events) == 1 and events[0]["role"] == "assistant" and events[0]["content"] == "query-example:stream hello" and events[0]["conversation_id"] == "query-c2"' \
+  'len(events) == 1 and events[0]["role"] == "assistant" and events[0]["content"] == "demo:stream hello" and events[0]["conversation_id"] == "query-c2"' \
   "streaming SSE response"
 pass "streaming /v1/query"
 
@@ -133,7 +133,7 @@ body_file="$TMP_DIR/default_stream.txt"
 status="$(request_json POST "/v1/query" '{"conversation_id":"query-c3","message":"default stream"}' "$body_file")"
 assert_status "$status" "200" "default stream /v1/query"
 assert_sse_json "$body_file" \
-  'len(events) == 1 and events[0]["content"] == "query-example:default stream" and events[0]["conversation_id"] == "query-c3"' \
+  'len(events) == 1 and events[0]["content"] == "demo:default stream" and events[0]["conversation_id"] == "query-c3"' \
   "default stream response"
 pass "default stream"
 
@@ -142,7 +142,7 @@ body_file="$TMP_DIR/legacy.json"
 status="$(request_json POST "/query" '{"conversation_id":"query-c4","message":"legacy","stream":false}' "$body_file")"
 assert_status "$status" "200" "legacy /query"
 assert_json "$body_file" \
-  'data["conversation_id"] == "query-c4" and data["result"]["content"] == "query-example:legacy"' \
+  'data["conversation_id"] == "query-c4" and data["result"]["content"] == "demo:legacy"' \
   "legacy response"
 pass "legacy /query"
 
@@ -151,7 +151,7 @@ body_file="$TMP_DIR/messages.json"
 status="$(request_json POST "/v1/query" '{"conversation_id":"query-c5","messages":[{"role":"user","content":"first"},{"role":"assistant","content":"ignored"},{"role":"user","content":"latest"}],"stream":false}' "$body_file")"
 assert_status "$status" "200" "messages[] /v1/query"
 assert_json "$body_file" \
-  'data["conversation_id"] == "query-c5" and data["result"]["content"] == "query-example:latest"' \
+  'data["conversation_id"] == "query-c5" and data["result"]["content"] == "demo:latest"' \
   "messages latest user"
 pass "messages[] latest user"
 
@@ -160,7 +160,7 @@ body_file="$TMP_DIR/unicode.json"
 status="$(request_json POST "/v1/query" '{"conversation_id":"query-c6","message":"你好，九问","stream":false}' "$body_file")"
 assert_status "$status" "200" "unicode /v1/query"
 assert_json "$body_file" \
-  'data["conversation_id"] == "query-c6" and data["result"]["content"] == "query-example:你好，九问"' \
+  'data["conversation_id"] == "query-c6" and data["result"]["content"] == "demo:你好，九问"' \
   "unicode response"
 pass "unicode message"
 
@@ -169,7 +169,7 @@ body_file="$TMP_DIR/unknown_fields.json"
 status="$(request_json POST "/v1/query" '{"conversation_id":"query-c7","message":"unknown","stream":false,"extra_field":"ignored"}' "$body_file")"
 assert_status "$status" "200" "unknown fields /v1/query"
 assert_json "$body_file" \
-  'data["conversation_id"] == "query-c7" and data["result"]["content"] == "query-example:unknown"' \
+  'data["conversation_id"] == "query-c7" and data["result"]["content"] == "demo:unknown"' \
   "unknown fields ignored"
 pass "unknown fields ignored"
 
@@ -210,7 +210,7 @@ body_file="$TMP_DIR/flux_stream.txt"
 status="$(request_json_accept POST "/v1/query/reactive" '{"conversation_id":"query-flux-1","message":"flux hello","stream":true}' "text/event-stream" "$body_file")"
 assert_status "$status" "200" "streaming /v1/query/reactive"
 assert_sse_json "$body_file" \
-  'len(events) == 1 and events[0]["role"] == "assistant" and events[0]["content"] == "query-example:flux hello" and events[0]["conversation_id"] == "query-flux-1"' \
+  'len(events) == 1 and events[0]["role"] == "assistant" and events[0]["content"] == "demo:flux hello" and events[0]["conversation_id"] == "query-flux-1"' \
   "flux streaming SSE response"
 pass "streaming /v1/query/reactive"
 
@@ -219,7 +219,7 @@ body_file="$TMP_DIR/flux_non_stream.json"
 status="$(request_json_accept POST "/v1/query/reactive" '{"conversation_id":"query-flux-2","message":"flux json","stream":false}' "application/json" "$body_file")"
 assert_status "$status" "200" "non-streaming /v1/query/reactive"
 assert_json "$body_file" \
-  'data["conversation_id"] == "query-flux-2" and data["result"]["role"] == "assistant" and data["result"]["content"] == "query-example:flux json" and data["result"]["conversation_id"] == "query-flux-2"' \
+  'data["conversation_id"] == "query-flux-2" and data["result"]["role"] == "assistant" and data["result"]["content"] == "demo:flux json" and data["result"]["conversation_id"] == "query-flux-2"' \
   "flux non-streaming response"
 pass "non-streaming /v1/query/reactive"
 

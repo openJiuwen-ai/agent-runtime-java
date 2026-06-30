@@ -1,5 +1,7 @@
 # Sandbox Adapter Example
 
+独立工程：`agent-service-demo-sandbox`（`example/sandbox/`）。**Agent Service 默认端口 8093**（外置 Sandbox 服务仍为 18090）。
+
 这个目录展示 Service external adapters 如何通过配置创建 Core `SandboxClient`。
 
 runtime 不再实现独立的 sandbox HTTP provider。sandbox 后端协议由 agent-core-java 的 provider 负责，
@@ -8,12 +10,12 @@ runtime 不再实现独立的 sandbox HTTP provider。sandbox 后端协议由 ag
 
 ## 配置
 
-可以使用 `application-sandbox.yml`：
+本模块使用 `application-sandbox.yml`（共用 `../config/application-base.yml`）。启动完整 Agent Service：
 
 ```bash
 OPENJIUWEN_SANDBOX_SERVICE_URL=http://localhost:18090 \
-mvn -pl agent-service-demo -am spring-boot:run \
-  -Dspring-boot.run.profiles=sandbox
+mvn -pl agent-service-demo/example/sandbox -am spring-boot:run
+# Agent Service: http://localhost:8093
 ```
 
 关键配置：
