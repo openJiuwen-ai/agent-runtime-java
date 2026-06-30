@@ -1,6 +1,10 @@
 # Agent B (port 18091) — ReAct LLM agent with calc tool, serves as remote for Agent A.
 # Loaded last by A2aAgentBDemoApplication so its values override application-base.yml.
 
+spring:
+  application:
+    name: demo-a2a-agent-b
+
 server:
   port: 18091
 

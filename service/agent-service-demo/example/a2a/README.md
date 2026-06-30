@@ -120,7 +120,7 @@ mvn -pl agent-service-demo/example/a2a -am spring-boot:run \
     -Dspring-boot.run.main-class=com.openjiuwen.service.demo.example.a2a.A2aAgentBDemoApplication
 ```
 
-启动成功后 `/health` 返回 `app=demo-a2a-agent-service`。
+启动成功后 `/health` 返回 `app=demo-a2a-agent-b`（Agent B）或 `app=demo-a2a-agent-a`（Agent A）。
 
 **终端 2 — 启动 Agent A（端口 18090）：**
 

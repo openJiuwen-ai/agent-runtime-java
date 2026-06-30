@@ -1,6 +1,10 @@
 # Agent A (port 18090) — ReAct LLM agent that delegates calc tasks to Agent B via A2A.
 # Loaded last by A2aAgentADemoApplication so its values override application-base.yml.
 
+spring:
+  application:
+    name: demo-a2a-agent-a
+
 server:
   port: 18090
 
