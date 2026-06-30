@@ -63,9 +63,8 @@
         <module>agent-service-demo/example/redis</module>
         <module>agent-service-demo/example/mcp</module>
         <module>agent-service-demo/example/sandbox</module>
-        <module>agent-service-a2a-test</module>
+        <module>agent-service-demo/example/a2a</module>
     </modules>
-
     <!-- Aggregator (packaging=pom): skip spring-boot:run so -pl bootstrap -am works -->
     <build>
         <plugins>
