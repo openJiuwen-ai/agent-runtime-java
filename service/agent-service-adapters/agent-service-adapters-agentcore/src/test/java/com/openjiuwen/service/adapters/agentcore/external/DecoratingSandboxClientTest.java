@@ -5,10 +5,14 @@
 package com.openjiuwen.service.adapters.agentcore.external;
 
 import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
+import com.openjiuwen.core.sysop.result.ExecuteCmdResult;
+import com.openjiuwen.core.sysop.result.ExecuteCodeResult;
 import com.openjiuwen.core.sysop.result.ReadFileResult;
 import com.openjiuwen.core.sysop.result.WriteFileResult;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
+import com.openjiuwen.core.sysop.sandbox.SandboxCodeOperation;
 import com.openjiuwen.core.sysop.sandbox.SandboxFsOperation;
+import com.openjiuwen.core.sysop.sandbox.SandboxShellOperation;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterErrorCode;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterException;
 import org.junit.jupiter.api.Test;
@@ -53,6 +57,44 @@ class DecoratingSandboxClientTest {
                 .extracting("errorCode")
                 .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
         assertThat(delegate.fs.writeFileAttempts).isEqualTo(1);
+    }
+
+    @Test
+    void shellAndCodeOperationsDoNotRetryBecauseTheyMayHaveSideEffects() {
+        RecordingSandboxClient delegate = new RecordingSandboxClient();
+        delegate.shell.failExecuteCmdAttempts = Integer.MAX_VALUE;
+        delegate.code.failExecuteCodeAttempts = Integer.MAX_VALUE;
+        AgentCoreExternalProperties.SandboxPolicy policy = policy();
+        policy.getRetry().setMax(2);
+
+        SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
+
+        assertThatThrownBy(() -> client.shell().executeCmd("echo sandbox", ".", 0, Map.of(), Map.of()))
+                .isInstanceOf(ExternalSvcAdapterException.class)
+                .extracting("errorCode")
+                .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(() -> client.code().executeCode("print('sandbox')", "python", 0, Map.of(), Map.of()))
+                .isInstanceOf(ExternalSvcAdapterException.class)
+                .extracting("errorCode")
+                .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
+        assertThat(delegate.shell.executeCmdAttempts).isEqualTo(1);
+        assertThat(delegate.code.executeCodeAttempts).isEqualTo(1);
+    }
+
+    @Test
+    void shellAndCodeOperationsUsePolicyTimeoutWhenCallTimeoutIsMissing() {
+        RecordingSandboxClient delegate = new RecordingSandboxClient();
+        AgentCoreExternalProperties.SandboxPolicy policy = policy();
+        policy.setTimeoutMs(2500);
+
+        SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
+
+        assertThat(client.shell().executeCmd("echo sandbox", ".", 0, Map.of(), Map.of()))
+                .isInstanceOf(ExecuteCmdResult.class);
+        assertThat(client.code().executeCode("print('sandbox')", "python", 0, Map.of(), Map.of()))
+                .isInstanceOf(ExecuteCodeResult.class);
+        assertThat(delegate.shell.lastExecuteCmdTimeout).isEqualTo(3);
+        assertThat(delegate.code.lastExecuteCodeTimeout).isEqualTo(3);
     }
 
     @Test
@@ -101,6 +143,8 @@ class DecoratingSandboxClientTest {
 
     private static final class RecordingSandboxClient extends SandboxClient {
         private final RecordingSandboxFsOperation fs = new RecordingSandboxFsOperation();
+        private final RecordingSandboxShellOperation shell = new RecordingSandboxShellOperation();
+        private final RecordingSandboxCodeOperation code = new RecordingSandboxCodeOperation();
 
         private RecordingSandboxClient() {
             super(SandboxGatewayConfig.builder().build());
@@ -109,6 +153,16 @@ class DecoratingSandboxClientTest {
         @Override
         public SandboxFsOperation fs() {
             return fs;
+        }
+
+        @Override
+        public SandboxShellOperation shell() {
+            return shell;
+        }
+
+        @Override
+        public SandboxCodeOperation code() {
+            return code;
         }
     }
 
@@ -166,8 +220,59 @@ class DecoratingSandboxClientTest {
             try {
                 Thread.sleep(millis);
             } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
                 throw new IllegalStateException("Sandbox test sleep interrupted", ex);
             }
+        }
+    }
+
+    private static final class RecordingSandboxShellOperation extends SandboxShellOperation {
+        private int executeCmdAttempts;
+        private int failExecuteCmdAttempts;
+        private int lastExecuteCmdTimeout;
+
+        private RecordingSandboxShellOperation() {
+            super(SandboxGatewayConfig.builder().build());
+        }
+
+        @Override
+        public ExecuteCmdResult executeCmd(
+                String command,
+                String cwd,
+                int timeout,
+                Map<String, String> environment,
+                Map<String, Object> options) {
+            executeCmdAttempts++;
+            lastExecuteCmdTimeout = timeout;
+            if (executeCmdAttempts <= failExecuteCmdAttempts) {
+                throw new IllegalStateException("shell boom");
+            }
+            return new ExecuteCmdResult(0, "ok", null);
+        }
+    }
+
+    private static final class RecordingSandboxCodeOperation extends SandboxCodeOperation {
+        private int executeCodeAttempts;
+        private int failExecuteCodeAttempts;
+        private int lastExecuteCodeTimeout;
+
+        private RecordingSandboxCodeOperation() {
+            super(SandboxGatewayConfig.builder().build());
+        }
+
+        @Override
+        public ExecuteCodeResult executeCode(
+                String code,
+                String language,
+                int timeout,
+                Map<String, String> environment,
+                Map<String, Object> options) {
+            executeCodeAttempts++;
+            lastExecuteCodeTimeout = timeout;
+            if (executeCodeAttempts <= failExecuteCodeAttempts) {
+                throw new IllegalStateException("code boom");
+            }
+            return new ExecuteCodeResult(0, "ok", null);
         }
     }
 }

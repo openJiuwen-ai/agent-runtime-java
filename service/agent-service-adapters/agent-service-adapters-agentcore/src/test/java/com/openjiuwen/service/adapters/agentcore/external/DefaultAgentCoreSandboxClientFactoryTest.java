@@ -36,18 +36,21 @@ class DefaultAgentCoreSandboxClientFactoryTest {
         server.setIsolationPrefix("tenant-a");
         server.setContainerScope(ContainerScope.CUSTOM);
         server.setExtraParams(Map.of("sandbox_id", "sbx-1"));
+        server.setTimeoutMs(4500);
+        server.setIdleTtlSeconds(60);
         properties.getSandbox().setServers(java.util.List.of(server));
 
         SandboxGatewayConfig config = new DefaultAgentCoreSandboxClientFactory(properties).configFor("default");
 
         assertThat(config.getGatewayUrl()).isEqualTo("http://localhost:18090");
-        assertThat(config.getTimeoutSeconds()).isEqualTo(3);
+        assertThat(config.getTimeoutSeconds()).isEqualTo(5);
         assertThat(config.getParams()).containsEntry("root_path", "/tmp/sandbox");
         assertThat(config.getLauncherConfig().getLauncherType()).isEqualTo("pre_deploy");
         assertThat(config.getLauncherConfig().getGatewayUrl()).isEqualTo("http://localhost:18090");
         assertThat(config.getLauncherConfig().getBaseUrl()).isEqualTo("http://localhost:18090");
         assertThat(config.getLauncherConfig().getSandboxType()).isEqualTo("jiuwenbox");
         assertThat(config.getLauncherConfig().getOnStop()).isEqualTo("keep");
+        assertThat(config.getLauncherConfig().getIdleTtlSeconds()).isEqualTo(60);
         assertThat(config.getLauncherConfig().getExtraParams()).containsEntry("sandbox_id", "sbx-1");
         assertThat(config.getIsolation().getCustomId()).isEqualTo("session-1");
         assertThat(config.getIsolation().getPrefix()).isEqualTo("tenant-a");
@@ -66,7 +69,7 @@ class DefaultAgentCoreSandboxClientFactoryTest {
     }
 
     @Test
-    void registersDefaultHttpSandboxProvidersWithoutOverridingExistingProvider() {
+    void doesNotRegisterRuntimeSandboxProviders() {
         AgentCoreExternalProperties properties = properties();
         String sandboxType = "custom_" + java.util.UUID.randomUUID().toString().replace("-", "");
         properties.getSandbox().getServers().get(0).setSandboxType(sandboxType);
@@ -76,9 +79,8 @@ class DefaultAgentCoreSandboxClientFactoryTest {
             new DefaultAgentCoreSandboxClientFactory(properties);
 
             assertThat(SandboxRegistry.getProviderClass(sandboxType, "fs")).isEqualTo(ExistingFsProvider.class);
-            assertThat(SandboxRegistry.getProviderClass(sandboxType, "shell"))
-                    .isEqualTo(HttpSandboxShellProvider.class);
-            assertThat(SandboxRegistry.getProviderClass(sandboxType, "code")).isEqualTo(HttpSandboxCodeProvider.class);
+            assertThat(SandboxRegistry.getProviderClass(sandboxType, "shell")).isNull();
+            assertThat(SandboxRegistry.getProviderClass(sandboxType, "code")).isNull();
         } finally {
             SandboxRegistry.unregisterProvider(sandboxType, "fs");
             SandboxRegistry.unregisterProvider(sandboxType, "shell");
