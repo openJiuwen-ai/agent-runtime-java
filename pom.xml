@@ -7,7 +7,7 @@
 
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-runtime-java</artifactId>
-    <version>0.1.0</version>
+    <version>${revision}</version>
     <packaging>pom</packaging>
 
     <name>agent-runtime-java</name>
@@ -25,6 +25,7 @@
     </modules>
 
     <properties>
+        <revision>0.1.0</revision>
         <java.version>17</java.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>

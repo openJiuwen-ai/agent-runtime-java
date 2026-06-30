@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
 import org.a2aproject.sdk.server.config.DefaultValuesConfigProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.a2aproject.sdk.server.events.InMemoryQueueManager;
 import org.a2aproject.sdk.server.events.MainEventBus;
 import org.a2aproject.sdk.server.events.MainEventBusProcessor;
@@ -42,7 +43,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
 
 /**
  * Auto-configuration for A2A Server + Client beans. Activated only when {@code
@@ -82,8 +83,8 @@ public class A2AAutoConfiguration {
             String ref = middlewareProperties.getCheckpointer().getRedisRef();
             var endpoint = RedisConnectionAssembler.resolveEndpoint(middlewareProperties, ref);
             String pwd = decryptor != null ? decryptor.decrypt(endpoint.getEncryptedPassword()) : "";
-            Jedis jedis = RedisJedisClientFactory.createClient(endpoint, pwd);
-            return new RedisTaskStore(jedis);
+            JedisPool jedisPool = RedisJedisClientFactory.createPool(endpoint, pwd);
+            return new RedisTaskStore(jedisPool);
         }
         return new InMemoryTaskStore();
     }
@@ -223,13 +224,15 @@ public class A2AAutoConfiguration {
      * @param a2aClient the remote agent client
      * @param registry the remote agent card registry
      * @param streamRegistry the active stream registry
+     * @param agentId the application name used as the agent identifier for shadow task namespacing
      * @return the A2A-enabled serve orchestrator
      */
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-            A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry) {
-        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry);
+            A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry,
+            @Value("${spring.application.name:agent}") String agentId) {
+        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry, agentId);
     }
 
     /**

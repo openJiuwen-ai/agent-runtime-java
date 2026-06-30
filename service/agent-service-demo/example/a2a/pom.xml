@@ -12,11 +12,11 @@
         <relativePath>../../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>agent-service-demo-sandbox</artifactId>
+    <artifactId>agent-service-demo-a2a</artifactId>
     <packaging>jar</packaging>
 
-    <name>agent-service-demo-sandbox</name>
-    <description>Sandbox external service feature demo (independent Spring Boot app)</description>
+    <name>agent-service-demo-a2a</name>
+    <description>A2A multi-agent interrupt scenario demo (independent Spring Boot app)</description>
 
     <dependencies>
         <dependency>
@@ -60,8 +60,18 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <skip>false</skip>
-                    <mainClass>com.openjiuwen.service.demo.example.sandbox.SandboxDemoApplication</mainClass>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

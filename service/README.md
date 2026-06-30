@@ -13,8 +13,7 @@ service/                              packaging=pom · agent-service
 │   ├── agent-service-adapters-common   中间件客户端、凭证、外部调用 DFX（引擎无关）
 │   └── agent-service-adapters-agentcore  AgentHandler + Core 中间件/外部服务绑定
 ├── agent-service-app                 Controller + Orchestrator + Lifecycle + AutoConfig
-├── agent-service-demo                可运行示例
-└── agent-service-a2a-test            A2A 集成与场景测试
+└── agent-service-demo                可运行示例（含 A2A 等特性示例）
 ```
 
 ## 依赖关系

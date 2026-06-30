@@ -37,6 +37,17 @@ import org.slf4j.LoggerFactory;
 public class A2AAgentExecutor implements AgentExecutor {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
 
+    /**
+     * Dead-time bound for waiting on the in-flight queue to drain before force-closing the stream. The wait returns as
+     * soon as the queue actually drains, so this only caps the worst case; it is set generously because under a
+     * high-latency Redis task store the event-bus processor persists each backed-up streaming event with a blocking
+     * round-trip, so a large backlog can take a while to clear.
+     */
+    private static final long CLOSE_DRAIN_TIMEOUT_MS = 60000L;
+
+    /** Poll interval while waiting for in-flight events to drain. */
+    private static final long CLOSE_DRAIN_POLL_MS = 15L;
+
     private final ServeOrchestrator orchestrator;
     private final A2AProtocolAdapter adapter;
     private final ChunkMapper chunkMapper = new ChunkMapper();
@@ -174,6 +185,14 @@ public class A2AAgentExecutor implements AgentExecutor {
      * Closes the emitter's underlying event queue so the SSE stream terminates without changing the task state
      * (preserving INPUT_REQUIRED for resume).
      *
+     * <p>
+     * The just-enqueued INPUT_REQUIRED event is delivered to clients asynchronously by the event-bus processor, which
+     * <em>persists before distributing</em>. A bare close races that pipeline: with the in-memory store the event is
+     * distributed before close takes effect, but a Redis persistence round-trip is slow enough that the consumer sees
+     * a closed+empty queue and terminates before the event arrives — dropping INPUT_REQUIRED from the SSE stream. We
+     * therefore wait until the per-task queue reports no in-flight events (persisted <em>and</em> distributed to the
+     * child consumer queue) before the graceful close, which then lets the consumer drain the delivered event.
+     *
      * @param emitter the agent emitter
      * @param taskId the A2A task ID for logging
      */
@@ -183,12 +202,56 @@ public class A2AAgentExecutor implements AgentExecutor {
             f.setAccessible(true);
             Object queueObj = f.get(emitter);
             if (queueObj instanceof org.a2aproject.sdk.server.events.EventQueue q) {
+                awaitInFlightDrained(q, taskId);
                 q.close(false, false);
             }
             log.info("A2A eventQueue closed (INPUT_REQUIRED preserved) taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
             log.warn("A2A closeEventQueue failed, falling back to complete() taskId={}", taskId, e);
             emitter.complete();
+        }
+    }
+
+    /**
+     * Waits until the task's parent {@code MainQueue} reports zero in-flight events, i.e. the event-bus processor has
+     * persisted and distributed every enqueued event (including the final INPUT_REQUIRED status) to the consumer's
+     * child queue. {@code MainQueue.size()} only returns to zero after {@code distributeToChildren()} and the matching
+     * semaphore release, so this is the reliable "safe to close" signal. Returns early as soon as the queue drains and
+     * only blocks up to {@link #CLOSE_DRAIN_TIMEOUT_MS}; falls back to an immediate close if the topology or
+     * {@code size()} cannot be read reflectively.
+     *
+     * @param childQueue the emitter's (child) event queue
+     * @param taskId the A2A task ID for logging
+     */
+    private static void awaitInFlightDrained(org.a2aproject.sdk.server.events.EventQueue childQueue, String taskId) {
+        Object sizeTarget = childQueue;
+        try {
+            var parentField = childQueue.getClass().getDeclaredField("parent");
+            parentField.setAccessible(true);
+            Object parent = parentField.get(childQueue);
+            if (parent != null) {
+                sizeTarget = parent;
+            }
+        } catch (ReflectiveOperationException | SecurityException e) {
+            log.debug("A2A awaitInFlightDrained: no parent queue, polling child queue taskId={}", taskId);
+        }
+        long deadline = System.currentTimeMillis() + CLOSE_DRAIN_TIMEOUT_MS;
+        try {
+            var sizeMethod = sizeTarget.getClass().getMethod("size");
+            sizeMethod.setAccessible(true);
+            while (System.currentTimeMillis() < deadline) {
+                Object size = sizeMethod.invoke(sizeTarget);
+                if (size instanceof Integer i && i <= 0) {
+                    return;
+                }
+                Thread.sleep(CLOSE_DRAIN_POLL_MS);
+            }
+            log.warn("A2A awaitInFlightDrained timed out after {}ms, closing anyway taskId={}",
+                    CLOSE_DRAIN_TIMEOUT_MS, taskId);
+        } catch (InterruptedException e) {
+            log.debug("A2A awaitInFlightDrained interrupted taskId={}", taskId);
+        } catch (ReflectiveOperationException | SecurityException e) {
+            log.debug("A2A awaitInFlightDrained: size() unavailable, closing immediately taskId={}", taskId);
         }
     }
 

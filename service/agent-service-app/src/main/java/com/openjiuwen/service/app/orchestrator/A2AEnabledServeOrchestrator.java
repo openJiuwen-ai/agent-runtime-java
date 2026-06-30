@@ -66,11 +66,17 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         }
     };
 
+    /**
+     * Prefix for orchestrator-owned shadow task ids, keeping them out of the real A2A task id space.
+     */
+    private static final String SHADOW_KEY_PREFIX = "shadow:";
+
     private final AgentHandler agentHandler;
     private final TaskStore taskStore;
     private final A2ARemoteAgentClient a2aClient;
     private final A2ARemoteAgentCardRegistry registry;
     private final ActiveStreamRegistry streamRegistry;
+    private final String agentId;
 
     /**
      * Constructs the orchestrator with required dependencies.
@@ -80,14 +86,16 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * @param a2aClient the remote A2A agent client
      * @param registry the remote agent card registry
      * @param streamRegistry the active stream registry for cancellation
+     * @param agentId this agent's identity for shadow task key namespacing
      */
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore, A2ARemoteAgentClient a2aClient,
-            A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry) {
+            A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry, String agentId) {
         this.agentHandler = agentHandler;
         this.taskStore = taskStore;
         this.a2aClient = a2aClient;
         this.registry = registry;
         this.streamRegistry = streamRegistry;
+        this.agentId = agentId == null || agentId.isBlank() ? "agent" : agentId;
     }
 
     @Override
@@ -470,11 +478,23 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private List<Task> findPending(String conversationId) {
         // Use get() instead of list() — list() goes through transformTask()
         // which rebuilds the Task and may drop metadata in some code paths.
-        Task task = taskStore.get(conversationId);
+        Task task = taskStore.get(shadowTaskId(conversationId));
         if (task != null && task.status() != null && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED) {
             return List.of(task);
         }
         return List.of();
+    }
+
+    /**
+     * Builds this agent's shadow task id for a conversation. The id is namespaced by agent identity so that, when
+     * several agents share one task store (e.g. the same Redis) and the conversation id is passed through unchanged,
+     * each agent's shadow task occupies a distinct key instead of overwriting the others.
+     *
+     * @param conversationId the passed-through conversation id
+     * @return the namespaced shadow task id
+     */
+    private String shadowTaskId(String conversationId) {
+        return SHADOW_KEY_PREFIX + agentId + ":" + conversationId;
     }
 
     private void deleteShadowTask(String taskId) {
@@ -501,7 +521,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         if (streamMode != null && !streamMode.isBlank()) {
             meta.put("_stream_mode", streamMode);
         }
-        taskStore.save(Task.builder().id(convId).contextId(convId)
+        taskStore.save(Task.builder().id(shadowTaskId(convId)).contextId(convId)
                 .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
                 .metadata(meta.isEmpty() ? null : meta).build(), true);
     }

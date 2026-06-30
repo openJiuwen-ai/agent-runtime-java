@@ -1,0 +1,41 @@
+# Agent B (port 18091) — ReAct LLM agent with calc tool, serves as remote for Agent A.
+# Loaded last by A2aAgentBDemoApplication so its values override application-base.yml.
+
+spring:
+  application:
+    name: demo-a2a-agent-b
+
+server:
+  port: 18091
+
+openjiuwen:
+  demo:
+    llm:
+      system-prompt: "You are a helpful assistant with a calculator tool. Use the calc tool for math questions."
+  service:
+    a2a:
+      agent-description: "A2A Agent B — remote ReAct LLM agent with calculator tool"
+      provider-organization: OpenJiuwen
+      is-streaming: true
+      default-input-modes: [text, text/plain]
+      default-output-modes: [text, text/plain]
+      skills:
+        - id: general_chat
+          name: General Chat
+          description: Handle general conversation and Q&A using ReAct LLM reasoning
+          tags: [chat, qa, reasoning]
+          examples:
+            - What is the capital of France?
+            - Explain how a transformer model works
+          input-modes: [text, text/plain]
+          output-modes: [text, text/plain]
+        - id: calculation
+          name: Math Calculation
+          description: Perform mathematical calculations using a built-in calculator
+          tags: [math, calculation, arithmetic]
+          examples:
+            - What is 1+1?
+            - Calculate 15 * 7
+            - What is the square root of 144?
+          input-modes: [text, text/plain]
+          output-modes: [text, text/plain]

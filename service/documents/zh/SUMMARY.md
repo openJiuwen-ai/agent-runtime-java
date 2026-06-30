@@ -32,4 +32,4 @@ cd service
 mvn clean test
 ```
 
-集成测试：`agent-service-app`（`src/test/java/.../it/`）、`agent-service-a2a-test`（A2A 场景）。
+集成测试：`agent-service-app`（`src/test/java/.../it/`）。A2A 场景参见 `agent-service-demo/example/a2a/`。

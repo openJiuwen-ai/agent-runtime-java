@@ -59,7 +59,8 @@ class A2AEnabledServeOrchestratorTest {
         registry = mock(A2ARemoteAgentCardRegistry.class);
         streamRegistry = mock(ActiveStreamRegistry.class);
         when(streamRegistry.register(anyString())).thenReturn(mock(StreamCancellationHandle.class));
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry,
+                "test-agent");
     }
 
     @Test
@@ -142,20 +143,22 @@ class A2AEnabledServeOrchestratorTest {
 
     @Test
     void pendingTaskRoutesToResume() {
-        Task pending = Task.builder().id("c-pending").contextId("c-pending")
+        // Shadow tasks are namespaced by agent identity (see A2AEnabledServeOrchestrator#shadowTaskId).
+        String shadowId = "shadow:test-agent:c-pending";
+        Task pending = Task.builder().id(shadowId).contextId("c-pending")
                 .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
                 .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id",
                         "remote-task-123"))
                 .build();
         when(registry.get("test")).thenReturn(
                 java.util.Optional.of(new A2ARemoteAgentCardRegistry.RemoteAgentEntry("test", testCard(), 300)));
-        when(taskStore.get("c-pending")).thenReturn(pending);
+        when(taskStore.get(shadowId)).thenReturn(pending);
 
         orchestrator.streamQuery(req("c-pending"), mock(QueryStreamObserver.class));
 
-        // Verify pending check was made via get(); remote call attempts but may fail in
-        // unit test
-        verify(taskStore).get("c-pending");
+        // Verify pending check was made via get() on the namespaced shadow key; remote call
+        // attempts but may fail in unit test
+        verify(taskStore).get(shadowId);
     }
 
     @Test

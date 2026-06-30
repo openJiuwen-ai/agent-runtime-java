@@ -1,9 +1,5 @@
 # Shared configuration for agent-service-demo and all example feature modules.
 
-spring:
-  application:
-    name: demo-agent-service
-
 # Default HTTP port for main agent-service-demo (query). Feature modules override in their application.yml.
 server:
   port: 8090

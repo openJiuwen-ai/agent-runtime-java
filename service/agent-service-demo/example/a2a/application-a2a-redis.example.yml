@@ -1,0 +1,23 @@
+# Redis Checkpointer + A2A Task Store overlay (example / reference).
+#
+# Copy this file to application-a2a-redis.yml, then add it to the
+# spring.config.import chain at the end of each Application class:
+#
+#   .properties("spring.config.import=...,optional:classpath:application-a2a-redis.yml")
+#
+# Or simply add the checkpointer and redis sections to your
+# application-base_local.yml (the local override file that is already imported).
+
+openjiuwen:
+  service:
+    middleware:
+      checkpointer:
+        type: redis
+        redis-ref: default
+      redis:
+        default:
+          host: 127.0.0.1
+          port: 6379
+          database: 0
+          timeout-ms: 3000
+          encrypted-password: ""
