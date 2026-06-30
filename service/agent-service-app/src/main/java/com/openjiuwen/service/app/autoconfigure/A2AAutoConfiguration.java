@@ -37,12 +37,13 @@ import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
 
 /**
  * Auto-configuration for A2A Server + Client beans. Activated only when {@code
@@ -82,8 +83,8 @@ public class A2AAutoConfiguration {
             String ref = middlewareProperties.getCheckpointer().getRedisRef();
             var endpoint = RedisConnectionAssembler.resolveEndpoint(middlewareProperties, ref);
             String pwd = decryptor != null ? decryptor.decrypt(endpoint.getEncryptedPassword()) : "";
-            Jedis jedis = RedisJedisClientFactory.createClient(endpoint, pwd);
-            return new RedisTaskStore(jedis);
+            JedisPool jedisPool = RedisJedisClientFactory.createPool(endpoint, pwd);
+            return new RedisTaskStore(jedisPool);
         }
         return new InMemoryTaskStore();
     }
@@ -228,8 +229,9 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-            A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry) {
-        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry);
+            A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry,
+            @Value("${spring.application.name:agent}") String agentId) {
+        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry, agentId);
     }
 
     /**

@@ -45,6 +45,17 @@ openjiuwen:
           examples: ["Find hotels in Beijing", "Search for 5-star hotels in Tokyo"]
           input-modes: ["text", "text/plain"]
           output-modes: ["text", "text/plain"]
+    middleware:
+      checkpointer:
+        type: redis
+        redis-ref: default
+      redis:
+        default:
+          host: 7.213.200.213
+          port: 16379
+          database: 0
+          timeout-ms: 3000
+          encrypted-password: ""
   agentb:
     llm:
       provider: "OpenAI"
