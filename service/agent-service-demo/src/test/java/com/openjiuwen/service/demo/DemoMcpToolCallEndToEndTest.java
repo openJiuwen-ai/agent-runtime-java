@@ -19,11 +19,13 @@ import com.openjiuwen.core.foundation.llm.schema.ToolCall;
 import com.openjiuwen.core.foundation.llm.schema.UserMessage;
 import com.openjiuwen.core.foundation.llm.schema.VideoGenerationResponse;
 import com.openjiuwen.core.runner.Runner;
+import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
@@ -75,6 +77,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @ActiveProfiles("mcp")
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DemoMcpToolCallEndToEndTest {
 
     private static final String TEST_PROVIDER = "DemoMcpToolCallProvider";
@@ -89,6 +92,9 @@ class DemoMcpToolCallEndToEndTest {
 
     @Autowired
     private TestRestTemplate rest;
+
+    @Autowired
+    private AgentHandler agentHandler;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -115,9 +121,9 @@ class DemoMcpToolCallEndToEndTest {
     }
 
     @AfterAll
-    static void cleanup() {
+    void cleanup() {
         Runner.release(CONVERSATION_ID);
-        Runner.stop();
+        agentHandler.stop();
         MCP_SERVER.stop();
         MODEL_TOOL_CALLS_EMITTED.set(0);
         TOOL_LISTS_SEEN_BY_MODEL.clear();
