@@ -1,0 +1,72 @@
+flowchart TB
+    subgraph Middleware["中间件"]
+        Redis
+        NFS
+        OBS
+        DMQ
+        Database
+    end
+
+    subgraph Infra["运行时基础设施"]
+        YR["Yuanrong Serverless"]
+        SC["Spring Cloud"]
+        Docker["Docker Engine"]
+        K8s["Kubernetes"]
+        CCE["CCE/CCI"]
+    end
+
+    subgraph External["外部服务/系统"]
+        LLM
+        MCP
+        A2A
+        RAG
+        Sandbox["Sandboxing"]
+        OTEL["Observability / OTEL"]
+    end
+
+    subgraph Gateway["Agent Gateway"]
+        CM["Channel Manager"]
+        MH["Message Handler"]
+        Cron["Cron / Heartbeat"]
+    end
+
+    subgraph Runtime["Agent Distributed Runtime"]
+        subgraph Manager["Agent Runtime Manager"]
+            Deployer["Agent Deployer"]
+            Registry["Agent Registry"]
+            Discovery["Agent Discovery"]
+            Comm["Agent Communication"]
+        end
+
+        subgraph Session["Session Management and Affinity"]
+            SL["Session Lifespan"]
+            SI["Session Isolation"]
+            SA["Session Affinity"]
+        end
+
+        subgraph Server["Agent Server"]
+            App["Agent-App"]
+            Core["Agent-Core"]
+            Adapters["Adapters"]
+            Host["Spring Boot | FastAPI | Yuanrong FaaS"]
+        end
+    end
+
+    Middleware --> Infra
+    Infra --> Runtime
+    Runtime --> Gateway
+    Gateway --> External
+
+    Manager --> Server
+    Session --> Server
+    App --> Core
+    Core --> Adapters
+
+    Adapters -.-> Redis
+
+    style Middleware fill:#fff7e6,stroke:#ffa940
+    style Infra fill:#f6ffed,stroke:#52c41a
+    style External fill:#fff1f0,stroke:#ff4d4f
+    style Gateway fill:#e6f7ff,stroke:#1890ff
+    style Runtime fill:#f0f2f5,stroke:#8c9bab
+    style Core fill:#bae7ff,stroke:#1890ff

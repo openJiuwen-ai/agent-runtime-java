@@ -7,14 +7,15 @@
 - 结论以 `service/agent-service-spec` 与 `service/agent-service-app` 源码及集成测试为准。
 - 叙事式教程见同级 [开发指南](../README.md) 各栏目。
 - Agent Core API 见 [agent-core-java · API 文档](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/2.开发指南/API文档/README.md)（独立仓库）。
+- SPI 与 DTO 细节见 [spec 包说明](com.openjiuwen.service/spec.README.md)；`app` / `adapters` 见开发指南各栏目。
 
 ## 模块入口
 
 | 包 / 模块 | 说明 | 文档 |
 | --- | --- | --- |
 | `com.openjiuwen.service.spec` | DTO、路径常量、SPI、Lifecycle 接口 | [spec.README.md](com.openjiuwen.service/spec.README.md) |
-| `com.openjiuwen.service.app` | Controller、Orchestrator、Lifecycle 实现 | 见 [架构概述](../架构概述.md) |
-| `com.openjiuwen.service.adapters.*` | Handler 实现 | 见 [Adapters 与 Handler](../Adapters与Handler.md) |
+| `com.openjiuwen.service.app` | Controller、Orchestrator、Lifecycle 实现 | 见 [架构概述](../架构概述.md)、[HTTP 对话面](../HTTP对话面.md) |
+| `com.openjiuwen.service.adapters.*` | Handler、中间件、外部 egress | 见 [Adapters 与 Handler](../Adapters与Handler.md) |
 
 ## HTTP 契约
 
