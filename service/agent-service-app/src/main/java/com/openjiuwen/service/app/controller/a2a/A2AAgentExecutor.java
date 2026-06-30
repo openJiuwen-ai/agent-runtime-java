@@ -154,6 +154,17 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
+    /**
+     * Dead-time bound for waiting on the in-flight queue to drain before force-closing the stream. The wait returns as
+     * soon as the queue actually drains, so this only caps the worst case; it is set generously because under a
+     * high-latency Redis task store the event-bus processor persists each backed-up streaming event with a blocking
+     * round-trip, so a large backlog can take a while to clear.
+     */
+    private static final long CLOSE_DRAIN_TIMEOUT_MS = 60000L;
+
+    /** Poll interval while waiting for in-flight events to drain. */
+    private static final long CLOSE_DRAIN_POLL_MS = 15L;
+
     private static Optional<Message> toStatusMessage(QueryChunk chunk) {
         if (chunk.getData() instanceof Map<?, ?> m && m.get("message") instanceof String s && !s.isBlank()) {
             return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT)
@@ -169,16 +180,6 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
         return Optional.empty();
     }
-
-    /**
-     * Dead-time bound for waiting on the in-flight queue to drain before force-closing the stream. The wait returns as
-     * soon as the queue actually drains, so this only caps the worst case; it is set generously because under a
-     * high-latency Redis task store the event-bus processor persists each backed-up streaming event with a blocking
-     * round-trip, so a large backlog can take a while to clear.
-     */
-    private static final long CLOSE_DRAIN_TIMEOUT_MS = 60000;
-    /** Poll interval while waiting for in-flight events to drain. */
-    private static final long CLOSE_DRAIN_POLL_MS = 15;
 
     /**
      * Closes the emitter's underlying event queue so the SSE stream terminates without changing the task state
@@ -248,7 +249,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             log.warn("A2A awaitInFlightDrained timed out after {}ms, closing anyway taskId={}",
                     CLOSE_DRAIN_TIMEOUT_MS, taskId);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            log.debug("A2A awaitInFlightDrained interrupted taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
             log.debug("A2A awaitInFlightDrained: size() unavailable, closing immediately taskId={}", taskId);
         }

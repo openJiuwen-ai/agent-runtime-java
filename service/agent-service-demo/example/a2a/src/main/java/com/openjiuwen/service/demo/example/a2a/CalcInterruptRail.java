@@ -22,7 +22,6 @@ import java.util.Map;
  * @since 0.1.0
  */
 public class CalcInterruptRail extends BaseInterruptRail {
-
     private static final String TOOL_NAME = "calc";
 
     public CalcInterruptRail() {

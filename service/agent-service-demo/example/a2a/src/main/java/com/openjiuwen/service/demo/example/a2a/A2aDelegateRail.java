@@ -26,7 +26,6 @@ import java.util.Map;
  * @since 0.1.0
  */
 public class A2aDelegateRail extends BaseInterruptRail {
-
     private static final Gson GSON = new Gson();
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
     private static final String TOOL_NAME = "delegate_to_agentb";

@@ -5,6 +5,8 @@
 package com.openjiuwen.service.adapters.common.middleware.redis;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+import java.util.Optional;
+
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import redis.clients.jedis.DefaultJedisClientConfig;
 import redis.clients.jedis.HostAndPort;
@@ -33,8 +35,9 @@ public final class RedisJedisClientFactory {
      */
     public static Jedis createClient(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         HostAndPort hostAndPort = hostAndPort(endpoint);
-        JedisClientConfig clientConfig = clientConfig(endpoint, password);
-        return clientConfig != null ? new Jedis(hostAndPort, clientConfig) : new Jedis(hostAndPort);
+        return clientConfig(endpoint, password)
+                .map(cfg -> new Jedis(hostAndPort, cfg))
+                .orElseGet(() -> new Jedis(hostAndPort));
     }
 
     /**
@@ -47,10 +50,8 @@ public final class RedisJedisClientFactory {
      */
     public static JedisPool createPool(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         HostAndPort hostAndPort = hostAndPort(endpoint);
-        JedisClientConfig clientConfig = clientConfig(endpoint, password);
-        if (clientConfig == null) {
-            clientConfig = DefaultJedisClientConfig.builder().build();
-        }
+        JedisClientConfig clientConfig = clientConfig(endpoint, password)
+                .orElseGet(() -> DefaultJedisClientConfig.builder().build());
         return new JedisPool(poolConfig(), hostAndPort, clientConfig);
     }
 
@@ -61,15 +62,16 @@ public final class RedisJedisClientFactory {
     }
 
     /**
-     * Builds a client config carrying password/database/timeouts, or {@code null} when neither password nor a non-zero
-     * database is set (preserving the original no-config standalone behaviour).
+     * Builds a client config carrying password/database/timeouts, or {@link Optional#empty()} when neither password
+     * nor a non-zero database is set (preserving the original no-config standalone behaviour).
      */
-    private static JedisClientConfig clientConfig(MiddlewareProperties.RedisEndpoint endpoint, String password) {
+    private static Optional<JedisClientConfig> clientConfig(MiddlewareProperties.RedisEndpoint endpoint,
+            String password) {
         int timeoutMs = endpoint.getTimeoutMs() > 0 ? endpoint.getTimeoutMs() : 3000;
         boolean hasPassword = password != null && !password.isBlank();
         int database = endpoint.getDatabase();
         if (!hasPassword && database <= 0) {
-            return null;
+            return Optional.empty();
         }
         DefaultJedisClientConfig.Builder builder = DefaultJedisClientConfig.builder()
                 .connectionTimeoutMillis(timeoutMs)
@@ -80,7 +82,7 @@ public final class RedisJedisClientFactory {
         if (database > 0) {
             builder.database(database);
         }
-        return builder.build();
+        return Optional.of(builder.build());
     }
 
     private static GenericObjectPoolConfig<Jedis> poolConfig() {

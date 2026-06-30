@@ -222,6 +222,7 @@ public class A2AAutoConfiguration {
      * @param agentHandler the agent handler
      * @param taskStore the task store
      * @param a2aClient the remote agent client
+     * @param agentId the application name used as the agent identifier for shadow task namespacing
      * @param registry the remote agent card registry
      * @param streamRegistry the active stream registry
      * @return the A2A-enabled serve orchestrator

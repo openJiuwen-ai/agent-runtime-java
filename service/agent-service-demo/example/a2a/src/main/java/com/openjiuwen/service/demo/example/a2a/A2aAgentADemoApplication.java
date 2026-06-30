@@ -10,7 +10,6 @@ import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
-import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

@@ -34,6 +34,7 @@ public class RedisTaskStore implements TaskStore {
     private static final Logger log = LoggerFactory.getLogger(RedisTaskStore.class);
     private static final String KEY_PREFIX = "a2a:task:";
     private static final int TTL_SECONDS = 604800; // 7 days
+
     // Reuse the SDK's configured Gson: it carries the TypeAdapters for Task's polymorphic Part,
     // OffsetDateTime, and the StreamingEventKind hierarchy. A bare new Gson() reflects into
     // java.time.OffsetDateTime and fails on JDK 17+ ("module java.base does not opens java.time").
