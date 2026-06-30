@@ -1,8 +1,0 @@
-# Optional profile: Redis checkpointer (local 127.0.0.1:6379, no password).
-# Usage: mvn -pl agent-service-demo -am spring-boot:run -Dspring-boot.run.profiles=redis-checkpointer
-openjiuwen:
-  service:
-    middleware:
-      checkpointer:
-        type: redis
-        redis-ref: default

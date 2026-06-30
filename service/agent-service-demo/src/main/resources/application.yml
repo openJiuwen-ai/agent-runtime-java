@@ -1,47 +1,6 @@
+# Main demo (out-of-box AaaS). Feature-specific settings live under example/<feature>/.
 spring:
-  application:
-    name: demo-agent-service
-
-server:
-  port: 8090
-
-openjiuwen:
-  demo:
-    llm:
-      auto-discover: true
-  service:
-    version: 0.1.0
-    # Lifecycle; defaults apply when omitted
-    # lifecycle:
-    #   shutdown-timeout-ms: 30000   # max wait (ms) to drain active streams on shutdown
-    #   init-fail-fast: true         # fail startup when an AgentInitHook throws
-    query:
-      mvc:
-        enabled: true
-      webflux:
-        enabled: true
-      legacy-path-enabled: true
-    # Issue #9 — Middleware / Checkpointer (adapters-common + adapters-agentcore)
-    # CredentialDecryptor: default PassthroughCredentialDecryptor; override with @Bean CredentialDecryptor
-    middleware:
-      checkpointer:
-        type: in_memory              # in_memory (default) | redis
-        redis-ref: default           # middleware.redis.<redis-ref> when type=redis
-      session-store:                 # P2 placeholder
-        type: none
-      object-storage:                  # P2 placeholder
-        type: none
-      vector-store:                    # P2 placeholder
-        type: none
-      redis:
-        default:
-          host: 127.0.0.1
-          port: 6379
-          database: 0
-          timeout-ms: 3000
-          encrypted-password: ""       # only encrypted field; empty = no password (Passthrough decrypt)
-        # analytics:                   # optional additional Redis endpoints
-        #   host: redis.analytics.local
-        #   port: 6379
-        #   database: 1
-        #   encrypted-password: ""
+  config:
+    import:
+      - optional:classpath:application-base.yml
+      - optional:classpath:application-base_local.yml

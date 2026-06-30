@@ -1,0 +1,11 @@
+# Redis Checkpointer profile (loaded by agent-service-demo-redis).
+# server.port must live here (last import) to override application-base.yml (8090).
+server:
+  port: 8091
+
+openjiuwen:
+  service:
+    middleware:
+      checkpointer:
+        type: redis
+        redis-ref: default

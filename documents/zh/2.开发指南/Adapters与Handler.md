@@ -96,7 +96,7 @@ openjiuwen:
           encrypted-password: ""   # 经 CredentialDecryptor 解密；空表示无密码
 ```
 
-Demo profile：`application-redis-checkpointer.yml`，启动时加 `-Dspring-boot.run.profiles=redis-checkpointer`。
+Demo：`example/redis/application-redis-checkpointer.yml`，独立模块 `agent-service-demo-redis`。
 
 ### 其它中间件占位
 
@@ -137,7 +137,7 @@ openjiuwen:
             client-type: streamable-http
 ```
 
-Demo：`application-mcp.yml`、`example/mcp/`。
+Demo：`example/mcp/application-mcp.yml`、独立模块 `agent-service-demo-mcp`。
 
 ### Remote（出站 A2A）示例（节选）
 
@@ -154,7 +154,7 @@ openjiuwen:
         timeout-ms: 3000
 ```
 
-与 **进程内 A2A Server**（Ingress JSON-RPC）不同：此处是 Agent 作为 Client 调用远端 Agent。Demo：`application-a2a-remote.yml`、`example/remote/`。
+与 **进程内 A2A Server**（Ingress JSON-RPC）不同：此处是 Agent 作为 Client 调用远端 Agent。Demo 配置见 `agent-service-demo/src/test/resources/application-a2a-remote.yml`；本地 mock 与验收见 `src/test/`（`RemoteExampleLocalServerTest`）。
 
 ### Sandbox 示例（节选）
 
@@ -170,7 +170,7 @@ openjiuwen:
             sandbox-type: jiuwenbox
 ```
 
-Demo：`application-sandbox.yml`、`example/sandbox/`。
+Demo：`example/sandbox/application-sandbox.yml`、独立模块 `agent-service-demo-sandbox`。
 
 ## 自动装配规则
 

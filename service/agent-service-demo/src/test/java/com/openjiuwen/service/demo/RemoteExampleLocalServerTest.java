@@ -4,169 +4,117 @@
 
 package com.openjiuwen.service.demo;
 
+import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
+import com.openjiuwen.core.singleagent.schema.AgentResult;
+import com.openjiuwen.core.singleagent.schema.Artifact;
+import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalProperties;
+import com.openjiuwen.service.adapters.agentcore.external.AgentCoreRemoteClientFactory;
+import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientDecoratorFactory;
+import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientFactory;
 import org.junit.jupiter.api.Test;
 
-import javax.tools.ToolProvider;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Duration;
-import java.util.ArrayList;
+import java.net.Socket;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Tests A2A remote example client and mock server running together locally.
- *
- * @since 2026-06-24
+ * Validates A2A remote adapter against the in-test mock server.
  */
 class RemoteExampleLocalServerTest {
+
     @Test
     void remoteAdapterExampleCanCallLocalMockA2aServer() throws Exception {
-        Path classesDir = compileRemoteExamples();
         int port = freePort();
-        String classpath = exampleClasspath(classesDir);
-        Process server = new ProcessBuilder(
-                javaCommand(),
-                "-cp",
-                classpath,
-                "com.openjiuwen.service.demo.example.remote.MockA2ARemoteServerExample",
-                "--port=" + port)
-                .redirectErrorStream(true)
-                .start();
+        Thread serverThread = new Thread(() -> {
+            try {
+                com.openjiuwen.service.demo.support.remote.MockA2ARemoteServerExample.main(
+                        new String[]{"--port=" + port});
+            } catch (Exception ex) {
+                throw new IllegalStateException("mock A2A server failed", ex);
+            }
+        }, "mock-a2a-remote-server");
+        serverThread.setDaemon(true);
+        serverThread.start();
 
-        try {
-            waitForServer(server, port);
+        waitUntilPortOpen(port, 10_000);
 
-            String output = runClient(classpath,
-                    "--url=http://127.0.0.1:" + port,
-                    "--retry-invoke=false",
-                    "--retry-max=0",
-                    "--operation=invoke",
-                    "--message=hello remote",
-                    "--conversation-id=demo-session");
-            assertThat(output).contains("Created client: com.openjiuwen.service.adapters.agentcore.external.DecoratingRemoteClient");
-            assertThat(output).contains("remote result status: completed");
-            assertThat(output).contains("remote result session: demo-session");
-            assertThat(output).contains("remote result text: mock a2a response: hello remote");
-        } finally {
-            server.destroy();
-            if (!server.waitFor(3, TimeUnit.SECONDS)) {
-                server.destroyForcibly();
+        AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
+        properties.getRemote().setTimeoutMs(3000);
+        properties.getRemote().setRetryInvoke(false);
+        properties.getRemote().getRetry().setMax(0);
+
+        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient =
+                new AgentCoreExternalProperties.RemoteClientEndpoint();
+        remoteClient.setId("demo-a2a-remote");
+        remoteClient.setName("Demo A2A Remote");
+        remoteClient.setProtocol("A2A");
+        remoteClient.setUrl("http://127.0.0.1:" + port + "/a2a/jsonrpc");
+        properties.getRemote().setClients(List.of(remoteClient));
+
+        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(
+                properties,
+                new DefaultAgentCoreRemoteClientDecoratorFactory());
+        RemoteClient client = factory.create("demo-a2a-remote");
+
+        assertThat(client.getClass().getName())
+                .isEqualTo("com.openjiuwen.service.adapters.agentcore.external.DecoratingRemoteClient");
+
+        Object result = client.invoke(Map.of(
+                "message", "hello remote",
+                "conversation_id", "demo-session"), null);
+        assertThat(result).isInstanceOf(AgentResult.class);
+        AgentResult agentResult = (AgentResult) result;
+        assertThat(String.valueOf(agentResult.getStatus())).isEqualTo("completed");
+        assertThat(agentResult.getSessionId()).isEqualTo("demo-session");
+        assertThat(firstText(agentResult.getArtifacts())).isEqualTo("mock a2a response: hello remote");
+    }
+
+    private static String firstText(List<Artifact> artifacts) {
+        if (artifacts == null) {
+            return "";
+        }
+        for (Artifact artifact : artifacts) {
+            if (artifact == null || artifact.getParts() == null) {
+                continue;
+            }
+            for (com.openjiuwen.core.common.schema.Part part : artifact.getParts()) {
+                if (part != null && part.getContent() != null) {
+                    return part.getContent();
+                }
             }
         }
+        return "";
     }
 
-    private Path compileRemoteExamples() throws IOException {
-        Path adapterSource = Path.of("example/remote/A2ARemoteAdapterExample.java");
-        Path serverSource = Path.of("example/remote/MockA2ARemoteServerExample.java");
-        assertThat(adapterSource).exists();
-        assertThat(serverSource).exists();
-
-        Path classesDir = Path.of("target/example-test-classes");
-        Files.createDirectories(classesDir);
-        int exitCode = ToolProvider.getSystemJavaCompiler().run(
-                null,
-                null,
-                null,
-                "-cp",
-                exampleDependencyClasspath(),
-                "-d",
-                classesDir.toString(),
-                adapterSource.toString(),
-                serverSource.toString());
-        assertThat(exitCode).isZero();
-        return classesDir;
-    }
-
-    private String exampleClasspath(Path classesDir) {
-        String separator = System.getProperty("path.separator");
-        List<String> classpath = new ArrayList<>();
-        classpath.add(classesDir.toString());
-        addLocalAdapterClasses(classpath);
-        classpath.add(System.getProperty("java.class.path"));
-        return String.join(separator, classpath);
-    }
-
-    private String exampleDependencyClasspath() {
-        String separator = System.getProperty("path.separator");
-        List<String> classpath = new ArrayList<>();
-        addLocalAdapterClasses(classpath);
-        classpath.add(System.getProperty("java.class.path"));
-        return String.join(separator, classpath);
-    }
-
-    private void addLocalAdapterClasses(List<String> classpath) {
-        addIfDirectory(classpath, "../agent-service-adapters/agent-service-adapters-agentcore/target/classes");
-        addIfDirectory(classpath, "../agent-service-adapters/agent-service-adapters-common/target/classes");
-    }
-
-    private void addIfDirectory(List<String> classpath, String path) {
-        Path localClasses = Path.of(path);
-        if (Files.isDirectory(localClasses)) {
-            classpath.add(localClasses.toString());
-        }
-    }
-
-    private String runClient(String classpath, String... args) throws IOException, InterruptedException {
-        List<String> command = new ArrayList<>();
-        command.add(javaCommand());
-        command.add("-cp");
-        command.add(classpath);
-        command.add("com.openjiuwen.service.demo.example.remote.A2ARemoteAdapterExample");
-        command.addAll(List.of(args));
-        Process process = new ProcessBuilder(command)
-                .redirectErrorStream(true)
-                .start();
-        boolean finished = process.waitFor(15, TimeUnit.SECONDS);
-        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        assertThat(finished).as(output).isTrue();
-        assertThat(process.exitValue()).as(output).isZero();
-        return output;
-    }
-
-    private void waitForServer(Process server, int port) throws Exception {
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(server.getInputStream(), StandardCharsets.UTF_8))) {
-            while (System.nanoTime() < deadline) {
-                if (!server.isAlive()) {
-                    throw new AssertionError("mock A2A remote server exited early with code " + server.exitValue()
-                            + System.lineSeparator() + readAvailable(reader));
-                }
-                if (reader.ready()) {
-                    String line = reader.readLine();
-                    if (line != null && line.contains("http://127.0.0.1:" + port + "/a2a/jsonrpc")) {
-                        return;
-                    }
-                }
-                Thread.sleep(50);
+    private static void waitUntilPortOpen(int port, long timeoutMs) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        while (System.nanoTime() < deadline) {
+            if (isPortOpen(port)) {
+                return;
             }
+            Thread.sleep(50);
         }
         throw new AssertionError("mock A2A remote server did not start on port " + port);
     }
 
-    private String readAvailable(BufferedReader reader) throws IOException {
-        StringBuilder output = new StringBuilder();
-        while (reader.ready()) {
-            output.append(reader.readLine()).append(System.lineSeparator());
+    private static boolean isPortOpen(int port) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress("127.0.0.1", port), 500);
+            return true;
+        } catch (IOException ex) {
+            return false;
         }
-        return output.toString();
     }
 
-    private int freePort() throws IOException {
+    private static int freePort() throws IOException {
         try (ServerSocket serverSocket = new ServerSocket(0)) {
             return serverSocket.getLocalPort();
         }
-    }
-
-    private String javaCommand() {
-        return Path.of(System.getProperty("java.home"), "bin", "java").toString();
     }
 }

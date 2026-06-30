@@ -112,16 +112,18 @@ openjiuwen:
       init-fail-fast: true           # Init 失败是否阻止启动
 ```
 
-### Spring Profile 示例（Demo）
+### Spring Profile 示例（Demo 特性模块）
 
-| Profile | 文件 | 用途 |
+共用基础配置：`agent-service-demo/example/config/application-base.yml`。各特性为**独立可运行子模块**：
+
+| 模块 | Profile / 配置 | 用途 |
 | --- | --- | --- |
-| `redis-checkpointer` | `application-redis-checkpointer.yml` | Redis Checkpointer |
-| `mcp` | `application-mcp.yml` | MCP 出站 |
-| `a2a-remote` | `application-a2a-remote.yml` | 出站 Remote（A2A） |
-| `sandbox` | `application-sandbox.yml` | Sandbox |
+| `agent-service-demo-redis` | `redis-checkpointer` · `example/redis/application-redis-checkpointer.yml` | Redis Checkpointer |
+| `agent-service-demo-mcp` | `mcp` · `example/mcp/application-mcp.yml` | MCP 出站 |
+| `agent-service-demo-sandbox` | `sandbox` · `example/sandbox/application-sandbox.yml` | Sandbox |
+| （转测） | `src/test/resources/application-a2a-remote.yml` | 出站 Remote（A2A） |
 
-启动示例：`mvn -pl agent-service-demo -am spring-boot:run -Dspring-boot.run.profiles=redis-checkpointer`。
+启动示例：`mvn -pl agent-service-demo-redis -am spring-boot:run`（需 `apiconfig.json` 时见 `example/redis/README.md`）。
 
 ## Lifecycle Hook
 

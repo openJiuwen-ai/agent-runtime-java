@@ -1,0 +1,25 @@
+server:
+  port: 8093
+
+openjiuwen:
+  service:
+    external:
+      sandbox:
+        enabled: ${OPENJIUWEN_SANDBOX_ENABLED:true}
+        timeout-ms: ${OPENJIUWEN_SANDBOX_TIMEOUT_MS:30000}
+        retry:
+          max: ${OPENJIUWEN_SANDBOX_RETRY_MAX:1}
+          backoff-ms: ${OPENJIUWEN_SANDBOX_RETRY_BACKOFF_MS:200}
+        circuit-breaker:
+          enabled: ${OPENJIUWEN_SANDBOX_CIRCUIT_BREAKER_ENABLED:true}
+          failure-threshold: ${OPENJIUWEN_SANDBOX_CIRCUIT_BREAKER_FAILURE_THRESHOLD:3}
+          reset-timeout-ms: ${OPENJIUWEN_SANDBOX_CIRCUIT_BREAKER_RESET_TIMEOUT_MS:30000}
+        audit:
+          enabled: ${OPENJIUWEN_SANDBOX_AUDIT_ENABLED:true}
+        servers:
+          - server-id: ${OPENJIUWEN_SANDBOX_SERVER_ID:default}
+            service-url: ${OPENJIUWEN_SANDBOX_SERVICE_URL:http://localhost:18090}
+            sandbox-type: ${OPENJIUWEN_SANDBOX_TYPE:jiuwenbox}
+            launcher-type: ${OPENJIUWEN_SANDBOX_LAUNCHER_TYPE:pre_deploy}
+            on-stop: ${OPENJIUWEN_SANDBOX_ON_STOP:delete}
+            root-path: ${OPENJIUWEN_SANDBOX_ROOT_PATH:.}

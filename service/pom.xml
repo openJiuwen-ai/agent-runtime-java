@@ -46,6 +46,11 @@
                 <artifactId>agent-service-app</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-service-demo-example-support</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -54,6 +59,10 @@
         <module>agent-service-adapters</module>
         <module>agent-service-app</module>
         <module>agent-service-demo</module>
+        <module>agent-service-demo/example/support</module>
+        <module>agent-service-demo/example/redis</module>
+        <module>agent-service-demo/example/mcp</module>
+        <module>agent-service-demo/example/sandbox</module>
         <module>agent-service-a2a-test</module>
     </modules>
 

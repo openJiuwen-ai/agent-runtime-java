@@ -218,7 +218,7 @@ Orchestrator 透传 `conversationId` 与 `metadata` 给远端 Agent。
 | --- | --- |
 | `service/agent-service-a2a-test` | 中断-恢复、Client 最佳实践 |
 | `agent-service-demo` + `application-a2a-remote.yml` | 出站 Remote 示例 |
-| `example/remote/` | Core RemoteClient 装饰示例 |
+| `src/test/`（demo） | A2A Remote 出站 mock 与 `RemoteExampleLocalServerTest` |
 
 ```bash
 cd service

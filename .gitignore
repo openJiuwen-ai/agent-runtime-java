@@ -9,6 +9,7 @@ logs/
 .env.*
 !.env.example
 apiconfig.json
+**/application-base_local.yml
 config/deploy.properties
 runtime/
 

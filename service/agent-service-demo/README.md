@@ -32,13 +32,18 @@ Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> LlmAgent
 
 详见 [Adapters 与 Handler](../../documents/zh/2.开发指南/Adapters与Handler.md#自定义-handler-模板)。
 
-## External Adapter 示例
+## 特性示例（example/）
 
-| 目录 | 用途 |
+面向开发者的按需演示，索引见 [example/README.md](example/README.md)：
+
+| 目录 | 内容 |
 | --- | --- |
-| `example/mcp` | MCP 配置、Mock MCP Server、Tool 调用示例 |
-| `example/remote` | A2A Remote 出站装饰和 Core `RemoteClientFactory` 示例 |
-| `example/sandbox` | Sandbox 启用配置、服务 URL 校验、Core `SandboxClient` 创建示例 |
+| `example/query` | HTTP Query、SSE、`/health`（主模块 `agent-service-demo`） |
+| `example/redis` | 独立模块 `agent-service-demo-redis`（ReActAgent，不依赖 demo） |
+| `example/mcp` | 独立模块 `agent-service-demo-mcp` |
+| `example/sandbox` | 独立模块 `agent-service-demo-sandbox` |
+
+A2A Remote 出站与 Health L1 矩阵等**内部验收**代码在 `src/test/`（含 `src/test/resources/scripts/`）。
 
 ## 接口
 
@@ -264,87 +269,16 @@ BASE_URL=http://localhost:18090 agent-service-demo/scripts/smoke-query.sh
 
 ## Example
 
-`example` 目录提供面向转测的最小可执行样例：
+开发者特性演示见 [example/README.md](example/README.md)。redis / mcp / sandbox 为**独立 Maven 子模块**（`ReActAgent` + `JiuwenCoreAgentHandler`，共用 `example/config/application-base.yml` 中 `openjiuwen.example.llm`）；query 使用主模块 `agent-service-demo`。内部 L1 转测脚本见 `src/test/resources/scripts/`。
 
-- `example/health`: Issue #8 Health 探针示例，包含最小启动类、L1 场景启动类、运行说明、smoke 脚本和 L1 脚本。
-- `example/query`: Issue #3 Query REST 示例，包含最小 `AgentHandler`、L1 场景启动类、运行说明、smoke 脚本和 L1 脚本。
-- `example/mcp`: Issue #11 外部 MCP 示例，包含本地 Mock MCP Server、`mcp` profile 配置和启动说明。
-- `example/remote`: Issue #11 A2A Remote 示例，展示 `A2A` provider 注册和 Remote 出站治理配置。
+## 外部 MCP 示例
 
-这些 example 用于演示 Agent Service 的典型接入方式，不包含正式测试设计文档。`health` 和 `query` 示例不依赖真实大模型；`mcp` 示例需要启用正式 Core 链路，并建议配合真实大模型配置使用；`remote` 示例只演示 A2A Remote client 创建链路，真实调用需要外部 A2A server。
+独立模块 `agent-service-demo-mcp`，配置见 `example/mcp/application-mcp.yml`。完整步骤见 [example/mcp/README.md](example/mcp/README.md)。
 
-## 外部 MCP 示例（Issue #11）
+## Redis Checkpointer 示例
 
-demo 提供 `mcp` profile 展示外部 MCP 出站配置，配置文件位于 `src/main/resources/application-mcp.yml`。它不会在默认启动时生效，需要显式启用：
-
-```bash
-OPENJIUWEN_API_CONFIG=/path/to/apiconfig.json \
-DEMO_MCP_SERVER_PATH=http://localhost:18080/mcp \
-mvn -pl agent-service-demo -am spring-boot:run \
-  -Dspring-boot.run.profiles=mcp \
-  -Dspring-boot.run.arguments="--openjiuwen.demo.llm.enabled=true"
-```
-
-完整本地演示，包括如何启动 Mock MCP Server、如何配置超时、重试和熔断，见 [example/mcp/README.md](example/mcp/README.md)。
-
-## A2A Remote 示例（Issue #11）
-
-demo 提供 `a2a-remote` profile 展示 A2A Remote 对端地址和出站治理配置，配置文件位于 `src/main/resources/application-a2a-remote.yml`。其中 `openjiuwen.service.external.remote.clients[].url` 是对端 A2A 服务地址。它不会在默认启动时生效，需要显式启用：
-
-```bash
-mvn -pl agent-service-demo -am spring-boot:run \
-  -Dspring-boot.run.profiles=a2a-remote \
-  -Dspring-boot.run.arguments="--openjiuwen.demo.llm.enabled=true"
-```
-
-完整本地示例，包括如何启动 Mock A2A Server、如何通过 Core `RemoteClientFactory` 创建被装饰的 A2A client 并执行一次 `invoke`，见 [example/remote/README.md](example/remote/README.md)。
+独立模块 `agent-service-demo-redis`，需 **JiuwenCoreAgentHandler** + `apiconfig.json`；mock 模式无法演示 Checkpointer。见 [example/redis/README.md](example/redis/README.md)。
 
 ## 配置示例
 
-`src/main/resources/application.yml` 已包含 Issue #9 **middleware** 配置（默认 `checkpointer.type=in_memory`）。本地 Redis checkpoint 可启用 profile：
-
-```bash
-mvn -pl agent-service-demo -am spring-boot:run \
-  -Dspring-boot.run.profiles=redis-checkpointer
-```
-
-需本机 `127.0.0.1:6379` 无密码 Redis；正式 LLM 模式下多轮会话可跨进程恢复。
-
-```yaml
-server:
-  port: 8090
-
-openjiuwen:
-  demo:
-    llm:
-      auto-discover: true
-  service:
-    version: 0.1.0
-    enabled: true
-    query:
-      enabled: true
-      mvc:
-        enabled: true
-      webflux:
-        enabled: true
-      legacy-path-enabled: true
-    middleware:
-      checkpointer:
-        type: in_memory        # in_memory | redis
-        redis-ref: default
-      session-store:
-        type: none             # P2 placeholder
-      object-storage:
-        type: none
-      vector-store:
-        type: none
-      redis:
-        default:
-          host: 127.0.0.1
-          port: 6379
-          database: 0
-          timeout-ms: 3000
-          encrypted-password: ""   # Passthrough decrypt; no plain password field
-```
-
-将 `checkpointer.type` 改为 `redis` 即写入 `RunnerConfig.checkpointerConfig` 并走 Core Redis checkpointer。自定义解密实现可注册 `@Bean CredentialDecryptor`（与 Issue #11 External 共用）。
+共用基础配置：`example/config/application-base.yml`（import 进主 demo 与各特性模块）。主 demo 默认 `checkpointer.type=in_memory`。Redis 等特性见对应子模块的 `application-*.yml`。
