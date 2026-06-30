@@ -4,14 +4,17 @@
 
 package com.openjiuwen.service.demo;
 
-import com.openjiuwen.core.application.llm.LlmAgent;
-import com.openjiuwen.core.application.schema.ConstrainConfig;
-import com.openjiuwen.core.application.schema.LlmAgentConfig;
-import com.openjiuwen.core.foundation.llm.schema.BaseModelInfo;
-import com.openjiuwen.core.foundation.llm.schema.ModelConfig;
+import com.openjiuwen.core.foundation.llm.schema.ModelRequestConfig;
+import com.openjiuwen.core.foundation.tool.mcp.McpServerConfig;
+import com.openjiuwen.core.singleagent.ReActAgent;
+import com.openjiuwen.core.singleagent.agents.ReActAgentConfig;
+import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
+import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalProperties;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -21,11 +24,31 @@ import org.springframework.context.annotation.Bean;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Minimal end-to-end Agent Service example.
+ *
+ * <p>It wires a single {@link AgentHandler} backed by the agent-core-java runtime
+ * ({@link JiuwenCoreAgentHandler} delegating to a {@link ReActAgent}). The ReAct loop
+ * (reason → act → observe) lets the agent actually invoke registered tools, which is what
+ * makes the MCP external-service integration meaningful. With that one bean the framework
+ * auto-exposes the full service surface:</p>
+ * <ul>
+ *   <li>{@code GET /health} — process / agent readiness probe</li>
+ *   <li>{@code POST /v1/query} (and legacy {@code /query}) — non-streaming and SSE chat</li>
+ *   <li>{@code POST /v1/reset_conversation} — cancel active streams and clear the session</li>
+ * </ul>
+ *
+ * <p>Internal service (Redis checkpointer) is configured under
+ * {@code openjiuwen.service.middleware}; the external service (MCP tools) is registered through
+ * {@link ExternalSvcAdapterRegistrar} when an MCP server is configured under
+ * {@code openjiuwen.service.external.mcp}.</p>
+ */
 @SpringBootApplication
 @EnableConfigurationProperties(DemoLlmProperties.class)
 public class DemoAgentApplication {
 
-    private static final String LLM_AGENT_ID = "demo-llm-agent";
+    private static final Logger log = LoggerFactory.getLogger(DemoAgentApplication.class);
+    private static final String REACT_AGENT_ID = "demo-react-agent";
 
     public static void main(String[] args) {
         SpringApplication.run(DemoAgentApplication.class, args);
@@ -33,47 +56,71 @@ public class DemoAgentApplication {
 
     @Bean
     AgentHandler demoAgentHandler(DemoLlmProperties llmProperties,
-            ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
-        if (!Boolean.FALSE.equals(llmProperties.getEnabled())) {
-            ApiConfigLoader.load(llmProperties.getConfigFile(), llmProperties.isAutoDiscover())
-                    .ifPresent(llmProperties::applyFromFile);
-        }
-        if (llmProperties.shouldUseLlm()) {
-            return new JiuwenCoreAgentHandler(buildLlmAgent(llmProperties),
-                    externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
-        }
-        return new DemoAgentHandler();
+            ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
+            ObjectProvider<AgentCoreExternalProperties> externalPropertiesProvider) {
+        ApiConfigLoader.load(llmProperties.getConfigFile(), llmProperties.isAutoDiscover())
+                .ifPresent(llmProperties::applyFromFile);
+        ReActAgent agent = buildReActAgent(llmProperties);
+        bindMcpServers(agent, externalPropertiesProvider.getIfAvailable());
+        return new JiuwenCoreAgentHandler(agent,
+                externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
     }
 
-    private static LlmAgent buildLlmAgent(DemoLlmProperties llmProperties) {
+    /**
+     * Binds each configured MCP server to the agent's ability manager so its tools are exposed to
+     * the ReAct loop. The transport details (server-path / client-type) live in the Runner-side
+     * registration; the ability manager only needs {@code serverId} + {@code serverName} to fetch
+     * that server's tools lazily the first time the agent builds its tool list.
+     *
+     * @param agent the ReAct agent to bind tools to
+     * @param externalProperties external service properties, may be {@code null}
+     */
+    private static void bindMcpServers(ReActAgent agent, AgentCoreExternalProperties externalProperties) {
+        if (externalProperties == null) {
+            return;
+        }
+        List<AgentCoreExternalProperties.McpServer> servers = externalProperties.getMcp().getServers();
+        if (servers == null || servers.isEmpty()) {
+            return;
+        }
+        for (AgentCoreExternalProperties.McpServer server : servers) {
+            if (server.getServerName() == null || server.getServerName().isBlank()) {
+                continue;
+            }
+            McpServerConfig config = McpServerConfig.builder().build();
+            if (server.getServerId() != null && !server.getServerId().isBlank()) {
+                config.setServerId(server.getServerId());
+            }
+            config.setServerName(server.getServerName());
+            agent.getAbilityManager().add(config);
+            log.info("Bound MCP server to agent ability manager, serverId={}, serverName={}",
+                    config.getServerId(), config.getServerName());
+        }
+    }
+
+    private static ReActAgent buildReActAgent(DemoLlmProperties llmProperties) {
         llmProperties.requireConfigured();
-        BaseModelInfo modelInfo = BaseModelInfo.builder()
-                .apiKey(llmProperties.getApiKey())
-                .apiBase(llmProperties.getApiBase())
-                .modelName(llmProperties.getModelName())
-                .temperature(llmProperties.getTemperature())
-                .topP(llmProperties.getTopP())
-                .timeout(timeoutSeconds(llmProperties))
-                .verifySsl(llmProperties.isSslVerify())
+        AgentCard card = AgentCard.builder()
+                .id(REACT_AGENT_ID)
+                .name(REACT_AGENT_ID)
+                .description("Demo ReAct agent for Agent Service")
                 .build();
-        LlmAgentConfig config = LlmAgentConfig.builder()
-                .id(LLM_AGENT_ID)
-                .version("0.1.0")
-                .description("Demo LLM agent for Agent Service")
-                .model(new ModelConfig(llmProperties.getProvider(), modelInfo))
+        ReActAgent agent = new ReActAgent(card);
+        ReActAgentConfig config = ReActAgentConfig.builder()
                 .promptTemplate(List.of(Map.of("role", "system", "content", llmProperties.getSystemPrompt())))
-                .constrain(ConstrainConfig.builder()
-                        .reservedMaxChatRounds(llmProperties.getContextWindowLimit())
-                        .build())
-                .build();
-        return new LlmAgent(config);
-    }
-
-    private static int timeoutSeconds(DemoLlmProperties llmProperties) {
-        long seconds = llmProperties.getTimeout().toSeconds();
-        if (seconds <= 0) {
-            return 60;
-        }
-        return Math.toIntExact(Math.min(seconds, Integer.MAX_VALUE));
+                .maxIterations(llmProperties.getMaxIterations())
+                .build()
+                .configureModelClient(
+                        llmProperties.getProvider(),
+                        llmProperties.getApiKey(),
+                        llmProperties.getApiBase(),
+                        llmProperties.getModelName(),
+                        llmProperties.isSslVerify())
+                .configureContextEngine(null, llmProperties.getContextWindowLimit(), false);
+        ModelRequestConfig requestConfig = config.getModelConfigObj();
+        requestConfig.setTemperature(llmProperties.getTemperature());
+        requestConfig.setTopP(llmProperties.getTopP());
+        agent.configure(config);
+        return agent;
     }
 }

@@ -14,7 +14,6 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "openjiuwen.demo.llm")
 public class DemoLlmProperties {
 
-    private Boolean enabled;
     private String configFile;
     private boolean autoDiscover = true;
     private String provider = "OpenAI";
@@ -27,17 +26,7 @@ public class DemoLlmProperties {
     private Double topP = 0.8;
     private Duration timeout = Duration.ofSeconds(60);
     private int contextWindowLimit = 10;
-
-    boolean shouldUseLlm() {
-        if (enabled != null) {
-            return enabled;
-        }
-        return isConfigured();
-    }
-
-    boolean isConfigured() {
-        return hasText(apiKey) && hasText(apiBase) && hasText(modelName);
-    }
+    private int maxIterations = 5;
 
     void requireConfigured() {
         requireText(apiKey, "openjiuwen.demo.llm.api-key");
@@ -96,6 +85,10 @@ public class DemoLlmProperties {
 
     public void setContextWindowLimit(int contextWindowLimit) {
         this.contextWindowLimit = contextWindowLimit > 0 ? contextWindowLimit : 10;
+    }
+
+    public void setMaxIterations(int maxIterations) {
+        this.maxIterations = maxIterations > 0 ? maxIterations : 5;
     }
 
     private static void requireText(String value, String propertyName) {

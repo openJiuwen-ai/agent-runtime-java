@@ -40,4 +40,4 @@
 
 ## Service 模块专篇
 
-Maven 模块树与构建命令：[service/README.md](../../service/README.md) · [service/documents/zh/SUMMARY.md](../../service/documents/zh/SUMMARY.md)。
+更细的 Maven 模块说明见仓库内 [service/README.md](../../../service/README.md) 与 [service/documents/zh/SUMMARY.md](../../../service/documents/zh/SUMMARY.md)。

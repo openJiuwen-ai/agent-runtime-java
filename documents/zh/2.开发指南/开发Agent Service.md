@@ -156,7 +156,7 @@ InitHook 支持 `@Order`。
 | 中间件 / 外部 | profile + `example/*` | `middleware` / `external` 配置 |
 | Maven 模块 | `agent-service-demo` | 业务 `*-service` 模块 |
 
-参考实现：[service/agent-service-demo](../../service/agent-service-demo/README.md)。
+参考实现：[service/agent-service-demo](../../../service/agent-service-demo/README.md)。
 
 ## 延伸阅读
 
