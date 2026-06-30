@@ -48,7 +48,68 @@ $env:OPENJIUWEN_API_CONFIG="C:\path\to\apiconfig.json"  # PowerShell
 
 `application-base.yml` 支持占位符：`OPENJIUWEN_DEMO_LLM_API_KEY`、`OPENJIUWEN_DEMO_LLM_API_BASE`、`OPENJIUWEN_DEMO_LLM_MODEL_NAME`。
 
-### 2. 启动服务
+### 2. （可选）切换为 Redis Checkpointer + Task Store
+
+默认使用 **in-memory** 存储（进程退出后会话和 A2A 任务丢失）。切换到 Redis 可获得：
+
+- **跨进程恢复**：停止 Agent 后重启，同一 `conversation_id` 仍可恢复会话
+- **持久化 Task Store**：A2A shadow task、`GetTask` 查询在进程重启后仍可用
+- **双 Agent 共享存储**：Agent A 和 Agent B 使用同一 Redis，shadow task 按 agentId 命名空间隔离
+
+> A2A task store 自动跟随 `checkpointer.type` 配置，无需额外设置。
+
+**方式 A — 添加到 application-base_local.yml（推荐）**
+
+编辑 `../config/application-base_local.yml`，添加 checkpointer 和 Redis 连接配置：
+
+```yaml
+openjiuwen:
+  demo:
+    llm:
+      auto-discover: true       # 已有
+  service:
+    middleware:
+      checkpointer:
+        type: redis
+        redis-ref: default
+      redis:
+        default:
+          host: 127.0.0.1
+          port: 6379
+          database: 0
+          timeout-ms: 3000
+          encrypted-password: ""
+```
+
+由于 `application-base_local.yml` 已在 import 链中（base → base_local → feature），添加后即生效。
+
+**方式 B — 独立 Redis overlay 文件**
+
+入口类已预置 `optional:classpath:application-a2a-redis.yml`（import 链末尾），只需创建文件：
+
+```bash
+cp application-a2a-redis.example.yml application-a2a-redis.yml
+# 编辑 host / port / password
+```
+
+此文件在 `.gitignore` 中，不会被提交。
+
+**验证 Redis 已生效**
+
+启动后检查日志，应出现：
+
+```
+Succeed to initializing checkpointer with type: redis
+```
+
+通过 A2A 发起一次中断-恢复流程后，查看 Redis 中的 key：
+
+```bash
+redis-cli KEYS "a2a:task:*"
+redis-cli KEYS "*:agent:demo-a2a-agent*:agent_state_blobs"
+```
+
+### 3. 启动服务
 
 > **顺序要求：先启动 Agent B，再启动 Agent A。**
 
@@ -70,7 +131,7 @@ mvn -pl agent-service-demo/example/a2a -am spring-boot:run \
 
 > Agent A 启动时会通过 Agent Card 发现 Agent B。若 Agent B 未就绪，Agent A 仍可启动但委托调用会失败。
 
-### 3. 运行 smoke 脚本
+### 4. 运行 smoke 脚本
 
 > 先确保两个 Agent 均已启动。
 

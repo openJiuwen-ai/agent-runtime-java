@@ -35,7 +35,8 @@ public class A2aAgentADemoApplication {
                 .properties("spring.config.import="
                         + "optional:classpath:application-base.yml,"
                         + "optional:classpath:application-base_local.yml,"
-                        + "optional:classpath:application-a2a-agent-a.yml")
+                        + "optional:classpath:application-a2a-agent-a.yml,"
+                        + "optional:classpath:application-a2a-redis.yml")
                 .run(args);
     }
 
