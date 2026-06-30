@@ -37,6 +37,17 @@ import org.slf4j.LoggerFactory;
 public class A2AAgentExecutor implements AgentExecutor {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
 
+    /**
+     * Dead-time bound for waiting on the in-flight queue to drain before force-closing the stream. The wait returns as
+     * soon as the queue actually drains, so this only caps the worst case; it is set generously because under a
+     * high-latency Redis task store the event-bus processor persists each backed-up streaming event with a blocking
+     * round-trip, so a large backlog can take a while to clear.
+     */
+    private static final long CLOSE_DRAIN_TIMEOUT_MS = 60000L;
+
+    /** Poll interval while waiting for in-flight events to drain. */
+    private static final long CLOSE_DRAIN_POLL_MS = 15L;
+
     private final ServeOrchestrator orchestrator;
     private final A2AProtocolAdapter adapter;
     private final ChunkMapper chunkMapper = new ChunkMapper();
@@ -153,17 +164,6 @@ public class A2AAgentExecutor implements AgentExecutor {
             emitter.complete();
         }
     }
-
-    /**
-     * Dead-time bound for waiting on the in-flight queue to drain before force-closing the stream. The wait returns as
-     * soon as the queue actually drains, so this only caps the worst case; it is set generously because under a
-     * high-latency Redis task store the event-bus processor persists each backed-up streaming event with a blocking
-     * round-trip, so a large backlog can take a while to clear.
-     */
-    private static final long CLOSE_DRAIN_TIMEOUT_MS = 60000L;
-
-    /** Poll interval while waiting for in-flight events to drain. */
-    private static final long CLOSE_DRAIN_POLL_MS = 15L;
 
     private static Optional<Message> toStatusMessage(QueryChunk chunk) {
         if (chunk.getData() instanceof Map<?, ?> m && m.get("message") instanceof String s && !s.isBlank()) {

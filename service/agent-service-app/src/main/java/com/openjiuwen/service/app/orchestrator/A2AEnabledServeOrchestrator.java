@@ -86,8 +86,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * @param a2aClient the remote A2A agent client
      * @param registry the remote agent card registry
      * @param streamRegistry the active stream registry for cancellation
-     * @param agentId this agent's local identity (e.g. {@code spring.application.name}); namespaces shadow task keys so
-     *            agents sharing one task store (e.g. the same Redis) never collide on a passed-through conversation id
+     * @param agentId this agent's identity for shadow task key namespacing
      */
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore, A2ARemoteAgentClient a2aClient,
             A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry, String agentId) {

@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
 import org.a2aproject.sdk.server.config.DefaultValuesConfigProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.a2aproject.sdk.server.events.InMemoryQueueManager;
 import org.a2aproject.sdk.server.events.MainEventBus;
 import org.a2aproject.sdk.server.events.MainEventBusProcessor;
@@ -37,7 +38,6 @@ import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -222,9 +222,9 @@ public class A2AAutoConfiguration {
      * @param agentHandler the agent handler
      * @param taskStore the task store
      * @param a2aClient the remote agent client
-     * @param agentId the application name used as the agent identifier for shadow task namespacing
      * @param registry the remote agent card registry
      * @param streamRegistry the active stream registry
+     * @param agentId the application name used as the agent identifier for shadow task namespacing
      * @return the A2A-enabled serve orchestrator
      */
     @Bean

@@ -12,7 +12,7 @@ openjiuwen:
   service:
     middleware:
       checkpointer:
-        type: redis
+        type: in_memory
         redis-ref: default
       redis:
         default:

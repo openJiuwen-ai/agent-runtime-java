@@ -26,7 +26,6 @@ import org.springframework.context.annotation.Bean;
 @SpringBootApplication(scanBasePackages = "com.openjiuwen.service.app")
 @EnableConfigurationProperties(DemoLlmProperties.class)
 public class A2aAgentADemoApplication {
-
     private static final String AGENT_ID = "demo-a2a-agent-a";
 
     public static void main(String[] args) {
