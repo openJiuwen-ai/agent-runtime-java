@@ -43,6 +43,25 @@ class DecoratingSandboxClientTest {
     }
 
     @Test
+    void readFileRespectsRetryBackoffBeforeSucceeding() {
+        RecordingSandboxClient delegate = new RecordingSandboxClient();
+        delegate.fs.failReadFileAttempts = 1;
+        AgentCoreExternalProperties.SandboxPolicy policy = policy();
+        policy.getRetry().setMax(1);
+        policy.getRetry().setBackoffMs(80);
+
+        SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
+
+        long startNanos = System.nanoTime();
+        ReadFileResult result = client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of());
+        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
+
+        assertThat(result.getCode()).isZero();
+        assertThat(delegate.fs.readFileAttempts).isEqualTo(2);
+        assertThat(elapsedMs).isGreaterThanOrEqualTo(70);
+    }
+
+    @Test
     void writeFileDoesNotRetryBecauseItMayHaveSideEffects() {
         RecordingSandboxClient delegate = new RecordingSandboxClient();
         delegate.fs.failWriteFileAttempts = Integer.MAX_VALUE;

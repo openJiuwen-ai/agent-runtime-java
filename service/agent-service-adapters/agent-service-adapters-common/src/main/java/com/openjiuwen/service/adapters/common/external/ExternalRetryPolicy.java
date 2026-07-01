@@ -19,7 +19,10 @@ public class ExternalRetryPolicy {
     }
 
     public void setMax(int max) {
-        this.max = Math.max(0, max);
+        if (max < 0) {
+            throw new IllegalArgumentException("retry.max must be greater than or equal to zero");
+        }
+        this.max = max;
     }
 
     public long getBackoffMs() {
@@ -27,7 +30,10 @@ public class ExternalRetryPolicy {
     }
 
     public void setBackoffMs(long backoffMs) {
-        this.backoffMs = Math.max(0, backoffMs);
+        if (backoffMs < 0) {
+            throw new IllegalArgumentException("retry.backoff-ms must be greater than or equal to zero");
+        }
+        this.backoffMs = backoffMs;
     }
 
     /**

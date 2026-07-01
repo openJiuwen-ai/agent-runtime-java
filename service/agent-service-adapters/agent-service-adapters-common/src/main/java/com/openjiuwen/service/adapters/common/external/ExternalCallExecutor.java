@@ -28,6 +28,8 @@ import java.util.concurrent.TimeoutException;
 public class ExternalCallExecutor {
     private static final Logger log = LoggerFactory.getLogger(ExternalCallExecutor.class);
 
+    private static final String AUDIT_MARKER = "EXTERNAL_CALL_AUDIT";
+
     private static final ExecutorService DEFAULT_TIMEOUT_EXECUTOR = newTimeoutExecutor();
 
     private final String adapterType;
@@ -71,6 +73,7 @@ public class ExternalCallExecutor {
         this.adapterType = adapterType != null && !adapterType.isBlank() ? adapterType : "external";
         this.targetId = targetId != null && !targetId.isBlank() ? targetId : "default";
         this.policy = policy != null ? policy : new DefaultExternalCallPolicy();
+        validatePolicy(this.policy);
         this.outboundFailureCode = outboundFailureCode;
         this.circuitOpenCode = circuitOpenCode;
         this.retryInterruptedCode = retryInterruptedCode;
@@ -155,7 +158,7 @@ public class ExternalCallExecutor {
                     ex);
         }
         try {
-            return future.get(Math.max(1, policy.getTimeoutMs()), TimeUnit.MILLISECONDS);
+            return future.get(policy.getTimeoutMs(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException ex) {
             future.cancel(false);
             throw new ExternalSvcAdapterException(
@@ -256,8 +259,9 @@ public class ExternalCallExecutor {
             return;
         }
         log.info(
-                "{} outbound call succeeded, target={}, method={}.{}, attempt={}, "
+                "{} adapter={}, success=true, target={}, method={}.{}, attempt={}, "
                         + "elapsedMs={}, request={}, response={}",
+                AUDIT_MARKER,
                 adapterType,
                 targetId,
                 operationType,
@@ -282,8 +286,9 @@ public class ExternalCallExecutor {
                 ? adapterException.getErrorCode().getCode()
                 : outboundFailureCode.getCode();
         log.warn(
-                "{} outbound call failed, code={}, target={}, method={}.{}, attempt={}, "
+                "{} adapter={}, success=false, code={}, target={}, method={}.{}, attempt={}, "
                         + "elapsedMs={}, request={}, error={}",
+                AUDIT_MARKER,
                 adapterType,
                 code,
                 targetId,
@@ -328,6 +333,21 @@ public class ExternalCallExecutor {
                 new SynchronousQueue<>(),
                 new ThreadPoolExecutor.AbortPolicy());
         return executor;
+    }
+
+    private static void validatePolicy(ExternalCallPolicy policy) {
+        if (policy.getTimeoutMs() <= 0) {
+            throw new IllegalArgumentException("external timeout-ms must be greater than zero");
+        }
+        if (policy.getRetry() == null) {
+            throw new IllegalArgumentException("external retry policy must not be null");
+        }
+        if (policy.getCircuitBreaker() == null) {
+            throw new IllegalArgumentException("external circuit-breaker policy must not be null");
+        }
+        if (policy.getAudit() == null) {
+            throw new IllegalArgumentException("external audit policy must not be null");
+        }
     }
 
     private static final class CircuitState {

@@ -7,6 +7,7 @@ package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
 import com.openjiuwen.core.runner.drunner.remoteclient.ProtocolEnum;
+import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
@@ -26,7 +27,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
+/**
+ * Tests auto-configuration for agent-core adapter beans and external service properties.
+ *
+ * @since 2026-06-24
+ */
 class AgentCoreAdaptersAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(AgentCoreAdaptersAutoConfiguration.class));
@@ -89,6 +96,31 @@ class AgentCoreAdaptersAutoConfigurationTest {
                     assertThat(properties.getRemote().getClients().get(0).getId()).isEqualTo("remote-a2a");
                     assertThat(properties.getRemote().getClients().get(0).getUrl()).isEqualTo("http://localhost:18082");
                 });
+    }
+
+    @Test
+    void emptyExternalConfigurationStartsAndRegistrarDoesNothing() {
+        contextRunner.run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context).hasSingleBean(ExternalSvcAdapterRegistrar.class);
+            RunnerConfig runnerConfig = RunnerConfig.builder().build();
+
+            assertThatCode(() -> context.getBean(ExternalSvcAdapterRegistrar.class).registerTo(runnerConfig))
+                    .doesNotThrowAnyException();
+            assertThat(runnerConfig.getMcpServers()).isEmpty();
+        });
+    }
+
+    @Test
+    void failsStartupWhenMcpTimeoutOrRetryConfigIsNegative() {
+        contextRunner
+                .withPropertyValues(
+                        "openjiuwen.service.external.mcp.timeout-ms=-1000",
+                        "openjiuwen.service.external.mcp.retry.max=-2",
+                        "openjiuwen.service.external.mcp.servers[0].server-id=srv-1",
+                        "openjiuwen.service.external.mcp.servers[0].server-name=tools",
+                        "openjiuwen.service.external.mcp.servers[0].server-path=http://localhost:9000/mcp")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     @Test

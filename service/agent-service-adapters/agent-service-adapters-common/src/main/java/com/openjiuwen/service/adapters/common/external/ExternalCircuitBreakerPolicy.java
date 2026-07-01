@@ -29,7 +29,10 @@ public class ExternalCircuitBreakerPolicy {
     }
 
     public void setFailureThreshold(int failureThreshold) {
-        this.failureThreshold = Math.max(1, failureThreshold);
+        if (failureThreshold <= 0) {
+            throw new IllegalArgumentException("circuit-breaker.failure-threshold must be greater than zero");
+        }
+        this.failureThreshold = failureThreshold;
     }
 
     public long getResetTimeoutMs() {
@@ -37,7 +40,10 @@ public class ExternalCircuitBreakerPolicy {
     }
 
     public void setResetTimeoutMs(long resetTimeoutMs) {
-        this.resetTimeoutMs = Math.max(1, resetTimeoutMs);
+        if (resetTimeoutMs <= 0) {
+            throw new IllegalArgumentException("circuit-breaker.reset-timeout-ms must be greater than zero");
+        }
+        this.resetTimeoutMs = resetTimeoutMs;
     }
 
     /**
