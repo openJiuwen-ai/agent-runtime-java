@@ -114,12 +114,14 @@ public class WriteThrottlingTaskStore implements TaskStore {
                 latest.remove(id);
                 lastWriteMs.remove(id);
             }
-        } else if (log.isTraceEnabled()) {
+            return;
+        }
+
+        // Throttled: within the window and not critical. The in-memory copy above is
+        // enough, so there is nothing to persist now.
+        if (log.isTraceEnabled()) {
             long sinceLastWrite = prev == null ? 0L : now - prev;
             log.trace("A2A task {} save coalesced (throttled, {}ms since last write)", id, sinceLastWrite);
-        } else {
-            // Within the throttle window and trace disabled: the in-memory copy above is
-            // enough, nothing to persist now.
         }
     }
 
