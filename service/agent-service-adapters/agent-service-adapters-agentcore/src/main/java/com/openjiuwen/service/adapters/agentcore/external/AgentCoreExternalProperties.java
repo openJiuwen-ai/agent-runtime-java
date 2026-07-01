@@ -60,6 +60,15 @@ public class AgentCoreExternalProperties {
     }
 
     /**
+     * Validates external service adapter properties.
+     */
+    public void validate() {
+        mcp.validate();
+        remote.validateClients();
+        sandbox.validate();
+    }
+
+    /**
      * Builds the MCP external call policy for a server config.
      *
      * @param config MCP server config
@@ -95,6 +104,30 @@ public class AgentCoreExternalProperties {
         return policy;
     }
 
+    private static void validateCallPolicy(
+            String policyName,
+            int timeoutMs,
+            ExternalRetryPolicy retry,
+            ExternalCircuitBreakerPolicy circuitBreaker) {
+        if (timeoutMs <= 0) {
+            throw new IllegalArgumentException(policyName + " timeout-ms must be greater than zero");
+        }
+        if (retry.getMax() < 0) {
+            throw new IllegalArgumentException(policyName + " retry.max must be greater than or equal to zero");
+        }
+        if (retry.getBackoffMs() < 0) {
+            throw new IllegalArgumentException(policyName + " retry.backoff-ms must be greater than or equal to zero");
+        }
+        if (circuitBreaker.getFailureThreshold() <= 0) {
+            throw new IllegalArgumentException(
+                    policyName + " circuit-breaker.failure-threshold must be greater than zero");
+        }
+        if (circuitBreaker.getResetTimeoutMs() <= 0) {
+            throw new IllegalArgumentException(
+                    policyName + " circuit-breaker.reset-timeout-ms must be greater than zero");
+        }
+    }
+
     /**
      * MCP external call policy properties.
      */
@@ -124,6 +157,9 @@ public class AgentCoreExternalProperties {
         }
 
         public void setTimeoutMs(int timeoutMs) {
+            if (timeoutMs <= 0) {
+                throw new IllegalArgumentException("MCP timeout-ms must be greater than zero");
+            }
             this.timeoutMs = timeoutMs;
         }
 
@@ -159,6 +195,19 @@ public class AgentCoreExternalProperties {
             this.shouldRetryToolCalls = shouldRetryToolCalls;
         }
 
+        /**
+         * Validates configured MCP policy and servers.
+         */
+        public void validate() {
+            validateCallPolicy("MCP", timeoutMs, retry, circuitBreaker);
+            if (servers == null || servers.isEmpty()) {
+                return;
+            }
+            for (McpServer server : servers) {
+                validateServer(server);
+            }
+        }
+
         private Optional<McpServer> findServer(McpServerConfig config) {
             if (config == null) {
                 return Optional.empty();
@@ -175,6 +224,21 @@ public class AgentCoreExternalProperties {
                 }
             }
             return Optional.empty();
+        }
+
+        private void validateServer(McpServer server) {
+            if (server == null) {
+                throw new IllegalArgumentException("MCP server config must not be null");
+            }
+            if (server.getServerName() == null || server.getServerName().isBlank()) {
+                throw new IllegalArgumentException("MCP server-name must not be blank");
+            }
+            if (server.getServerPath() == null || server.getServerPath().isBlank()) {
+                throw new IllegalArgumentException("MCP server-path must not be blank");
+            }
+            if (server.getTimeoutMs() != null && server.getTimeoutMs() <= 0) {
+                throw new IllegalArgumentException("MCP server timeout-ms must be greater than zero");
+            }
         }
 
         private McpPolicy copyWithoutServers() {
@@ -303,6 +367,9 @@ public class AgentCoreExternalProperties {
         }
 
         public void setTimeoutMs(int timeoutMs) {
+            if (timeoutMs <= 0) {
+                throw new IllegalArgumentException("Remote timeout-ms must be greater than zero");
+            }
             this.timeoutMs = timeoutMs;
         }
 
@@ -342,11 +409,9 @@ public class AgentCoreExternalProperties {
          * Validates configured remote clients.
          */
         public void validateClients() {
+            validateCallPolicy("Remote", timeoutMs, retry, circuitBreaker);
             if (clients == null || clients.isEmpty()) {
                 return;
-            }
-            if (timeoutMs <= 0) {
-                throw new IllegalArgumentException("Remote timeout-ms must be greater than zero");
             }
             for (RemoteClientEndpoint client : clients) {
                 validateClient(client);
@@ -537,6 +602,9 @@ public class AgentCoreExternalProperties {
         }
 
         public void setTimeoutMs(int timeoutMs) {
+            if (timeoutMs <= 0) {
+                throw new IllegalArgumentException("Sandbox timeout-ms must be greater than zero");
+            }
             this.timeoutMs = timeoutMs;
         }
 
@@ -568,6 +636,7 @@ public class AgentCoreExternalProperties {
          * Validates the configured sandbox servers when sandbox integration is enabled.
          */
         public void validate() {
+            validateCallPolicy("Sandbox", timeoutMs, retry, circuitBreaker);
             if (!isEnabled) {
                 return;
             }

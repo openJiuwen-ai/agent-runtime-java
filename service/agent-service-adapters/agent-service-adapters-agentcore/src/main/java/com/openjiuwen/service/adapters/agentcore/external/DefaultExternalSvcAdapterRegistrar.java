@@ -83,6 +83,7 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
 
     @Override
     public void registerTo(RunnerConfig runnerConfig) {
+        properties.getMcp().validate();
         registerMcpClientProviders();
         registerRemoteClientProviders();
         if (runnerConfig == null) {
@@ -102,6 +103,7 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
 
     @Override
     public void registerToRunner() {
+        properties.getMcp().validate();
         registerMcpClientProviders();
         registerRemoteClientProviders();
         List<AgentCoreExternalProperties.McpServer> servers = properties.getMcp().getServers();
