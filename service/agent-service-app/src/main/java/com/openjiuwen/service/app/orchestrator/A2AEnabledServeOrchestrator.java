@@ -21,7 +21,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
@@ -35,8 +34,10 @@ import org.slf4j.LoggerFactory;
  * A2A-aware orchestrator with interrupt-resume chain.
  *
  * <p>
- * Detects {@code "interrupt"} chunks from the agent handler, routes {@code a2a_delegate} interrupts to a remote agent
- * via {@link A2ARemoteAgentClient}, and resumes the local agent with the remote result. Other interrupts are forwarded
+ * Detects {@code "interrupt"} chunks from the agent handler, routes
+ * {@code a2a_delegate} interrupts to a remote agent
+ * via {@link A2ARemoteAgentClient}, and resumes the local agent with the remote
+ * result. Other interrupts are forwarded
  * as {@code INPUT_REQUIRED}.
  *
  * @since 0.1.0
@@ -67,7 +68,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     };
 
     /**
-     * Prefix for orchestrator-owned shadow task ids, keeping them out of the real A2A task id space.
+     * Prefix for orchestrator-owned shadow task ids, keeping them out of the real
+     * A2A task id space.
      */
     private static final String SHADOW_KEY_PREFIX = "shadow:";
 
@@ -81,12 +83,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     /**
      * Constructs the orchestrator with required dependencies.
      *
-     * @param agentHandler the local agent handler
-     * @param taskStore the A2A task store for shadow tasks
-     * @param a2aClient the remote A2A agent client
-     * @param registry the remote agent card registry
+     * @param agentHandler   the local agent handler
+     * @param taskStore      the A2A task store for shadow tasks
+     * @param a2aClient      the remote A2A agent client
+     * @param registry       the remote agent card registry
      * @param streamRegistry the active stream registry for cancellation
-     * @param agentId this agent's identity for shadow task key namespacing
+     * @param agentId        this agent's identity for shadow task key namespacing
      */
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore, A2ARemoteAgentClient a2aClient,
             A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry, String agentId) {
@@ -155,10 +157,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     /**
      * If a pending remote task exists, resume it.
      *
-     * @param current the current serve request
+     * @param current  the current serve request
      * @param observer the query stream observer
-     * @param handle the stream cancellation handle
-     * @return the next {@link ServeRequest} to continue with, or {@link Optional#empty()} if the loop should stop
+     * @param handle   the stream cancellation handle
+     * @return the next {@link ServeRequest} to continue with, or
+     *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> tryResumePending(ServeRequest current, QueryStreamObserver observer,
             StreamCancellationHandle handle) {
@@ -170,21 +173,30 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         Task pt = pending.get(0);
         String agentName = metadataString(pt, "_agent_name");
         String remoteTaskId = metadataString(pt, "_remote_task_id");
-        log.info("Orchestrator resuming pending task convId={} agent={} remoteTaskId={}", current.getConversationId(),
-                agentName, remoteTaskId);
-        CompletableFuture<String> toolResult = a2aClient.callStreaming(agentName, current.lastUserQuery(),
-                current.getConversationId(), remoteTaskId, observer, current.getMetadata());
+        String streamMode = metadataString(pt, "_stream_mode");
+        boolean isSse = InterruptData.STREAM_MODE_SSE.equals(streamMode);
+        log.info("Orchestrator resuming pending task convId={} agent={} remoteTaskId={} streamMode={}",
+                current.getConversationId(), agentName, remoteTaskId, streamMode);
         try {
-            String content = toolResult.get();
+            // Only pass the observer (stream the remote content to the client) when the
+            // delegation opted into
+            // SSE passthrough; otherwise resolve synchronously so the remote result reaches
+            // the tool only.
+            String content = isSse
+                    ? a2aClient.callStreaming(agentName, current.lastUserQuery(), current.getConversationId(),
+                            remoteTaskId, observer, current.getMetadata()).get()
+                    : a2aClient.callSync(agentName, current.lastUserQuery(), current.getConversationId(),
+                            remoteTaskId, current.getMetadata());
             deleteShadowTask(pt.id());
             return Optional.of(buildResumeRequest(current, content, "", ""));
         } catch (ExecutionException e) {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
-                // Remote still needs input → keep shadow task, notify client
-                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", rie.getMessage())));
-                return Optional.empty();
+                return refreshPendingOnRemoteInput(current, pt, rie, observer);
             }
             log.error("Remote call '{}' failed for pending task", agentName, e);
+        } catch (RemoteInputRequiredException rie) {
+            // Sync resume path: remote still needs input.
+            return refreshPendingOnRemoteInput(current, pt, rie, observer);
         } catch (Exception e) {
             log.error("Remote call '{}' failed for pending task", agentName, e);
         }
@@ -194,11 +206,30 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     }
 
     /**
+     * Handles a remote INPUT_REQUIRED hit while resuming a pending task: refreshes the shadow task with the new
+     * remote task id (so the next resume targets the right remote task) while preserving the stream mode, then
+     * forwards the interrupt to the client. Agent name and stream mode are read from the existing task metadata.
+     *
+     * @param current  the current serve request
+     * @param pt       the existing pending shadow task
+     * @param rie      the remote input-required signal carrying the new remote task id
+     * @param observer the query stream observer
+     * @return {@link Optional#empty()} to stop the loop with the shadow task preserved
+     */
+    private Optional<ServeRequest> refreshPendingOnRemoteInput(ServeRequest current, Task pt,
+            RemoteInputRequiredException rie, QueryStreamObserver observer) {
+        saveShadowTask(current.getConversationId(), metadataString(pt, "_agent_name"),
+                metadataString(pt, "_remote_url"), rie.getRemoteTaskId(), metadataString(pt, "_stream_mode"));
+        observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", rie.getMessage())));
+        return Optional.empty();
+    }
+
+    /**
      * Runs the agent and captures any interrupt chunk.
      *
-     * @param current the current serve request
+     * @param current  the current serve request
      * @param observer the query stream observer
-     * @param handle the stream cancellation handle
+     * @param handle   the stream cancellation handle
      * @return the interrupt chunk, or {@code null} if the stream completed normally
      */
     private QueryChunk runAgentAndCaptureInterrupt(ServeRequest current, QueryStreamObserver observer,
@@ -239,9 +270,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * Routes an interrupt chunk.
      *
      * @param interrupt the interrupt chunk
-     * @param current the current serve request
-     * @param observer the query stream observer
-     * @return the next {@link ServeRequest} to continue with, or {@link Optional#empty()} if the loop should stop
+     * @param current   the current serve request
+     * @param observer  the query stream observer
+     * @return the next {@link ServeRequest} to continue with, or
+     *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> handleInterrupt(QueryChunk interrupt, ServeRequest current,
             QueryStreamObserver observer) {
@@ -260,10 +292,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     /**
      * Delegates to remote agent: chooses SSE (streaming) or sync (blocking) path.
      *
-     * @param data the interrupt data
-     * @param current the current serve request
+     * @param data     the interrupt data
+     * @param current  the current serve request
      * @param observer the query stream observer
-     * @return the next {@link ServeRequest} to continue with, or {@link Optional#empty()} if the loop should stop
+     * @return the next {@link ServeRequest} to continue with, or
+     *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> handleA2ADelegate(InterruptData data, ServeRequest current,
             QueryStreamObserver observer) {
@@ -276,10 +309,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     /**
      * SSE: streaming call — intermediate output forwards to observer.
      *
-     * @param data the interrupt data
-     * @param current the current serve request
+     * @param data     the interrupt data
+     * @param current  the current serve request
      * @param observer the query stream observer
-     * @return the next {@link ServeRequest} to continue with, or {@link Optional#empty()} if the loop should stop
+     * @return the next {@link ServeRequest} to continue with, or
+     *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> delegateSse(InterruptData data, ServeRequest current,
             QueryStreamObserver observer) {
@@ -305,10 +339,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     /**
      * Sync: blocking call — only final result or interrupt returned.
      *
-     * @param data the interrupt data
-     * @param current the current serve request
+     * @param data     the interrupt data
+     * @param current  the current serve request
      * @param observer the query stream observer
-     * @return the next {@link ServeRequest} to continue with, or {@link Optional#empty()} if the loop should stop
+     * @return the next {@link ServeRequest} to continue with, or
+     *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> delegateSync(InterruptData data, ServeRequest current,
             QueryStreamObserver observer) {
@@ -329,12 +364,13 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     }
 
     /**
-     * Handles remote INPUT_REQUIRED: saves shadow task, notifies client, and stops the loop.
+     * Handles remote INPUT_REQUIRED: saves shadow task, notifies client, and stops
+     * the loop.
      *
-     * @param data the interrupt data
-     * @param current the current serve request
+     * @param data     the interrupt data
+     * @param current  the current serve request
      * @param observer the query stream observer
-     * @param rie the remote input required exception
+     * @param rie      the remote input required exception
      * @return {@link Optional#empty()} always, indicating the loop should stop
      */
     private Optional<ServeRequest> handleRemoteInputRequired(InterruptData data, ServeRequest current,
@@ -379,7 +415,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * Sync variant of {@link #tryResumePending} for non-streaming query mode.
      *
      * @param current the current serve request
-     * @return the next {@link ServeRequest} to continue with, or {@link Optional#empty()} if the loop should stop
+     * @return the next {@link ServeRequest} to continue with, or
+     *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> syncResumePending(ServeRequest current) {
         List<Task> pending = findPending(current.getConversationId());
@@ -410,9 +447,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * Handles a2a_delegate interrupt in query mode.
      *
      * @param interruptData the interrupt data map
-     * @param current the current serve request
-     * @param response the query response
-     * @return the next {@link ServeRequest} to continue with, or {@link Optional#empty()} if the loop should stop
+     * @param current       the current serve request
+     * @param response      the query response
+     * @return the next {@link ServeRequest} to continue with, or
+     *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> handleQueryInterrupt(Map<String, Object> interruptData, ServeRequest current,
             QueryResponse response) {
@@ -486,9 +524,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     }
 
     /**
-     * Builds this agent's shadow task id for a conversation. The id is namespaced by agent identity so that, when
-     * several agents share one task store (e.g. the same Redis) and the conversation id is passed through unchanged,
-     * each agent's shadow task occupies a distinct key instead of overwriting the others.
+     * Builds this agent's shadow task id for a conversation. The id is namespaced
+     * by agent identity so that, when
+     * several agents share one task store (e.g. the same Redis) and the
+     * conversation id is passed through unchanged,
+     * each agent's shadow task occupies a distinct key instead of overwriting the
+     * others.
      *
      * @param conversationId the passed-through conversation id
      * @return the namespaced shadow task id
@@ -530,27 +571,23 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             String toolName) {
         log.info("Orchestrator buildResumeRequest convId={} toolName={} toolCallId={} toolContentLen={}",
                 original.getConversationId(), toolName, toolCallId, toolContent != null ? toolContent.length() : 0);
-        Map<String, Object> toolMsg = new LinkedHashMap<>();
-        toolMsg.put("role", "tool");
-        toolMsg.put("name", toolName != null && !toolName.isBlank() ? toolName : "unknown");
-        toolMsg.put("content", toolContent);
-        if (toolCallId != null && !toolCallId.isBlank()) {
-            toolMsg.put("tool_call_id", toolCallId);
-        }
-        List<Map<String, Object>> messages = new ArrayList<>(original.getMessages());
-        messages.add(toolMsg);
-        // Defensive: work on a copy to avoid mutating the original request's maps.
-        // Replace the last user message content with the remote result so that
-        // lastUserQuery() → INPUT_QUERY → normalizeResumePayload → InteractiveInput.
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            Map<String, Object> msg = messages.get(i);
-            if ("user".equals(msg.get("role"))) {
-                msg = new LinkedHashMap<>(msg);
-                msg.put("content", toolContent);
-                messages.set(i, msg);
-                break;
-            }
-        }
+        // AgentCore resumes from its persisted session checkpoint and reads only the
+        // query
+        // (lastUserQuery() → INPUT_QUERY → normalizeResumeInput → InteractiveInput);
+        // the ReAct
+        // invoke path ignores INPUT_MESSAGES. Carrying the original history here was
+        // therefore
+        // dead weight that also forced overwriting the original user question with the
+        // remote
+        // result. Send a single user message holding the remote result so the resume
+        // query is
+        // unambiguous and no stale user/tool/interrupt history leaks back into the
+        // prompt.
+        List<Map<String, Object>> messages = new ArrayList<>();
+        Map<String, Object> userMsg = new LinkedHashMap<>();
+        userMsg.put("role", "user");
+        userMsg.put("content", toolContent);
+        messages.add(userMsg);
         ServeRequest resumeReq = new ServeRequest();
         resumeReq.setConversationId(original.getConversationId());
         resumeReq.setStream(true);
@@ -595,7 +632,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * Safely extracts a string from task metadata.
      *
      * @param task the task
-     * @param key the metadata key
+     * @param key  the metadata key
      * @return the metadata value as string, or empty string if not present
      */
     private static String metadataString(Task task, String key) {
