@@ -13,7 +13,7 @@ service/                              packaging=pom · agent-service
 │   ├── agent-service-adapters-common   中间件客户端、凭证、外部调用 DFX（引擎无关）
 │   └── agent-service-adapters-agentcore  AgentHandler + Core 中间件/外部服务绑定
 ├── agent-service-app                 Controller + Orchestrator + Lifecycle + AutoConfig
-└── agent-service-demo                可运行示例（含 A2A 等特性示例）
+└── agent-service-demo                可运行示例
 ```
 
 ## 依赖关系
@@ -50,11 +50,6 @@ mvn -pl agent-service-demo -am spring-boot:run
 | **adapters-agentcore** | `JiuwenCoreAgentHandler`；Checkpointer/MCP/远端/Sandbox 注册 | [Adapters 与 Handler](../documents/zh/2.开发指南/Adapters与Handler.md) |
 | **app** | Ingress Controller、默认 Orchestrator、Lifecycle | [HTTP 对话面](../documents/zh/2.开发指南/HTTP对话面.md) |
 | **demo** | 最小 Spring Boot 示例 | [agent-service-demo/README.md](agent-service-demo/README.md) |
-| **a2a-test** | A2A 集成与中断等场景测试 | [A2A 开发指导](../documents/zh/2.开发指南/A2A开发指导.md) |
-
-## Service 专篇文档
-
-- [service/documents/zh/SUMMARY.md](documents/zh/SUMMARY.md)
 
 ## 与 Agent Core 的关系
 
