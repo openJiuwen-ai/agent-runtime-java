@@ -216,13 +216,13 @@ Orchestrator 透传 `conversationId` 与 `metadata` 给远端 Agent。
 
 | 资源 | 说明 |
 | --- | --- |
-| `service/agent-service-a2a-test` | 中断-恢复、Client 最佳实践 |
+| `agent-service-app`（`controller.a2a` / `orchestrator` 测试） | A2A 协议适配、中断-恢复（`A2AProtocolAdapterTest`、`A2AEnabledServeOrchestratorTest`） |
 | `agent-service-demo` + `application-a2a-remote.yml` | 出站 Remote 示例 |
 | `src/test/`（demo） | A2A Remote 出站 mock 与 `RemoteExampleLocalServerTest` |
 
 ```bash
 cd service
-mvn -pl agent-service-a2a-test -am test
+mvn -pl agent-service-app -am test
 ```
 
 ## 延伸阅读

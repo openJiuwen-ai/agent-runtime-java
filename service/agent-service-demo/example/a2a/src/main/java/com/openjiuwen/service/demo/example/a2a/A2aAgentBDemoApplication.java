@@ -34,7 +34,7 @@ public class A2aAgentBDemoApplication {
                         + "optional:classpath:application-base.yml,"
                         + "optional:classpath:application-base_local.yml,"
                         + "optional:classpath:application-a2a-agent-b.yml,"
-                        + "optional:classpath:application-a2a-redis.yml")
+                        + "optional:classpath:application-a2a-redis.local.yml")
                 .run(args);
     }
 

@@ -184,8 +184,7 @@ agent-runtime-java/                 # Agent Distributed Runtime（Java）
 │   ├── agent-service-spec/
 │   ├── agent-service-adapters/
 │   ├── agent-service-app/
-│   ├── agent-service-demo/
-│   └── agent-service-a2a-test/
+│   └── agent-service-demo/
 ├── manager/（规划）                  # Agent Runtime Manager
 ├── applications/（规划）
 ├── documents/zh/

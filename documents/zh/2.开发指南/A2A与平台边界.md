@@ -70,7 +70,6 @@ Agent Service（本仓）
 | `orchestrator` | `A2AEnabledServeOrchestrator`（中断-恢复、影子 Task） |
 | `spec.paths` | `A2AServicePaths` |
 | `spec.dto` | `ServeRequest.metadata` 透传 |
-| `agent-service-a2a-test` | 集成与中断场景测试 |
 | `org.a2aproject.sdk` | 根 POM `1.0.0.Final`（`agent-service-app` 传递依赖） |
 
 ## 延伸阅读

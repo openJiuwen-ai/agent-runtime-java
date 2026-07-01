@@ -85,14 +85,14 @@ openjiuwen:
 
 **方式 B — 独立 Redis overlay 文件**
 
-入口类已预置 `optional:classpath:application-a2a-redis.yml`（import 链末尾），只需创建文件：
+入口类已预置 `optional:classpath:application-a2a-redis.local.yml`（import 链末尾），只需创建文件：
 
 ```bash
-cp application-a2a-redis.example.yml application-a2a-redis.yml
+cp application-a2a-redis.example.yml application-a2a-redis.local.yml
 # 编辑 host / port / password
 ```
 
-此文件在 `.gitignore` 中，不会被提交。
+此文件（`*.local.yml`）在 `.gitignore` 中，不会被提交。
 
 **验证 Redis 已生效**
 
