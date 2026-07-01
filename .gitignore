@@ -10,6 +10,8 @@ logs/
 !.env.example
 apiconfig.json
 **/application-base_local.yml
+# Local copies of *.example.yml templates used for local verification (never commit)
+**/*.local.yml
 config/deploy.properties
 runtime/
 
