@@ -33,8 +33,8 @@ public class A2AProperties {
     private List<String> defaultInputModes = List.of("text", "text/plain");
     private List<String> defaultOutputModes = List.of("text", "text/plain");
 
-    private String providerOrganization = "OpenJiuwen";
-    private String providerUrl = "https://gitcode.com/openJiuwen";
+    private String providerOrganization = "";
+    private String providerUrl = "";
 
     private List<SkillProperties> skills = List.of();
 

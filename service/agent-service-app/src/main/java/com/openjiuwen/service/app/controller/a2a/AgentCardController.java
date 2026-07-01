@@ -89,8 +89,13 @@ public class AgentCardController {
                 s.getDescription(), s.getTags(), s.getExamples(), s.getInputModes(), s.getOutputModes(), List.of()))
                 .toList();
 
+        String providerOrg = a2aProperties.getProviderOrganization() != null
+                ? a2aProperties.getProviderOrganization() : "";
+        String providerUrl = a2aProperties.getProviderUrl() != null
+                ? a2aProperties.getProviderUrl() : "";
+
         return new AgentCard(identity.getAppName(), a2aProperties.getAgentDescription(),
-                new AgentProvider(a2aProperties.getProviderOrganization(), a2aProperties.getProviderUrl()),
+                new AgentProvider(providerOrg, providerUrl),
                 serviceProperties.getVersion(), a2aProperties.getDocumentationUrl(),
                 new AgentCapabilities(a2aProperties.isStreaming(), a2aProperties.isPushNotifications(),
                         a2aProperties.isExtendedAgentCard(), List.of()),

@@ -16,6 +16,7 @@ openjiuwen:
     a2a:
       agent-description: "A2A Agent A — ReAct LLM agent that delegates computation tasks to remote Agent B"
       provider-organization: OpenJiuwen
+      provider-url: https://gitcode.com/openJiuwen
       is-streaming: true
       default-input-modes: [text, text/plain]
       default-output-modes: [text, text/plain]
