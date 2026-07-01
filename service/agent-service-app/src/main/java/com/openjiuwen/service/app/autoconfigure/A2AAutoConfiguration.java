@@ -12,6 +12,7 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
 import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
+import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
@@ -84,7 +85,10 @@ public class A2AAutoConfiguration {
             var endpoint = RedisConnectionAssembler.resolveEndpoint(middlewareProperties, ref);
             String pwd = decryptor != null ? decryptor.decrypt(endpoint.getEncryptedPassword()) : "";
             JedisPool jedisPool = RedisJedisClientFactory.createPool(endpoint, pwd);
-            return new RedisTaskStore(jedisPool);
+            // Wrap in a read-through/write-behind cache: the SDK persists the task on every streaming event, so a
+            // raw Redis round-trip per LLM chunk would throttle the SSE stream to network speed. See
+            // WriteThrottlingTaskStore for the full rationale.
+            return new WriteThrottlingTaskStore(new RedisTaskStore(jedisPool));
         }
         return new InMemoryTaskStore();
     }
