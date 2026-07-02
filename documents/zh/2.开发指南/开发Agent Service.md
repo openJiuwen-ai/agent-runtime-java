@@ -82,7 +82,7 @@ openjiuwen:
 | `openjiuwen.service.lifecycle` | [生命周期与探针](生命周期与探针.md) | 启停、fail-fast、shutdown 超时 |
 | `openjiuwen.service.middleware` | [Adapters 与 Handler](Adapters与Handler.md) | Checkpointer、Redis |
 | `openjiuwen.service.external` | [Adapters 与 Handler](Adapters与Handler.md) | MCP、Remote、Sandbox |
-| `openjiuwen.service.a2a` | [A2A 开发指导](A2A开发指导.md) | Agent Card、TaskStore、远端 Agent 目录 |
+| `openjiuwen.service.a2a` | [A2A 开发指导](A2A/开发指导.md) | Agent Card、TaskStore、远端 Agent 目录 |
 
 ## 推荐 `application.yml`（骨架）
 
@@ -162,5 +162,5 @@ InitHook 支持 `@Order`。
 
 - [HTTP 对话面](HTTP对话面.md) — Ingress API
 - [Adapters 与 Handler](Adapters与Handler.md) — 中间件与外部 egress
-- [A2A 开发指导](A2A开发指导.md) — 进程内 A2A
+- [A2A 开发指导](A2A/开发指导.md) — 进程内 A2A
 - [生命周期与探针](生命周期与探针.md) — 启停与 interrupt

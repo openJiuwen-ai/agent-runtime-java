@@ -94,7 +94,7 @@ new QueryChunk("a2a_interrupt", Map.of(
 ));
 ```
 
-Orchestrator 检测到此 chunk 后调远端 Agent，根据结果决定 resume 或关闭 SSE。详细流程见 [A2A 开发指导](../../A2A开发指导.md)。
+Orchestrator 检测到此 chunk 后调远端 Agent，根据结果决定 resume 或关闭 SSE。详细流程见 [A2A 开发指导](../../A2A/开发指导.md)。
 
 ## HealthResponse
 

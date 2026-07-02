@@ -373,5 +373,5 @@ AaaS 是服务化形态，A2A 是 Agent 间互联协议。
 - [开发 Agent Service](<../开发Agent Service.md>)：业务镜像、依赖、配置和打包。
 - [Adapters 与 Handler](../Adapters与Handler.md)：`AgentHandler` SPI、Core Handler 和自定义 Handler。
 - [生命周期与探针](../生命周期与探针.md)：init、shutdown、readiness、interrupt。
-- [A2A 与平台边界](../A2A与平台边界.md)：进程内 A2A 与平台 A2A 的边界。
-- [A2A 开发指导](../A2A开发指导.md)：Agent Card、JSON-RPC、远端调用、中断恢复。
+- [A2A 与平台边界](../A2A/平台边界.md)：进程内 A2A 与平台 A2A 的边界。
+- [A2A 开发指导](../A2A/开发指导.md)：Agent Card、JSON-RPC、远端调用、中断恢复。
