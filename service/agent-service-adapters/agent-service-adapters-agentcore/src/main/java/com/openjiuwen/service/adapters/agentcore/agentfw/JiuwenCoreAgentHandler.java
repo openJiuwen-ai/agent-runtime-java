@@ -36,7 +36,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Default {@link AgentHandler} for OpenJiuwen agent-core-java, delegating to {@code Runner}.
+ * Default {@link AgentHandler} for OpenJiuwen agent-core-java, delegating to
+ * {@code Runner}.
  */
 public class JiuwenCoreAgentHandler implements AgentHandler {
     private static final Logger log = LoggerFactory.getLogger(JiuwenCoreAgentHandler.class);
@@ -215,8 +216,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return new QueryResponse(result, conversationId);
     }
 
-    private static QueryResponse buildQueryResponseFromControllerOutput(
-            ControllerOutput controllerOutput, String conversationId) {
+    private static QueryResponse buildQueryResponseFromControllerOutput(ControllerOutput controllerOutput,
+            String conversationId) {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
         Object data = controllerOutput.getData();
@@ -246,7 +247,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static boolean supportsInvoke(Object agent) {
         if (agent == null || agent instanceof String) {
-            // Resolved at runtime from agent-id; use streaming unless the instance exposes invoke.
+            // Resolved at runtime from agent-id; use streaming unless the instance exposes
+            // invoke.
             return false;
         }
         for (Method method : agent.getClass().getMethods()) {
@@ -338,22 +340,23 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     /**
-     * Maps the internal agent-core OutputSchema type to a standard {@link QueryChunk} type, so downstream code never
-     * sees agent-core-internal type strings.
+     * Maps the internal agent-core OutputSchema type to a standard
+     * {@link QueryChunk} type, so downstream code never sees agent-core-internal
+     * type strings. Only the interrupt signal needs a distinct top-level type;
+     * every other chunk (the final answer included) is a plain
+     * {@link QueryChunk#TYPE_CHUNK} — its fine-grained type travels transparently
+     * inside the chunk's own {@code {type,index,payload}} envelope.
      *
-     * @param normalized the normalized chunk data
+     * @param normalized
+     *            the normalized chunk data
      * @return the QueryChunk type string
      */
     private static String mapToQueryChunkType(Object normalized) {
         if (!(normalized instanceof Map<?, ?> m)) {
             return QueryChunk.TYPE_CHUNK;
         }
-        Object rawType = m.get("type");
-        if (INTERACTION_TYPE.equals(rawType)) {
+        if (INTERACTION_TYPE.equals(m.get("type"))) {
             return QueryChunk.TYPE_INTERRUPT;
-        }
-        if ("answer".equals(rawType)) {
-            return QueryChunk.TYPE_ANSWER;
         }
         return QueryChunk.TYPE_CHUNK;
     }
@@ -361,7 +364,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     /**
      * Extracts structured interrupt data from an InteractionOutput payload.
      *
-     * @param output the OutputSchema containing the interaction payload
+     * @param output
+     *            the OutputSchema containing the interaction payload
      * @return structured interrupt data map
      */
     private static Map<String, Object> toInterruptData(OutputSchema output) {

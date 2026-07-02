@@ -16,9 +16,6 @@ public class QueryChunk {
     /** Interrupt chunk type, used for input-required signals. */
     public static final String TYPE_INTERRUPT = "interrupt";
 
-    /** Final answer chunk type. */
-    public static final String TYPE_ANSWER = "answer";
-
     /** Streaming intermediate chunk type. */
     public static final String TYPE_CHUNK = "chunk";
 
