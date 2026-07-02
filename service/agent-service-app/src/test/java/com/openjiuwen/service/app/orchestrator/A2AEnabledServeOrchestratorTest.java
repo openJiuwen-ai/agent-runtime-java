@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
@@ -180,7 +181,7 @@ class A2AEnabledServeOrchestratorTest {
         // No _stream_mode → resolve synchronously; the client observer is never handed
         // to the remote call.
         verify(a2aClient).callSync(eq("test"), any(), eq("c-sync"), any(), any());
-        verify(a2aClient, never()).callStreaming(anyString(), any(), anyString(), any(), any(), any());
+        verify(a2aClient, never()).callStreaming(any(), any());
     }
 
     @Test
@@ -192,13 +193,13 @@ class A2AEnabledServeOrchestratorTest {
                         "_stream_mode", "sse"))
                 .build();
         when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
-        when(a2aClient.callStreaming(anyString(), any(), anyString(), any(), any(), any()))
-                .thenReturn(CompletableFuture.completedFuture("42"));
+        when(a2aClient.callStreaming(any(), any())).thenReturn(CompletableFuture.completedFuture("42"));
 
         orchestrator.streamQuery(req("c-sse"), mock(QueryStreamObserver.class));
 
         // _stream_mode=sse → stream the remote content to the client observer.
-        verify(a2aClient).callStreaming(eq("test"), any(), eq("c-sse"), any(), any(), any());
+        verify(a2aClient).callStreaming(argThat(c -> "test".equals(c.agentName()) && "c-sse".equals(c.contextId())),
+                any());
         verify(a2aClient, never()).callSync(anyString(), any(), anyString(), any(), any());
     }
 
@@ -213,8 +214,7 @@ class A2AEnabledServeOrchestratorTest {
         when(taskStore.get(shadowId)).thenReturn(pending);
         // Remote still needs input on resume, carrying a fresh remote task id.
         var rie = new A2ARemoteAgentClient.RemoteInputRequiredException("need more", "rt-new");
-        when(a2aClient.callStreaming(anyString(), any(), anyString(), any(), any(), any()))
-                .thenReturn(CompletableFuture.failedFuture(rie));
+        when(a2aClient.callStreaming(any(), any())).thenReturn(CompletableFuture.failedFuture(rie));
 
         orchestrator.streamQuery(req("c-multi"), mock(QueryStreamObserver.class));
 

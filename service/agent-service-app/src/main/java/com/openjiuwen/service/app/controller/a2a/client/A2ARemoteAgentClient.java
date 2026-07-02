@@ -68,26 +68,22 @@ public class A2ARemoteAgentClient {
     }
 
     /**
-     * Call a remote agent via streaming SendMessage. Streaming chunks are forwarded
-     * verbatim to {@code streamObserver}; the chunk whose envelope
-     * {@code type == "answer"} is captured as the tool-result text returned via the
-     * future.
+     * Parameter object for a remote agent call: the addressing and payload
+     * coordinates shared by callers.
      *
      * @param agentName
      *            registered remote agent name
      * @param message
      *            text payload to send
      * @param contextId
-     *            conversation context ID (shared across calls to same remote)
-     * @param streamObserver
-     *            observer for forwarding streaming chunks to the client
+     *            conversation context ID (shared across calls to the same remote)
+     * @param taskId
+     *            remote task ID to resume, or null for a new task
      * @param metadata
      *            additional metadata for the call
-     * @return future resolving to the final-answer text (tool result for resume)
      */
-    public CompletableFuture<String> callStreaming(String agentName, String message, String contextId,
-            QueryStreamObserver streamObserver, Map<String, Object> metadata) {
-        return callStreaming(agentName, message, contextId, null, streamObserver, metadata);
+    public record RemoteCall(String agentName, String message, String contextId, String taskId,
+            Map<String, Object> metadata) {
     }
 
     /**
@@ -175,25 +171,18 @@ public class A2ARemoteAgentClient {
      * verbatim to streamObserver; the chunk whose envelope type is "answer" is
      * captured as the final result.
      *
-     * @param agentName
-     *            registered remote agent name
-     * @param message
-     *            text payload to send
-     * @param contextId
-     *            conversation context ID
-     * @param taskId
-     *            remote task ID to resume, or null for a new task
+     * @param call
+     *            the remote call coordinates (agent, message, context, optional
+     *            resume task, metadata)
      * @param streamObserver
      *            observer for forwarding streaming chunks
-     * @param metadata
-     *            additional metadata for the call
      * @return future resolving to the final-answer text
      */
-    public CompletableFuture<String> callStreaming(String agentName, String message, String contextId, String taskId,
-            QueryStreamObserver streamObserver, Map<String, Object> metadata) {
-        var setup = prepareCall(agentName, message, contextId, taskId, metadata);
-        log.info("A2A streaming call agent={} taskId={} contextId={} textLen={}", agentName,
-                taskId != null ? taskId : "new", setup.contextId, message != null ? message.length() : 0);
+    public CompletableFuture<String> callStreaming(RemoteCall call, QueryStreamObserver streamObserver) {
+        var setup = prepareCall(call.agentName(), call.message(), call.contextId(), call.taskId(), call.metadata());
+        log.info("A2A streaming call agent={} taskId={} contextId={} textLen={}", call.agentName(),
+                call.taskId() != null ? call.taskId() : "new", setup.contextId,
+                call.message() != null ? call.message().length() : 0);
 
         Client client = createClient(setup.entry.card(), true);
         var params = MessageSendParams.builder().message(setup.message).metadata(setup.metadata).build();
