@@ -263,26 +263,23 @@ public class A2ARemoteAgentClient {
      *         envelope
      */
     static Optional<String> answerText(String raw) {
-        Map<String, Object> envelope = parseEnvelope(raw);
-        if (envelope == null || !ANSWER_ENVELOPE_TYPE.equals(envelope.get("type"))) {
-            return Optional.empty();
-        }
-        return Optional.of(extractBusinessText(envelope).orElse(raw));
+        return parseEnvelope(raw).filter(envelope -> ANSWER_ENVELOPE_TYPE.equals(envelope.get("type")))
+                .map(envelope -> extractBusinessText(envelope).orElse(raw));
     }
 
     /**
-     * Parses a JSON object string into a map, or returns null if it is not a JSON
-     * object (e.g. plain text).
+     * Parses a JSON object string into a map, or returns empty if it is not a JSON
+     * object (e.g. plain text or a JSON null).
      *
      * @param raw
      *            the candidate JSON string
-     * @return the parsed map, or null
+     * @return the parsed map, or empty
      */
-    private static Map<String, Object> parseEnvelope(String raw) {
+    private static Optional<Map<String, Object>> parseEnvelope(String raw) {
         try {
-            return GSON.fromJson(raw, MAP_TYPE);
+            return Optional.ofNullable(GSON.fromJson(raw, MAP_TYPE));
         } catch (JsonSyntaxException e) {
-            return null;
+            return Optional.empty();
         }
     }
 
