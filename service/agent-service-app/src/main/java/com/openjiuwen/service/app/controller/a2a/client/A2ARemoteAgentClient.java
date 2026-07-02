@@ -4,10 +4,15 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
+import com.google.gson.reflect.TypeToken;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
@@ -39,7 +44,15 @@ import org.slf4j.LoggerFactory;
  */
 public class A2ARemoteAgentClient {
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
-    private static final Map<String, Object> ANSWER_META = Map.of("answer", true);
+    private static final Gson GSON = new Gson();
+    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
+    }.getType();
+
+    /**
+     * AgentCore stream-envelope {@code type} value that marks the final answer
+     * chunk.
+     */
+    private static final String ANSWER_ENVELOPE_TYPE = "answer";
 
     private final A2ARemoteAgentCardRegistry registry;
     private final Map<String, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
@@ -47,36 +60,43 @@ public class A2ARemoteAgentClient {
     /**
      * Constructs the remote agent client.
      *
-     * @param registry the remote agent card registry
+     * @param registry
+     *            the remote agent card registry
      */
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry) {
         this.registry = registry;
     }
 
     /**
-     * Call a remote agent via streaming SendMessage. Streaming chunks (non-answer metadata) are forwarded to
-     * {@code streamObserver}; the artifact with {@code metadata.answer=true} is captured as the tool-result text
-     * returned via the future.
+     * Parameter object for a remote agent call: the addressing and payload
+     * coordinates shared by callers.
      *
-     * @param agentName registered remote agent name
-     * @param message text payload to send
-     * @param contextId conversation context ID (shared across calls to same remote)
-     * @param streamObserver observer for forwarding streaming chunks to the client
-     * @param metadata additional metadata for the call
-     * @return future resolving to the final-answer text (tool result for resume)
+     * @param agentName
+     *            registered remote agent name
+     * @param message
+     *            text payload to send
+     * @param contextId
+     *            conversation context ID (shared across calls to the same remote)
+     * @param taskId
+     *            remote task ID to resume, or null for a new task
+     * @param metadata
+     *            additional metadata for the call
      */
-    public CompletableFuture<String> callStreaming(String agentName, String message, String contextId,
-            QueryStreamObserver streamObserver, Map<String, Object> metadata) {
-        return callStreaming(agentName, message, contextId, null, streamObserver, metadata);
+    public record RemoteCall(String agentName, String message, String contextId, String taskId,
+            Map<String, Object> metadata) {
     }
 
     /**
      * Parameter object bundling the result of {@link #prepareCall}.
      *
-     * @param entry the resolved remote agent entry
-     * @param message the built SDK message
-     * @param contextId the context/conversation ID
-     * @param metadata the metadata map
+     * @param entry
+     *            the resolved remote agent entry
+     * @param message
+     *            the built SDK message
+     * @param contextId
+     *            the context/conversation ID
+     * @param metadata
+     *            the metadata map
      */
     private record RemoteCallSetup(A2ARemoteAgentCardRegistry.RemoteAgentEntry entry, Message message, String contextId,
             Map<String, Object> metadata) {
@@ -85,11 +105,16 @@ public class A2ARemoteAgentClient {
     /**
      * Resolves the remote agent entry and builds the SDK message.
      *
-     * @param agentName the remote agent name
-     * @param message the text payload
-     * @param contextId the context/conversation ID
-     * @param taskId the optional task ID for resume
-     * @param metadata the metadata map
+     * @param agentName
+     *            the remote agent name
+     * @param message
+     *            the text payload
+     * @param contextId
+     *            the context/conversation ID
+     * @param taskId
+     *            the optional task ID for resume
+     * @param metadata
+     *            the metadata map
      * @return the prepared call setup
      */
     private RemoteCallSetup prepareCall(String agentName, String message, String contextId, String taskId,
@@ -106,10 +131,13 @@ public class A2ARemoteAgentClient {
     }
 
     /**
-     * Creates or retrieves a cached SDK {@link Client} for the given card and streaming mode.
+     * Creates or retrieves a cached SDK {@link Client} for the given card and
+     * streaming mode.
      *
-     * @param card the agent card
-     * @param isStreaming whether the client should be in streaming mode
+     * @param card
+     *            the agent card
+     * @param isStreaming
+     *            whether the client should be in streaming mode
      * @return the SDK client
      */
     private Client createClient(AgentCard card, boolean isStreaming) {
@@ -119,11 +147,15 @@ public class A2ARemoteAgentClient {
     }
 
     /**
-     * Completes the future exceptionally with a {@link RemoteInputRequiredException} if not already done.
+     * Completes the future exceptionally with a
+     * {@link RemoteInputRequiredException} if not already done.
      *
-     * @param future the future to complete
-     * @param remoteTaskId the remote task ID
-     * @param statusText the status message text
+     * @param future
+     *            the future to complete
+     * @param remoteTaskId
+     *            the remote task ID
+     * @param statusText
+     *            the status message text
      */
     private static void handleInputRequired(CompletableFuture<String> future, String remoteTaskId, String statusText) {
         if (future.isDone()) {
@@ -135,22 +167,22 @@ public class A2ARemoteAgentClient {
     }
 
     /**
-     * Call a remote agent via streaming SendMessage. Streaming chunks (non-answer metadata) are forwarded to
-     * streamObserver; the artifact with metadata.answer=true is captured as the final result.
+     * Call a remote agent via streaming SendMessage. Streaming chunks are forwarded
+     * verbatim to streamObserver; the chunk whose envelope type is "answer" is
+     * captured as the final result.
      *
-     * @param agentName registered remote agent name
-     * @param message text payload to send
-     * @param contextId conversation context ID
-     * @param taskId remote task ID to resume, or null for a new task
-     * @param streamObserver observer for forwarding streaming chunks
-     * @param metadata additional metadata for the call
+     * @param call
+     *            the remote call coordinates (agent, message, context, optional
+     *            resume task, metadata)
+     * @param streamObserver
+     *            observer for forwarding streaming chunks
      * @return future resolving to the final-answer text
      */
-    public CompletableFuture<String> callStreaming(String agentName, String message, String contextId, String taskId,
-            QueryStreamObserver streamObserver, Map<String, Object> metadata) {
-        var setup = prepareCall(agentName, message, contextId, taskId, metadata);
-        log.info("A2A streaming call agent={} taskId={} contextId={} textLen={}", agentName,
-                taskId != null ? taskId : "new", setup.contextId, message != null ? message.length() : 0);
+    public CompletableFuture<String> callStreaming(RemoteCall call, QueryStreamObserver streamObserver) {
+        var setup = prepareCall(call.agentName(), call.message(), call.contextId(), call.taskId(), call.metadata());
+        log.info("A2A streaming call agent={} taskId={} contextId={} textLen={}", call.agentName(),
+                call.taskId() != null ? call.taskId() : "new", setup.contextId,
+                call.message() != null ? call.message().length() : 0);
 
         Client client = createClient(setup.entry.card(), true);
         var params = MessageSendParams.builder().message(setup.message).metadata(setup.metadata).build();
@@ -176,11 +208,25 @@ public class A2ARemoteAgentClient {
     }
 
     /**
-     * Streaming: forwards non-answer chunks to observer, captures answer artifact.
+     * Streaming: forwards every chunk to the caller's stream verbatim and
+     * additionally taps the answer as the tool result.
      *
-     * @param aue the task artifact update event
-     * @param result the result future to complete with the answer text
-     * @param streamObserver the observer for forwarding streaming chunks
+     * <p>
+     * Transparency rule: in SSE mode every remote chunk (the raw
+     * {@code {type,index,payload}} envelope) is forwarded to the caller's stream
+     * unchanged, the final answer included — it is not consumed from the stream,
+     * only tapped. Sync callers pass no observer, so nothing is forwarded (see
+     * {@link #callSync}). The answer is discriminated by the envelope's own
+     * {@code type} field, not by rewriting the payload upstream:
+     * {@code type == "answer"} → its business text also completes the future fed
+     * back to our LLM.
+     *
+     * @param aue
+     *            the task artifact update event
+     * @param result
+     *            the result future to complete with the answer text
+     * @param streamObserver
+     *            the observer for forwarding streaming chunks
      */
     private void handleArtifact(TaskArtifactUpdateEvent aue, CompletableFuture<String> result,
             QueryStreamObserver streamObserver) {
@@ -188,25 +234,107 @@ public class A2ARemoteAgentClient {
         if (a == null || a.parts() == null) {
             return;
         }
-        String text = extractText(a.parts());
-        if (text.isEmpty()) {
+        String raw = extractText(a.parts());
+        if (raw.isEmpty()) {
             return;
         }
-        if (a.metadata() != null && Boolean.TRUE.equals(a.metadata().get("answer"))) {
-            log.info("Remote answer artifact ({} chars)", text.length());
+        // Forward first so the answer chunk reaches the client's stream before the
+        // future
+        // completes (which lets the delegating flow proceed to feed our LLM).
+        streamObserver.onNext(new QueryChunk("chunk", raw));
+        answerText(raw).ifPresent(answer -> {
+            log.info("Remote answer artifact ({} chars)", answer.length());
             if (!result.isDone()) {
-                result.complete(text);
+                result.complete(answer);
             }
-        } else {
-            streamObserver.onNext(new QueryChunk("chunk", text));
+        });
+    }
+
+    /**
+     * Interprets an artifact's raw text as an AgentCore stream envelope: if it is
+     * the final answer ({@code type == "answer"}), returns the unwrapped business
+     * text (falling back to the raw text when the payload carries no recognizable
+     * text field); otherwise returns empty so the caller forwards it as a streaming
+     * chunk.
+     *
+     * @param raw
+     *            the artifact's concatenated text (a JSON envelope, or plain text)
+     * @return the answer's business text, or empty if this is not an answer
+     *         envelope
+     */
+    static Optional<String> answerText(String raw) {
+        return parseEnvelope(raw).filter(envelope -> ANSWER_ENVELOPE_TYPE.equals(envelope.get("type")))
+                .map(envelope -> extractBusinessText(envelope).orElse(raw));
+    }
+
+    /**
+     * Parses a JSON object string into a map, or returns empty if it is not a JSON
+     * object (e.g. plain text or a JSON null).
+     *
+     * @param raw
+     *            the candidate JSON string
+     * @return the parsed map, or empty
+     */
+    private static Optional<Map<String, Object>> parseEnvelope(String raw) {
+        try {
+            return Optional.ofNullable(GSON.fromJson(raw, MAP_TYPE));
+        } catch (JsonSyntaxException e) {
+            return Optional.empty();
         }
     }
 
     /**
-     * Handles {@link TaskStatusUpdateEvent}: INPUT_REQUIRED or final-without-answer.
+     * Extracts the business text from a normalized chunk payload, preferring the
+     * nested {@code payload} map over the top level, mirroring the sync path's
+     * content extraction.
      *
-     * @param sue the task status update event
-     * @param result the result future
+     * @param data
+     *            the chunk data
+     * @return the business text, or empty if the chunk carries no text field
+     */
+    static Optional<String> extractBusinessText(Object data) {
+        if (data instanceof String s) {
+            return s.isBlank() ? Optional.empty() : Optional.of(s);
+        }
+        if (!(data instanceof Map<?, ?> map)) {
+            return Optional.empty();
+        }
+        Optional<String> fromPayload = map.get("payload") instanceof Map<?, ?> payload
+                ? firstText(payload)
+                : Optional.empty();
+        return fromPayload.isPresent() ? fromPayload : firstText(map);
+    }
+
+    /**
+     * Returns the first non-blank scalar value among the known text keys
+     * ({@code content}, {@code delta}, {@code output}, {@code response}).
+     *
+     * @param map
+     *            the map to scan
+     * @return the first text value, or empty if none present
+     */
+    private static Optional<String> firstText(Map<?, ?> map) {
+        for (String key : List.of("content", "delta", "output", "response")) {
+            Object value = map.get(key);
+            if (value == null || value instanceof Map || value instanceof List) {
+                continue;
+            }
+            String text = String.valueOf(value);
+            if (!text.isBlank()) {
+                return Optional.of(text);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Handles {@link TaskStatusUpdateEvent}: INPUT_REQUIRED or
+     * final-without-answer.
+     *
+     * @param sue
+     *            the task status update event
+     * @param result
+     *            the result future
      */
     private void handleStatusUpdate(TaskStatusUpdateEvent sue, CompletableFuture<String> result) {
         if (sue.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED) {
@@ -221,10 +349,13 @@ public class A2ARemoteAgentClient {
     }
 
     /**
-     * Handles {@link TaskEvent}: fallback when stream ends without explicit answer artifact.
+     * Handles {@link TaskEvent}: fallback when stream ends without explicit answer
+     * artifact.
      *
-     * @param te the task event
-     * @param result the result future
+     * @param te
+     *            the task event
+     * @param result
+     *            the result future
      */
     private void handleTaskEvent(TaskEvent te, CompletableFuture<String> result) {
         if (result.isDone()) {
@@ -247,16 +378,22 @@ public class A2ARemoteAgentClient {
     }
 
     /**
-     * Call a remote agent via non-streaming SendMessage (synchronous). Blocks until the remote agent completes or
-     * requires input.
+     * Call a remote agent via non-streaming SendMessage (synchronous). Blocks until
+     * the remote agent completes or requires input.
      *
-     * @param agentName registered remote agent name
-     * @param message text payload to send
-     * @param contextId conversation context ID
-     * @param taskId remote task ID to resume, or null for a new task
-     * @param metadata additional metadata for the call
+     * @param agentName
+     *            registered remote agent name
+     * @param message
+     *            text payload to send
+     * @param contextId
+     *            conversation context ID
+     * @param taskId
+     *            remote task ID to resume, or null for a new task
+     * @param metadata
+     *            additional metadata for the call
      * @return the final-answer text from the remote agent
-     * @throws RemoteInputRequiredException if the remote agent requires user input
+     * @throws RemoteInputRequiredException
+     *             if the remote agent requires user input
      */
     public String callSync(String agentName, String message, String contextId, String taskId,
             Map<String, Object> metadata) throws RemoteInputRequiredException {
@@ -310,8 +447,10 @@ public class A2ARemoteAgentClient {
         /**
          * Constructs the exception.
          *
-         * @param message the error message
-         * @param remoteTaskId the remote task ID
+         * @param message
+         *            the error message
+         * @param remoteTaskId
+         *            the remote task ID
          */
         public RemoteInputRequiredException(String message, String remoteTaskId) {
             super(message);
@@ -333,8 +472,10 @@ public class A2ARemoteAgentClient {
         /**
          * Constructs the exception.
          *
-         * @param message the error message
-         * @param cause the underlying cause
+         * @param message
+         *            the error message
+         * @param cause
+         *            the underlying cause
          */
         public RemoteAgentException(String message, Throwable cause) {
             super(message, cause);

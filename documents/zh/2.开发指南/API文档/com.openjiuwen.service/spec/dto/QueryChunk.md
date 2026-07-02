@@ -13,7 +13,6 @@ public class QueryChunk
 | Constant | Value | Description |
 | --- | --- | --- |
 | `TYPE_INTERRUPT` | `interrupt` | 需要用户输入或中断处理的信号。 |
-| `TYPE_ANSWER` | `answer` | 最终回答。 |
 | `TYPE_CHUNK` | `chunk` | 中间流式片段。 |
 | `TYPE_ERROR` | `error` | 错误片段。 |
 

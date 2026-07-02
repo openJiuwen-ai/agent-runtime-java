@@ -2,7 +2,7 @@
 
 Agent Service 对外 **Ingress** HTTP 契约与 Python `AgentApp` 对齐。路径常量在 `com.openjiuwen.service.spec.paths.AgentServicePaths`；A2A 路径在 `A2AServicePaths`。
 
-与 **A2A JSON-RPC** 的关系：两者共用 `ServeOrchestrator` → `AgentHandler`，但路由与协议不同。A2A 详见 [A2A 开发指导](A2A开发指导.md)。
+与 **A2A JSON-RPC** 的关系：两者共用 `ServeOrchestrator` → `AgentHandler`，但路由与协议不同。A2A 详见 [A2A 开发指导](A2A/开发指导.md)。
 
 ## 端点一览
 
@@ -26,7 +26,7 @@ Agent Service 对外 **Ingress** HTTP 契约与 Python `AgentApp` 对齐。路�
 | `/a2a/.well-known/agent-card.json` | GET | Agent Card（兼容） |
 | `/a2a` / `/a2a/` | POST | JSON-RPC：`SendMessage`、`SendStreamingMessage`、`GetTask` |
 
-完整说明见 [A2A 开发指导 · A2A Server](A2A开发指导.md#a2a-server)。
+完整说明见 [A2A 开发指导 · A2A Server](A2A/开发指导.md#a2a-server)。
 
 ## GET /health
 
@@ -155,4 +155,4 @@ curl -s http://localhost:8090/.well-known/agent-card.json
 
 - [架构概述 · Ingress 与 Egress](架构概述.md#4-ingress-与-egress)
 - [开发 Agent Service](开发Agent Service.md) — `application.yml` 装配
-- [A2A 与平台边界](A2A与平台边界.md)
+- [A2A 与平台边界](A2A/平台边界.md)

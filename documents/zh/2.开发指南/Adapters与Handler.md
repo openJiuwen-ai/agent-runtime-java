@@ -210,6 +210,6 @@ AgentHandler agentHandler() {
 
 - [架构概述 · Adapters 聚合结构](架构概述.md#6-adapters-聚合结构)
 - [HTTP 对话面](HTTP对话面.md) — Ingress 契约
-- [A2A 开发指导](A2A开发指导.md) — 进程内 A2A Server 与 Orchestrator 远端委派
+- [A2A 开发指导](A2A/开发指导.md) — 进程内 A2A Server 与 Orchestrator 远端委派
 - Core Runner：[agent-core-java · 执行器 Runner](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/2.开发指南/高阶用法/执行器Runner.md)
 - Demo 总览：[agent-service-demo/README.md](../../service/agent-service-demo/README.md)

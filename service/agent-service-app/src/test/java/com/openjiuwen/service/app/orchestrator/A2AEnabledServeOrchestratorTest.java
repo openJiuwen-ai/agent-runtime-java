@@ -5,10 +5,11 @@
 package com.openjiuwen.service.app.orchestrator;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -27,6 +28,7 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
 import org.a2aproject.sdk.server.tasks.TaskStore;
@@ -143,7 +145,8 @@ class A2AEnabledServeOrchestratorTest {
 
     @Test
     void pendingTaskRoutesToResume() {
-        // Shadow tasks are namespaced by agent identity (see A2AEnabledServeOrchestrator#shadowTaskId).
+        // Shadow tasks are namespaced by agent identity (see
+        // A2AEnabledServeOrchestrator#shadowTaskId).
         String shadowId = "shadow:test-agent:c-pending";
         Task pending = Task.builder().id(shadowId).contextId("c-pending")
                 .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
@@ -156,9 +159,70 @@ class A2AEnabledServeOrchestratorTest {
 
         orchestrator.streamQuery(req("c-pending"), mock(QueryStreamObserver.class));
 
-        // Verify pending check was made via get() on the namespaced shadow key; remote call
+        // Verify pending check was made via get() on the namespaced shadow key; remote
+        // call
         // attempts but may fail in unit test
         verify(taskStore).get(shadowId);
+    }
+
+    @Test
+    void pendingResumeWithoutSseModeUsesSyncCallNoPassthrough() {
+        String shadowId = "shadow:test-agent:c-sync";
+        Task pending = Task.builder().id(shadowId).contextId("c-sync")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
+                .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1"))
+                .build();
+        // Deleted after a successful resume, so the second findPending sees nothing.
+        when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
+        when(a2aClient.callSync(anyString(), any(), anyString(), any(), any())).thenReturn("42");
+
+        orchestrator.streamQuery(req("c-sync"), mock(QueryStreamObserver.class));
+
+        // No _stream_mode → resolve synchronously; the client observer is never handed
+        // to the remote call.
+        verify(a2aClient).callSync(eq("test"), any(), eq("c-sync"), any(), any());
+        verify(a2aClient, never()).callStreaming(any(), any());
+    }
+
+    @Test
+    void pendingResumeWithSseModeStreamsThroughObserver() {
+        String shadowId = "shadow:test-agent:c-sse";
+        Task pending = Task.builder().id(shadowId).contextId("c-sse")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
+                .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1",
+                        "_stream_mode", "sse"))
+                .build();
+        when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
+        when(a2aClient.callStreaming(any(), any())).thenReturn(CompletableFuture.completedFuture("42"));
+
+        orchestrator.streamQuery(req("c-sse"), mock(QueryStreamObserver.class));
+
+        // _stream_mode=sse → stream the remote content to the client observer.
+        verify(a2aClient).callStreaming(argThat(c -> "test".equals(c.agentName()) && "c-sse".equals(c.contextId())),
+                any());
+        verify(a2aClient, never()).callSync(anyString(), any(), anyString(), any(), any());
+    }
+
+    @Test
+    void resumeInputRequiredRefreshesRemoteTaskIdKeepsStreamMode() throws Exception {
+        String shadowId = "shadow:test-agent:c-multi";
+        Task pending = Task.builder().id(shadowId).contextId("c-multi")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
+                .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id",
+                        "rt-old", "_stream_mode", "sse"))
+                .build();
+        when(taskStore.get(shadowId)).thenReturn(pending);
+        // Remote still needs input on resume, carrying a fresh remote task id.
+        var rie = new A2ARemoteAgentClient.RemoteInputRequiredException("need more", "rt-new");
+        when(a2aClient.callStreaming(any(), any())).thenReturn(CompletableFuture.failedFuture(rie));
+
+        orchestrator.streamQuery(req("c-multi"), mock(QueryStreamObserver.class));
+
+        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
+        verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
+        Task resaved = taskCaptor.getValue();
+        assertThat(resaved.metadata()).containsEntry("_remote_task_id", "rt-new");
+        assertThat(resaved.metadata()).containsEntry("_stream_mode", "sse");
     }
 
     @Test

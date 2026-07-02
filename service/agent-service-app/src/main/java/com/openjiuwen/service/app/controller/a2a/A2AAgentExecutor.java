@@ -25,12 +25,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A2A SDK {@link AgentExecutor} implementation — the sole bridge between the A2A SDK event pipeline and the internal
- * {@link ServeOrchestrator} → AgentHandler chain.
+ * A2A SDK {@link AgentExecutor} implementation — the sole bridge between the
+ * A2A SDK event pipeline and the internal {@link ServeOrchestrator} →
+ * AgentHandler chain.
  *
  * <p>
- * Delegates stream/chunk handling to the orchestrator. Interrupt detection and resume logic belong to the orchestrator
- * layer, not here.
+ * Delegates stream/chunk handling to the orchestrator. Interrupt detection and
+ * resume logic belong to the orchestrator layer, not here.
  *
  * @since 0.1.0
  */
@@ -38,10 +39,12 @@ public class A2AAgentExecutor implements AgentExecutor {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
 
     /**
-     * Dead-time bound for waiting on the in-flight queue to drain before force-closing the stream. The wait returns as
-     * soon as the queue actually drains, so this only caps the worst case; it is set generously because under a
-     * high-latency Redis task store the event-bus processor persists each backed-up streaming event with a blocking
-     * round-trip, so a large backlog can take a while to clear.
+     * Dead-time bound for waiting on the in-flight queue to drain before
+     * force-closing the stream. The wait returns as soon as the queue actually
+     * drains, so this only caps the worst case; it is set generously because under
+     * a high-latency Redis task store the event-bus processor persists each
+     * backed-up streaming event with a blocking round-trip, so a large backlog can
+     * take a while to clear.
      */
     private static final long CLOSE_DRAIN_TIMEOUT_MS = 60000L;
 
@@ -106,14 +109,16 @@ public class A2AAgentExecutor implements AgentExecutor {
                         interrupted.set(true);
                         return;
                     }
+                    // Transparent passthrough: forward the AgentCore stream chunk verbatim
+                    // (the {type,index,payload} envelope), including the final answer, keeping
+                    // one uniform stream format. The envelope's own "type" field lets the
+                    // delegating caller pick out the answer to feed its LLM without this layer
+                    // rewriting the payload — see A2ARemoteAgentClient#handleArtifact.
                     List<Part<?>> parts = chunkMapper.toParts(chunk);
                     if (parts.isEmpty()) {
                         return;
                     }
-                    Map<String, Object> metadata = QueryChunk.TYPE_ANSWER.equals(chunk.getType())
-                            ? Map.of("answer", true)
-                            : null;
-                    emitter.addArtifact(parts, null, null, metadata);
+                    emitter.addArtifact(parts);
                 }
 
                 @Override
@@ -144,13 +149,11 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
-    private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
-            AgentEmitter emitter) {
+    private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter) {
         QueryResponse response = orchestrator.query(req);
         if (response.getResult() instanceof Map<?, ?> result
                 && result.get("_interrupt") instanceof Map<?, ?> interruptData) {
-            log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(),
-                    msgCtx.getContextId());
+            log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
             Message statusMsg = toStatusMessageFromMap(interruptData).orElse(null);
             emitter.requiresInput(statusMsg);
             closeEventQueue(emitter, msgCtx.getTaskId());
@@ -167,34 +170,37 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private static Optional<Message> toStatusMessage(QueryChunk chunk) {
         if (chunk.getData() instanceof Map<?, ?> m && m.get("message") instanceof String s && !s.isBlank()) {
-            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT)
-                    .parts(List.of(new TextPart(s))).build());
+            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(s))).build());
         }
         return Optional.empty();
     }
 
     private static Optional<Message> toStatusMessageFromMap(Map<?, ?> interruptData) {
         if (interruptData.get("message") instanceof String s && !s.isBlank()) {
-            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT)
-                    .parts(List.of(new TextPart(s))).build());
+            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(s))).build());
         }
         return Optional.empty();
     }
 
     /**
-     * Closes the emitter's underlying event queue so the SSE stream terminates without changing the task state
-     * (preserving INPUT_REQUIRED for resume).
+     * Closes the emitter's underlying event queue so the SSE stream terminates
+     * without changing the task state (preserving INPUT_REQUIRED for resume).
      *
      * <p>
-     * The just-enqueued INPUT_REQUIRED event is delivered to clients asynchronously by the event-bus processor, which
-     * <em>persists before distributing</em>. A bare close races that pipeline: with the in-memory store the event is
-     * distributed before close takes effect, but a Redis persistence round-trip is slow enough that the consumer sees
-     * a closed+empty queue and terminates before the event arrives — dropping INPUT_REQUIRED from the SSE stream. We
-     * therefore wait until the per-task queue reports no in-flight events (persisted <em>and</em> distributed to the
-     * child consumer queue) before the graceful close, which then lets the consumer drain the delivered event.
+     * The just-enqueued INPUT_REQUIRED event is delivered to clients asynchronously
+     * by the event-bus processor, which <em>persists before distributing</em>. A
+     * bare close races that pipeline: with the in-memory store the event is
+     * distributed before close takes effect, but a Redis persistence round-trip is
+     * slow enough that the consumer sees a closed+empty queue and terminates before
+     * the event arrives — dropping INPUT_REQUIRED from the SSE stream. We therefore
+     * wait until the per-task queue reports no in-flight events (persisted
+     * <em>and</em> distributed to the child consumer queue) before the graceful
+     * close, which then lets the consumer drain the delivered event.
      *
-     * @param emitter the agent emitter
-     * @param taskId the A2A task ID for logging
+     * @param emitter
+     *            the agent emitter
+     * @param taskId
+     *            the A2A task ID for logging
      */
     private static void closeEventQueue(AgentEmitter emitter, String taskId) {
         try {
@@ -213,15 +219,20 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     /**
-     * Waits until the task's parent {@code MainQueue} reports zero in-flight events, i.e. the event-bus processor has
-     * persisted and distributed every enqueued event (including the final INPUT_REQUIRED status) to the consumer's
-     * child queue. {@code MainQueue.size()} only returns to zero after {@code distributeToChildren()} and the matching
-     * semaphore release, so this is the reliable "safe to close" signal. Returns early as soon as the queue drains and
-     * only blocks up to {@link #CLOSE_DRAIN_TIMEOUT_MS}; falls back to an immediate close if the topology or
-     * {@code size()} cannot be read reflectively.
+     * Waits until the task's parent {@code MainQueue} reports zero in-flight
+     * events, i.e. the event-bus processor has persisted and distributed every
+     * enqueued event (including the final INPUT_REQUIRED status) to the consumer's
+     * child queue. {@code MainQueue.size()} only returns to zero after
+     * {@code distributeToChildren()} and the matching semaphore release, so this is
+     * the reliable "safe to close" signal. Returns early as soon as the queue
+     * drains and only blocks up to {@link #CLOSE_DRAIN_TIMEOUT_MS}; falls back to
+     * an immediate close if the topology or {@code size()} cannot be read
+     * reflectively.
      *
-     * @param childQueue the emitter's (child) event queue
-     * @param taskId the A2A task ID for logging
+     * @param childQueue
+     *            the emitter's (child) event queue
+     * @param taskId
+     *            the A2A task ID for logging
      */
     private static void awaitInFlightDrained(org.a2aproject.sdk.server.events.EventQueue childQueue, String taskId) {
         Object sizeTarget = childQueue;
@@ -246,8 +257,8 @@ public class A2AAgentExecutor implements AgentExecutor {
                 }
                 Thread.sleep(CLOSE_DRAIN_POLL_MS);
             }
-            log.warn("A2A awaitInFlightDrained timed out after {}ms, closing anyway taskId={}",
-                    CLOSE_DRAIN_TIMEOUT_MS, taskId);
+            log.warn("A2A awaitInFlightDrained timed out after {}ms, closing anyway taskId={}", CLOSE_DRAIN_TIMEOUT_MS,
+                    taskId);
         } catch (InterruptedException e) {
             log.debug("A2A awaitInFlightDrained interrupted taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
