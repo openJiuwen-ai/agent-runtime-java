@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import javax.tools.ToolProvider;
@@ -40,6 +41,7 @@ class SandboxExampleJiuwenBoxLocalServerTest {
     private static final String DECORATING_SANDBOX_CLIENT = "Created client: "
             + "com.openjiuwen.service.adapters.agentcore.external.DecoratingSandboxClient";
 
+    @Tag("smoke")
     @Test
     void sandboxAdapterExampleCanCallLocalJiuwenBoxCompatibleServer()
             throws IOException, InterruptedException, ExecutionException, TimeoutException {
