@@ -73,6 +73,9 @@ class DefaultServeOrchestratorInterruptTest {
                 completed.set(true);
             }
         }));
+        worker.setUncaughtExceptionHandler((unused, error) -> {
+            throw new AssertionError(error);
+        });
         worker.start();
 
         assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
@@ -111,6 +114,9 @@ class DefaultServeOrchestratorInterruptTest {
         request.setConversationId("sync-conv");
 
         Thread worker = new Thread(() -> orchestrator.query(request));
+        worker.setUncaughtExceptionHandler((unused, error) -> {
+            throw new AssertionError(error);
+        });
         worker.start();
         Thread.sleep(50);
         orchestrator.cancelActive("sync-conv");

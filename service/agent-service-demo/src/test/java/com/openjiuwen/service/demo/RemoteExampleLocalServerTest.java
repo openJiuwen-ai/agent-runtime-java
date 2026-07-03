@@ -40,6 +40,9 @@ class RemoteExampleLocalServerTest {
                 throw new IllegalStateException("mock A2A server failed", ex);
             }
         }, "mock-a2a-remote-server");
+        serverThread.setUncaughtExceptionHandler((unused, error) -> {
+            throw new AssertionError(error);
+        });
         serverThread.setDaemon(true);
         serverThread.start();
 

@@ -158,13 +158,17 @@ class SandboxExampleJiuwenBoxLocalServerTest {
                 .redirectErrorStream(true)
                 .start();
         CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(() -> readProcessOutput(process));
-        boolean finished = process.waitFor(30, TimeUnit.SECONDS);
-        if (!finished) {
+        Process completed;
+        try {
+            completed = process.onExit().get(30, TimeUnit.SECONDS);
+        } catch (TimeoutException ex) {
             process.destroyForcibly();
+            String output = outputFuture.get(5, TimeUnit.SECONDS);
+            assertThat(false).as("process timed out: " + output).isTrue();
+            throw ex;
         }
         String output = outputFuture.get(5, TimeUnit.SECONDS);
-        assertThat(finished).as(output).isTrue();
-        assertThat(process.exitValue()).as(output).isZero();
+        assertThat(completed.exitValue()).as(output).isZero();
         return output;
     }
 

@@ -6,11 +6,13 @@ package com.openjiuwen.service.adapters.common.middleware.redis;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
+import redis.clients.jedis.Connection;
 import redis.clients.jedis.DefaultJedisClientConfig;
 import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisClientConfig;
 import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPooled;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 
@@ -31,8 +33,8 @@ public final class RedisJedisClientFactory {
      * <p>
      * The returned {@link Jedis} is a single connection and is <b>not
      * thread-safe</b>. Use it only from a single
-     * thread; for concurrent access use
-     * {@link #createPool(MiddlewareProperties.RedisEndpoint, String)}.
+     * thread; for concurrent access use {@link #createPooled(MiddlewareProperties.RedisEndpoint, String)}
+     * or {@link #createPool(MiddlewareProperties.RedisEndpoint, String)}.
      *
      * @param endpoint redis host/port/database/timeout from properties
      * @param password decrypted password (blank = no auth)
@@ -42,6 +44,24 @@ public final class RedisJedisClientFactory {
         HostAndPort hostAndPort = hostAndPort(endpoint);
         return clientConfig(endpoint, password).map(cfg -> new Jedis(hostAndPort, cfg))
                 .orElseGet(() -> new Jedis(hostAndPort));
+    }
+
+    /**
+     * Build a thread-safe {@link JedisPooled} client from middleware redis endpoint settings.
+     * <p>
+     * Prefer this over {@link #createClient} when the client is shared across threads (e.g. Core
+     * {@code RedisStore} / checkpointer), because {@link JedisPooled} exposes the same command API as
+     * {@link Jedis} while pooling connections internally.
+     *
+     * @param endpoint redis host/port/database/timeout from properties
+     * @param password decrypted password (blank = no auth)
+     * @return a pooled, thread-safe Jedis client
+     */
+    public static JedisPooled createPooled(MiddlewareProperties.RedisEndpoint endpoint, String password) {
+        HostAndPort hostAndPort = hostAndPort(endpoint);
+        JedisClientConfig clientConfig = clientConfig(endpoint, password)
+                .orElseGet(() -> DefaultJedisClientConfig.builder().build());
+        return new JedisPooled(hostAndPort, clientConfig, pooledConnectionConfig());
     }
 
     /**
@@ -98,11 +118,21 @@ public final class RedisJedisClientFactory {
 
     private static GenericObjectPoolConfig<Jedis> poolConfig() {
         GenericObjectPoolConfig<Jedis> config = new GenericObjectPoolConfig<>();
+        applyPoolLimits(config);
+        return config;
+    }
+
+    private static GenericObjectPoolConfig<Connection> pooledConnectionConfig() {
+        GenericObjectPoolConfig<Connection> config = new GenericObjectPoolConfig<>();
+        applyPoolLimits(config);
+        return config;
+    }
+
+    private static void applyPoolLimits(GenericObjectPoolConfig<?> config) {
         config.setMaxTotal(16);
         config.setMaxIdle(8);
         config.setMinIdle(1);
         config.setTestOnBorrow(true);
         config.setTestWhileIdle(true);
-        return config;
     }
 }

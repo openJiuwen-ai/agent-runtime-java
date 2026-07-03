@@ -60,7 +60,7 @@ public final class AgentCoreCheckpointerConfigAssembler {
         String password = decryptor.decrypt(endpoint.getEncryptedPassword());
 
         Map<String, Object> connection = new HashMap<>(RedisConnectionAssembler.buildConnectionMap(endpoint, password));
-        connection.put("redis_client", RedisJedisClientFactory.createClient(endpoint, password));
+        connection.put("redis_client", RedisJedisClientFactory.createPooled(endpoint, password));
 
         Map<String, Object> conf = new HashMap<>();
         conf.put("connection", connection);

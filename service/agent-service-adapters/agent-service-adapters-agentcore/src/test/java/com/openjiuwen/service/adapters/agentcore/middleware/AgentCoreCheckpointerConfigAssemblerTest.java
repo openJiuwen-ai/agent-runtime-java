@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
-import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPooled;
 
 import org.junit.jupiter.api.Test;
 
@@ -31,7 +31,7 @@ class AgentCoreCheckpointerConfigAssemblerTest {
     }
 
     @Test
-    void buildsRedisConfigWithJedisClient() {
+    void buildsRedisConfigWithJedisPooledClient() {
         MiddlewareProperties properties = new MiddlewareProperties();
         properties.getCheckpointer().setType("redis");
         MiddlewareProperties.RedisEndpoint endpoint = new MiddlewareProperties.RedisEndpoint();
@@ -46,7 +46,7 @@ class AgentCoreCheckpointerConfigAssemblerTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
         assertThat(connection.get("url")).asString().contains("127.0.0.1:6379");
-        assertThat(connection.get("redis_client")).isInstanceOf(Jedis.class);
+        assertThat(connection.get("redis_client")).isInstanceOf(JedisPooled.class);
     }
 
     @Test

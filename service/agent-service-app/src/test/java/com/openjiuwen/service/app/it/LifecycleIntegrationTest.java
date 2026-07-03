@@ -104,6 +104,9 @@ class LifecycleIntegrationTest {
                 completed.set(true);
             }
         }));
+        worker.setUncaughtExceptionHandler((unused, error) -> {
+            throw new AssertionError(error);
+        });
         worker.start();
 
         assertThat(SlowStreamAgentHandler.awaitStarted(5, TimeUnit.SECONDS)).isTrue();
@@ -167,6 +170,9 @@ class LifecycleIntegrationTest {
             public void onComplete() {
             }
         }));
+        worker.setUncaughtExceptionHandler((unused, error) -> {
+            throw new AssertionError(error);
+        });
         worker.start();
 
         assertThat(SlowStreamAgentHandler.awaitStarted(5, TimeUnit.SECONDS)).isTrue();

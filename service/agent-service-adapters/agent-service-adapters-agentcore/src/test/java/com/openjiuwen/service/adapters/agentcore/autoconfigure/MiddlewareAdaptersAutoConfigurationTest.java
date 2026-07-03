@@ -11,7 +11,7 @@ import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterReg
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
 
-import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPooled;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -54,7 +54,7 @@ class MiddlewareAdaptersAutoConfigurationTest {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
                     assertThat(connection.get("url")).asString().contains("redis.local:6380");
-                    assertThat(connection.get("redis_client")).isInstanceOf(Jedis.class);
+                    assertThat(connection.get("redis_client")).isInstanceOf(JedisPooled.class);
                 });
     }
 
