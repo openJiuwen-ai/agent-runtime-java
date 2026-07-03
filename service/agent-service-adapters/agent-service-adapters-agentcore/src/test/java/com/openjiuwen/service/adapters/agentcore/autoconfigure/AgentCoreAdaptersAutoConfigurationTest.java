@@ -4,10 +4,13 @@
 
 package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+
+import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.core.runner.drunner.remoteclient.ProtocolEnum;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
-import com.openjiuwen.core.runner.drunner.remoteclient.ProtocolEnum;
-import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
@@ -20,14 +23,12 @@ import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemote
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreSandboxClientFactory;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
  * Tests auto-configuration for agent-core adapter beans and external service

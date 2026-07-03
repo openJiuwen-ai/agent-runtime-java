@@ -4,10 +4,15 @@
 
 package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
+
+import redis.clients.jedis.Jedis;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -16,10 +21,11 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.Map;
 
-import redis.clients.jedis.Jedis;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * MiddlewareAdaptersAutoConfigurationTest
+ *
+ * @since 2026-07-03
+ */
 class MiddlewareAdaptersAutoConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()

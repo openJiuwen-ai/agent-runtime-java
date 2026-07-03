@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.openjiuwen.core.foundation.llm.schema.ToolCall;
 import com.openjiuwen.harness.rails.interrupt.InterruptResult;
 import com.openjiuwen.harness.rails.interrupt.RejectResult;
+
 import org.junit.jupiter.api.Test;
 
 /**

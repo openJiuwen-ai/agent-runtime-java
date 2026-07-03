@@ -14,6 +14,7 @@ import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalPrope
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -51,6 +52,8 @@ import java.util.Map;
  * {@link ExternalSvcAdapterRegistrar} when an MCP server is configured under
  * {@code openjiuwen.service.external.mcp}.
  * </p>
+ *
+ * @since 2026-07-03
  */
 @SpringBootApplication
 @EnableConfigurationProperties(DemoLlmProperties.class)

@@ -11,6 +11,9 @@ import com.openjiuwen.service.spec.dto.ResetConversationResponse;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
+
+import jakarta.servlet.http.HttpServletResponse;
+
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -21,9 +24,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Map;
 
 /**
  * MVC stack reset conversation controller ({@code POST /v1/reset_conversation}
@@ -53,6 +54,7 @@ public class ResetConversationMvcController {
      * @param request the reset request body
      * @param response the servlet response
      * @return the reset response, or {@code null} when an error body was written
+     * @throws IOException IOException
      */
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_V1, produces = MediaType.APPLICATION_JSON_VALUE)
     public ResetConversationResponse resetV1(@RequestBody ResetConversationRequest request,
@@ -66,6 +68,7 @@ public class ResetConversationMvcController {
      * @param request the reset request body
      * @param response the servlet response
      * @return the reset response, or {@code null} when an error body was written
+     * @throws IOException IOException
      */
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_LEGACY, produces = MediaType.APPLICATION_JSON_VALUE)
     @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true", matchIfMissing = true)

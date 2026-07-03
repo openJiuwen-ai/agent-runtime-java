@@ -4,16 +4,24 @@
 
 package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
-import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
-import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
+import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
+import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.params.ScanParams;
+import redis.clients.jedis.resps.ScanResult;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -26,13 +34,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.params.ScanParams;
-import redis.clients.jedis.resps.ScanResult;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Spring full-chain IT: properties → middleware auto-configuration
@@ -174,7 +175,7 @@ class MiddlewareRedisSpringIT {
         try (Jedis jedis = new Jedis(LOCAL_REDIS_HOST, LOCAL_REDIS_PORT)) {
             ScanParams params = new ScanParams().match(prefix + "*").count(100);
             String cursor = ScanParams.SCAN_POINTER_START;
-            long count = 0;
+            long count = 0L;
             do {
                 ScanResult<String> scan = jedis.scan(cursor, params);
                 count += scan.getResult().size();

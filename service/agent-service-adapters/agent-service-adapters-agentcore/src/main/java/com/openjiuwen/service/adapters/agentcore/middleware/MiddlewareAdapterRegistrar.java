@@ -24,6 +24,8 @@ public interface MiddlewareAdapterRegistrar {
     /**
      * Populates checkpointer (and P2 placeholder fields) on the global runner
      * configuration.
+     *
+     * @param runnerConfig runnerConfig
      */
     void applyToRunnerConfig(RunnerConfig runnerConfig);
 }

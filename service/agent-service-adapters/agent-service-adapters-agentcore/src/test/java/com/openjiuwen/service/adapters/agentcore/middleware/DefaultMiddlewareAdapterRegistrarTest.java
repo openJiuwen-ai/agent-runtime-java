@@ -4,17 +4,23 @@
 
 package com.openjiuwen.service.adapters.agentcore.middleware;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.extensions.checkpointer.redis.RedisCheckpointer;
 import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDecryptor;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * DefaultMiddlewareAdapterRegistrarTest
+ *
+ * @since 2026-07-03
+ */
 class DefaultMiddlewareAdapterRegistrarTest {
 
     @Test

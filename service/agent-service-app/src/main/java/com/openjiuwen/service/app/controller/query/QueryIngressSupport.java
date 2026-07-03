@@ -6,10 +6,12 @@ package com.openjiuwen.service.app.controller.query;
 
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+
+import org.springframework.http.HttpHeaders;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
-import org.springframework.http.HttpHeaders;
 
 /**
  * Shared ingress logic for Query controllers (header binding, validation, DTO mapping).
@@ -19,8 +21,10 @@ import org.springframework.http.HttpHeaders;
 public final class QueryIngressSupport {
     /** Gateway user identifier header. */
     public static final String HEADER_USER_ID = "X-User-ID";
+
     /** Gateway space identifier header. */
     public static final String HEADER_SPACE_ID = "X-Space-ID";
+
     /** Gateway tenant identifier header. */
     public static final String HEADER_TENANT_ID = "X-Tenant-ID";
 

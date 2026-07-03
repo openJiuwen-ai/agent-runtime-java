@@ -4,15 +4,22 @@
 
 package com.openjiuwen.service.adapters.agentcore.middleware;
 
-import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
-import org.junit.jupiter.api.Test;
-import redis.clients.jedis.Jedis;
-
-import java.util.Map;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+
+import redis.clients.jedis.Jedis;
+
+import org.junit.jupiter.api.Test;
+
+import java.util.Map;
+
+/**
+ * AgentCoreCheckpointerConfigAssemblerTest
+ *
+ * @since 2026-07-03
+ */
 class AgentCoreCheckpointerConfigAssemblerTest {
 
     @Test

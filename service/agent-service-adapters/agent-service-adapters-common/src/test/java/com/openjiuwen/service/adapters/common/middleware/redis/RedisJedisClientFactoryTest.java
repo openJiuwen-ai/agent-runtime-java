@@ -4,12 +4,19 @@
 
 package com.openjiuwen.service.adapters.common.middleware.redis;
 
-import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
-import redis.clients.jedis.Jedis;
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+
+import redis.clients.jedis.Jedis;
+
+import org.junit.jupiter.api.Test;
+
+/**
+ * RedisJedisClientFactoryTest
+ *
+ * @since 2026-07-03
+ */
 class RedisJedisClientFactoryTest {
 
     @Test

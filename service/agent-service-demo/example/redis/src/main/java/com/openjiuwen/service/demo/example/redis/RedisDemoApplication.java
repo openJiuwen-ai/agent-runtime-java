@@ -10,6 +10,7 @@ import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegi
 import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

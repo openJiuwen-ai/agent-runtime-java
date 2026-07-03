@@ -11,6 +11,7 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -21,6 +22,8 @@ import java.util.Map;
 
 /**
  * Internal test helper: scenario-switchable health probe L1 validation app.
+ *
+ * @since 2026-07-03
  */
 @SpringBootApplication
 public class HealthL1ProbeExample {

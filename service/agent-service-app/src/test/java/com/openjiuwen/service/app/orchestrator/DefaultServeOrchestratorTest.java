@@ -4,12 +4,15 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -18,8 +21,11 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * DefaultServeOrchestratorTest
+ *
+ * @since 2026-07-03
+ */
 class DefaultServeOrchestratorTest {
 
     private final ActiveStreamRegistry streamRegistry = new ActiveStreamRegistry();

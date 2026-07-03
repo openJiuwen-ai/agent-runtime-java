@@ -4,16 +4,21 @@
 
 package com.openjiuwen.service.app.lifecycle;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
 import com.openjiuwen.service.app.config.LifecycleProperties;
-import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.lifecycle.AgentInitHook;
 import com.openjiuwen.service.spec.lifecycle.AgentInterruptHandler;
 import com.openjiuwen.service.spec.lifecycle.AgentLifecycleContext;
+import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.lifecycle.AgentShutdownHook;
 import com.openjiuwen.service.spec.lifecycle.InterruptReason;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -22,10 +27,11 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-
+/**
+ * DefaultAgentLifecycleManagerTest
+ *
+ * @since 2026-07-03
+ */
 class DefaultAgentLifecycleManagerTest {
 
     @Test

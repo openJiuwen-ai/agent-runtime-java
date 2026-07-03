@@ -4,19 +4,20 @@
 
 package com.openjiuwen.service.adapters.agentcore.external;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.openjiuwen.core.runner.drunner.remoteclient.ProtocolEnum;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterErrorCode;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterException;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests remote client decoration behavior for external adapter policies.

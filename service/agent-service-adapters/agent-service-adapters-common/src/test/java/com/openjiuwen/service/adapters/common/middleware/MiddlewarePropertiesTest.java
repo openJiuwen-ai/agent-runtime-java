@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.adapters.common.middleware;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -11,8 +13,11 @@ import org.springframework.boot.context.properties.source.MapConfigurationProper
 
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * MiddlewarePropertiesTest
+ *
+ * @since 2026-07-03
+ */
 class MiddlewarePropertiesTest {
 
     @Test

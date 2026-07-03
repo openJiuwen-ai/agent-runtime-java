@@ -5,16 +5,18 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.openjiuwen.service.spec.dto.ServeRequest;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.stream.Collectors;
+
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * A2A Message → ServeRequest inbound adapter. Outbound (QueryChunk → A2A Part)

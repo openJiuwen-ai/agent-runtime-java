@@ -40,6 +40,8 @@ public final class AgentLifecycleContext {
 
     /**
      * {@code spring.application.name} of the running Agent Service process.
+     *
+     * @return String
      */
     public String getAppName() {
         return appName;

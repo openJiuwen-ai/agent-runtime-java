@@ -4,18 +4,21 @@
 
 package com.openjiuwen.service.app.autoconfigure;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -26,8 +29,11 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * AgentServiceDisabledIntegrationTest
+ *
+ * @since 2026-07-03
+ */
 @SpringBootTest(classes = AgentServiceDisabledIntegrationTest.MinimalAgentApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {"openjiuwen.service.enabled=false", "openjiuwen.service.query.webflux.enabled=false"})
 @AutoConfigureTestRestTemplate

@@ -11,6 +11,7 @@ import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalPrope
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreRemoteClientFactory;
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientDecoratorFactory;
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientFactory;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +20,8 @@ import java.util.Map;
 
 /**
  * Internal test helper: minimal A2A remote client creation and invoke sample.
+ *
+ * @since 2026-07-03
  */
 public final class A2ARemoteAdapterExample {
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAdapterExample.class);

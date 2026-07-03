@@ -17,6 +17,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * ApiConfigLoader
+ *
+ * @since 2026-07-03
+ */
 final class ApiConfigLoader {
 
     static final String DEFAULT_FILE_NAME = "apiconfig.json";

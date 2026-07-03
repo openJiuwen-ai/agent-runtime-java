@@ -4,11 +4,17 @@
 
 package com.openjiuwen.service.spec.dto;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.junit.jupiter.api.Test;
+
+/**
+ * ResetConversationRequestTest
+ *
+ * @since 2026-07-03
+ */
 class ResetConversationRequestTest {
 
     private final ObjectMapper mapper = new ObjectMapper();

@@ -4,15 +4,21 @@
 
 package com.openjiuwen.service.adapters.common.middleware.redis;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
+/**
+ * RedisConnectionAssemblerTest
+ *
+ * @since 2026-07-03
+ */
 class RedisConnectionAssemblerTest {
 
     @Test

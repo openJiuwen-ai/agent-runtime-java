@@ -14,6 +14,8 @@ package com.openjiuwen.service.adapters.common.credential;
 public interface CredentialDecryptor {
 
     /**
+     * decrypt
+     *
      * @param ciphertext value from configuration; {@code null} or blank means no
      *            credential
      * @return plaintext for connection or authentication

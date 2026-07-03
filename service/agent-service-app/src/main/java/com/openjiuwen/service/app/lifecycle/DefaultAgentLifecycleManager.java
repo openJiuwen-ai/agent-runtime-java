@@ -9,6 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Thin lifecycle coordinator: delegates init, shutdown and interrupt to
  * dedicated executors.
+ *
+ * @since 2026-07-03
  */
 public class DefaultAgentLifecycleManager implements AgentLifecycleManager {
 

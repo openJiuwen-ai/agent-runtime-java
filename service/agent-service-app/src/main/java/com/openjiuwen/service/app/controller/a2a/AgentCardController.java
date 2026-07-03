@@ -8,9 +8,9 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
+
 import jakarta.servlet.http.HttpServletRequest;
-import java.util.List;
-import java.util.Map;
+
 import org.a2aproject.sdk.spec.AgentCapabilities;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.AgentInterface;
@@ -18,6 +18,9 @@ import org.a2aproject.sdk.spec.AgentProvider;
 import org.a2aproject.sdk.spec.AgentSkill;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * Serves the A2A-standard Agent Card on multiple well-known paths. All fields

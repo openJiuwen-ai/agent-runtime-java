@@ -4,11 +4,16 @@
 
 package com.openjiuwen.service.app.config;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * DefaultAgentServiceIdentityTest
+ *
+ * @since 2026-07-03
+ */
 class DefaultAgentServiceIdentityTest {
 
     @Test

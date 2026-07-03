@@ -14,7 +14,7 @@ public class ExternalCircuitBreakerPolicy {
 
     private int failureThreshold = 5;
 
-    private long resetTimeoutMs = 30000;
+    private long resetTimeoutMs = 30000L;
 
     public boolean isEnabled() {
         return isEnabled;

@@ -84,6 +84,7 @@ public class ActiveStreamRegistry {
     /**
      * Waits until no active streams remain or timeout elapses.
      *
+     * @param timeoutMs timeoutMs
      * @return true if drained, false if timeout
      */
     public boolean awaitDrain(long timeoutMs) {

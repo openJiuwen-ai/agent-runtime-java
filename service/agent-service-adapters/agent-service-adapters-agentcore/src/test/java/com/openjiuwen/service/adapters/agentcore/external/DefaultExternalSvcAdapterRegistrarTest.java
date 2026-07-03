@@ -4,6 +4,10 @@
 
 package com.openjiuwen.service.adapters.agentcore.external;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.openjiuwen.core.foundation.tool.mcp.McpClient;
 import com.openjiuwen.core.foundation.tool.mcp.McpClientFactory;
 import com.openjiuwen.core.foundation.tool.mcp.McpClientProvider;
@@ -14,6 +18,7 @@ import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientFactory;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientProvider;
+
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -21,10 +26,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests external service adapter registration into agent-core extension points.

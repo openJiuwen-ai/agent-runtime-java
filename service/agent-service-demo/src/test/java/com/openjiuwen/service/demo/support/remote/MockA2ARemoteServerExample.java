@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,6 +24,8 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Internal test helper: local A2A JSON-RPC mock server.
+ *
+ * @since 2026-07-03
  */
 public class MockA2ARemoteServerExample {
     private static final Logger log = LoggerFactory.getLogger(MockA2ARemoteServerExample.class);

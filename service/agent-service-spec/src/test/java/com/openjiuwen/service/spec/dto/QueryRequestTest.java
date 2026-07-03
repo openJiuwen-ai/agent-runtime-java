@@ -4,14 +4,20 @@
 
 package com.openjiuwen.service.spec.dto;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * QueryRequestTest
+ *
+ * @since 2026-07-03
+ */
 class QueryRequestTest {
 
     private final ObjectMapper mapper = new ObjectMapper();

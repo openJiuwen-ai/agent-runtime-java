@@ -4,16 +4,22 @@
 
 package com.openjiuwen.service.app.lifecycle;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
+/**
+ * AgentHandlerHolderTest
+ *
+ * @since 2026-07-03
+ */
 class AgentHandlerHolderTest {
 
     @Test

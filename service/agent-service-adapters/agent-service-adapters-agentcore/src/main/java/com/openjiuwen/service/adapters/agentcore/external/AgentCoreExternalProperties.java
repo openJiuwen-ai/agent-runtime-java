@@ -11,6 +11,7 @@ import com.openjiuwen.service.adapters.common.external.ExternalAuditPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalCallPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalCircuitBreakerPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalRetryPolicy;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.net.URI;

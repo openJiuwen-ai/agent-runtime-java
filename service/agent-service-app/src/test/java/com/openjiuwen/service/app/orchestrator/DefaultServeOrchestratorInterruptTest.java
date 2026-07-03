@@ -4,11 +4,14 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -18,8 +21,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * DefaultServeOrchestratorInterruptTest
+ *
+ * @since 2026-07-03
+ */
 class DefaultServeOrchestratorInterruptTest {
 
     @Test

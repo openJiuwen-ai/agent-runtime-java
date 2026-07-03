@@ -5,9 +5,11 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.google.gson.Gson;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
+
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.params.ScanParams;
+
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
 import org.a2aproject.sdk.server.tasks.TaskStore;
@@ -15,9 +17,10 @@ import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.params.ScanParams;
+
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Redis-backed {@link TaskStore} using the same Redis connection as the
@@ -40,7 +43,6 @@ public class RedisTaskStore implements TaskStore {
 
     // Reuse the SDK's configured Gson: it carries the TypeAdapters for Task's
     // polymorphic Part,
-    // OffsetDateTime, and the StreamingEventKind hierarchy. A bare new Gson()
     // reflects into
     // java.time.OffsetDateTime and fails on JDK 17+ ("module java.base does not
     // opens java.time").

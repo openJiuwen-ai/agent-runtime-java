@@ -9,6 +9,7 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
@@ -17,6 +18,8 @@ import java.util.Map;
 
 /**
  * Internal test helper: minimal Agent Service for health probe validation.
+ *
+ * @since 2026-07-03
  */
 @SpringBootApplication
 public class HealthProbeExample {

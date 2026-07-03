@@ -21,6 +21,7 @@ import java.util.Map;
 public final class AgentCoreCheckpointerConfigAssembler {
     /** In-memory checkpointer type token. */
     public static final String TYPE_IN_MEMORY = "in_memory";
+
     /** Redis checkpointer type token. */
     public static final String TYPE_REDIS = "redis";
 

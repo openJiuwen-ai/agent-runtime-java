@@ -8,6 +8,8 @@ import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 
 /**
  * Default {@link AgentReadiness} backed by lifecycle state.
+ *
+ * @since 2026-07-03
  */
 public class DefaultAgentReadiness implements AgentReadiness {
 

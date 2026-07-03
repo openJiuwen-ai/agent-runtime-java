@@ -33,7 +33,7 @@ public final class ResetIngressSupport {
     }
 
     public record ValidationResult(boolean valid, int errorStatus, Map<String, Object> errorBody,
-                                   String conversationId) {
+                                    String conversationId) {
 
         static ValidationResult ok(String conversationId) {
             return new ValidationResult(true, 0, null, conversationId);

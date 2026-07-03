@@ -4,10 +4,15 @@
 
 package com.openjiuwen.service.adapters.common.credential;
 
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.junit.jupiter.api.Test;
+
+/**
+ * PassthroughCredentialDecryptorTest
+ *
+ * @since 2026-07-03
+ */
 class PassthroughCredentialDecryptorTest {
 
     @Test

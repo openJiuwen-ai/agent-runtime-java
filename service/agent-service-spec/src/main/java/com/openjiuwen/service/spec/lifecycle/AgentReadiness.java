@@ -14,12 +14,16 @@ public interface AgentReadiness {
 
     /**
      * JVM / HTTP stack is up and accepting lifecycle-managed traffic.
+     *
+     * @return boolean
      */
     boolean isProcessUp();
 
     /**
      * Agent / {@link com.openjiuwen.service.spec.spi.AgentHandler} finished init
      * and can serve Query.
+     *
+     * @return boolean
      */
     boolean isAgentLoaded();
 }

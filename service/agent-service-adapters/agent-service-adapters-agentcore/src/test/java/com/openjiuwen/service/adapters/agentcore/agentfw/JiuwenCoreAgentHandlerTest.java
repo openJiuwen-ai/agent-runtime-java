@@ -4,16 +4,19 @@
 
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
-import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -24,8 +27,11 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * JiuwenCoreAgentHandlerTest
+ *
+ * @since 2026-07-03
+ */
 class JiuwenCoreAgentHandlerTest {
 
     @Test

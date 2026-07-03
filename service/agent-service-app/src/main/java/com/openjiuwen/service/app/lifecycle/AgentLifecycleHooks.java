@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.lifecycle;
 import com.openjiuwen.service.spec.lifecycle.AgentInitHook;
 import com.openjiuwen.service.spec.lifecycle.AgentInterruptHandler;
 import com.openjiuwen.service.spec.lifecycle.AgentShutdownHook;
+
 import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 
 import java.util.ArrayList;
@@ -14,6 +15,8 @@ import java.util.List;
 
 /**
  * Collected and ordered lifecycle hooks.
+ *
+ * @since 2026-07-03
  */
 public final class AgentLifecycleHooks {
 

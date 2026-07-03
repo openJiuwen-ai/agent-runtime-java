@@ -4,9 +4,11 @@
 
 package com.openjiuwen.service.app.config;
 
-import java.util.List;
 import lombok.Data;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.util.List;
 
 /**
  * Binds {@code openjiuwen.service.a2a.*} for AgentCard content, remote agents,

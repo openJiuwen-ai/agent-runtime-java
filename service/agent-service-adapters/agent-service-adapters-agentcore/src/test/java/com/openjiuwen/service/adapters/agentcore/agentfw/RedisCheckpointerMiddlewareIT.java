@@ -4,6 +4,9 @@
 
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.service.adapters.agentcore.middleware.DefaultMiddlewareAdapterRegistrar;
@@ -12,21 +15,20 @@ import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDe
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.params.ScanParams;
+import redis.clients.jedis.resps.ScanResult;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.params.ScanParams;
-import redis.clients.jedis.resps.ScanResult;
 
 import java.util.List;
 import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Integration tests against a real Redis (Testcontainers or local
@@ -256,7 +258,7 @@ class RedisCheckpointerMiddlewareIT {
     private static long scanKeyCount(Jedis jedis, String prefix) {
         ScanParams params = new ScanParams().match(prefix + "*").count(100);
         String cursor = ScanParams.SCAN_POINTER_START;
-        long count = 0;
+        long count = 0L;
         do {
             ScanResult<String> scan = jedis.scan(cursor, params);
             count += scan.getResult().size();

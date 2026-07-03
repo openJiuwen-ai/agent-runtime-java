@@ -4,13 +4,15 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
-import java.util.Map;
 import lombok.Data;
+
 import org.a2aproject.sdk.server.agentexecution.RequestContext;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Map;
 
 /**
  * Internal DTO wrapping A2A SDK parsed message context.

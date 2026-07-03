@@ -5,14 +5,16 @@
 package com.openjiuwen.service.adapters.common.middleware.redis;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
-import java.util.Optional;
 
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import redis.clients.jedis.DefaultJedisClientConfig;
 import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisClientConfig;
 import redis.clients.jedis.JedisPool;
+
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+
+import java.util.Optional;
 
 /**
  * Creates Jedis clients for middleware Redis connections (adapter-side Redis
@@ -34,6 +36,7 @@ public final class RedisJedisClientFactory {
      *
      * @param endpoint redis host/port/database/timeout from properties
      * @param password decrypted password (blank = no auth)
+     * @return Jedis
      */
     public static Jedis createClient(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         HostAndPort hostAndPort = hostAndPort(endpoint);
@@ -69,6 +72,10 @@ public final class RedisJedisClientFactory {
      * {@link Optional#empty()} when neither password
      * nor a non-zero database is set (preserving the original no-config standalone
      * behaviour).
+     *
+     * @param password password
+     * @param endpoint endpoint
+     * @return Optional<JedisClientConfig>
      */
     private static Optional<JedisClientConfig> clientConfig(MiddlewareProperties.RedisEndpoint endpoint,
             String password) {

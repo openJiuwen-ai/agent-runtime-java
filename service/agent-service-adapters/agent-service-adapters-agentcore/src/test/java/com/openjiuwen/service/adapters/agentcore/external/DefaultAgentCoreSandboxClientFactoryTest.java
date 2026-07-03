@@ -4,17 +4,18 @@
 
 package com.openjiuwen.service.adapters.agentcore.external;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.openjiuwen.core.sysop.config.ContainerScope;
 import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
 import com.openjiuwen.core.sysop.sandbox.SandboxEndpoint;
 import com.openjiuwen.core.sysop.sandbox.SandboxRegistry;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests sandbox client factory mapping and validation behavior.

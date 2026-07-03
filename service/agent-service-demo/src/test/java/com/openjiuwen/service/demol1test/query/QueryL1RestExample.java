@@ -11,6 +11,7 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -27,6 +28,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Internal test helper: scenario-switchable Query REST L1 validation app.
+ *
+ * @since 2026-07-03
  */
 @SpringBootApplication
 public class QueryL1RestExample {
