@@ -21,9 +21,7 @@ public final class AgentLifecycleHooks {
     private final List<AgentShutdownHook> shutdownHooks;
     private final List<AgentInterruptHandler> interruptHandlers;
 
-    public AgentLifecycleHooks(
-            List<AgentInitHook> initHooks,
-            List<AgentShutdownHook> shutdownHooks,
+    public AgentLifecycleHooks(List<AgentInitHook> initHooks, List<AgentShutdownHook> shutdownHooks,
             List<AgentInterruptHandler> interruptHandlers) {
         this.initHooks = sorted(initHooks);
         this.shutdownHooks = sorted(shutdownHooks);

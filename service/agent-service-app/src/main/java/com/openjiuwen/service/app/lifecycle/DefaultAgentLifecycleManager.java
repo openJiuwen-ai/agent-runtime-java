@@ -7,7 +7,8 @@ package com.openjiuwen.service.app.lifecycle;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Thin lifecycle coordinator: delegates init, shutdown and interrupt to dedicated executors.
+ * Thin lifecycle coordinator: delegates init, shutdown and interrupt to
+ * dedicated executors.
  */
 public class DefaultAgentLifecycleManager implements AgentLifecycleManager {
 
@@ -17,10 +18,8 @@ public class DefaultAgentLifecycleManager implements AgentLifecycleManager {
     private final AtomicBoolean initCompleted = new AtomicBoolean(false);
     private final AtomicBoolean shutdownStarted = new AtomicBoolean(false);
 
-    public DefaultAgentLifecycleManager(
-            InitPhaseExecutor initPhaseExecutor,
-            ShutdownPhaseExecutor shutdownPhaseExecutor,
-            ActiveStreamInterruptor streamInterruptor) {
+    public DefaultAgentLifecycleManager(InitPhaseExecutor initPhaseExecutor,
+            ShutdownPhaseExecutor shutdownPhaseExecutor, ActiveStreamInterruptor streamInterruptor) {
         this.initPhaseExecutor = initPhaseExecutor;
         this.shutdownPhaseExecutor = shutdownPhaseExecutor;
         this.streamInterruptor = streamInterruptor;

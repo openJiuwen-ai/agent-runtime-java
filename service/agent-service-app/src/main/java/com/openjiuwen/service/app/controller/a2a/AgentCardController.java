@@ -20,7 +20,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Serves the A2A-standard Agent Card on multiple well-known paths. All fields are driven by {@link A2AProperties}
+ * Serves the A2A-standard Agent Card on multiple well-known paths. All fields
+ * are driven by {@link A2AProperties}
  * configuration.
  *
  * @since 0.1.0
@@ -90,22 +91,17 @@ public class AgentCardController {
                 .toList();
 
         String providerOrg = a2aProperties.getProviderOrganization() != null
-                ? a2aProperties.getProviderOrganization() : "";
-        String providerUrl = a2aProperties.getProviderUrl() != null
-                ? a2aProperties.getProviderUrl() : "";
+                ? a2aProperties.getProviderOrganization()
+                : "";
+        String providerUrl = a2aProperties.getProviderUrl() != null ? a2aProperties.getProviderUrl() : "";
 
         return new AgentCard(identity.getAppName(), a2aProperties.getAgentDescription(),
-                new AgentProvider(providerOrg, providerUrl),
-                serviceProperties.getVersion(), a2aProperties.getDocumentationUrl(),
+                new AgentProvider(providerOrg, providerUrl), serviceProperties.getVersion(),
+                a2aProperties.getDocumentationUrl(),
                 new AgentCapabilities(a2aProperties.isStreaming(), a2aProperties.isPushNotifications(),
                         a2aProperties.isExtendedAgentCard(), List.of()),
                 a2aProperties.getDefaultInputModes(), a2aProperties.getDefaultOutputModes(), skills, Map.of(),
-                List.of(),
-                a2aProperties.getIconUrl(),
-                List.of(new AgentInterface("JSONRPC", jsonRpcUrl, null, "1.0")),
-                List.of(),
-                jsonRpcUrl,
-                "JSONRPC",
-                List.of());
+                List.of(), a2aProperties.getIconUrl(), List.of(new AgentInterface("JSONRPC", jsonRpcUrl, null, "1.0")),
+                List.of(), jsonRpcUrl, "JSONRPC", List.of());
     }
 }

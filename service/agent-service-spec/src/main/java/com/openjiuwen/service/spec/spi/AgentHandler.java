@@ -18,7 +18,8 @@ public interface AgentHandler {
 
     /**
      * Start the handler before serving (e.g. AgentCore {@code Runner.start()}).
-     * Invoked once during service init after the handler is loaded and init hooks have run.
+     * Invoked once during service init after the handler is loaded and init hooks
+     * have run.
      */
     default void start() {
     }
@@ -30,7 +31,8 @@ public interface AgentHandler {
     }
 
     /**
-     * Clear persisted session state for a conversation (e.g. {@code Runner.release(sessionId)}).
+     * Clear persisted session state for a conversation (e.g.
+     * {@code Runner.release(sessionId)}).
      */
     default void clearSession(String conversationId) {
     }

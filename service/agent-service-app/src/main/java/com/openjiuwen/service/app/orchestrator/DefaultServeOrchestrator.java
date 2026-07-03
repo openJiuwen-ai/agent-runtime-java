@@ -20,7 +20,8 @@ import java.util.Map;
 import java.util.concurrent.CancellationException;
 
 /**
- * Default orchestration: delegates to {@link AgentHandler} with unified error surfacing.
+ * Default orchestration: delegates to {@link AgentHandler} with unified error
+ * surfacing.
  */
 public class DefaultServeOrchestrator implements ServeOrchestrator {
 

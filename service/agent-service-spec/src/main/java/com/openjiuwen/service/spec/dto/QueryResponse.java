@@ -9,7 +9,9 @@ import lombok.Data;
 
 /**
  * Non-streaming Query API response.
- * <p>{@link #result} carries the aggregated assistant output (role, content, events).
+ * <p>
+ * {@link #result} carries the aggregated assistant output (role, content,
+ * events).
  */
 @Data
 public class QueryResponse {

@@ -9,7 +9,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 
 /**
- * Spring Boot test application wiring a stub {@link AgentHandler} for integration tests.
+ * Spring Boot test application wiring a stub {@link AgentHandler} for
+ * integration tests.
  *
  * @since 0.1.0
  */

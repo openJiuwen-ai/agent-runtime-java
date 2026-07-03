@@ -9,7 +9,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 /**
- * Reset conversation API request body (aligned with Python {@code ResetConversationRequest}).
+ * Reset conversation API request body (aligned with Python
+ * {@code ResetConversationRequest}).
  */
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)

@@ -35,7 +35,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * MVC stack Query controller ({@code POST /v1/query} and legacy {@code POST /query}).
+ * MVC stack Query controller ({@code POST /v1/query} and legacy
+ * {@code POST /query}).
  */
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
@@ -180,8 +181,7 @@ public class QueryMvcController {
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
-@ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled",
-        havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true", matchIfMissing = true)
 class QueryLegacyMvcController {
 
     private final QueryMvcController delegate;

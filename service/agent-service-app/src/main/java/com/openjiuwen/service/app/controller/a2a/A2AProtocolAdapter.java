@@ -17,7 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A2A Message → ServeRequest inbound adapter. Outbound (QueryChunk → A2A Part) is handled by {@link ChunkMapper} +
+ * A2A Message → ServeRequest inbound adapter. Outbound (QueryChunk → A2A Part)
+ * is handled by {@link ChunkMapper} +
  * AgentEmitter.
  *
  * @since 0.1.0

@@ -22,7 +22,8 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 /**
- * Fetches AgentCards from configured remote A2A servers at startup. Successful fetches are cached permanently; failures
+ * Fetches AgentCards from configured remote A2A servers at startup. Successful
+ * fetches are cached permanently; failures
  * are retried every 30s.
  *
  * @since 0.1.0
@@ -51,8 +52,8 @@ public class A2AAgentCardDiscovery {
         this.retryExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "a2a-discovery-retry");
             t.setDaemon(true);
-            t.setUncaughtExceptionHandler((thread, ex) ->
-                    log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
+            t.setUncaughtExceptionHandler(
+                    (thread, ex) -> log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
             return t;
         });
     }
@@ -110,7 +111,8 @@ public class A2AAgentCardDiscovery {
     }
 
     /**
-     * Shuts down the retry executor gracefully, cancelling all pending retries and waiting for any in-flight
+     * Shuts down the retry executor gracefully, cancelling all pending retries and
+     * waiting for any in-flight
      * task to complete before forcing termination.
      */
     @PreDestroy

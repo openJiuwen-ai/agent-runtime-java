@@ -30,7 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
- * Tests auto-configuration for agent-core adapter beans and external service properties.
+ * Tests auto-configuration for agent-core adapter beans and external service
+ * properties.
  *
  * @since 2026-06-24
  */
@@ -40,16 +41,13 @@ class AgentCoreAdaptersAutoConfigurationTest {
 
     @Test
     void registersJiuwenCoreAgentHandlerWhenAgentIdConfigured() {
-        contextRunner
-                .withPropertyValues("openjiuwen.service.agent-id=my-agent")
-                .run(context -> assertThat(context.getBean(AgentHandler.class))
-                        .isInstanceOf(JiuwenCoreAgentHandler.class));
+        contextRunner.withPropertyValues("openjiuwen.service.agent-id=my-agent").run(
+                context -> assertThat(context.getBean(AgentHandler.class)).isInstanceOf(JiuwenCoreAgentHandler.class));
     }
 
     @Test
     void skipsWhenCustomAgentHandlerBeanPresent() {
-        contextRunner
-                .withUserConfiguration(CustomHandlerConfig.class)
+        contextRunner.withUserConfiguration(CustomHandlerConfig.class)
                 .withPropertyValues("openjiuwen.service.agent-id=my-agent")
                 .run(context -> assertThat(context.getBean(AgentHandler.class))
                         .isInstanceOf(CustomHandlerConfig.StubAgentHandler.class));
@@ -62,23 +60,18 @@ class AgentCoreAdaptersAutoConfigurationTest {
 
     @Test
     void registersDefaultExternalSvcAdapterRegistrarAndBindsMcpProperties() {
-        contextRunner
-                .withPropertyValues(
-                        "openjiuwen.service.external.mcp.servers[0].server-id=srv-1",
-                        "openjiuwen.service.external.mcp.servers[0].server-name=tools",
-                        "openjiuwen.service.external.mcp.servers[0].server-path=http://localhost:9000/mcp",
-                        "openjiuwen.service.external.mcp.servers[0].client-type=sse",
-                        "openjiuwen.service.external.mcp.timeout-ms=2500",
-                        "openjiuwen.service.external.mcp.retry.max=2",
-                        "openjiuwen.service.external.mcp.retry-tool-calls=true",
-                        "openjiuwen.service.external.remote.timeout-ms=3500",
-                        "openjiuwen.service.external.remote.retry.max=1",
-                        "openjiuwen.service.external.remote.retry-invoke=true",
-                        "openjiuwen.service.external.remote.clients[0].id=remote-a2a",
-                        "openjiuwen.service.external.remote.clients[0].name=Remote A2A",
-                        "openjiuwen.service.external.remote.clients[0].protocol=A2A",
-                        "openjiuwen.service.external.remote.clients[0].url=http://localhost:18082")
-                .run(context -> {
+        contextRunner.withPropertyValues("openjiuwen.service.external.mcp.servers[0].server-id=srv-1",
+                "openjiuwen.service.external.mcp.servers[0].server-name=tools",
+                "openjiuwen.service.external.mcp.servers[0].server-path=http://localhost:9000/mcp",
+                "openjiuwen.service.external.mcp.servers[0].client-type=sse",
+                "openjiuwen.service.external.mcp.timeout-ms=2500", "openjiuwen.service.external.mcp.retry.max=2",
+                "openjiuwen.service.external.mcp.retry-tool-calls=true",
+                "openjiuwen.service.external.remote.timeout-ms=3500", "openjiuwen.service.external.remote.retry.max=1",
+                "openjiuwen.service.external.remote.retry-invoke=true",
+                "openjiuwen.service.external.remote.clients[0].id=remote-a2a",
+                "openjiuwen.service.external.remote.clients[0].name=Remote A2A",
+                "openjiuwen.service.external.remote.clients[0].protocol=A2A",
+                "openjiuwen.service.external.remote.clients[0].url=http://localhost:18082").run(context -> {
                     assertThat(context).hasSingleBean(ExternalSvcAdapterRegistrar.class);
                     assertThat(context).hasSingleBean(AgentCoreRemoteClientDecoratorFactory.class);
                     assertThat(context.getBean(AgentCoreRemoteClientDecoratorFactory.class))
@@ -114,8 +107,7 @@ class AgentCoreAdaptersAutoConfigurationTest {
     @Test
     void failsStartupWhenMcpTimeoutOrRetryConfigIsNegative() {
         contextRunner
-                .withPropertyValues(
-                        "openjiuwen.service.external.mcp.timeout-ms=-1000",
+                .withPropertyValues("openjiuwen.service.external.mcp.timeout-ms=-1000",
                         "openjiuwen.service.external.mcp.retry.max=-2",
                         "openjiuwen.service.external.mcp.servers[0].server-id=srv-1",
                         "openjiuwen.service.external.mcp.servers[0].server-name=tools",
@@ -125,14 +117,11 @@ class AgentCoreAdaptersAutoConfigurationTest {
 
     @Test
     void registersRemoteClientFactoryWhenRemoteClientsAreConfigured() {
-        contextRunner
-                .withPropertyValues(
-                        "openjiuwen.service.external.remote.clients[0].id=remote-a2a",
-                        "openjiuwen.service.external.remote.clients[0].name=Remote A2A",
-                        "openjiuwen.service.external.remote.clients[0].protocol=A2A",
-                        "openjiuwen.service.external.remote.clients[0].url=http://localhost:18082",
-                        "openjiuwen.service.external.remote.clients[0].timeout-ms=1500")
-                .run(context -> {
+        contextRunner.withPropertyValues("openjiuwen.service.external.remote.clients[0].id=remote-a2a",
+                "openjiuwen.service.external.remote.clients[0].name=Remote A2A",
+                "openjiuwen.service.external.remote.clients[0].protocol=A2A",
+                "openjiuwen.service.external.remote.clients[0].url=http://localhost:18082",
+                "openjiuwen.service.external.remote.clients[0].timeout-ms=1500").run(context -> {
                     assertThat(context).hasSingleBean(AgentCoreRemoteClientFactory.class);
                     assertThat(context.getBean(AgentCoreRemoteClientFactory.class))
                             .isInstanceOf(DefaultAgentCoreRemoteClientFactory.class);
@@ -153,8 +142,7 @@ class AgentCoreAdaptersAutoConfigurationTest {
     @Test
     void failsStartupWhenRemoteClientUrlIsInvalid() {
         contextRunner
-                .withPropertyValues(
-                        "openjiuwen.service.external.remote.clients[0].id=remote-a2a",
+                .withPropertyValues("openjiuwen.service.external.remote.clients[0].id=remote-a2a",
                         "openjiuwen.service.external.remote.clients[0].protocol=A2A",
                         "openjiuwen.service.external.remote.clients[0].url=file:///tmp/a2a")
                 .run(context -> assertThat(context).hasFailed());
@@ -162,39 +150,33 @@ class AgentCoreAdaptersAutoConfigurationTest {
 
     @Test
     void allowsCustomExternalSvcAdapterRegistrarBeanToOverrideDefault() {
-        contextRunner
-                .withUserConfiguration(CustomRegistrarConfig.class)
+        contextRunner.withUserConfiguration(CustomRegistrarConfig.class)
                 .run(context -> assertThat(context.getBean(ExternalSvcAdapterRegistrar.class))
                         .isInstanceOf(CustomRegistrarConfig.CustomRegistrar.class));
     }
 
     @Test
     void allowsCustomRemoteClientDecoratorFactoryBeanToOverrideDefault() {
-        contextRunner
-                .withUserConfiguration(CustomRemoteDecoratorFactoryConfig.class)
+        contextRunner.withUserConfiguration(CustomRemoteDecoratorFactoryConfig.class)
                 .run(context -> assertThat(context.getBean(AgentCoreRemoteClientDecoratorFactory.class))
                         .isInstanceOf(CustomRemoteDecoratorFactoryConfig.CustomRemoteDecoratorFactory.class));
     }
 
     @Test
     void skipsSandboxFactoryWhenSandboxIsDisabled() {
-        contextRunner
-                .withPropertyValues("openjiuwen.service.external.sandbox.enabled=false")
+        contextRunner.withPropertyValues("openjiuwen.service.external.sandbox.enabled=false")
                 .run(context -> assertThat(context).doesNotHaveBean(AgentCoreSandboxClientFactory.class));
     }
 
     @Test
     void registersSandboxFactoryWhenSandboxConfigIsValid() {
-        contextRunner
-                .withPropertyValues(
-                        "openjiuwen.service.external.sandbox.enabled=true",
-                        "openjiuwen.service.external.sandbox.servers[0].server-id=default",
-                        "openjiuwen.service.external.sandbox.servers[0].service-url=http://localhost:18090",
-                        "openjiuwen.service.external.sandbox.servers[0].sandbox-type=jiuwenbox",
-                        "openjiuwen.service.external.sandbox.servers[0].launcher-type=pre_deploy",
-                        "openjiuwen.service.external.sandbox.timeout-ms=4000",
-                        "openjiuwen.service.external.sandbox.retry.max=1")
-                .run(context -> {
+        contextRunner.withPropertyValues("openjiuwen.service.external.sandbox.enabled=true",
+                "openjiuwen.service.external.sandbox.servers[0].server-id=default",
+                "openjiuwen.service.external.sandbox.servers[0].service-url=http://localhost:18090",
+                "openjiuwen.service.external.sandbox.servers[0].sandbox-type=jiuwenbox",
+                "openjiuwen.service.external.sandbox.servers[0].launcher-type=pre_deploy",
+                "openjiuwen.service.external.sandbox.timeout-ms=4000",
+                "openjiuwen.service.external.sandbox.retry.max=1").run(context -> {
                     assertThat(context).hasSingleBean(AgentCoreSandboxClientFactory.class);
                     assertThat(context.getBean(AgentCoreSandboxClientFactory.class))
                             .isInstanceOf(DefaultAgentCoreSandboxClientFactory.class);
@@ -210,16 +192,14 @@ class AgentCoreAdaptersAutoConfigurationTest {
 
     @Test
     void failsStartupWhenSandboxIsEnabledWithoutServers() {
-        contextRunner
-                .withPropertyValues("openjiuwen.service.external.sandbox.enabled=true")
+        contextRunner.withPropertyValues("openjiuwen.service.external.sandbox.enabled=true")
                 .run(context -> assertThat(context).hasFailed());
     }
 
     @Test
     void failsStartupWhenSandboxServiceUrlIsInvalid() {
         contextRunner
-                .withPropertyValues(
-                        "openjiuwen.service.external.sandbox.enabled=true",
+                .withPropertyValues("openjiuwen.service.external.sandbox.enabled=true",
                         "openjiuwen.service.external.sandbox.servers[0].server-id=default",
                         "openjiuwen.service.external.sandbox.servers[0].service-url=ftp://localhost:18090",
                         "openjiuwen.service.external.sandbox.servers[0].sandbox-type=jiuwenbox")
@@ -228,10 +208,8 @@ class AgentCoreAdaptersAutoConfigurationTest {
 
     @Test
     void allowsCustomSandboxClientFactoryBeanToOverrideDefault() {
-        contextRunner
-                .withUserConfiguration(CustomSandboxFactoryConfig.class)
-                .withPropertyValues(
-                        "openjiuwen.service.external.sandbox.enabled=true",
+        contextRunner.withUserConfiguration(CustomSandboxFactoryConfig.class)
+                .withPropertyValues("openjiuwen.service.external.sandbox.enabled=true",
                         "openjiuwen.service.external.sandbox.servers[0].server-id=default",
                         "openjiuwen.service.external.sandbox.servers[0].service-url=http://localhost:18090",
                         "openjiuwen.service.external.sandbox.servers[0].sandbox-type=jiuwenbox")
@@ -255,7 +233,7 @@ class AgentCoreAdaptersAutoConfigurationTest {
 
             @Override
             public void streamQuery(com.openjiuwen.service.spec.dto.ServeRequest request,
-                                    com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
+                    com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
             }
         }
     }
@@ -287,9 +265,7 @@ class AgentCoreAdaptersAutoConfigurationTest {
 
         static class CustomRemoteDecoratorFactory implements AgentCoreRemoteClientDecoratorFactory {
             @Override
-            public RemoteClient decorate(
-                    RemoteClientConfig config,
-                    RemoteClient delegate,
+            public RemoteClient decorate(RemoteClientConfig config, RemoteClient delegate,
                     AgentCoreExternalProperties.RemotePolicy policy) {
                 return delegate;
             }

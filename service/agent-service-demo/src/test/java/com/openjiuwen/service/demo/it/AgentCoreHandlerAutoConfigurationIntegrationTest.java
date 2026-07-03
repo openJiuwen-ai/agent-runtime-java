@@ -35,14 +35,12 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * AC1: app + agentcore adapter assembly - pure {@code agent-id} without business {@code @Bean AgentHandler}.
+ * AC1: app + agentcore adapter assembly - pure {@code agent-id} without
+ * business {@code @Bean AgentHandler}.
  */
-@SpringBootTest(classes = AgentCoreHandlerAutoConfigurationIntegrationTest.CoreAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@TestPropertySource(properties = {
-        "openjiuwen.service.agent-id=it-agent",
-        "openjiuwen.service.query.webflux.enabled=false"
-})
+@SpringBootTest(classes = AgentCoreHandlerAutoConfigurationIntegrationTest.CoreAgentApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestPropertySource(properties = {"openjiuwen.service.agent-id=it-agent",
+        "openjiuwen.service.query.webflux.enabled=false"})
 @AutoConfigureTestRestTemplate
 class AgentCoreHandlerAutoConfigurationIntegrationTest {
 
@@ -58,9 +56,7 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
 
     @BeforeAll
     static void registerAgentInResourceMgr() {
-        Runner.resourceMgr().addAgent(
-                AgentCard.builder().id(AGENT_ID).name(AGENT_ID).build(),
-                SessionEchoAgent::new,
+        Runner.resourceMgr().addAgent(AgentCard.builder().id(AGENT_ID).name(AGENT_ID).build(), SessionEchoAgent::new,
                 null);
     }
 
@@ -79,10 +75,9 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void queryEndpointWorksWithoutCustomHandlerBean() throws Exception {
-        ResponseEntity<String> resp = postQuery("/v1/query", Map.of(
-                "messages", List.of(Map.of("role", "user", "content", "hello")),
-                "conversation_id", "c-agent-id-it",
-                "stream", false));
+        ResponseEntity<String> resp = postQuery("/v1/query",
+                Map.of("messages", List.of(Map.of("role", "user", "content", "hello")), "conversation_id",
+                        "c-agent-id-it", "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);

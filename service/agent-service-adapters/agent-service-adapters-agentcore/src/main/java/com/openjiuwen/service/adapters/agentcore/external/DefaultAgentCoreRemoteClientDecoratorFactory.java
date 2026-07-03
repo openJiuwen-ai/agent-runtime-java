@@ -14,9 +14,7 @@ import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
  */
 public class DefaultAgentCoreRemoteClientDecoratorFactory implements AgentCoreRemoteClientDecoratorFactory {
     @Override
-    public RemoteClient decorate(
-            RemoteClientConfig config,
-            RemoteClient delegate,
+    public RemoteClient decorate(RemoteClientConfig config, RemoteClient delegate,
             AgentCoreExternalProperties.RemotePolicy policy) {
         return new DecoratingRemoteClient(config, delegate, policy);
     }

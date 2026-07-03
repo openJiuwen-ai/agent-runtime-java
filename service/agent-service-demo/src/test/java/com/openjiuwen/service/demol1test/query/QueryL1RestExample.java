@@ -33,15 +33,10 @@ public class QueryL1RestExample {
 
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(QueryL1RestExample.class);
-        application.setDefaultProperties(Map.of(
-                "server.port", "8090",
-                "spring.main.web-application-type", "servlet",
-                "spring.application.name", "query-l1-example",
-                "openjiuwen.service.version", "0.1.0",
-                "example.query.l1.handler", "echo",
-                "example.query.l1.stream-chunks", "1",
-                "example.query.l1.stream-delay-ms", "0"
-        ));
+        application.setDefaultProperties(
+                Map.of("server.port", "8090", "spring.main.web-application-type", "servlet", "spring.application.name",
+                        "query-l1-example", "openjiuwen.service.version", "0.1.0", "example.query.l1.handler", "echo",
+                        "example.query.l1.stream-chunks", "1", "example.query.l1.stream-delay-ms", "0"));
         application.run(args);
     }
 
@@ -73,10 +68,8 @@ public class QueryL1RestExample {
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "example.query.l1", name = "handler",
-            havingValue = "echo", matchIfMissing = true)
-    AgentHandler queryL1EchoAgentHandler(
-            @Value("${example.query.l1.stream-chunks:1}") int streamChunks,
+    @ConditionalOnProperty(prefix = "example.query.l1", name = "handler", havingValue = "echo", matchIfMissing = true)
+    AgentHandler queryL1EchoAgentHandler(@Value("${example.query.l1.stream-chunks:1}") int streamChunks,
             @Value("${example.query.l1.stream-delay-ms:0}") long streamDelayMs) {
         return new EchoAgentHandler(streamChunks, streamDelayMs);
     }
@@ -134,8 +127,8 @@ public class QueryL1RestExample {
 
         private Map<String, Object> responseBody(ServeRequest request, int chunkIndex) {
             String query = request.lastUserQuery();
-            List<String> history = conversationHistory.computeIfAbsent(
-                    request.getConversationId(), ignored -> new ArrayList<>());
+            List<String> history = conversationHistory.computeIfAbsent(request.getConversationId(),
+                    ignored -> new ArrayList<>());
             String previousQuery = history.isEmpty() ? null : history.get(history.size() - 1);
             history.add(query);
 

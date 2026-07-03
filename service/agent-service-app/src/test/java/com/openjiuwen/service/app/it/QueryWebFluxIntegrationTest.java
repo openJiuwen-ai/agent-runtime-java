@@ -27,17 +27,15 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * WebFlux {@code /v1/query/reactive} integration tests against {@link TestServiceApplication}.
+ * WebFlux {@code /v1/query/reactive} integration tests against
+ * {@link TestServiceApplication}.
  *
  * @since 0.1.0
  */
-@SpringBootTest(classes = TestServiceApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
-@TestPropertySource(properties = {
-        "spring.main.web-application-type=reactive",
-        "openjiuwen.service.query.webflux.enabled=true"
-})
+@TestPropertySource(properties = {"spring.main.web-application-type=reactive",
+        "openjiuwen.service.query.webflux.enabled=true"})
 class QueryWebFluxIntegrationTest {
     @Autowired
     private WebTestClient webTestClient;
@@ -49,14 +47,13 @@ class QueryWebFluxIntegrationTest {
     }
 
     private static ThreadPoolExecutor fixedTestExecutor(String threadNamePrefix, int size,
-                                                        AtomicReference<Throwable> uncaught) {
+            AtomicReference<Throwable> uncaught) {
         AtomicInteger sequence = new AtomicInteger();
-        return new ThreadPoolExecutor(size, size, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(size),
-                task -> {
-                    Thread thread = new Thread(task, threadNamePrefix + "-" + sequence.incrementAndGet());
-                    thread.setUncaughtExceptionHandler((unused, error) -> uncaught.compareAndSet(null, error));
-                    return thread;
-                });
+        return new ThreadPoolExecutor(size, size, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(size), task -> {
+            Thread thread = new Thread(task, threadNamePrefix + "-" + sequence.incrementAndGet());
+            thread.setUncaughtExceptionHandler((unused, error) -> uncaught.compareAndSet(null, error));
+            return thread;
+        });
     }
 
     private static void shutdownExecutor(ThreadPoolExecutor executor) throws InterruptedException {
@@ -69,21 +66,12 @@ class QueryWebFluxIntegrationTest {
 
     @Test
     void streamingQueryReturnsPythonStyleSseChunk() {
-        Map<String, Object> body = Map.of(
-                "messages", List.of(userMessage("flux")),
-                "conversation_id", "c-flux",
+        Map<String, Object> body = Map.of("messages", List.of(userMessage("flux")), "conversation_id", "c-flux",
                 "stream", true);
 
-        byte[] responseBody = webTestClient.post()
-                .uri("/v1/query/reactive")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .exchange()
-                .expectStatus().isOk()
-                .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
-                .expectBody()
-                .returnResult()
-                .getResponseBody();
+        byte[] responseBody = webTestClient.post().uri("/v1/query/reactive").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body).exchange().expectStatus().isOk().expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM).expectBody().returnResult().getResponseBody();
 
         String text = responseText(responseBody);
         assertThat(text).contains("data: {");
@@ -93,20 +81,12 @@ class QueryWebFluxIntegrationTest {
 
     @Test
     void streamDefaultsToSseWhenOmitted() {
-        Map<String, Object> body = Map.of(
-                "messages", List.of(userMessage("flux-default")),
-                "conversation_id", "c-flux-default");
+        Map<String, Object> body = Map.of("messages", List.of(userMessage("flux-default")), "conversation_id",
+                "c-flux-default");
 
-        byte[] responseBody = webTestClient.post()
-                .uri("/v1/query/reactive")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .exchange()
-                .expectStatus().isOk()
-                .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
-                .expectBody()
-                .returnResult()
-                .getResponseBody();
+        byte[] responseBody = webTestClient.post().uri("/v1/query/reactive").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body).exchange().expectStatus().isOk().expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM).expectBody().returnResult().getResponseBody();
 
         String text = responseText(responseBody);
         assertThat(text).contains("data: {");
@@ -138,19 +118,11 @@ class QueryWebFluxIntegrationTest {
     }
 
     private String streamText(String conversationId, String content) {
-        byte[] responseBody = webTestClient.post()
-                .uri("/v1/query/reactive")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of(
-                        "messages", List.of(userMessage(content)),
-                        "conversation_id", conversationId,
+        byte[] responseBody = webTestClient.post().uri("/v1/query/reactive").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("messages", List.of(userMessage(content)), "conversation_id", conversationId,
                         "stream", true))
-                .exchange()
-                .expectStatus().isOk()
-                .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
-                .expectBody()
-                .returnResult()
-                .getResponseBody();
+                .exchange().expectStatus().isOk().expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
+                .expectBody().returnResult().getResponseBody();
         return responseText(responseBody);
     }
 
@@ -162,21 +134,12 @@ class QueryWebFluxIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void nonStreamingQueryReturnsAggregatedJson() throws Exception {
-        Map<String, Object> body = Map.of(
-                "messages", List.of(userMessage("json")),
-                "conversation_id", "c-flux-json",
+        Map<String, Object> body = Map.of("messages", List.of(userMessage("json")), "conversation_id", "c-flux-json",
                 "stream", false);
 
-        byte[] bytes = webTestClient.post()
-                .uri("/v1/query/reactive")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .exchange()
-                .expectStatus().isOk()
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
-                .expectBody()
-                .returnResult()
-                .getResponseBody();
+        byte[] bytes = webTestClient.post().uri("/v1/query/reactive").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body).exchange().expectStatus().isOk().expectHeader()
+                .contentTypeCompatibleWith(MediaType.APPLICATION_JSON).expectBody().returnResult().getResponseBody();
 
         Map<String, Object> json = mapper.readValue(bytes, Map.class);
         Map<String, Object> result = (Map<String, Object>) json.get("result");
@@ -187,20 +150,11 @@ class QueryWebFluxIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void missingConversationIdReturnsBadRequestBody() throws Exception {
-        Map<String, Object> body = Map.of(
-                "messages", List.of(userMessage("missing")),
-                "stream", false);
+        Map<String, Object> body = Map.of("messages", List.of(userMessage("missing")), "stream", false);
 
-        byte[] bytes = webTestClient.post()
-                .uri("/v1/query/reactive")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .exchange()
-                .expectStatus().isBadRequest()
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
-                .expectBody()
-                .returnResult()
-                .getResponseBody();
+        byte[] bytes = webTestClient.post().uri("/v1/query/reactive").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body).exchange().expectStatus().isBadRequest().expectHeader()
+                .contentTypeCompatibleWith(MediaType.APPLICATION_JSON).expectBody().returnResult().getResponseBody();
 
         Map<String, Object> json = mapper.readValue(bytes, Map.class);
         assertThat(json).containsEntry("type", "error");
@@ -210,21 +164,12 @@ class QueryWebFluxIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void blankConversationIdReturnsBadRequestBody() throws Exception {
-        Map<String, Object> body = Map.of(
-                "messages", List.of(userMessage("blank")),
-                "conversation_id", " ",
-                "stream", false);
+        Map<String, Object> body = Map.of("messages", List.of(userMessage("blank")), "conversation_id", " ", "stream",
+                false);
 
-        byte[] bytes = webTestClient.post()
-                .uri("/v1/query/reactive")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .exchange()
-                .expectStatus().isBadRequest()
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
-                .expectBody()
-                .returnResult()
-                .getResponseBody();
+        byte[] bytes = webTestClient.post().uri("/v1/query/reactive").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body).exchange().expectStatus().isBadRequest().expectHeader()
+                .contentTypeCompatibleWith(MediaType.APPLICATION_JSON).expectBody().returnResult().getResponseBody();
 
         Map<String, Object> json = mapper.readValue(bytes, Map.class);
         assertThat(json).containsEntry("type", "error");

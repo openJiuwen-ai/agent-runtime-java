@@ -16,10 +16,7 @@ class HealthControllerTest {
 
     @Test
     void blankAppNameFallsBackToAgentServiceAndUsesDefaultVersion() {
-        HealthController controller = new HealthController(
-                readiness(true, true),
-                () -> " ",
-                new ServiceProperties());
+        HealthController controller = new HealthController(readiness(true, true), () -> " ", new ServiceProperties());
 
         HealthResponse response = controller.health();
 

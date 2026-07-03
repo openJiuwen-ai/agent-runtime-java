@@ -23,12 +23,12 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration tests for health endpoint readiness flags under shutdown and process-down states.
+ * Integration tests for health endpoint readiness flags under shutdown and
+ * process-down states.
  *
  * @since 0.1.0
  */
-@SpringBootTest(classes = HealthReadinessStateIntegrationTest.MinimalAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = HealthReadinessStateIntegrationTest.MinimalAgentApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class HealthReadinessStateIntegrationTest {
     @Autowired

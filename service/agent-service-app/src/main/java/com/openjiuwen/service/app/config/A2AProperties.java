@@ -9,7 +9,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Binds {@code openjiuwen.service.a2a.*} for AgentCard content, remote agents, JSON-RPC endpoints, and task
+ * Binds {@code openjiuwen.service.a2a.*} for AgentCard content, remote agents,
+ * JSON-RPC endpoints, and task
  * configuration.
  *
  * @since 0.1.0
@@ -18,7 +19,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @Data
 public class A2AProperties {
     /**
-     * Public base URL for AgentCard {@code supportedInterfaces[].url}; auto-detected from HTTP request if blank.
+     * Public base URL for AgentCard {@code supportedInterfaces[].url};
+     * auto-detected from HTTP request if blank.
      */
     private String publicUrl;
 

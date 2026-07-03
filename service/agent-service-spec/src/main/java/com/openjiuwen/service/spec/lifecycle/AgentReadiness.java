@@ -5,7 +5,8 @@
 package com.openjiuwen.service.spec.lifecycle;
 
 /**
- * Probe readiness state for Agent Service (consumed by {@code GET /health}, Issue #8).
+ * Probe readiness state for Agent Service (consumed by {@code GET /health},
+ * Issue #8).
  */
 public interface AgentReadiness {
 
@@ -15,7 +16,8 @@ public interface AgentReadiness {
     boolean isProcessUp();
 
     /**
-     * Agent / {@link com.openjiuwen.service.spec.spi.AgentHandler} finished init and can serve Query.
+     * Agent / {@link com.openjiuwen.service.spec.spi.AgentHandler} finished init
+     * and can serve Query.
      */
     boolean isAgentLoaded();
 }

@@ -33,8 +33,8 @@ class RemoteExampleLocalServerTest {
         int port = freePort();
         Thread serverThread = new Thread(() -> {
             try {
-                com.openjiuwen.service.demo.support.remote.MockA2ARemoteServerExample.main(
-                        new String[]{"--port=" + port});
+                com.openjiuwen.service.demo.support.remote.MockA2ARemoteServerExample
+                        .main(new String[]{"--port=" + port});
             } catch (Exception ex) {
                 throw new IllegalStateException("mock A2A server failed", ex);
             }
@@ -49,25 +49,21 @@ class RemoteExampleLocalServerTest {
         properties.getRemote().setRetryInvoke(false);
         properties.getRemote().getRetry().setMax(0);
 
-        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient =
-                new AgentCoreExternalProperties.RemoteClientEndpoint();
+        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient = new AgentCoreExternalProperties.RemoteClientEndpoint();
         remoteClient.setId("demo-a2a-remote");
         remoteClient.setName("Demo A2A Remote");
         remoteClient.setProtocol("A2A");
         remoteClient.setUrl("http://127.0.0.1:" + port + "/a2a/jsonrpc");
         properties.getRemote().setClients(List.of(remoteClient));
 
-        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(
-                properties,
+        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(properties,
                 new DefaultAgentCoreRemoteClientDecoratorFactory());
         RemoteClient client = factory.create("demo-a2a-remote");
 
         assertThat(client.getClass().getName())
                 .isEqualTo("com.openjiuwen.service.adapters.agentcore.external.DecoratingRemoteClient");
 
-        Object result = client.invoke(Map.of(
-                "message", "hello remote",
-                "conversation_id", "demo-session"), null);
+        Object result = client.invoke(Map.of("message", "hello remote", "conversation_id", "demo-session"), null);
         assertThat(result).isInstanceOf(AgentResult.class);
         AgentResult agentResult = (AgentResult) result;
         assertThat(String.valueOf(agentResult.getStatus())).isEqualTo("completed");

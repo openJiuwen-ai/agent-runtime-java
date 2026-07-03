@@ -31,14 +31,12 @@ public class DefaultAgentCoreRemoteClientFactory implements AgentCoreRemoteClien
     private final AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory;
     private final List<RemoteClientProvider> customRemoteClientProviders;
 
-    public DefaultAgentCoreRemoteClientFactory(
-            AgentCoreExternalProperties properties,
+    public DefaultAgentCoreRemoteClientFactory(AgentCoreExternalProperties properties,
             AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory) {
         this(properties, remoteDecoratorFactory, List.of());
     }
 
-    public DefaultAgentCoreRemoteClientFactory(
-            AgentCoreExternalProperties properties,
+    public DefaultAgentCoreRemoteClientFactory(AgentCoreExternalProperties properties,
             AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
             List<RemoteClientProvider> customRemoteClientProviders) {
         this.properties = properties != null ? properties : new AgentCoreExternalProperties();
@@ -66,14 +64,10 @@ public class DefaultAgentCoreRemoteClientFactory implements AgentCoreRemoteClien
     public RemoteClientConfig configFor(String clientId) {
         AgentCoreExternalProperties.RemotePolicy policy = properties.getRemote();
         policy.validateClients();
-        AgentCoreExternalProperties.RemoteClientEndpoint client = policy.findClient(clientId).orElseThrow(
-                () -> new IllegalArgumentException("Unknown remote client: " + clientId));
-        return RemoteClientConfig.builder()
-                .id(client.getId())
-                .name(defaultText(client.getName(), client.getId()))
-                .protocol(toProtocol(client.getProtocol()))
-                .url(client.getUrl())
-                .build();
+        AgentCoreExternalProperties.RemoteClientEndpoint client = policy.findClient(clientId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown remote client: " + clientId));
+        return RemoteClientConfig.builder().id(client.getId()).name(defaultText(client.getName(), client.getId()))
+                .protocol(toProtocol(client.getProtocol())).url(client.getUrl()).build();
     }
 
     private void registerRemoteClientProviders() {

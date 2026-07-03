@@ -22,12 +22,9 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = HealthAutoConfigurationIntegrationTest.MinimalAgentApplication.class,
-        properties = {
-                "spring.application.name=probe-test-app",
-                "openjiuwen.service.version=1.2.3-test"
-        },
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = HealthAutoConfigurationIntegrationTest.MinimalAgentApplication.class, properties = {
+        "spring.application.name=probe-test-app",
+        "openjiuwen.service.version=1.2.3-test"}, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class HealthAutoConfigurationIntegrationTest {
 

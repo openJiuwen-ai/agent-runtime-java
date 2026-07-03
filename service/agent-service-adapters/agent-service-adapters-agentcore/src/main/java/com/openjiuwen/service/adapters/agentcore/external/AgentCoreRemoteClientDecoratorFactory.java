@@ -8,7 +8,8 @@ import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
 
 /**
- * Customization point for wrapping Core remote clients with Service egress behavior.
+ * Customization point for wrapping Core remote clients with Service egress
+ * behavior.
  *
  * @since 2026-06-24
  */
@@ -21,8 +22,6 @@ public interface AgentCoreRemoteClientDecoratorFactory {
      * @param policy remote outbound call policy
      * @return decorated remote client
      */
-    RemoteClient decorate(
-            RemoteClientConfig config,
-            RemoteClient delegate,
+    RemoteClient decorate(RemoteClientConfig config, RemoteClient delegate,
             AgentCoreExternalProperties.RemotePolicy policy);
 }

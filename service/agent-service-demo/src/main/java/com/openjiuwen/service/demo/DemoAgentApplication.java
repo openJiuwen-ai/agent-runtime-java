@@ -27,22 +27,30 @@ import java.util.Map;
 
 /**
  * Minimal end-to-end Agent Service example.
- *
- * <p>It wires a single {@link AgentHandler} backed by the agent-core-java runtime
- * ({@link JiuwenCoreAgentHandler} delegating to a {@link ReActAgent}). The ReAct loop
- * (reason → act → observe) lets the agent actually invoke registered tools, which is what
- * makes the MCP external-service integration meaningful. With that one bean the framework
- * auto-exposes the full service surface:</p>
+ * <p>
+ * It wires a single {@link AgentHandler} backed by the agent-core-java runtime
+ * ({@link JiuwenCoreAgentHandler} delegating to a {@link ReActAgent}). The
+ * ReAct loop
+ * (reason → act → observe) lets the agent actually invoke registered tools,
+ * which is what
+ * makes the MCP external-service integration meaningful. With that one bean the
+ * framework
+ * auto-exposes the full service surface:
+ * </p>
  * <ul>
- *   <li>{@code GET /health} — process / agent readiness probe</li>
- *   <li>{@code POST /v1/query} (and legacy {@code /query}) — non-streaming and SSE chat</li>
- *   <li>{@code POST /v1/reset_conversation} — cancel active streams and clear the session</li>
+ * <li>{@code GET /health} — process / agent readiness probe</li>
+ * <li>{@code POST /v1/query} (and legacy {@code /query}) — non-streaming and
+ * SSE chat</li>
+ * <li>{@code POST /v1/reset_conversation} — cancel active streams and clear the
+ * session</li>
  * </ul>
- *
- * <p>Internal service (Redis checkpointer) is configured under
- * {@code openjiuwen.service.middleware}; the external service (MCP tools) is registered through
+ * <p>
+ * Internal service (Redis checkpointer) is configured under
+ * {@code openjiuwen.service.middleware}; the external service (MCP tools) is
+ * registered through
  * {@link ExternalSvcAdapterRegistrar} when an MCP server is configured under
- * {@code openjiuwen.service.external.mcp}.</p>
+ * {@code openjiuwen.service.external.mcp}.
+ * </p>
  */
 @SpringBootApplication
 @EnableConfigurationProperties(DemoLlmProperties.class)
@@ -67,9 +75,12 @@ public class DemoAgentApplication {
     }
 
     /**
-     * Binds each configured MCP server to the agent's ability manager so its tools are exposed to
-     * the ReAct loop. The transport details (server-path / client-type) live in the Runner-side
-     * registration; the ability manager only needs {@code serverId} + {@code serverName} to fetch
+     * Binds each configured MCP server to the agent's ability manager so its tools
+     * are exposed to
+     * the ReAct loop. The transport details (server-path / client-type) live in the
+     * Runner-side
+     * registration; the ability manager only needs {@code serverId} +
+     * {@code serverName} to fetch
      * that server's tools lazily the first time the agent builds its tool list.
      *
      * @param agent the ReAct agent to bind tools to
@@ -93,29 +104,21 @@ public class DemoAgentApplication {
             }
             config.setServerName(server.getServerName());
             agent.getAbilityManager().add(config);
-            log.info("Bound MCP server to agent ability manager, serverId={}, serverName={}",
-                    config.getServerId(), config.getServerName());
+            log.info("Bound MCP server to agent ability manager, serverId={}, serverName={}", config.getServerId(),
+                    config.getServerName());
         }
     }
 
     private static ReActAgent buildReActAgent(DemoLlmProperties llmProperties) {
         llmProperties.requireConfigured();
-        AgentCard card = AgentCard.builder()
-                .id(REACT_AGENT_ID)
-                .name(REACT_AGENT_ID)
-                .description("Demo ReAct agent for Agent Service")
-                .build();
+        AgentCard card = AgentCard.builder().id(REACT_AGENT_ID).name(REACT_AGENT_ID)
+                .description("Demo ReAct agent for Agent Service").build();
         ReActAgent agent = new ReActAgent(card);
         ReActAgentConfig config = ReActAgentConfig.builder()
                 .promptTemplate(List.of(Map.of("role", "system", "content", llmProperties.getSystemPrompt())))
-                .maxIterations(llmProperties.getMaxIterations())
-                .build()
-                .configureModelClient(
-                        llmProperties.getProvider(),
-                        llmProperties.getApiKey(),
-                        llmProperties.getApiBase(),
-                        llmProperties.getModelName(),
-                        llmProperties.isSslVerify())
+                .maxIterations(llmProperties.getMaxIterations()).build()
+                .configureModelClient(llmProperties.getProvider(), llmProperties.getApiKey(),
+                        llmProperties.getApiBase(), llmProperties.getModelName(), llmProperties.isSslVerify())
                 .configureContextEngine(null, llmProperties.getContextWindowLimit(), false);
         ModelRequestConfig requestConfig = config.getModelConfigObj();
         requestConfig.setTemperature(llmProperties.getTemperature());

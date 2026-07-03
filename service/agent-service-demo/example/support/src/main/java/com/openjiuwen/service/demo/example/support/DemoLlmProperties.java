@@ -11,8 +11,10 @@ import java.time.Duration;
 import java.util.Map;
 
 /**
- * Shared LLM configuration for agent-service-demo and all example feature modules.
- * Bound from {@code openjiuwen.demo.llm} in {@code example/config/application-base.yml}.
+ * Shared LLM configuration for agent-service-demo and all example feature
+ * modules.
+ * Bound from {@code openjiuwen.demo.llm} in
+ * {@code example/config/application-base.yml}.
  */
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.demo.llm")

@@ -20,13 +20,16 @@ import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.params.ScanParams;
 
 /**
- * Redis-backed {@link TaskStore} using the same Redis connection as the Checkpointer middleware. Task keys carry a
+ * Redis-backed {@link TaskStore} using the same Redis connection as the
+ * Checkpointer middleware. Task keys carry a
  * 7-day TTL.
- *
  * <p>
- * Backed by a thread-safe {@link JedisPool}: the A2A request handler, the event-bus processor and the orchestrator all
- * touch the task store concurrently, so each operation borrows its own connection and returns it (try-with-resources).
- * A single shared {@link Jedis} would interleave commands on one socket and corrupt the RESP protocol stream.
+ * Backed by a thread-safe {@link JedisPool}: the A2A request handler, the
+ * event-bus processor and the orchestrator all
+ * touch the task store concurrently, so each operation borrows its own
+ * connection and returns it (try-with-resources).
+ * A single shared {@link Jedis} would interleave commands on one socket and
+ * corrupt the RESP protocol stream.
  *
  * @since 0.1.0
  */
@@ -35,9 +38,12 @@ public class RedisTaskStore implements TaskStore {
     private static final String KEY_PREFIX = "a2a:task:";
     private static final int TTL_SECONDS = 604800; // 7 days
 
-    // Reuse the SDK's configured Gson: it carries the TypeAdapters for Task's polymorphic Part,
-    // OffsetDateTime, and the StreamingEventKind hierarchy. A bare new Gson() reflects into
-    // java.time.OffsetDateTime and fails on JDK 17+ ("module java.base does not opens java.time").
+    // Reuse the SDK's configured Gson: it carries the TypeAdapters for Task's
+    // polymorphic Part,
+    // OffsetDateTime, and the StreamingEventKind hierarchy. A bare new Gson()
+    // reflects into
+    // java.time.OffsetDateTime and fails on JDK 17+ ("module java.base does not
+    // opens java.time").
     private static final Gson GSON = JsonUtil.OBJECT_MAPPER;
 
     private final JedisPool jedisPool;
@@ -48,9 +54,12 @@ public class RedisTaskStore implements TaskStore {
 
     @Override
     public void save(Task task, boolean isOverwrite) {
-        // Upsert unconditionally to match the SDK's reference InMemoryTaskStore, which ignores the
-        // isOverwrite flag and always put()s. The event-bus processor re-saves the same task on every
-        // state transition with isOverwrite=false; treating that as "fail if exists" breaks the flow.
+        // Upsert unconditionally to match the SDK's reference InMemoryTaskStore, which
+        // ignores the
+        // isOverwrite flag and always put()s. The event-bus processor re-saves the same
+        // task on every
+        // state transition with isOverwrite=false; treating that as "fail if exists"
+        // breaks the flow.
         String key = KEY_PREFIX + task.id();
         byte[] data = GSON.toJson(task).getBytes(StandardCharsets.UTF_8);
         try (Jedis jedis = jedisPool.getResource()) {

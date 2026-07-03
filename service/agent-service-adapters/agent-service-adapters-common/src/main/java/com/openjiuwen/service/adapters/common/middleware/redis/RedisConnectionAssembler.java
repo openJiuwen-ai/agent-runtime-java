@@ -21,8 +21,7 @@ public final class RedisConnectionAssembler {
     private RedisConnectionAssembler() {
     }
 
-    public static MiddlewareProperties.RedisEndpoint resolveEndpoint(
-            MiddlewareProperties properties, String redisRef) {
+    public static MiddlewareProperties.RedisEndpoint resolveEndpoint(MiddlewareProperties properties, String redisRef) {
         String ref = redisRef;
         if (ref == null || ref.isBlank()) {
             ref = "default";
@@ -36,15 +35,14 @@ public final class RedisConnectionAssembler {
     }
 
     public static Map<String, Object> buildConnectionMap(MiddlewareProperties.RedisEndpoint endpoint,
-                                                         String decryptedPassword) {
+            String decryptedPassword) {
         Map<String, Object> connection = new LinkedHashMap<>();
         connection.put("url", buildRedisUrl(endpoint, decryptedPassword));
         return connection;
     }
 
-    public static Map<String, Object> buildConnectionMap(MiddlewareProperties properties,
-                                                         String redisRef,
-                                                         CredentialDecryptor decryptor) {
+    public static Map<String, Object> buildConnectionMap(MiddlewareProperties properties, String redisRef,
+            CredentialDecryptor decryptor) {
         MiddlewareProperties.RedisEndpoint endpoint = resolveEndpoint(properties, redisRef);
         String password = decryptor.decrypt(endpoint.getEncryptedPassword());
         return buildConnectionMap(endpoint, password);

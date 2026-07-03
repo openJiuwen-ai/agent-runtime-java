@@ -8,7 +8,8 @@ import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
 
 /**
- * Factory for creating agent-core sandbox clients from external sandbox configuration.
+ * Factory for creating agent-core sandbox clients from external sandbox
+ * configuration.
  *
  * @since 2026-06-24
  */
@@ -29,7 +30,8 @@ public interface AgentCoreSandboxClientFactory {
     SandboxClient create(String serverId);
 
     /**
-     * Returns the sandbox gateway configuration for the configured sandbox server id.
+     * Returns the sandbox gateway configuration for the configured sandbox server
+     * id.
      *
      * @param serverId sandbox server id
      * @return sandbox gateway configuration for the configured server

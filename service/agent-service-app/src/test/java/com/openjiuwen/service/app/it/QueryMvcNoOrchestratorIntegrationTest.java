@@ -26,12 +26,12 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 /**
- * Verifies MVC query returns service unavailable when no orchestrator is configured.
+ * Verifies MVC query returns service unavailable when no orchestrator is
+ * configured.
  *
  * @since 0.1.0
  */
-@SpringBootTest(classes = QueryMvcNoOrchestratorIntegrationTest.QueryOnlyApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = QueryMvcNoOrchestratorIntegrationTest.QueryOnlyApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class QueryMvcNoOrchestratorIntegrationTest {
     @Autowired

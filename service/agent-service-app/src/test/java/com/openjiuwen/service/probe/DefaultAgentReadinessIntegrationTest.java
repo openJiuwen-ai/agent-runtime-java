@@ -30,8 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DefaultAgentReadinessIntegrationTest {
 
     @Nested
-    @SpringBootTest(classes = NoHandlerApplication.class,
-            webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    @SpringBootTest(classes = NoHandlerApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
     @AutoConfigureTestRestTemplate
     class WhenNoAgentHandler {
 
@@ -53,8 +52,7 @@ class DefaultAgentReadinessIntegrationTest {
     }
 
     @Nested
-    @SpringBootTest(classes = HandlerApplication.class,
-            webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    @SpringBootTest(classes = HandlerApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
     @AutoConfigureTestRestTemplate
     class WhenAgentHandlerExists {
 

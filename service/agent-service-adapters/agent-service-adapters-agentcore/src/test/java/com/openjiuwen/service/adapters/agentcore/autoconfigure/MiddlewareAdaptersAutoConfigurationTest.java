@@ -23,8 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MiddlewareAdaptersAutoConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(
-                    CredentialDecryptorAutoConfiguration.class,
+            .withConfiguration(AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class,
                     MiddlewareAdaptersAutoConfiguration.class));
 
     @Test
@@ -38,14 +37,11 @@ class MiddlewareAdaptersAutoConfigurationTest {
 
     @Test
     void bindsRedisCheckpointerFromProperties() {
-        contextRunner
-                .withPropertyValues(
-                        "openjiuwen.service.middleware.checkpointer.type=redis",
-                        "openjiuwen.service.middleware.redis.default.host=redis.local",
-                        "openjiuwen.service.middleware.redis.default.port=6380",
-                        "openjiuwen.service.middleware.redis.default.database=0",
-                        "openjiuwen.service.middleware.redis.default.encrypted-password=")
-                .run(context -> {
+        contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
+                "openjiuwen.service.middleware.redis.default.host=redis.local",
+                "openjiuwen.service.middleware.redis.default.port=6380",
+                "openjiuwen.service.middleware.redis.default.database=0",
+                "openjiuwen.service.middleware.redis.default.encrypted-password=").run(context -> {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> conf = (Map<String, Object>) RunnerConfig.getRunnerConfig()
                             .getCheckpointerConfig().get("conf");
@@ -58,12 +54,10 @@ class MiddlewareAdaptersAutoConfigurationTest {
 
     @Test
     void usesCustomCredentialDecryptorBeanWhenProvided() {
-        contextRunner
-                .withUserConfiguration(CustomDecryptorConfiguration.class)
-                .run(context -> {
-                    assertThat(context).hasSingleBean(CredentialDecryptor.class);
-                    assertThat(context.getBean(CredentialDecryptor.class).decrypt("ENC")).isEqualTo("decrypted");
-                });
+        contextRunner.withUserConfiguration(CustomDecryptorConfiguration.class).run(context -> {
+            assertThat(context).hasSingleBean(CredentialDecryptor.class);
+            assertThat(context.getBean(CredentialDecryptor.class).decrypt("ENC")).isEqualTo("decrypted");
+        });
     }
 
     @Configuration

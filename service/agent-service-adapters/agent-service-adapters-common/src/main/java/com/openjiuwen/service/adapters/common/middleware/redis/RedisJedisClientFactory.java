@@ -15,7 +15,8 @@ import redis.clients.jedis.JedisClientConfig;
 import redis.clients.jedis.JedisPool;
 
 /**
- * Creates Jedis clients for middleware Redis connections (adapter-side Redis SDK).
+ * Creates Jedis clients for middleware Redis connections (adapter-side Redis
+ * SDK).
  *
  * @since 0.1.0
  */
@@ -25,27 +26,29 @@ public final class RedisJedisClientFactory {
 
     /**
      * Build a standalone Jedis client from middleware redis endpoint settings.
-     *
      * <p>
-     * The returned {@link Jedis} is a single connection and is <b>not thread-safe</b>. Use it only from a single
-     * thread; for concurrent access use {@link #createPool(MiddlewareProperties.RedisEndpoint, String)}.
+     * The returned {@link Jedis} is a single connection and is <b>not
+     * thread-safe</b>. Use it only from a single
+     * thread; for concurrent access use
+     * {@link #createPool(MiddlewareProperties.RedisEndpoint, String)}.
      *
-     * @param endpoint  redis host/port/database/timeout from properties
-     * @param password  decrypted password (blank = no auth)
+     * @param endpoint redis host/port/database/timeout from properties
+     * @param password decrypted password (blank = no auth)
      */
     public static Jedis createClient(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         HostAndPort hostAndPort = hostAndPort(endpoint);
-        return clientConfig(endpoint, password)
-                .map(cfg -> new Jedis(hostAndPort, cfg))
+        return clientConfig(endpoint, password).map(cfg -> new Jedis(hostAndPort, cfg))
                 .orElseGet(() -> new Jedis(hostAndPort));
     }
 
     /**
-     * Build a thread-safe {@link JedisPool} from middleware redis endpoint settings. Each borrowed connection must be
-     * returned (e.g. via try-with-resources) so it can be reused or discarded if broken.
+     * Build a thread-safe {@link JedisPool} from middleware redis endpoint
+     * settings. Each borrowed connection must be
+     * returned (e.g. via try-with-resources) so it can be reused or discarded if
+     * broken.
      *
-     * @param endpoint  redis host/port/database/timeout from properties
-     * @param password  decrypted password (blank = no auth)
+     * @param endpoint redis host/port/database/timeout from properties
+     * @param password decrypted password (blank = no auth)
      * @return a pooled, thread-safe Jedis client
      */
     public static JedisPool createPool(MiddlewareProperties.RedisEndpoint endpoint, String password) {
@@ -62,8 +65,10 @@ public final class RedisJedisClientFactory {
     }
 
     /**
-     * Builds a client config carrying password/database/timeouts, or {@link Optional#empty()} when neither password
-     * nor a non-zero database is set (preserving the original no-config standalone behaviour).
+     * Builds a client config carrying password/database/timeouts, or
+     * {@link Optional#empty()} when neither password
+     * nor a non-zero database is set (preserving the original no-config standalone
+     * behaviour).
      */
     private static Optional<JedisClientConfig> clientConfig(MiddlewareProperties.RedisEndpoint endpoint,
             String password) {
@@ -73,8 +78,7 @@ public final class RedisJedisClientFactory {
         if (!hasPassword && database <= 0) {
             return Optional.empty();
         }
-        DefaultJedisClientConfig.Builder builder = DefaultJedisClientConfig.builder()
-                .connectionTimeoutMillis(timeoutMs)
+        DefaultJedisClientConfig.Builder builder = DefaultJedisClientConfig.builder().connectionTimeoutMillis(timeoutMs)
                 .socketTimeoutMillis(timeoutMs);
         if (hasPassword) {
             builder.password(password);

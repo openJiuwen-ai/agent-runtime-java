@@ -14,7 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Minimal streaming agent for Core Runner integration tests (session echo semantics).
+ * Minimal streaming agent for Core Runner integration tests (session echo
+ * semantics).
  */
 public class SessionEchoAgent {
 

@@ -26,8 +26,7 @@ public class HealthResponse {
     public HealthResponse() {
     }
 
-    public HealthResponse(String status, String app, String version,
-                          boolean processUp, boolean agentLoaded) {
+    public HealthResponse(String status, String app, String version, boolean processUp, boolean agentLoaded) {
         this.status = status;
         this.app = app;
         this.version = version;

@@ -32,7 +32,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Sandbox client decorator that applies Service external-call policies to sandbox operations.
+ * Sandbox client decorator that applies Service external-call policies to
+ * sandbox operations.
  *
  * @since 2026-06-24
  */
@@ -42,19 +43,13 @@ public class DecoratingSandboxClient extends SandboxClient {
     private final SandboxShellOperation shellOperation;
     private final SandboxCodeOperation codeOperation;
 
-    public DecoratingSandboxClient(
-            String serverId,
-            SandboxClient delegate,
+    public DecoratingSandboxClient(String serverId, SandboxClient delegate,
             AgentCoreExternalProperties.SandboxPolicy policy) {
         super(delegate != null ? delegate.getConfig() : SandboxGatewayConfig.builder().build());
         this.delegate = delegate != null ? delegate : new SandboxClient(SandboxGatewayConfig.builder().build());
-        ExternalCallExecutor executor = new ExternalCallExecutor(
-                "Sandbox",
-                serverId,
-                policy,
+        ExternalCallExecutor executor = new ExternalCallExecutor("Sandbox", serverId, policy,
                 ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED,
-                ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN,
-                ExternalSvcAdapterErrorCode.SANDBOX_RETRY_INTERRUPTED,
+                ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN, ExternalSvcAdapterErrorCode.SANDBOX_RETRY_INTERRUPTED,
                 ExternalSvcAdapterErrorCode.SANDBOX_TIMEOUT);
         this.fsOperation = new DecoratingSandboxFsOperation(getConfig(), this.delegate.fs(), executor);
         this.shellOperation = new DecoratingSandboxShellOperation(getConfig(), this.delegate.shell(), executor);
@@ -84,9 +79,7 @@ public class DecoratingSandboxClient extends SandboxClient {
         private final SandboxFsOperation delegate;
         private final ExternalCallExecutor executor;
 
-        private DecoratingSandboxFsOperation(
-                SandboxGatewayConfig config,
-                SandboxFsOperation delegate,
+        private DecoratingSandboxFsOperation(SandboxGatewayConfig config, SandboxFsOperation delegate,
                 ExternalCallExecutor executor) {
             super(config);
             this.delegate = delegate;
@@ -94,130 +87,72 @@ public class DecoratingSandboxClient extends SandboxClient {
         }
 
         @Override
-        public ReadFileResult readFile(
-                String path,
-                String mode,
-                Integer head,
-                Integer tail,
-                int[] lineRange,
-                String encoding,
-                int chunkSize,
-                Map<String, Object> options) {
+        public ReadFileResult readFile(String path, String mode, Integer head, Integer tail, int[] lineRange,
+                String encoding, int chunkSize, Map<String, Object> options) {
             return executor.execute("fs", "readFile", true,
                     () -> delegate.readFile(path, mode, head, tail, lineRange, encoding, chunkSize, options));
         }
 
         @Override
-        public Iterator<ReadFileStreamResult> readFileStream(
-                String path,
-                String mode,
-                Integer head,
-                Integer tail,
-                int[] lineRange,
-                String encoding,
-                int chunkSize,
-                Map<String, Object> options) {
+        public Iterator<ReadFileStreamResult> readFileStream(String path, String mode, Integer head, Integer tail,
+                int[] lineRange, String encoding, int chunkSize, Map<String, Object> options) {
             return executor.execute("fs", "readFileStream", true,
                     () -> delegate.readFileStream(path, mode, head, tail, lineRange, encoding, chunkSize, options));
         }
 
         @Override
-        public WriteFileResult writeFile(
-                String path,
-                Object content,
-                String mode,
-                boolean shouldPrependNewline,
-                boolean shouldAppendNewline,
-                boolean shouldCreateIfNotExist,
-                String permissions,
-                String encoding,
+        public WriteFileResult writeFile(String path, Object content, String mode, boolean shouldPrependNewline,
+                boolean shouldAppendNewline, boolean shouldCreateIfNotExist, String permissions, String encoding,
                 Map<String, Object> options) {
-            return executor.execute("fs", "writeFile", false,
-                    () -> delegate.writeFile(path, content, mode, shouldPrependNewline, shouldAppendNewline,
-                            shouldCreateIfNotExist, permissions, encoding, options));
+            return executor.execute("fs", "writeFile", false, () -> delegate.writeFile(path, content, mode,
+                    shouldPrependNewline, shouldAppendNewline, shouldCreateIfNotExist, permissions, encoding, options));
         }
 
         @Override
-        public UploadFileResult uploadFile(
-                String localPath,
-                String targetPath,
-                boolean shouldOverwrite,
-                boolean shouldCreateParentDirs,
-                boolean shouldPreservePermissions,
-                int chunkSize,
+        public UploadFileResult uploadFile(String localPath, String targetPath, boolean shouldOverwrite,
+                boolean shouldCreateParentDirs, boolean shouldPreservePermissions, int chunkSize,
                 Map<String, Object> options) {
-            return executor.execute("fs", "uploadFile", false,
-                    () -> delegate.uploadFile(localPath, targetPath, shouldOverwrite, shouldCreateParentDirs,
-                            shouldPreservePermissions, chunkSize, options));
+            return executor.execute("fs", "uploadFile", false, () -> delegate.uploadFile(localPath, targetPath,
+                    shouldOverwrite, shouldCreateParentDirs, shouldPreservePermissions, chunkSize, options));
         }
 
         @Override
-        public Iterator<UploadFileStreamResult> uploadFileStream(
-                String localPath,
-                String targetPath,
-                boolean shouldOverwrite,
-                boolean shouldCreateParentDirs,
-                boolean shouldPreservePermissions,
-                int chunkSize,
-                Map<String, Object> options) {
+        public Iterator<UploadFileStreamResult> uploadFileStream(String localPath, String targetPath,
+                boolean shouldOverwrite, boolean shouldCreateParentDirs, boolean shouldPreservePermissions,
+                int chunkSize, Map<String, Object> options) {
             return executor.execute("fs", "uploadFileStream", false,
                     () -> delegate.uploadFileStream(localPath, targetPath, shouldOverwrite, shouldCreateParentDirs,
                             shouldPreservePermissions, chunkSize, options));
         }
 
         @Override
-        public DownloadFileResult downloadFile(
-                String sourcePath,
-                String localPath,
-                boolean shouldOverwrite,
-                boolean shouldCreateParentDirs,
-                boolean shouldPreservePermissions,
-                int chunkSize,
+        public DownloadFileResult downloadFile(String sourcePath, String localPath, boolean shouldOverwrite,
+                boolean shouldCreateParentDirs, boolean shouldPreservePermissions, int chunkSize,
                 Map<String, Object> options) {
-            return executor.execute("fs", "downloadFile", false,
-                    () -> delegate.downloadFile(sourcePath, localPath, shouldOverwrite, shouldCreateParentDirs,
-                            shouldPreservePermissions, chunkSize, options));
+            return executor.execute("fs", "downloadFile", false, () -> delegate.downloadFile(sourcePath, localPath,
+                    shouldOverwrite, shouldCreateParentDirs, shouldPreservePermissions, chunkSize, options));
         }
 
         @Override
-        public Iterator<DownloadFileStreamResult> downloadFileStream(
-                String sourcePath,
-                String localPath,
-                boolean shouldOverwrite,
-                boolean shouldCreateParentDirs,
-                boolean shouldPreservePermissions,
-                int chunkSize,
-                Map<String, Object> options) {
-            return executor.execute("fs", "downloadFileStream", false,
-                    () -> delegate.downloadFileStream(sourcePath, localPath, shouldOverwrite, shouldCreateParentDirs,
-                            shouldPreservePermissions, chunkSize, options));
+        public Iterator<DownloadFileStreamResult> downloadFileStream(String sourcePath, String localPath,
+                boolean shouldOverwrite, boolean shouldCreateParentDirs, boolean shouldPreservePermissions,
+                int chunkSize, Map<String, Object> options) {
+            return executor.execute("fs", "downloadFileStream", false, () -> delegate.downloadFileStream(sourcePath,
+                    localPath, shouldOverwrite, shouldCreateParentDirs, shouldPreservePermissions, chunkSize, options));
         }
 
         @Override
-        public ListFilesResult listFiles(
-                String path,
-                boolean shouldRecurse,
-                Integer maxDepth,
-                String sortBy,
-                boolean shouldSortDescending,
-                List<String> fileTypes,
-                Map<String, Object> options) {
-            return executor.execute("fs", "listFiles", true,
-                    () -> delegate.listFiles(path, shouldRecurse, maxDepth, sortBy, shouldSortDescending,
-                            fileTypes, options));
+        public ListFilesResult listFiles(String path, boolean shouldRecurse, Integer maxDepth, String sortBy,
+                boolean shouldSortDescending, List<String> fileTypes, Map<String, Object> options) {
+            return executor.execute("fs", "listFiles", true, () -> delegate.listFiles(path, shouldRecurse, maxDepth,
+                    sortBy, shouldSortDescending, fileTypes, options));
         }
 
         @Override
-        public ListDirsResult listDirectories(
-                String path,
-                boolean shouldRecurse,
-                Integer maxDepth,
-                String sortBy,
-                boolean shouldSortDescending,
-                Map<String, Object> options) {
-            return executor.execute("fs", "listDirectories", true,
-                    () -> delegate.listDirectories(path, shouldRecurse, maxDepth, sortBy, shouldSortDescending,
-                            options));
+        public ListDirsResult listDirectories(String path, boolean shouldRecurse, Integer maxDepth, String sortBy,
+                boolean shouldSortDescending, Map<String, Object> options) {
+            return executor.execute("fs", "listDirectories", true, () -> delegate.listDirectories(path, shouldRecurse,
+                    maxDepth, sortBy, shouldSortDescending, options));
         }
 
         @Override
@@ -231,9 +166,7 @@ public class DecoratingSandboxClient extends SandboxClient {
         private final SandboxShellOperation delegate;
         private final ExternalCallExecutor executor;
 
-        private DecoratingSandboxShellOperation(
-                SandboxGatewayConfig config,
-                SandboxShellOperation delegate,
+        private DecoratingSandboxShellOperation(SandboxGatewayConfig config, SandboxShellOperation delegate,
                 ExternalCallExecutor executor) {
             super(config);
             this.delegate = delegate;
@@ -241,11 +174,7 @@ public class DecoratingSandboxClient extends SandboxClient {
         }
 
         @Override
-        public ExecuteCmdResult executeCmd(
-                String command,
-                String cwd,
-                int timeout,
-                Map<String, String> environment,
+        public ExecuteCmdResult executeCmd(String command, String cwd, int timeout, Map<String, String> environment,
                 Map<String, Object> options) {
             int effectiveTimeout = timeout > 0 ? timeout : executor.timeoutSeconds();
             return executor.execute("shell", "executeCmd", false,
@@ -253,24 +182,16 @@ public class DecoratingSandboxClient extends SandboxClient {
         }
 
         @Override
-        public Iterator<ExecuteCmdStreamResult> executeCmdStream(
-                String command,
-                String cwd,
-                int timeout,
-                Map<String, String> environment,
-                Map<String, Object> options) {
+        public Iterator<ExecuteCmdStreamResult> executeCmdStream(String command, String cwd, int timeout,
+                Map<String, String> environment, Map<String, Object> options) {
             int effectiveTimeout = timeout > 0 ? timeout : executor.timeoutSeconds();
             return executor.execute("shell", "executeCmdStream", false,
                     () -> delegate.executeCmdStream(command, cwd, effectiveTimeout, environment, options));
         }
 
         @Override
-        public ExecuteCmdBackgroundResult executeCmdBackground(
-                String command,
-                String cwd,
-                Map<String, String> environment,
-                double grace,
-                Map<String, Object> options) {
+        public ExecuteCmdBackgroundResult executeCmdBackground(String command, String cwd,
+                Map<String, String> environment, double grace, Map<String, Object> options) {
             return executor.execute("shell", "executeCmdBackground", false,
                     () -> delegate.executeCmdBackground(command, cwd, environment, grace, options));
         }
@@ -280,9 +201,7 @@ public class DecoratingSandboxClient extends SandboxClient {
         private final SandboxCodeOperation delegate;
         private final ExternalCallExecutor executor;
 
-        private DecoratingSandboxCodeOperation(
-                SandboxGatewayConfig config,
-                SandboxCodeOperation delegate,
+        private DecoratingSandboxCodeOperation(SandboxGatewayConfig config, SandboxCodeOperation delegate,
                 ExternalCallExecutor executor) {
             super(config);
             this.delegate = delegate;
@@ -290,11 +209,7 @@ public class DecoratingSandboxClient extends SandboxClient {
         }
 
         @Override
-        public ExecuteCodeResult executeCode(
-                String code,
-                String language,
-                int timeout,
-                Map<String, String> environment,
+        public ExecuteCodeResult executeCode(String code, String language, int timeout, Map<String, String> environment,
                 Map<String, Object> options) {
             int effectiveTimeout = timeout > 0 ? timeout : executor.timeoutSeconds();
             return executor.execute("code", "executeCode", false,
@@ -302,12 +217,8 @@ public class DecoratingSandboxClient extends SandboxClient {
         }
 
         @Override
-        public Iterator<ExecuteCodeStreamResult> executeCodeStream(
-                String code,
-                String language,
-                int timeout,
-                Map<String, String> environment,
-                Map<String, Object> options) {
+        public Iterator<ExecuteCodeStreamResult> executeCodeStream(String code, String language, int timeout,
+                Map<String, String> environment, Map<String, Object> options) {
             int effectiveTimeout = timeout > 0 ? timeout : executor.timeoutSeconds();
             return executor.execute("code", "executeCodeStream", false,
                     () -> delegate.executeCodeStream(code, language, effectiveTimeout, environment, options));

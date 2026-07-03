@@ -9,12 +9,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Tracks active streaming queries per {@code conversation_id} for interrupt and shutdown drain.
+ * Tracks active streaming queries per {@code conversation_id} for interrupt and
+ * shutdown drain.
  */
 public class ActiveStreamRegistry {
 
-    private final ConcurrentHashMap<String, Set<StreamCancellationHandle>> active =
-            new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Set<StreamCancellationHandle>> active = new ConcurrentHashMap<>();
 
     public StreamCancellationHandle register(String conversationId) {
         StreamCancellationHandle handle = new StreamCancellationHandle(conversationId);

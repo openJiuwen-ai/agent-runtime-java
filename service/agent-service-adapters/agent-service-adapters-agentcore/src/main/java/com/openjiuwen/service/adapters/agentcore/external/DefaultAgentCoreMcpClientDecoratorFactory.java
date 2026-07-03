@@ -14,9 +14,7 @@ import com.openjiuwen.core.foundation.tool.mcp.McpServerConfig;
  */
 public class DefaultAgentCoreMcpClientDecoratorFactory implements AgentCoreMcpClientDecoratorFactory {
     @Override
-    public McpClient decorate(
-            McpServerConfig config,
-            McpClient delegate,
+    public McpClient decorate(McpServerConfig config, McpClient delegate,
             AgentCoreExternalProperties.McpPolicy policy) {
         return new DecoratingMcpClient(config, delegate, policy);
     }

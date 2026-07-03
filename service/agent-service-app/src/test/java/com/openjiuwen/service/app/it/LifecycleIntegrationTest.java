@@ -39,8 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = LifecycleIntegrationTest.LifecycleTestApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = LifecycleIntegrationTest.LifecycleTestApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class LifecycleIntegrationTest {
 
@@ -71,13 +70,9 @@ class LifecycleIntegrationTest {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        Map<String, Object> body = Map.of(
-                "conversation_id", "shutdown-c1",
-                "message", "hello",
-                "stream", false);
+        Map<String, Object> body = Map.of("conversation_id", "shutdown-c1", "message", "hello", "stream", false);
 
-        ResponseEntity<String> resp = rest.postForEntity(
-                "/v1/query", new HttpEntity<>(body, headers), String.class);
+        ResponseEntity<String> resp = rest.postForEntity("/v1/query", new HttpEntity<>(body, headers), String.class);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     }

@@ -15,8 +15,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 
 /**
- * Auto-configuration for middleware adapters: binds {@link MiddlewareProperties},
- * registers {@link MiddlewareAdapterRegistrar}, and applies checkpointer settings to {@link RunnerConfig}.
+ * Auto-configuration for middleware adapters: binds
+ * {@link MiddlewareProperties},
+ * registers {@link MiddlewareAdapterRegistrar}, and applies checkpointer
+ * settings to {@link RunnerConfig}.
  *
  * @since 0.1.0
  */
@@ -27,9 +29,9 @@ public class MiddlewareAdaptersAutoConfiguration {
 
     @Bean
     public MiddlewareAdapterRegistrar middlewareAdapterRegistrar(MiddlewareProperties middlewareProperties,
-                                                                 CredentialDecryptor credentialDecryptor) {
-        DefaultMiddlewareAdapterRegistrar registrar =
-                new DefaultMiddlewareAdapterRegistrar(middlewareProperties, credentialDecryptor);
+            CredentialDecryptor credentialDecryptor) {
+        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(middlewareProperties,
+                credentialDecryptor);
         registrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
         return registrar;
     }

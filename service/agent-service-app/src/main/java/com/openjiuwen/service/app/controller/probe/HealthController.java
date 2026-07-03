@@ -27,9 +27,7 @@ public class HealthController {
     private final AgentServiceIdentity identity;
     private final ServiceProperties serviceProperties;
 
-    public HealthController(
-            AgentReadiness readiness,
-            AgentServiceIdentity identity,
+    public HealthController(AgentReadiness readiness, AgentServiceIdentity identity,
             ServiceProperties serviceProperties) {
         this.readiness = readiness;
         this.identity = identity;
@@ -38,12 +36,7 @@ public class HealthController {
 
     @GetMapping(AgentServicePaths.HEALTH)
     public HealthResponse health() {
-        return new HealthResponse(
-                STATUS_HEALTHY,
-                app(),
-                version(),
-                readiness.isProcessUp(),
-                readiness.isAgentLoaded());
+        return new HealthResponse(STATUS_HEALTHY, app(), version(), readiness.isProcessUp(), readiness.isAgentLoaded());
     }
 
     private String app() {

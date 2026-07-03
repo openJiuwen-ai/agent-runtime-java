@@ -47,7 +47,6 @@ class AgentCoreCheckpointerConfigAssemblerTest {
         MiddlewareProperties properties = new MiddlewareProperties();
         properties.getCheckpointer().setType("redis");
         assertThatThrownBy(() -> AgentCoreCheckpointerConfigAssembler.build(properties, s -> s))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("redis.default");
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("redis.default");
     }
 }

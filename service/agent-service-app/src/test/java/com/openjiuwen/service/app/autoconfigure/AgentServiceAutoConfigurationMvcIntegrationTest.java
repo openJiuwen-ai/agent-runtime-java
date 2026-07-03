@@ -32,8 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = AgentServiceAutoConfigurationMvcIntegrationTest.MinimalAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = AgentServiceAutoConfigurationMvcIntegrationTest.MinimalAgentApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
 @AutoConfigureTestRestTemplate
 class AgentServiceAutoConfigurationMvcIntegrationTest {
@@ -46,10 +45,8 @@ class AgentServiceAutoConfigurationMvcIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void autoConfigurationExposesQueryEndpointWithoutBusinessController() throws Exception {
-        ResponseEntity<String> resp = postQuery("/v1/query", Map.of(
-                "message", "hello",
-                "conversation_id", "c-auto",
-                "stream", false));
+        ResponseEntity<String> resp = postQuery("/v1/query",
+                Map.of("message", "hello", "conversation_id", "c-auto", "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
@@ -61,10 +58,9 @@ class AgentServiceAutoConfigurationMvcIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void legacyQueryPathUsesSameAutoConfiguredChain() throws Exception {
-        ResponseEntity<String> resp = postQuery("/query", Map.of(
-                "messages", List.of(Map.of("role", "user", "content", "legacy")),
-                "conversation_id", "c-auto-legacy",
-                "stream", false));
+        ResponseEntity<String> resp = postQuery("/query",
+                Map.of("messages", List.of(Map.of("role", "user", "content", "legacy")), "conversation_id",
+                        "c-auto-legacy", "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);

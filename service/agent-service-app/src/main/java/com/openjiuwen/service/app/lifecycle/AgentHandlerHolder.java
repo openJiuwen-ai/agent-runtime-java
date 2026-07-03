@@ -10,7 +10,8 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 /**
- * Placeholder {@link AgentHandler} when no custom bean and no {@code agent-id} is configured.
+ * Placeholder {@link AgentHandler} when no custom bean and no {@code agent-id}
+ * is configured.
  */
 public final class AgentHandlerHolder implements AgentHandler {
 

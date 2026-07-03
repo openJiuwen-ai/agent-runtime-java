@@ -24,8 +24,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = TestServiceApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class ResetConversationMvcIntegrationTest {
 
@@ -51,8 +50,7 @@ class ResetConversationMvcIntegrationTest {
 
         ResponseEntity<String> second = postJson(path, queryBody("again", conversationId));
         Map<String, Object> secondJson = mapper.readValue(second.getBody(), Map.class);
-        assertThat(((Map<?, ?>) secondJson.get("result")).get("content")).asString()
-                .contains("prev=hello");
+        assertThat(((Map<?, ?>) secondJson.get("result")).get("content")).asString().contains("prev=hello");
 
         ResponseEntity<String> reset = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
                 Map.of("conversation_id", conversationId));
@@ -108,10 +106,7 @@ class ResetConversationMvcIntegrationTest {
     }
 
     private static Map<String, Object> queryBody(String message, String conversationId) {
-        return Map.of(
-                "message", message,
-                "conversation_id", conversationId,
-                "stream", false);
+        return Map.of("message", message, "conversation_id", conversationId, "stream", false);
     }
 
     private ResponseEntity<String> postJson(String path, Map<String, Object> body) {

@@ -9,7 +9,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean;
 
 /**
- * Registers a default {@link CredentialDecryptor} when no custom bean is provided.
+ * Registers a default {@link CredentialDecryptor} when no custom bean is
+ * provided.
  *
  * @since 0.1.0
  */

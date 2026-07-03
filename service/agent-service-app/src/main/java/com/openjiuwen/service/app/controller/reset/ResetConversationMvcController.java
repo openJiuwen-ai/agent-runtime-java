@@ -26,7 +26,8 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
- * MVC stack reset conversation controller ({@code POST /v1/reset_conversation} and legacy path).
+ * MVC stack reset conversation controller ({@code POST /v1/reset_conversation}
+ * and legacy path).
  */
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
@@ -38,8 +39,7 @@ public class ResetConversationMvcController {
     private final ObjectMapper objectMapper;
 
     public ResetConversationMvcController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
-                                          ObjectProvider<AgentReadiness> readinessProvider,
-                                          ObjectMapper objectMapper) {
+            ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
         this.orchestratorProvider = orchestratorProvider;
         this.readinessProvider = readinessProvider;
         this.objectMapper = objectMapper;
@@ -47,20 +47,19 @@ public class ResetConversationMvcController {
 
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_V1, produces = MediaType.APPLICATION_JSON_VALUE)
     public ResetConversationResponse resetV1(@RequestBody ResetConversationRequest request,
-                                           HttpServletResponse response) throws IOException {
+            HttpServletResponse response) throws IOException {
         return handleReset(request, response);
     }
 
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_LEGACY, produces = MediaType.APPLICATION_JSON_VALUE)
-    @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled",
-            havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true", matchIfMissing = true)
     public ResetConversationResponse resetLegacy(@RequestBody ResetConversationRequest request,
-                                                 HttpServletResponse response) throws IOException {
+            HttpServletResponse response) throws IOException {
         return handleReset(request, response);
     }
 
-    private ResetConversationResponse handleReset(ResetConversationRequest request,
-                                                  HttpServletResponse response) throws IOException {
+    private ResetConversationResponse handleReset(ResetConversationRequest request, HttpServletResponse response)
+            throws IOException {
         ResetIngressSupport.ValidationResult validation = ResetIngressSupport.validate(request);
         if (!validation.valid()) {
             writeJson(response, validation.errorStatus(), validation.errorBody());

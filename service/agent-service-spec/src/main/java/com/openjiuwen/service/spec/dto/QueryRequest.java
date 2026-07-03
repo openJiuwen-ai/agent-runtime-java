@@ -36,12 +36,16 @@ public class QueryRequest {
 
     private boolean stream = true;
 
-    /** Issue-compatible single-turn shorthand; normalized to {@link #messages} in {@link #normalizeMessages()}. */
+    /**
+     * Issue-compatible single-turn shorthand; normalized to {@link #messages} in
+     * {@link #normalizeMessages()}.
+     */
     @JsonProperty("message")
     private String message;
 
     /**
-     * If {@link #message} is set and {@link #messages} is empty, wrap it as a single user message.
+     * If {@link #message} is set and {@link #messages} is empty, wrap it as a
+     * single user message.
      */
     public void normalizeMessages() {
         if ((messages == null || messages.isEmpty()) && message != null && !message.isBlank()) {

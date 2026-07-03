@@ -28,12 +28,8 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = AgentServiceDisabledIntegrationTest.MinimalAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@TestPropertySource(properties = {
-        "openjiuwen.service.enabled=false",
-        "openjiuwen.service.query.webflux.enabled=false"
-})
+@SpringBootTest(classes = AgentServiceDisabledIntegrationTest.MinimalAgentApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestPropertySource(properties = {"openjiuwen.service.enabled=false", "openjiuwen.service.query.webflux.enabled=false"})
 @AutoConfigureTestRestTemplate
 class AgentServiceDisabledIntegrationTest {
 
@@ -42,10 +38,8 @@ class AgentServiceDisabledIntegrationTest {
 
     @Test
     void serviceEnabledPropertyDoesNotPreventQueryEndpointAutoRegistration() {
-        ResponseEntity<String> resp = postQuery("/v1/query", Map.of(
-                "message", "hello",
-                "conversation_id", "c-disabled",
-                "stream", false));
+        ResponseEntity<String> resp = postQuery("/v1/query",
+                Map.of("message", "hello", "conversation_id", "c-disabled", "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
     }

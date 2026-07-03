@@ -22,8 +22,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = TestServiceApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=true")
 @AutoConfigureTestRestTemplate
 class QueryCoexistenceIntegrationTest {
@@ -46,14 +45,10 @@ class QueryCoexistenceIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void mvcAndWebFluxEndpointsCoexistOnServletStack() throws Exception {
-        Map<String, Object> mvcBody = Map.of(
-                "messages", List.of(userMessage("mvc")),
-                "conversation_id", "c-coexist-mvc",
-                "stream", false);
-        Map<String, Object> webFluxBody = Map.of(
-                "messages", List.of(userMessage("flux")),
-                "conversation_id", "c-coexist-flux",
-                "stream", false);
+        Map<String, Object> mvcBody = Map.of("messages", List.of(userMessage("mvc")), "conversation_id",
+                "c-coexist-mvc", "stream", false);
+        Map<String, Object> webFluxBody = Map.of("messages", List.of(userMessage("flux")), "conversation_id",
+                "c-coexist-flux", "stream", false);
 
         ResponseEntity<String> mvcResp = postQuery("/v1/query", mvcBody);
         assertThat(mvcResp.getStatusCode()).isEqualTo(HttpStatus.OK);

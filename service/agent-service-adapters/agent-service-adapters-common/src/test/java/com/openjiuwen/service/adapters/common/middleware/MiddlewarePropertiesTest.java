@@ -17,8 +17,7 @@ class MiddlewarePropertiesTest {
 
     @Test
     void bindsCheckpointerAndPlaceholderCapabilitiesTogether() {
-        Map<String, String> source = Map.of(
-                "openjiuwen.service.middleware.checkpointer.type", "redis",
+        Map<String, String> source = Map.of("openjiuwen.service.middleware.checkpointer.type", "redis",
                 "openjiuwen.service.middleware.session-store.type", "none",
                 "openjiuwen.service.middleware.object-storage.type", "none",
                 "openjiuwen.service.middleware.vector-store.type", "none",

@@ -31,13 +31,9 @@ public final class ShutdownPhaseExecutor {
     private final ObjectProvider<AgentHandler> agentHandlerProvider;
     private final LifecycleProperties properties;
 
-    public ShutdownPhaseExecutor(
-            AgentServiceIdentity identity,
-            AgentLifecycleHooks hooks,
-            DefaultAgentReadiness readiness,
-            ActiveStreamRegistry streamRegistry,
-            ObjectProvider<AgentHandler> agentHandlerProvider,
-            LifecycleProperties properties) {
+    public ShutdownPhaseExecutor(AgentServiceIdentity identity, AgentLifecycleHooks hooks,
+            DefaultAgentReadiness readiness, ActiveStreamRegistry streamRegistry,
+            ObjectProvider<AgentHandler> agentHandlerProvider, LifecycleProperties properties) {
         this.identity = identity;
         this.hooks = hooks;
         this.readiness = readiness;
@@ -48,8 +44,8 @@ public final class ShutdownPhaseExecutor {
 
     public void run() {
         String appName = identity.getAppName();
-        log.info("Starting Agent shutdown phase for application '{}', activeStreams={}",
-                appName, streamRegistry.activeCount());
+        log.info("Starting Agent shutdown phase for application '{}', activeStreams={}", appName,
+                streamRegistry.activeCount());
         readiness.markShuttingDown();
         drainActiveStreams();
         AgentLifecycleContext context = new AgentLifecycleContext(appName);

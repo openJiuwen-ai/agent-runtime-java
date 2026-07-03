@@ -19,7 +19,6 @@ import org.springframework.context.annotation.Bean;
  * Agent B (port 18091): a ReAct LLM agent that keeps the original local calc
  * tool and adds an A2A delegation tool to Agent C for the three-agent demo
  * path.
- *
  * <p>
  * Start this agent after Agent C and before Agent A.
  * </p>

@@ -27,17 +27,15 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifies reactive query returns service unavailable when the agent is not loaded.
+ * Verifies reactive query returns service unavailable when the agent is not
+ * loaded.
  *
  * @since 0.1.0
  */
-@SpringBootTest(classes = QueryWebFluxUnavailableIntegrationTest.AgentNotLoadedApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = QueryWebFluxUnavailableIntegrationTest.AgentNotLoadedApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
-@TestPropertySource(properties = {
-        "spring.main.web-application-type=reactive",
-        "openjiuwen.service.query.webflux.enabled=true"
-})
+@TestPropertySource(properties = {"spring.main.web-application-type=reactive",
+        "openjiuwen.service.query.webflux.enabled=true"})
 class QueryWebFluxUnavailableIntegrationTest {
     @Autowired
     private WebTestClient webTestClient;
@@ -47,19 +45,10 @@ class QueryWebFluxUnavailableIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void reactiveQueryReturnsServiceUnavailableWhenAgentIsNotLoaded() throws Exception {
-        byte[] bytes = webTestClient.post()
-                .uri("/v1/query/reactive")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of(
-                        "message", "blocked",
-                        "conversation_id", "c-flux-not-loaded",
-                        "stream", false))
-                .exchange()
-                .expectStatus().is5xxServerError()
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
-                .expectBody()
-                .returnResult()
-                .getResponseBody();
+        byte[] bytes = webTestClient.post().uri("/v1/query/reactive").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("message", "blocked", "conversation_id", "c-flux-not-loaded", "stream", false))
+                .exchange().expectStatus().is5xxServerError().expectHeader()
+                .contentTypeCompatibleWith(MediaType.APPLICATION_JSON).expectBody().returnResult().getResponseBody();
 
         Map<String, Object> json = mapper.readValue(bytes, Map.class);
         assertThat(json).containsEntry("type", "error");

@@ -25,10 +25,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifies MVC and WebFlux Query endpoints map to distinct paths without shadowing.
+ * Verifies MVC and WebFlux Query endpoints map to distinct paths without
+ * shadowing.
  */
-@SpringBootTest(classes = TestServiceApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=true")
 @AutoConfigureTestRestTemplate
 class QueryPathIsolationIntegrationTest {
@@ -77,10 +77,8 @@ class QueryPathIsolationIntegrationTest {
     }
 
     @Nested
-    @TestPropertySource(properties = {
-            "openjiuwen.service.query.webflux.enabled=false",
-            "openjiuwen.service.query.legacy-path-enabled=false"
-    })
+    @TestPropertySource(properties = {"openjiuwen.service.query.webflux.enabled=false",
+            "openjiuwen.service.query.legacy-path-enabled=false"})
     class WhenLegacyPathDisabled {
 
         @Autowired
@@ -102,10 +100,8 @@ class QueryPathIsolationIntegrationTest {
     }
 
     private static Map<String, Object> body(String content, String conversationId) {
-        return Map.of(
-                "messages", List.of(Map.of("role", "user", "content", content)),
-                "conversation_id", conversationId,
-                "stream", false);
+        return Map.of("messages", List.of(Map.of("role", "user", "content", content)), "conversation_id",
+                conversationId, "stream", false);
     }
 
     private ResponseEntity<String> post(String path, Map<String, Object> body) {
@@ -124,8 +120,7 @@ class QueryPathIsolationIntegrationTest {
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> result(ResponseEntity<String> response, ObjectMapper mapper)
-            throws Exception {
+    private static Map<String, Object> result(ResponseEntity<String> response, ObjectMapper mapper) throws Exception {
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
         return (Map<String, Object>) json.get("result");
     }

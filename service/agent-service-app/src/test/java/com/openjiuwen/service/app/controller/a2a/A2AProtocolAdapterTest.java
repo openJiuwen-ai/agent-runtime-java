@@ -15,7 +15,8 @@ import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 
 /**
- * Protocol-specific behaviours that are non-trivial and must be verified: role normalisation and JSON-trial-parsing in
+ * Protocol-specific behaviours that are non-trivial and must be verified: role
+ * normalisation and JSON-trial-parsing in
  * part texts.
  */
 class A2AProtocolAdapterTest {

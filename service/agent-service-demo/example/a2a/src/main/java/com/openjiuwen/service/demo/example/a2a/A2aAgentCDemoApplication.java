@@ -20,7 +20,6 @@ import java.util.List;
 /**
  * Agent C (port 18092): a DeepAgent that triggers the final user confirmation
  * interrupt for the A -> B -> C demo path.
- *
  * <p>
  * Start this agent before Agent B and Agent A.
  * </p>

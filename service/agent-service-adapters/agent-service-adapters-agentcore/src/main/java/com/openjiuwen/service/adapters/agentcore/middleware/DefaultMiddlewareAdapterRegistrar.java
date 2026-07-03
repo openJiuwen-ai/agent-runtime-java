@@ -11,7 +11,8 @@ import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import java.util.Map;
 
 /**
- * Default registrar: writes {@link RunnerConfig#getCheckpointerConfig()} from service properties.
+ * Default registrar: writes {@link RunnerConfig#getCheckpointerConfig()} from
+ * service properties.
  *
  * @since 0.1.0
  */
@@ -21,15 +22,15 @@ public class DefaultMiddlewareAdapterRegistrar implements MiddlewareAdapterRegis
     private final CredentialDecryptor credentialDecryptor;
 
     public DefaultMiddlewareAdapterRegistrar(MiddlewareProperties middlewareProperties,
-                                             CredentialDecryptor credentialDecryptor) {
+            CredentialDecryptor credentialDecryptor) {
         this.middlewareProperties = middlewareProperties;
         this.credentialDecryptor = credentialDecryptor;
     }
 
     @Override
     public void applyToRunnerConfig(RunnerConfig runnerConfig) {
-        Map<String, Object> checkpointerConfig =
-                AgentCoreCheckpointerConfigAssembler.build(middlewareProperties, credentialDecryptor);
+        Map<String, Object> checkpointerConfig = AgentCoreCheckpointerConfigAssembler.build(middlewareProperties,
+                credentialDecryptor);
         runnerConfig.setCheckpointerConfig(checkpointerConfig);
     }
 }

@@ -36,7 +36,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Spring full-chain IT: properties → middleware auto-configuration
- * → {@link MiddlewareAdapterRegistrar} → {@link JiuwenCoreAgentHandler#start()} + two queries
+ * → {@link MiddlewareAdapterRegistrar} → {@link JiuwenCoreAgentHandler#start()}
+ * + two queries
  * against local passwordless Redis.
  *
  * @since 0.1.0
@@ -50,13 +51,10 @@ class MiddlewareRedisSpringIT {
     private String localRedisCleanupPrefix;
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(
-                    CredentialDecryptorAutoConfiguration.class,
-                    MiddlewareAdaptersAutoConfiguration.class,
-                    AgentCoreAdaptersAutoConfiguration.class))
+            .withConfiguration(AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class,
+                    MiddlewareAdaptersAutoConfiguration.class, AgentCoreAdaptersAutoConfiguration.class))
             .withUserConfiguration(TestAgentHandlerConfiguration.class)
-            .withPropertyValues(
-                    "openjiuwen.service.agent-id=spring-it-agent",
+            .withPropertyValues("openjiuwen.service.agent-id=spring-it-agent",
                     "openjiuwen.service.middleware.checkpointer.type=redis",
                     "openjiuwen.service.middleware.redis.default.host=" + LOCAL_REDIS_HOST,
                     "openjiuwen.service.middleware.redis.default.port=" + LOCAL_REDIS_PORT,
@@ -97,8 +95,7 @@ class MiddlewareRedisSpringIT {
 
             assertThat(countRedisKeys(conversationId + ":")).isGreaterThan(0);
 
-            JiuwenCoreAgentHandler secondHandler =
-                    new JiuwenCoreAgentHandler(new SessionEchoAgent(), registrar);
+            JiuwenCoreAgentHandler secondHandler = new JiuwenCoreAgentHandler(new SessionEchoAgent(), registrar);
             secondHandler.start();
             QueryResponse second = secondHandler.query(request(conversationId, "b"));
             secondHandler.stop();

@@ -20,8 +20,8 @@ class DefaultMiddlewareAdapterRegistrarTest {
     @Test
     void appliesInMemoryCheckpointerConfig() {
         MiddlewareProperties properties = new MiddlewareProperties();
-        DefaultMiddlewareAdapterRegistrar registrar =
-                new DefaultMiddlewareAdapterRegistrar(properties, new PassthroughCredentialDecryptor());
+        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
+                new PassthroughCredentialDecryptor());
 
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);
@@ -41,8 +41,8 @@ class DefaultMiddlewareAdapterRegistrarTest {
         endpoint.setEncryptedPassword("");
         properties.getRedis().put("default", endpoint);
 
-        DefaultMiddlewareAdapterRegistrar registrar =
-                new DefaultMiddlewareAdapterRegistrar(properties, new PassthroughCredentialDecryptor());
+        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
+                new PassthroughCredentialDecryptor());
 
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);

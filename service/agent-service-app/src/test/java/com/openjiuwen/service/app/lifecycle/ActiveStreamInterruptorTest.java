@@ -57,12 +57,9 @@ class ActiveStreamInterruptorTest {
     @Test
     void interruptHandlerFailureDoesNotBlockOthers() {
         AtomicInteger secondCount = new AtomicInteger();
-        List<AgentInterruptHandler> handlers = List.of(
-                (conversationId, reason) -> {
-                    throw new IllegalStateException("first failed");
-                },
-                (conversationId, reason) -> secondCount.incrementAndGet()
-        );
+        List<AgentInterruptHandler> handlers = List.of((conversationId, reason) -> {
+            throw new IllegalStateException("first failed");
+        }, (conversationId, reason) -> secondCount.incrementAndGet());
         ActiveStreamInterruptor interruptor = new ActiveStreamInterruptor(providerOf(null), handlers);
 
         interruptor.interrupt("c1");
@@ -70,8 +67,7 @@ class ActiveStreamInterruptorTest {
         assertThat(secondCount.get()).isEqualTo(1);
     }
 
-    private ActiveStreamInterruptor newInterruptor(
-            com.openjiuwen.service.spec.spi.ServeOrchestrator orchestrator) {
+    private ActiveStreamInterruptor newInterruptor(com.openjiuwen.service.spec.spi.ServeOrchestrator orchestrator) {
         List<AgentInterruptHandler> handlers = new ArrayList<>();
         handlers.add((conversationId, reason) -> {
             interruptCount.incrementAndGet();

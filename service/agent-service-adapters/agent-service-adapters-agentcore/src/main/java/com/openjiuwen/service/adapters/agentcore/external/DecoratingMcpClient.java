@@ -15,7 +15,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * MCP client decorator that applies timeout, retry, circuit breaker, and audit policies.
+ * MCP client decorator that applies timeout, retry, circuit breaker, and audit
+ * policies.
  *
  * @since 2026-06-24
  */
@@ -27,87 +28,52 @@ public class DecoratingMcpClient implements McpClient {
     private final AgentCoreExternalProperties.McpPolicy policy;
     private final ExternalCallExecutor executor;
 
-    public DecoratingMcpClient(
-            McpServerConfig config,
-            McpClient delegate,
+    public DecoratingMcpClient(McpServerConfig config, McpClient delegate,
             AgentCoreExternalProperties.McpPolicy policy) {
         this.config = config;
         this.delegate = delegate;
         this.policy = policy != null ? policy : new AgentCoreExternalProperties.McpPolicy();
-        this.executor = new ExternalCallExecutor(
-                "MCP",
-                serverLabel(),
-                this.policy,
-                ExternalSvcAdapterErrorCode.MCP_OUTBOUND_CALL_FAILED,
-                ExternalSvcAdapterErrorCode.MCP_CIRCUIT_OPEN,
-                ExternalSvcAdapterErrorCode.MCP_RETRY_INTERRUPTED,
-                ExternalSvcAdapterErrorCode.MCP_TIMEOUT);
+        this.executor = new ExternalCallExecutor("MCP", serverLabel(), this.policy,
+                ExternalSvcAdapterErrorCode.MCP_OUTBOUND_CALL_FAILED, ExternalSvcAdapterErrorCode.MCP_CIRCUIT_OPEN,
+                ExternalSvcAdapterErrorCode.MCP_RETRY_INTERRUPTED, ExternalSvcAdapterErrorCode.MCP_TIMEOUT);
     }
 
     @Override
     public boolean connect(int retryTimes, float timeout) throws Exception {
-        return executor.execute(
-                "mcp",
-                "connect",
-                true,
-                Map.of("retryTimes", retryTimes),
+        return executor.execute("mcp", "connect", true, Map.of("retryTimes", retryTimes),
                 () -> delegate.connect(retryTimes, resolveTimeout(timeout)));
     }
 
     @Override
     public boolean disconnect(float timeout) throws Exception {
-        return executor.execute(
-                "mcp",
-                "disconnect",
-                false,
-                () -> delegate.disconnect(resolveTimeout(timeout)));
+        return executor.execute("mcp", "disconnect", false, () -> delegate.disconnect(resolveTimeout(timeout)));
     }
 
     @Override
     public List<Object> listTools(float timeout) throws Exception {
-        return executor.execute(
-                "mcp",
-                "tools/list",
-                true,
-                () -> delegate.listTools(resolveTimeout(timeout)));
+        return executor.execute("mcp", "tools/list", true, () -> delegate.listTools(resolveTimeout(timeout)));
     }
 
     @Override
     public List<Object> listResources(float timeout) throws Exception {
-        return executor.execute(
-                "mcp",
-                "resources/list",
-                true,
-                () -> delegate.listResources(resolveTimeout(timeout)));
+        return executor.execute("mcp", "resources/list", true, () -> delegate.listResources(resolveTimeout(timeout)));
     }
 
     @Override
     public List<Object> readResource(String uri, float timeout) throws Exception {
-        return executor.execute(
-                "mcp",
-                "resources/read",
-                true,
-                Map.of("uri", uri),
+        return executor.execute("mcp", "resources/read", true, Map.of("uri", uri),
                 () -> delegate.readResource(uri, resolveTimeout(timeout)));
     }
 
     @Override
     public Object callTool(String toolName, Map<String, Object> arguments, float timeout) throws Exception {
-        return executor.execute(
-                "mcp",
-                "tools/call",
-                policy.isRetryToolCalls(),
-                toolRequest(toolName, arguments),
+        return executor.execute("mcp", "tools/call", policy.isRetryToolCalls(), toolRequest(toolName, arguments),
                 () -> delegate.callTool(toolName, arguments, resolveTimeout(timeout)));
     }
 
     @Override
     public Optional<Object> getToolInfo(String toolName, float timeout) throws Exception {
-        return executor.execute(
-                "mcp",
-                "tools/get",
-                true,
-                Map.of("toolName", toolName),
+        return executor.execute("mcp", "tools/get", true, Map.of("toolName", toolName),
                 () -> delegate.getToolInfo(toolName, resolveTimeout(timeout)));
     }
 

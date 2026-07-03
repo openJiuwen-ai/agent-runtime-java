@@ -34,16 +34,9 @@ class ShutdownPhaseExecutorTest {
         AtomicBoolean stopCalled = new AtomicBoolean(false);
         AgentHandler handler = trackingHandler(stopCalled);
 
-        ShutdownPhaseExecutor executor = new ShutdownPhaseExecutor(
-                new DefaultAgentServiceIdentity("shutdown-test"),
-                new AgentLifecycleHooks(
-                        List.of(),
-                        List.of(context -> shutdownHookRan.set(true)),
-                        List.of()),
-                readiness,
-                registry,
-                providerOf(handler),
-                properties);
+        ShutdownPhaseExecutor executor = new ShutdownPhaseExecutor(new DefaultAgentServiceIdentity("shutdown-test"),
+                new AgentLifecycleHooks(List.of(), List.of(context -> shutdownHookRan.set(true)), List.of()), readiness,
+                registry, providerOf(handler), properties);
 
         executor.run();
 

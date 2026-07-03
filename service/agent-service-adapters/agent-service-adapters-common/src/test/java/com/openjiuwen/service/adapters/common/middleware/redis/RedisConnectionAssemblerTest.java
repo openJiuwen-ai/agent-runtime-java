@@ -45,7 +45,6 @@ class RedisConnectionAssemblerTest {
     void resolveEndpointRequiresDefinition() {
         MiddlewareProperties properties = new MiddlewareProperties();
         assertThatThrownBy(() -> RedisConnectionAssembler.resolveEndpoint(properties, "default"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("redis.default");
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("redis.default");
     }
 }

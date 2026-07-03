@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory;
 /**
  * Read-through / write-behind cache in front of a slow {@link TaskStore} (e.g.
  * {@link RedisTaskStore}).
- *
  * <p>
  * <b>Why this exists.</b> The A2A SDK's {@code MainEventBusProcessor} persists
  * the task on <em>every</em> event it
@@ -34,7 +33,6 @@ import org.slf4j.LoggerFactory;
  * <em>before</em> the chunk is distributed to the client -- turning smooth
  * streaming into a slow trickle (and the cost is
  * quadratic, because the whole growing task is re-serialized per chunk).
- *
  * <p>
  * <b>Why a plain "skip some writes" throttle is wrong.</b> Because the SDK
  * reads the task back from the store between
@@ -45,7 +43,6 @@ import org.slf4j.LoggerFactory;
  * {@link #get(String)} serves first, so the SDK always sees the freshest state
  * regardless of what has reached Redis.
  * Only the durable backing write is throttled.
- *
  * <p>
  * <b>Policy.</b> Non-terminal streaming saves (WORKING / SUBMITTED) are written
  * to the delegate at most once per

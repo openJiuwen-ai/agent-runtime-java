@@ -36,7 +36,8 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.core.env.Environment;
 
 /**
- * Auto-configuration for the agent service lifecycle, identity, and stream management beans.
+ * Auto-configuration for the agent service lifecycle, identity, and stream
+ * management beans.
  *
  * @since 0.1.0
  */
@@ -76,7 +77,8 @@ public class AgentServiceAutoConfiguration {
     }
 
     /**
-     * Creates the agent lifecycle hooks bean from registered init, shutdown, and interrupt handlers.
+     * Creates the agent lifecycle hooks bean from registered init, shutdown, and
+     * interrupt handlers.
      *
      * @param initHooks the init hook implementations
      * @param shutdownHooks the shutdown hook implementations
