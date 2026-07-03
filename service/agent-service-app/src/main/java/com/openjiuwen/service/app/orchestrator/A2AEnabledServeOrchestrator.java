@@ -110,11 +110,14 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         log.info("Orchestrator query START conversationId={}", request.getConversationId());
         ServeRequest current = request;
         while (true) {
-            Optional<ServeRequest> opt = syncResumePending(current);
-            if (opt.isEmpty()) {
+            QueryResumeResult resumeResult = syncResumePending(current);
+            if (resumeResult.response() != null) {
+                return resumeResult.response();
+            }
+            if (resumeResult.request().isEmpty()) {
                 return buildInterruptQueryResponse(request.getConversationId());
             }
-            current = opt.get();
+            current = resumeResult.request().get();
 
             QueryResponse response = agentHandler.query(current);
             Map<String, Object> interruptData = extractInterruptFromResponse(response);
@@ -205,10 +208,13 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         } catch (RemoteInputRequiredException rie) {
             // Sync resume path: remote still needs input.
             return refreshPendingOnRemoteInput(current, pt, rie, observer);
+        } catch (InterruptedException e) {
+            log.error("Remote call '{}' interrupted for pending task", agentName, e);
         } catch (Exception e) {
             log.error("Remote call '{}' failed for pending task", agentName, e);
         }
-        saveShadowTask(current.getConversationId(), agentName, metadataString(pt, "_remote_url"));
+        saveShadowTask(current.getConversationId(), agentName, metadataString(pt, "_remote_url"), remoteTaskId,
+                streamMode);
         observer.onComplete();
         return Optional.empty();
     }
@@ -234,8 +240,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private Optional<ServeRequest> refreshPendingOnRemoteInput(ServeRequest current, Task pt,
             RemoteInputRequiredException rie, QueryStreamObserver observer) {
         saveShadowTask(current.getConversationId(), metadataString(pt, "_agent_name"),
-                metadataString(pt, "_remote_url"), rie.getRemoteTaskId(), metadataString(pt, "_stream_mode"));
+                metadataString(pt, "_remote_url"), remoteTaskIdOrExisting(rie, pt), metadataString(pt, "_stream_mode"));
         observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", rie.getMessage())));
+        observer.onComplete();
         return Optional.empty();
     }
 
@@ -343,7 +350,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> delegateSse(InterruptData data, ServeRequest current, QueryStreamObserver observer) {
-        log.info("Orchestrator delegating (sse) to remote agent={}", data.agentName());
+        log.info("Orchestrator delegating (sse) to remote agent={} convId={}", data.agentName(),
+                current.getConversationId());
         try {
             String content = a2aClient.callStreaming(new A2ARemoteAgentClient.RemoteCall(data.agentName(),
                     data.message(), current.getConversationId(), null, current.getMetadata()), observer).get();
@@ -357,7 +365,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         } catch (Exception e) {
             log.error("Remote call '{}' failed (sse)", data.agentName(), e);
         }
-        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()));
+        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
+                data.streamMode());
         observer.onComplete();
         return Optional.empty();
     }
@@ -376,7 +385,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      */
     private Optional<ServeRequest> delegateSync(InterruptData data, ServeRequest current,
             QueryStreamObserver observer) {
-        log.info("Orchestrator delegating (sync) to remote agent={}", data.agentName());
+        log.info("Orchestrator delegating (sync) to remote agent={} convId={}", data.agentName(),
+                current.getConversationId());
         try {
             String content = a2aClient.callSync(data.agentName(), data.message(), current.getConversationId(), null,
                     current.getMetadata());
@@ -444,6 +454,20 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         static final String STREAM_MODE_SSE = "sse";
     }
 
+    private record QueryResumeResult(Optional<ServeRequest> request, QueryResponse response) {
+        static QueryResumeResult continueWith(ServeRequest request) {
+            return new QueryResumeResult(Optional.of(request), null);
+        }
+
+        static QueryResumeResult stop() {
+            return new QueryResumeResult(Optional.empty(), null);
+        }
+
+        static QueryResumeResult respond(QueryResponse response) {
+            return new QueryResumeResult(Optional.empty(), response);
+        }
+    }
+
     /**
      * Sync variant of {@link #tryResumePending} for non-streaming query mode.
      *
@@ -452,29 +476,42 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * @return the next {@link ServeRequest} to continue with, or
      *         {@link Optional#empty()} if the loop should stop
      */
-    private Optional<ServeRequest> syncResumePending(ServeRequest current) {
+    private QueryResumeResult syncResumePending(ServeRequest current) {
         List<Task> pending = findPending(current.getConversationId());
         if (pending.isEmpty()) {
-            return Optional.of(current);
+            return QueryResumeResult.continueWith(current);
         }
 
         Task pt = pending.get(0);
         String agentName = metadataString(pt, "_agent_name");
         String remoteTaskId = metadataString(pt, "_remote_task_id");
-        log.info("Orchestrator syncResumePending convId={} agent={} remoteTaskId={}", current.getConversationId(),
-                agentName, remoteTaskId);
+        String streamMode = metadataString(pt, "_stream_mode");
+        boolean isSse = InterruptData.STREAM_MODE_SSE.equals(streamMode);
+        log.info("Orchestrator syncResumePending convId={} agent={} remoteTaskId={} streamMode={}",
+                current.getConversationId(), agentName, remoteTaskId, streamMode);
         try {
-            String content = a2aClient.callSync(agentName, current.lastUserQuery(), current.getConversationId(),
-                    remoteTaskId, current.getMetadata());
+            String content = isSse
+                    ? a2aClient.callStreaming(new A2ARemoteAgentClient.RemoteCall(agentName, current.lastUserQuery(),
+                            current.getConversationId(), remoteTaskId, current.getMetadata()), NOOP_OBSERVER).get()
+                    : a2aClient.callSync(agentName, current.lastUserQuery(), current.getConversationId(), remoteTaskId,
+                            current.getMetadata());
             deleteShadowTask(pt.id());
-            return Optional.of(buildResumeRequest(current, content, "", ""));
-        } catch (RemoteInputRequiredException e) {
-            return Optional.empty(); // INPUT_REQUIRED still pending
+            return QueryResumeResult.continueWith(buildResumeRequest(current, content, "", ""));
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof RemoteInputRequiredException rie) {
+                return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
+            }
+            log.error("Remote call '{}' failed for pending task", agentName, e);
+        } catch (RemoteInputRequiredException rie) {
+            return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
+        } catch (InterruptedException e) {
+            log.error("Remote call '{}' interrupted for pending task", agentName, e);
         } catch (Exception e) {
             log.error("Remote call '{}' failed for pending task", agentName, e);
         }
-        saveShadowTask(current.getConversationId(), agentName, metadataString(pt, "_remote_url"));
-        return Optional.empty();
+        saveShadowTask(current.getConversationId(), agentName, metadataString(pt, "_remote_url"), remoteTaskId,
+                streamMode);
+        return QueryResumeResult.stop();
     }
 
     /**
@@ -495,23 +532,77 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         log.info("Orchestrator query interrupt kind={} agentName={} convId={}", data.kind(), data.agentName(),
                 current.getConversationId());
         if (InterruptData.KIND_A2A_DELEGATE.equals(data.kind())) {
-            log.info("Orchestrator query delegating (sync) to remote agent={}", data.agentName());
+            log.info("Orchestrator query delegating ({}) to remote agent={} convId={}",
+                    InterruptData.STREAM_MODE_SSE.equals(data.streamMode()) ? "sse" : "sync", data.agentName(),
+                    current.getConversationId());
             try {
-                String content = a2aClient.callSync(data.agentName(), data.message(), current.getConversationId(), null,
-                        current.getMetadata());
-                log.info("Orchestrator query remote result received ({} chars), building resume", content.length());
+                String content = InterruptData.STREAM_MODE_SSE.equals(data.streamMode())
+                        ? a2aClient.callStreaming(new A2ARemoteAgentClient.RemoteCall(data.agentName(), data.message(),
+                                current.getConversationId(), null, current.getMetadata()), NOOP_OBSERVER).get()
+                        : a2aClient.callSync(data.agentName(), data.message(), current.getConversationId(), null,
+                                current.getMetadata());
+                log.info("Orchestrator query remote result received ({} chars), building resume",
+                        content != null ? content.length() : 0);
                 return Optional.of(buildResumeRequest(current, content, data.toolCallId(), data.toolName()));
+            } catch (ExecutionException e) {
+                if (e.getCause() instanceof RemoteInputRequiredException rie) {
+                    return remoteInputRequiredResponse(interruptData, response, current, data, rie);
+                }
+                log.error("Remote call '{}' failed", data.agentName(), e);
+                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
+                        data.streamMode());
             } catch (RemoteInputRequiredException rie) {
-                // Use remote agent's interrupt message instead of Agent A's internal one
-                interruptData.put("message", rie.getMessage());
-                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()),
-                        rie.getRemoteTaskId(), data.streamMode());
+                return remoteInputRequiredResponse(interruptData, response, current, data, rie);
+            } catch (InterruptedException e) {
+                log.error("Remote call '{}' interrupted", data.agentName(), e);
+                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
+                        data.streamMode());
             } catch (Exception e) {
                 log.error("Remote call '{}' failed", data.agentName(), e);
-                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()));
+                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
+                        data.streamMode());
             }
         }
         return Optional.empty(); // non-a2a_delegate or error → stop loop, return interrupt to caller
+    }
+
+    private Optional<ServeRequest> remoteInputRequiredResponse(Map<String, Object> interruptData,
+            QueryResponse response, ServeRequest current, InterruptData data, RemoteInputRequiredException rie) {
+        Map<String, Object> result = queryInputRequiredResult(response, rie.getMessage());
+        response.setResult(result);
+        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()),
+                rie.getRemoteTaskId(), data.streamMode());
+        return Optional.empty();
+    }
+
+    private QueryResumeResult pendingRemoteInputRequiredResponse(ServeRequest current, Task pending, String agentName,
+            String streamMode, RemoteInputRequiredException rie) {
+        saveShadowTask(current.getConversationId(), agentName, metadataString(pending, "_remote_url"),
+                remoteTaskIdOrExisting(rie, pending), streamMode);
+        QueryResponse response = new QueryResponse(queryInputRequiredResult(null, rie.getMessage()),
+                current.getConversationId());
+        return QueryResumeResult.respond(response);
+    }
+
+    private static String remoteTaskIdOrExisting(RemoteInputRequiredException rie, Task pending) {
+        String remoteTaskId = rie.getRemoteTaskId();
+        return remoteTaskId != null && !remoteTaskId.isBlank()
+                ? remoteTaskId
+                : metadataString(pending, "_remote_task_id");
+    }
+
+    private static Map<String, Object> queryInputRequiredResult(QueryResponse response, String message) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (response != null && response.getResult() instanceof Map<?, ?> resultMap) {
+            for (Map.Entry<?, ?> entry : resultMap.entrySet()) {
+                result.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        } else {
+            result.put("role", "assistant");
+        }
+        result.put("content", message);
+        result.put("_interrupt", Map.of("message", message));
+        return result;
     }
 
     @SuppressWarnings("unchecked")
@@ -674,6 +765,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * @return the metadata value as string, or empty string if not present
      */
     private static String metadataString(Task task, String key) {
+        if (task == null || task.metadata() == null) {
+            return "";
+        }
         Object value = task.metadata().get(key);
         return value instanceof String s ? s : "";
     }
