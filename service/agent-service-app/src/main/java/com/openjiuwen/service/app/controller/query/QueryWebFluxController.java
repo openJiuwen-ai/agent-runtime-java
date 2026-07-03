@@ -52,6 +52,13 @@ public class QueryWebFluxController {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Handles reactive query requests on {@code /v1/query/reactive}.
+     *
+     * @param request the query request body
+     * @param headers the HTTP headers
+     * @return the response mono
+     */
     @PostMapping(AgentServicePaths.QUERY_V1_REACTIVE)
     public Mono<ResponseEntity<?>> queryReactive(@RequestBody QueryRequest request,
             @RequestHeader HttpHeaders headers) {

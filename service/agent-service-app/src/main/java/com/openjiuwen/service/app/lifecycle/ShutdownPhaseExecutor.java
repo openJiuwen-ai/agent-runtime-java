@@ -19,6 +19,8 @@ import java.util.List;
 
 /**
  * Drains active streams and runs {@link AgentShutdownHook}s in reverse order.
+ *
+ * @since 0.1.0
  */
 public final class ShutdownPhaseExecutor {
 
@@ -42,6 +44,7 @@ public final class ShutdownPhaseExecutor {
         this.properties = properties;
     }
 
+    /** Runs the shutdown phase hooks and stops the agent handler. */
     public void run() {
         String appName = identity.getAppName();
         log.info("Starting Agent shutdown phase for application '{}', activeStreams={}", appName,

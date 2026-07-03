@@ -15,6 +15,8 @@ import java.util.Map;
 
 /**
  * External Query API request body (aligned with Python {@code QueryRequest}).
+ *
+ * @since 0.1.0
  */
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -60,14 +62,29 @@ public class QueryRequest {
         }
     }
 
+    /**
+     * Replaces the message list, using an empty list when {@code null}.
+     *
+     * @param messages the conversation messages
+     */
     public void setMessages(List<Map<String, Object>> messages) {
         this.messages = messages != null ? messages : new ArrayList<>();
     }
 
+    /**
+     * Sets the user identifier, defaulting to {@code anonymous} when {@code null}.
+     *
+     * @param userId the user identifier
+     */
     public void setUserId(String userId) {
         this.userId = userId != null ? userId : "anonymous";
     }
 
+    /**
+     * Sets the space identifier, defaulting to {@code default} when {@code null}.
+     *
+     * @param spaceId the space identifier
+     */
     public void setSpaceId(String spaceId) {
         this.spaceId = spaceId != null ? spaceId : "default";
     }

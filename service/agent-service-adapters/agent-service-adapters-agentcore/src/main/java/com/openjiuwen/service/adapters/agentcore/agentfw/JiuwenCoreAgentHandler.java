@@ -38,6 +38,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Default {@link AgentHandler} for OpenJiuwen agent-core-java, delegating to
  * {@code Runner}.
+ *
+ * @since 0.1.0
  */
 public class JiuwenCoreAgentHandler implements AgentHandler {
     private static final Logger log = LoggerFactory.getLogger(JiuwenCoreAgentHandler.class);
@@ -59,22 +61,51 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private final MiddlewareAdapterRegistrar middlewareAdapterRegistrar;
     private final ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar;
 
+    /**
+     * Returns the wrapped agent instance for tests and subclasses.
+     *
+     * @return the agent delegate
+     */
     protected Object getAgent() {
         return agent;
     }
 
+    /**
+     * Creates a handler with the given agent and default middleware/external registrars.
+     *
+     * @param agent the agent instance or agent-id string
+     */
     public JiuwenCoreAgentHandler(Object agent) {
         this(agent, null, ExternalSvcAdapterRegistrar.noop());
     }
 
+    /**
+     * Creates a handler with middleware registration support.
+     *
+     * @param agent the agent instance or agent-id string
+     * @param middlewareAdapterRegistrar the middleware adapter registrar
+     */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar) {
         this(agent, middlewareAdapterRegistrar, ExternalSvcAdapterRegistrar.noop());
     }
 
+    /**
+     * Creates a handler with external service registration support.
+     *
+     * @param agent the agent instance or agent-id string
+     * @param externalSvcAdapterRegistrar the external service adapter registrar
+     */
     public JiuwenCoreAgentHandler(Object agent, ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this(agent, null, externalSvcAdapterRegistrar);
     }
 
+    /**
+     * Creates a handler with middleware and external service registrars.
+     *
+     * @param agent the agent instance or agent-id string
+     * @param middlewareAdapterRegistrar the middleware adapter registrar
+     * @param externalSvcAdapterRegistrar the external service adapter registrar
+     */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
             ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this.agent = agent;
@@ -182,6 +213,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return buildQueryResponse(lastPayload, content, request.getConversationId());
     }
 
+    /**
+     * Converts a Core runner result into a {@link QueryResponse}.
+     *
+     * @param rawResult the raw agent output
+     * @param conversationId the conversation identifier
+     * @return the normalized query response
+     */
     protected QueryResponse toQueryResponse(Object rawResult, String conversationId) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
@@ -259,6 +297,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return false;
     }
 
+    /**
+     * Builds Core runner input map from a serve request.
+     *
+     * @param request the ingress request
+     * @return the runner inputs map
+     */
     protected static Map<String, Object> buildInputs(ServeRequest request) {
         Map<String, Object> inputs = new LinkedHashMap<>();
         inputs.put(INPUT_CONVERSATION_ID, request.getConversationId());
@@ -275,6 +319,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return inputs;
     }
 
+    /**
+     * Resolves the Core runner session object for a serve request.
+     *
+     * @param request the ingress request
+     * @return the session id, conversation id, or {@link AgentSessionApi}
+     */
     protected Object runnerSession(ServeRequest request) {
         String conversationId = request.getConversationId();
         if (hasAgentCard(agent)) {
@@ -311,6 +361,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
     }
 
+    /**
+     * Normalizes a Core stream chunk into a service-layer payload map.
+     *
+     * @param chunk the raw stream chunk
+     * @return the normalized payload
+     */
     protected static Object normalizeChunk(Object chunk) {
         if (chunk instanceof OutputSchema output) {
             // agent-core-java interrupt: map __interaction__ to structured form
@@ -405,6 +461,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
     }
 
+    /**
+     * Appends textual content from a normalized chunk into the aggregate buffer.
+     *
+     * @param payload the normalized chunk payload
+     * @param content the aggregate content buffer
+     */
     protected static void appendContent(Object payload, StringBuilder content) {
         if (!(payload instanceof Map<?, ?> map)) {
             return;
@@ -430,6 +492,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         content.append(stringify(text.get()));
     }
 
+    /**
+     * Builds a standard error event map for stream observers.
+     *
+     * @param ex the failure exception
+     * @return the error event map
+     */
     protected static Map<String, Object> errorEvent(Exception ex) {
         Map<String, Object> error = new LinkedHashMap<>();
         error.put("type", "error");
@@ -441,6 +509,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return Arrays.stream(values).filter(value -> value != null).findFirst();
     }
 
+    /**
+     * Converts a value to a non-null string representation.
+     *
+     * @param value the value to stringify
+     * @return the string form, or empty string when null
+     */
     protected static String stringify(Object value) {
         return value == null ? "" : String.valueOf(value);
     }

@@ -15,6 +15,8 @@ import java.util.List;
 
 /**
  * Cancels in-flight streaming execution and notifies interrupt hooks.
+ *
+ * @since 0.1.0
  */
 public final class ActiveStreamInterruptor {
 
@@ -29,6 +31,11 @@ public final class ActiveStreamInterruptor {
         this.interruptHandlers = interruptHandlers;
     }
 
+    /**
+     * Interrupts active execution for the given conversation.
+     *
+     * @param conversationId the conversation identifier
+     */
     public void interrupt(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
             log.warn("interrupt ignored: conversation_id is blank");

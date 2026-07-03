@@ -105,16 +105,27 @@ class MiddlewareRedisSpringIT {
         });
     }
 
+    /** Spring test configuration for Redis middleware integration. */
     @Configuration
     static class TestAgentHandlerConfiguration {
 
+        /** Creates the Redis IT agent handler bean. */
         @Bean
         JiuwenCoreAgentHandler springItAgentHandler(MiddlewareAdapterRegistrar registrar) {
             return new JiuwenCoreAgentHandler(new SessionEchoAgent(), registrar);
         }
     }
 
+    /** Test agent that echoes session history across turns. */
     public static class SessionEchoAgent {
+        /**
+         * Streams a reply while persisting conversation history in session state.
+         *
+         * @param inputs the runner inputs
+         * @param session the agent session
+         * @param streamModes the requested stream modes
+         * @return the output iterator
+         */
         @SuppressWarnings("unchecked")
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             Map<String, Object> inputMap = (Map<String, Object>) inputs;

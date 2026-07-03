@@ -9,6 +9,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Query endpoint configuration.
+ *
+ * @since 0.1.0
  */
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.service.query")
@@ -21,6 +23,7 @@ public class QueryProperties {
         this.webflux = webflux != null ? webflux : new Endpoint();
     }
 
+    /** WebFlux query endpoint settings. */
     @Data
     public static class Endpoint {
 

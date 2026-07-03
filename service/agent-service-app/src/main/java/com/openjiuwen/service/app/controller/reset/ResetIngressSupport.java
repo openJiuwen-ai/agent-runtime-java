@@ -10,12 +10,20 @@ import java.util.Map;
 
 /**
  * Shared ingress logic for reset conversation controllers.
+ *
+ * @since 0.1.0
  */
 public final class ResetIngressSupport {
 
     private ResetIngressSupport() {
     }
 
+    /**
+     * Validates a reset conversation request.
+     *
+     * @param request the reset request body
+     * @return the validation result
+     */
     public static ValidationResult validate(ResetConversationRequest request) {
         if (request == null || request.getConversationId() == null
                 || request.getConversationId().isBlank()) {

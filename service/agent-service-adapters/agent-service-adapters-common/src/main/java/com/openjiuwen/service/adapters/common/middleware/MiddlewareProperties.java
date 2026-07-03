@@ -64,6 +64,7 @@ public class MiddlewareProperties {
         this.redis = redis != null ? redis : new HashMap<>();
     }
 
+    /** Checkpointer configuration. */
     public static class Checkpointer {
 
         private String type = "in_memory";
@@ -86,6 +87,7 @@ public class MiddlewareProperties {
         }
     }
 
+    /** Placeholder for future middleware capabilities. */
     public static class CapabilityPlaceholder {
 
         private String type = "none";
@@ -99,6 +101,7 @@ public class MiddlewareProperties {
         }
     }
 
+    /** Redis endpoint connection settings. */
     public static class RedisEndpoint {
 
         private String host = "localhost";

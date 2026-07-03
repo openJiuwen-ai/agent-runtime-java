@@ -13,10 +13,15 @@ import org.springframework.http.HttpHeaders;
 
 /**
  * Shared ingress logic for Query controllers (header binding, validation, DTO mapping).
+ *
+ * @since 0.1.0
  */
 public final class QueryIngressSupport {
+    /** Gateway user identifier header. */
     public static final String HEADER_USER_ID = "X-User-ID";
+    /** Gateway space identifier header. */
     public static final String HEADER_SPACE_ID = "X-Space-ID";
+    /** Gateway tenant identifier header. */
     public static final String HEADER_TENANT_ID = "X-Tenant-ID";
 
     private static final Set<String> EXCLUDED_HEADERS = Set.of("authorization", "cookie", "set-cookie", "x-api-key",
@@ -25,6 +30,13 @@ public final class QueryIngressSupport {
     private QueryIngressSupport() {
     }
 
+    /**
+     * Validates the query request and builds a {@link ServeRequest}.
+     *
+     * @param request the query request body
+     * @param headers the HTTP headers
+     * @return the validation result
+     */
     public static ValidationResult validateAndBuild(QueryRequest request, HttpHeaders headers) {
         request.normalizeMessages();
         if (request.getConversationId() == null || request.getConversationId().isBlank()) {

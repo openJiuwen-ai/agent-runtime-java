@@ -8,6 +8,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Cancellation token for an active streaming query on a conversation.
+ *
+ * @since 0.1.0
  */
 public final class StreamCancellationHandle {
 
@@ -18,10 +20,16 @@ public final class StreamCancellationHandle {
         this.conversationId = conversationId;
     }
 
+    /**
+     * Returns the conversation identifier for this handle.
+     *
+     * @return the conversation identifier
+     */
     public String getConversationId() {
         return conversationId;
     }
 
+    /** Marks this stream handle as cancelled. */
     public void cancel() {
         cancelled.set(true);
     }

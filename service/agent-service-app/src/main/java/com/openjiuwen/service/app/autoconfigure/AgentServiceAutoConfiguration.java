@@ -45,6 +45,11 @@ import org.springframework.core.env.Environment;
 @EnableConfigurationProperties({ServiceProperties.class, QueryProperties.class, LifecycleProperties.class})
 @ComponentScan(basePackages = "com.openjiuwen.service.app.controller")
 public class AgentServiceAutoConfiguration {
+    /**
+     * Creates the placeholder agent handler holder when no custom handler is configured.
+     *
+     * @return the agent handler holder
+     */
     @Bean
     @ConditionalOnMissingBean(AgentHandler.class)
     @ConditionalOnProperty(prefix = "openjiuwen.service", name = "agent-id", havingValue = "", matchIfMissing = true)
@@ -52,18 +57,34 @@ public class AgentServiceAutoConfiguration {
         return new AgentHandlerHolder();
     }
 
+    /**
+     * Creates the default agent service identity bean.
+     *
+     * @param environment the Spring environment
+     * @return the agent service identity
+     */
     @Bean
     @ConditionalOnMissingBean(AgentServiceIdentity.class)
     public AgentServiceIdentity agentServiceIdentity(Environment environment) {
         return new DefaultAgentServiceIdentity(environment);
     }
 
+    /**
+     * Creates the active stream registry bean.
+     *
+     * @return the active stream registry
+     */
     @Bean
     @ConditionalOnMissingBean(ActiveStreamRegistry.class)
     public ActiveStreamRegistry activeStreamRegistry() {
         return new ActiveStreamRegistry();
     }
 
+    /**
+     * Creates the default agent readiness tracker bean.
+     *
+     * @return the default agent readiness tracker
+     */
     @Bean
     @ConditionalOnMissingBean(DefaultAgentReadiness.class)
     public DefaultAgentReadiness defaultAgentReadiness() {

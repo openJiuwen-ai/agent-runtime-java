@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * AgentApp probe endpoint ({@code GET /health}).
+ *
+ * @since 0.1.0
  */
 @RestController
 @ConditionalOnWebApplication
@@ -34,6 +36,11 @@ public class HealthController {
         this.serviceProperties = serviceProperties;
     }
 
+    /**
+     * Returns the health probe payload.
+     *
+     * @return the health response
+     */
     @GetMapping(AgentServicePaths.HEALTH)
     public HealthResponse health() {
         return new HealthResponse(STATUS_HEALTHY, app(), version(), readiness.isProcessUp(), readiness.isAgentLoaded());

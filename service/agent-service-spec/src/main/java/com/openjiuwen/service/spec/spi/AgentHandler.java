@@ -9,11 +9,25 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 
 /**
  * Agent framework adapter SPI (AgentFWAdapters).
+ *
+ * @since 0.1.0
  */
 public interface AgentHandler {
 
+    /**
+     * Executes a non-streaming query.
+     *
+     * @param request the serve request
+     * @return the aggregated query response
+     */
     QueryResponse query(ServeRequest request);
 
+    /**
+     * Executes a streaming query.
+     *
+     * @param request the serve request
+     * @param observer the stream observer
+     */
     void streamQuery(ServeRequest request, QueryStreamObserver observer);
 
     /**

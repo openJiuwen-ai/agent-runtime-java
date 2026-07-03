@@ -7,6 +7,8 @@ package com.openjiuwen.service.spec.lifecycle;
 /**
  * Probe readiness state for Agent Service (consumed by {@code GET /health},
  * Issue #8).
+ *
+ * @since 0.1.0
  */
 public interface AgentReadiness {
 

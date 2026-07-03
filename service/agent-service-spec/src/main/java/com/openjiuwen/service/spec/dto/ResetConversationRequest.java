@@ -11,6 +11,8 @@ import lombok.Data;
 /**
  * Reset conversation API request body (aligned with Python
  * {@code ResetConversationRequest}).
+ *
+ * @since 0.1.0
  */
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)

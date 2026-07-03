@@ -25,6 +25,12 @@ public class ServeRequest {
     private boolean stream = true;
     private Map<String, Object> metadata = new LinkedHashMap<>();
 
+    /**
+     * Builds a serve request from the external query request body.
+     *
+     * @param request the query request
+     * @return the normalized serve request
+     */
     public static ServeRequest fromQueryRequest(QueryRequest request) {
         request.normalizeMessages();
         ServeRequest serveRequest = new ServeRequest();
@@ -63,6 +69,11 @@ public class ServeRequest {
         return "";
     }
 
+    /**
+     * Replaces the message list, using an empty list when {@code null}.
+     *
+     * @param messages the conversation messages
+     */
     public void setMessages(List<Map<String, Object>> messages) {
         this.messages = messages != null ? messages : new ArrayList<>();
     }

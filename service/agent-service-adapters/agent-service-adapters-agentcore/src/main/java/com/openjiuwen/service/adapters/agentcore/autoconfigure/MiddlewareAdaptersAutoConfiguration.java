@@ -27,6 +27,13 @@ import org.springframework.context.annotation.Bean;
 @EnableConfigurationProperties(MiddlewareProperties.class)
 public class MiddlewareAdaptersAutoConfiguration {
 
+    /**
+     * Registers the middleware adapter registrar bean and applies checkpointer config.
+     *
+     * @param middlewareProperties the middleware properties
+     * @param credentialDecryptor the credential decryptor
+     * @return the middleware adapter registrar
+     */
     @Bean
     public MiddlewareAdapterRegistrar middlewareAdapterRegistrar(MiddlewareProperties middlewareProperties,
             CredentialDecryptor credentialDecryptor) {

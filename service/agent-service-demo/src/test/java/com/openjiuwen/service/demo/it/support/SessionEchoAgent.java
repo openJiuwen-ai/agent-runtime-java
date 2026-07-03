@@ -16,9 +16,19 @@ import java.util.Map;
 /**
  * Minimal streaming agent for Core Runner integration tests (session echo
  * semantics).
+ *
+ * @since 0.1.0
  */
 public class SessionEchoAgent {
 
+    /**
+     * Streams a reply while persisting conversation history in session state.
+     *
+     * @param inputs the runner inputs
+     * @param session the agent session
+     * @param streamModes the requested stream modes
+     * @return the output iterator
+     */
     @SuppressWarnings("unchecked")
     public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
         Map<String, Object> inputMap = (Map<String, Object>) inputs;

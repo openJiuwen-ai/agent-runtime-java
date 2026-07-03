@@ -15,6 +15,8 @@ import java.util.Map;
  * modules.
  * Bound from {@code openjiuwen.demo.llm} in
  * {@code example/config/application-base.yml}.
+ *
+ * @since 0.1.0
  */
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.demo.llm")
@@ -34,10 +36,16 @@ public class DemoLlmProperties {
     private int contextWindowLimit = 10;
     private int maxIterations = 5;
 
+    /**
+     * Loads optional API config file values into unset properties.
+     */
     public void applyApiConfigIfPresent() {
         ApiConfigLoader.load(configFile, autoDiscover).ifPresent(this::applyFromFile);
     }
 
+    /**
+     * Validates that required LLM properties are configured.
+     */
     public void requireConfigured() {
         requireText(apiKey, "openjiuwen.demo.llm.api-key");
         requireText(apiBase, "openjiuwen.demo.llm.api-base");

@@ -15,9 +15,10 @@ import org.springframework.beans.factory.ObjectProvider;
 
 /**
  * Runs {@link AgentInitHook}s, starts handler via {@link AgentHandler#start()}, and updates readiness.
+ *
+ * @since 0.1.0
  */
 public final class InitPhaseExecutor {
-
     private static final Logger log = LoggerFactory.getLogger(InitPhaseExecutor.class);
 
     private final AgentServiceIdentity identity;
@@ -39,6 +40,7 @@ public final class InitPhaseExecutor {
         this.properties = properties;
     }
 
+    /** Runs the init phase hooks and starts the agent handler. */
     public void run() {
         String appName = identity.getAppName();
         log.info("Starting Agent init phase for application '{}', hookCount={}",

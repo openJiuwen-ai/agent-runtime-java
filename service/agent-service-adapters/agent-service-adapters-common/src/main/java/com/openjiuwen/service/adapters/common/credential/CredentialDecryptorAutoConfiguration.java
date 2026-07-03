@@ -17,6 +17,11 @@ import org.springframework.context.annotation.Bean;
 @AutoConfiguration
 public class CredentialDecryptorAutoConfiguration {
 
+    /**
+     * Registers the default passthrough credential decryptor.
+     *
+     * @return the credential decryptor bean
+     */
     @Bean
     @ConditionalOnMissingBean(CredentialDecryptor.class)
     public CredentialDecryptor credentialDecryptor() {

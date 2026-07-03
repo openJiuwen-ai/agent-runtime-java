@@ -10,8 +10,16 @@ package com.openjiuwen.service.spec.lifecycle;
  * Runs after the {@link com.openjiuwen.service.spec.spi.AgentHandler} is
  * loaded; use for
  * warmup or auxiliary setup that depends on a ready handler.
+ *
+ * @since 0.1.0
  */
 public interface AgentInitHook {
 
+    /**
+     * Runs during the init phase.
+     *
+     * @param context the lifecycle context
+     * @throws Exception when init hook execution fails
+     */
     void onInit(AgentLifecycleContext context) throws Exception;
 }

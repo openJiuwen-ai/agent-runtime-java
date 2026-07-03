@@ -14,12 +14,23 @@ import java.util.Map;
 
 /**
  * Builds a {@link ReActAgent} from {@link DemoLlmProperties}.
+ *
+ * @since 0.1.0
  */
 public final class ExampleReActAgentFactory {
 
     private ExampleReActAgentFactory() {
     }
 
+    /**
+     * Builds a configured {@link ReActAgent} for demo and example modules.
+     *
+     * @param agentId the agent identifier
+     * @param name the agent display name
+     * @param description the agent description
+     * @param props the demo LLM properties
+     * @return the configured ReAct agent
+     */
     public static ReActAgent build(String agentId, String name, String description, DemoLlmProperties props) {
         AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
         ReActAgent agent = new ReActAgent(card);

@@ -28,6 +28,8 @@ import java.util.Map;
 /**
  * MVC stack reset conversation controller ({@code POST /v1/reset_conversation}
  * and legacy path).
+ *
+ * @since 0.1.0
  */
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
@@ -45,12 +47,26 @@ public class ResetConversationMvcController {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Resets conversation state on the v1 path.
+     *
+     * @param request the reset request body
+     * @param response the servlet response
+     * @return the reset response, or {@code null} when an error body was written
+     */
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_V1, produces = MediaType.APPLICATION_JSON_VALUE)
     public ResetConversationResponse resetV1(@RequestBody ResetConversationRequest request,
             HttpServletResponse response) throws IOException {
         return handleReset(request, response);
     }
 
+    /**
+     * Resets conversation state on the legacy path.
+     *
+     * @param request the reset request body
+     * @param response the servlet response
+     * @return the reset response, or {@code null} when an error body was written
+     */
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_LEGACY, produces = MediaType.APPLICATION_JSON_VALUE)
     @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true", matchIfMissing = true)
     public ResetConversationResponse resetLegacy(@RequestBody ResetConversationRequest request,
