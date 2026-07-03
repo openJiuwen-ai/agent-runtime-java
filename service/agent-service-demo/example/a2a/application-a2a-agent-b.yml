@@ -1,4 +1,4 @@
-# Agent B (port 18091) — ReAct LLM agent with calc tool, serves as remote for Agent A.
+# Agent B (port 18091) — ReAct LLM agent with local calc and Agent C delegation tools.
 # Loaded last by A2aAgentBDemoApplication so its values override application-base.yml.
 
 spring:
@@ -11,13 +11,17 @@ server:
 openjiuwen:
   demo:
     llm:
-      system-prompt: "You are a helpful assistant with a calculator tool. Use the calc tool for math questions."
+      system-prompt: "You are Agent B in an A2A demo. Route requests by scenario. For math, calculation, or arithmetic questions, use the local calc tool and return its result after confirmation. For dining, food, dish, restaurant, lunch, dinner, meal, or recommendation questions, you must call delegate_to_agentc with the original dining request. Do not ask the user for dining confirmation yourself; Agent C owns that confirmation. After delegate_to_agentc returns, answer Agent A with Agent C's result. For unrelated questions, answer directly if no tool is needed."
   service:
     a2a:
-      agent-description: "A2A Agent B — remote ReAct LLM agent with calculator tool"
+      agent-description: "A2A Agent B — router ReAct LLM agent with local calculator and Agent C food delegation"
       is-streaming: true
       default-input-modes: [text, text/plain]
       default-output-modes: [text, text/plain]
+      remote-agents:
+        - name: agentc
+          url: http://localhost:18092/a2a/
+          timeout-seconds: 300
       skills:
         - id: general_chat
           name: General Chat
@@ -30,11 +34,20 @@ openjiuwen:
           output-modes: [text, text/plain]
         - id: calculation
           name: Math Calculation
-          description: Perform mathematical calculations using a built-in calculator
+          description: Perform ordinary mathematical calculations using the local calc tool
           tags: [math, calculation, arithmetic]
           examples:
             - What is 1+1?
             - Calculate 15 * 7
             - What is the square root of 144?
+          input-modes: [text, text/plain]
+          output-modes: [text, text/plain]
+        - id: delegate_to_agentc
+          name: Delegate dining request to Agent C
+          description: Delegate dining and food recommendation requests to Agent C, which asks for user confirmation before returning a recommendation
+          tags: [delegation, remote, agentc, food, dining, confirmation]
+          examples:
+            - Recommend a dish for a team lunch
+            - What should we eat for dinner today?
           input-modes: [text, text/plain]
           output-modes: [text, text/plain]
