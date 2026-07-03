@@ -76,6 +76,7 @@ class RedisCheckpointerMiddlewareIT {
     }
 
     @Test
+    @Tag("smoke")
     @SuppressWarnings("unchecked")
     void localRedisRestoresSessionOnHandlerRestart() {
         assumeTrue(isLocalRedisReachable(), "Local Redis on 127.0.0.1:6379 is required for this IT");

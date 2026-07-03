@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.it;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -37,6 +38,7 @@ class ResetConversationMvcIntegrationTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
+    @Tag("smoke")
     void resetClearsMultiTurnContextForSameConversationId() throws Exception {
         String path = "/v1/query";
         String conversationId = "reset-multi-c1";

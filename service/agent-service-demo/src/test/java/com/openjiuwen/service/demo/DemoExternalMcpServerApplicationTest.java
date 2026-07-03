@@ -15,6 +15,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -74,6 +75,7 @@ class DemoExternalMcpServerApplicationTest {
     }
 
     @Test
+    @Tag("smoke")
     void demoStartsLocalMcpServerAndRegistersItsTools() throws Exception {
         List<ToolInfo> toolInfos = Runner.resourceMgr().getMcpToolInfos(
                 null,

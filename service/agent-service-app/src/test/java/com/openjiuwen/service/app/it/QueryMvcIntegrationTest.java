@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.it;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -106,6 +107,7 @@ class QueryMvcIntegrationTest {
     }
 
     @Test
+    @Tag("smoke")
     void streamingQueryReturnsPythonStyleSseChunk() {
         Map<String, Object> body = Map.of(
                 "messages", List.of(userMessage("hello")),
@@ -142,6 +144,7 @@ class QueryMvcIntegrationTest {
     }
 
     @Test
+    @Tag("smoke")
     @SuppressWarnings("unchecked")
     void nonStreamingQueryReturnsAggregatedJson() throws Exception {
         Map<String, Object> body = Map.of(
