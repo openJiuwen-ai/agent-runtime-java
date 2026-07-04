@@ -5,7 +5,7 @@
 /**
  * Jiuwen Core {@link com.openjiuwen.service.spec.spi.AgentHandler}
  * implementations
- * ({@link JiuwenCoreAgentHandler}).
+ * ({@link com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler}).
  */
 
 package com.openjiuwen.service.adapters.agentcore.agentfw;

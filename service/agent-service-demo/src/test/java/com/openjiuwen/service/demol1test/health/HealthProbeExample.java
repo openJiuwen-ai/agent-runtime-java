@@ -25,8 +25,9 @@ import java.util.Map;
 public class HealthProbeExample {
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(HealthProbeExample.class);
-        application.setDefaultProperties(Map.of("server.port", "8090", "spring.main.web-application-type", "servlet",
-                "spring.application.name", "health-probe-example", "openjiuwen.service.version", "0.1.0"));
+        application.setDefaultProperties(
+            Map.of("server.port", "8090", "spring.main.web-application-type", "servlet", "spring.application.name",
+                "health-probe-example", "openjiuwen.service.version", "0.1.0"));
         application.run(args);
     }
 
@@ -48,6 +49,6 @@ public class HealthProbeExample {
 
     private static Map<String, Object> responseBody(ServeRequest request) {
         return Map.of("role", "assistant", "content", "health-example:" + request.lastUserQuery(), "conversation_id",
-                request.getConversationId());
+            request.getConversationId());
     }
 }

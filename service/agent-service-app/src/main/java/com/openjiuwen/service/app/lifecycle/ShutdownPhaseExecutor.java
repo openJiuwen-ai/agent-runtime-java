@@ -27,15 +27,20 @@ public final class ShutdownPhaseExecutor {
     private static final Logger log = LoggerFactory.getLogger(ShutdownPhaseExecutor.class);
 
     private final AgentServiceIdentity identity;
+
     private final AgentLifecycleHooks hooks;
+
     private final DefaultAgentReadiness readiness;
+
     private final ActiveStreamRegistry streamRegistry;
+
     private final ObjectProvider<AgentHandler> agentHandlerProvider;
+
     private final LifecycleProperties properties;
 
     public ShutdownPhaseExecutor(AgentServiceIdentity identity, AgentLifecycleHooks hooks,
-            DefaultAgentReadiness readiness, ActiveStreamRegistry streamRegistry,
-            ObjectProvider<AgentHandler> agentHandlerProvider, LifecycleProperties properties) {
+        DefaultAgentReadiness readiness, ActiveStreamRegistry streamRegistry,
+        ObjectProvider<AgentHandler> agentHandlerProvider, LifecycleProperties properties) {
         this.identity = identity;
         this.hooks = hooks;
         this.readiness = readiness;
@@ -48,7 +53,7 @@ public final class ShutdownPhaseExecutor {
     public void run() {
         String appName = identity.getAppName();
         log.info("Starting Agent shutdown phase for application '{}', activeStreams={}", appName,
-                streamRegistry.activeCount());
+            streamRegistry.activeCount());
         readiness.markShuttingDown();
         drainActiveStreams();
         AgentLifecycleContext context = new AgentLifecycleContext(appName);
@@ -75,7 +80,7 @@ public final class ShutdownPhaseExecutor {
         boolean drained = streamRegistry.awaitDrain(properties.getShutdownTimeoutMs());
         if (!drained) {
             log.warn("Active streams not drained within {} ms, forcing cancel (remaining={})",
-                    properties.getShutdownTimeoutMs(), streamRegistry.activeCount());
+                properties.getShutdownTimeoutMs(), streamRegistry.activeCount());
             streamRegistry.cancelAll();
             streamRegistry.awaitDrain(1000L);
         }

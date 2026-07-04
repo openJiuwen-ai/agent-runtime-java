@@ -32,7 +32,9 @@ import java.util.Map;
 @RestController
 public class AgentCardController {
     private final A2AProperties a2aProperties;
+
     private final AgentServiceIdentity identity;
+
     private final ServiceProperties serviceProperties;
 
     /**
@@ -43,7 +45,7 @@ public class AgentCardController {
      * @param serviceProperties the service properties
      */
     public AgentCardController(A2AProperties a2aProperties, AgentServiceIdentity identity,
-            ServiceProperties serviceProperties) {
+        ServiceProperties serviceProperties) {
         this.a2aProperties = a2aProperties;
         this.identity = identity;
         this.serviceProperties = serviceProperties;
@@ -84,27 +86,29 @@ public class AgentCardController {
 
     private AgentCard buildCard(HttpServletRequest request) {
         String baseUrl = (a2aProperties.getPublicUrl() != null && !a2aProperties.getPublicUrl().isBlank())
-                ? a2aProperties.getPublicUrl()
-                : request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
+            ? a2aProperties.getPublicUrl()
+            : request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
 
         String jsonRpcUrl = baseUrl.replaceAll("/$", "") + a2aProperties.getJsonRpcPath();
 
-        List<AgentSkill> skills = a2aProperties.getSkills().stream().map(s -> new AgentSkill(s.getId(), s.getName(),
-                s.getDescription(), s.getTags(), s.getExamples(), s.getInputModes(), s.getOutputModes(), List.of()))
-                .toList();
+        List<AgentSkill> skills = a2aProperties.getSkills()
+            .stream()
+            .map(s -> new AgentSkill(s.getId(), s.getName(), s.getDescription(), s.getTags(), s.getExamples(),
+                s.getInputModes(), s.getOutputModes(), List.of()))
+            .toList();
 
         String providerOrg = a2aProperties.getProviderOrganization() != null
-                ? a2aProperties.getProviderOrganization()
-                : "";
+            ? a2aProperties.getProviderOrganization()
+            : "";
         String providerUrl = a2aProperties.getProviderUrl() != null ? a2aProperties.getProviderUrl() : "";
 
         return new AgentCard(identity.getAppName(), a2aProperties.getAgentDescription(),
-                new AgentProvider(providerOrg, providerUrl), serviceProperties.getVersion(),
-                a2aProperties.getDocumentationUrl(),
-                new AgentCapabilities(a2aProperties.isStreaming(), a2aProperties.isPushNotifications(),
-                        a2aProperties.isExtendedAgentCard(), List.of()),
-                a2aProperties.getDefaultInputModes(), a2aProperties.getDefaultOutputModes(), skills, Map.of(),
-                List.of(), a2aProperties.getIconUrl(), List.of(new AgentInterface("JSONRPC", jsonRpcUrl, null, "1.0")),
-                List.of(), jsonRpcUrl, "JSONRPC", List.of());
+            new AgentProvider(providerOrg, providerUrl), serviceProperties.getVersion(),
+            a2aProperties.getDocumentationUrl(),
+            new AgentCapabilities(a2aProperties.isStreaming(), a2aProperties.isPushNotifications(),
+                a2aProperties.isExtendedAgentCard(), List.of()), a2aProperties.getDefaultInputModes(),
+            a2aProperties.getDefaultOutputModes(), skills, Map.of(), List.of(), a2aProperties.getIconUrl(),
+            List.of(new AgentInterface("JSONRPC", jsonRpcUrl, null, "1.0")), List.of(), jsonRpcUrl, "JSONRPC",
+            List.of());
     }
 }

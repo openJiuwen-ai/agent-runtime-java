@@ -26,7 +26,9 @@ public interface QueryStreamObserver {
      */
     void onError(Throwable error);
 
-    /** Notifies successful stream completion. */
+    /**
+     * Notifies successful stream completion.
+     */
     void onComplete();
 
     /**

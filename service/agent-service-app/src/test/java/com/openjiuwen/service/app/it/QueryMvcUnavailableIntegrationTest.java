@@ -37,7 +37,7 @@ import java.util.Map;
  * @since 0.1.0
  */
 @SpringBootTest(classes = QueryMvcUnavailableIntegrationTest.AgentNotLoadedApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
 class QueryMvcUnavailableIntegrationTest {
@@ -50,7 +50,7 @@ class QueryMvcUnavailableIntegrationTest {
     @SuppressWarnings("unchecked")
     void queryReturnsServiceUnavailableWhenAgentIsNotLoaded() throws Exception {
         ResponseEntity<String> response = postQuery("/v1/query",
-                Map.of("message", "blocked", "conversation_id", "c-not-loaded", "stream", false));
+            Map.of("message", "blocked", "conversation_id", "c-not-loaded", "stream", false));
 
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);

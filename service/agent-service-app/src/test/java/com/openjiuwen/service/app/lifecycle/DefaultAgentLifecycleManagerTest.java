@@ -69,7 +69,7 @@ class DefaultAgentLifecycleManagerTest {
         AgentInitHook second = new OrderedInitHook(order, 2, "second");
 
         DefaultAgentLifecycleManager manager = newManager(readiness, stubAgentHandler(), List.of(first, second),
-                List.of(), List.of());
+            List.of(), List.of());
 
         manager.runInitPhase();
 
@@ -87,10 +87,10 @@ class DefaultAgentLifecycleManagerTest {
         properties.setInitFailFast(true);
 
         DefaultAgentLifecycleManager manager = newManager(readiness, stubAgentHandler(), List.of(failing), List.of(),
-                List.of(), properties);
+            List.of(), properties);
 
         assertThatThrownBy(manager::runInitPhase).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Agent init phase failed");
+            .hasMessageContaining("Agent init phase failed");
         assertThat(readiness.isAgentLoaded()).isFalse();
     }
 
@@ -104,7 +104,7 @@ class DefaultAgentLifecycleManagerTest {
         properties.setInitFailFast(false);
 
         DefaultAgentLifecycleManager manager = newManager(readiness, stubAgentHandler(), List.of(failing), List.of(),
-                List.of(), properties);
+            List.of(), properties);
 
         manager.runInitPhase();
 
@@ -120,7 +120,7 @@ class DefaultAgentLifecycleManagerTest {
         AgentShutdownHook second = context -> order.add("second");
 
         DefaultAgentLifecycleManager manager = newManager(readiness, stubAgentHandler(), List.of(),
-                List.of(first, second), List.of());
+            List.of(first, second), List.of());
         manager.runInitPhase();
 
         manager.runShutdownPhase();
@@ -140,7 +140,7 @@ class DefaultAgentLifecycleManagerTest {
         properties.setInitFailFast(false);
 
         DefaultAgentLifecycleManager manager = newManager(readiness, stubAgentHandler(), List.of(failing), List.of(),
-                List.of(), properties);
+            List.of(), properties);
 
         manager.runInitPhase();
 
@@ -159,13 +159,13 @@ class DefaultAgentLifecycleManagerTest {
         AgentHandler handler = new AgentHandler() {
             @Override
             public com.openjiuwen.service.spec.dto.QueryResponse query(
-                    com.openjiuwen.service.spec.dto.ServeRequest request) {
+                com.openjiuwen.service.spec.dto.ServeRequest request) {
                 return null;
             }
 
             @Override
             public void streamQuery(com.openjiuwen.service.spec.dto.ServeRequest request,
-                    com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
+                com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
             }
 
             @Override
@@ -180,8 +180,7 @@ class DefaultAgentLifecycleManagerTest {
         };
 
         DefaultAgentLifecycleManager manager = newManager(readiness, handler, List.of(context -> initOrder.add("init")),
-                List.of(context -> shutdownOrder.add("shutdown")), List.of(), new LifecycleProperties(), registry,
-                null);
+            List.of(context -> shutdownOrder.add("shutdown")), List.of(), new LifecycleProperties(), registry, null);
 
         manager.runInitPhase();
         assertThat(initOrder).containsExactly("init");
@@ -213,13 +212,13 @@ class DefaultAgentLifecycleManagerTest {
         ServeOrchestrator orchestrator = new ServeOrchestrator() {
             @Override
             public com.openjiuwen.service.spec.dto.QueryResponse query(
-                    com.openjiuwen.service.spec.dto.ServeRequest request) {
+                com.openjiuwen.service.spec.dto.ServeRequest request) {
                 return null;
             }
 
             @Override
             public void streamQuery(com.openjiuwen.service.spec.dto.ServeRequest request,
-                    com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
+                com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
             }
 
             @Override
@@ -232,7 +231,7 @@ class DefaultAgentLifecycleManagerTest {
             }
         };
         DefaultAgentLifecycleManager manager = newManager(readiness, stubAgentHandler(), List.of(), List.of(),
-                List.of(interruptHandler), new LifecycleProperties(), registry, orchestrator);
+            List.of(interruptHandler), new LifecycleProperties(), registry, orchestrator);
 
         manager.interrupt("conv-1");
 
@@ -241,31 +240,31 @@ class DefaultAgentLifecycleManagerTest {
     }
 
     private static DefaultAgentLifecycleManager newManager(DefaultAgentReadiness readiness, AgentHandler agentHandler,
-            List<AgentInitHook> initHooks, List<AgentShutdownHook> shutdownHooks,
-            List<AgentInterruptHandler> interruptHandlers) {
+        List<AgentInitHook> initHooks, List<AgentShutdownHook> shutdownHooks,
+        List<AgentInterruptHandler> interruptHandlers) {
         return newManager(readiness, agentHandler, initHooks, shutdownHooks, interruptHandlers,
-                new LifecycleProperties(), new ActiveStreamRegistry(), null);
+            new LifecycleProperties(), new ActiveStreamRegistry(), null);
     }
 
     private static DefaultAgentLifecycleManager newManager(DefaultAgentReadiness readiness, AgentHandler agentHandler,
-            List<AgentInitHook> initHooks, List<AgentShutdownHook> shutdownHooks,
-            List<AgentInterruptHandler> interruptHandlers, LifecycleProperties properties) {
+        List<AgentInitHook> initHooks, List<AgentShutdownHook> shutdownHooks,
+        List<AgentInterruptHandler> interruptHandlers, LifecycleProperties properties) {
         return newManager(readiness, agentHandler, initHooks, shutdownHooks, interruptHandlers, properties,
-                new ActiveStreamRegistry(), null);
+            new ActiveStreamRegistry(), null);
     }
 
     private static DefaultAgentLifecycleManager newManager(DefaultAgentReadiness readiness, AgentHandler agentHandler,
-            List<AgentInitHook> initHooks, List<AgentShutdownHook> shutdownHooks,
-            List<AgentInterruptHandler> interruptHandlers, LifecycleProperties properties,
-            ActiveStreamRegistry registry, ServeOrchestrator orchestrator) {
+        List<AgentInitHook> initHooks, List<AgentShutdownHook> shutdownHooks,
+        List<AgentInterruptHandler> interruptHandlers, LifecycleProperties properties, ActiveStreamRegistry registry,
+        ServeOrchestrator orchestrator) {
         AgentServiceIdentity identity = new DefaultAgentServiceIdentity("test-agent");
         AgentLifecycleHooks hooks = new AgentLifecycleHooks(initHooks, shutdownHooks, interruptHandlers);
         InitPhaseExecutor initExecutor = new InitPhaseExecutor(identity, hooks, readiness, providerOf(agentHandler),
-                properties);
+            properties);
         ShutdownPhaseExecutor shutdownExecutor = new ShutdownPhaseExecutor(identity, hooks, readiness, registry,
-                providerOf(agentHandler), properties);
+            providerOf(agentHandler), properties);
         ActiveStreamInterruptor interruptor = new ActiveStreamInterruptor(providerOf(orchestrator),
-                hooks.interruptHandlers());
+            hooks.interruptHandlers());
         return new DefaultAgentLifecycleManager(initExecutor, shutdownExecutor, interruptor);
     }
 
@@ -273,13 +272,13 @@ class DefaultAgentLifecycleManagerTest {
         return new AgentHandler() {
             @Override
             public com.openjiuwen.service.spec.dto.QueryResponse query(
-                    com.openjiuwen.service.spec.dto.ServeRequest request) {
+                com.openjiuwen.service.spec.dto.ServeRequest request) {
                 return null;
             }
 
             @Override
             public void streamQuery(com.openjiuwen.service.spec.dto.ServeRequest request,
-                    com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
+                com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
             }
         };
     }
@@ -292,7 +291,9 @@ class DefaultAgentLifecycleManagerTest {
 
     private static final class OrderedInitHook implements AgentInitHook, org.springframework.core.Ordered {
         private final List<String> order;
+
         private final int orderValue;
+
         private final String label;
 
         private OrderedInitHook(List<String> order, int orderValue, String label) {

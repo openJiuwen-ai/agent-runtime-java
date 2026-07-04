@@ -78,8 +78,7 @@ class DefaultAgentReadinessIntegrationTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    static class NoHandlerApplication {
-    }
+    static class NoHandlerApplication {}
 
     @SpringBootConfiguration
     @EnableAutoConfiguration

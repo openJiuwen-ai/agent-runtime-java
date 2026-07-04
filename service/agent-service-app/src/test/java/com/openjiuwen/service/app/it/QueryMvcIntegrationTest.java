@@ -78,7 +78,7 @@ class QueryMvcIntegrationTest {
     }
 
     private static ThreadPoolExecutor fixedTestExecutor(String threadNamePrefix, int size,
-            AtomicReference<Throwable> uncaught) {
+        AtomicReference<Throwable> uncaught) {
         AtomicInteger sequence = new AtomicInteger();
         return new ThreadPoolExecutor(size, size, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(size), task -> {
             Thread thread = new Thread(task, threadNamePrefix + "-" + sequence.incrementAndGet());
@@ -109,7 +109,7 @@ class QueryMvcIntegrationTest {
     @Tag("smoke")
     void streamingQueryReturnsPythonStyleSseChunk() {
         Map<String, Object> body = Map.of("messages", List.of(userMessage("hello")), "conversation_id", "c-stream",
-                "stream", true);
+            "stream", true);
 
         ResponseEntity<String> resp = postQuery("/v1/query", body);
 
@@ -127,7 +127,7 @@ class QueryMvcIntegrationTest {
     @Test
     void streamDefaultsToSseWhenOmitted() {
         Map<String, Object> body = Map.of("messages", List.of(userMessage("default-stream")), "conversation_id",
-                "c-default-stream");
+            "c-default-stream");
 
         ResponseEntity<String> resp = postQuery("/v1/query", body);
 
@@ -144,7 +144,7 @@ class QueryMvcIntegrationTest {
     @SuppressWarnings("unchecked")
     void nonStreamingQueryReturnsAggregatedJson() throws Exception {
         Map<String, Object> body = Map.of("messages", List.of(userMessage("hi")), "conversation_id", "c-json", "stream",
-                false);
+            false);
 
         ResponseEntity<String> resp = postQuery("/v1/query", body);
 
@@ -162,7 +162,7 @@ class QueryMvcIntegrationTest {
     @Test
     void messagesTakePrecedenceOverMessageField() throws Exception {
         Map<String, Object> body = Map.of("message", "ignored", "messages", List.of(userMessage("real")),
-                "conversation_id", "c-priority", "stream", false);
+            "conversation_id", "c-priority", "stream", false);
 
         Map<String, Object> result = result(postQuery("/v1/query", body));
 
@@ -173,7 +173,7 @@ class QueryMvcIntegrationTest {
     @Test
     void assistantOnlyMessagesFallBackToLastMessageContent() throws Exception {
         Map<String, Object> body = Map.of("messages", List.of(Map.of("role", "assistant", "content", "fallback")),
-                "conversation_id", "c-fallback", "stream", false);
+            "conversation_id", "c-fallback", "stream", false);
 
         Map<String, Object> result = result(postQuery("/v1/query", body));
 
@@ -195,9 +195,9 @@ class QueryMvcIntegrationTest {
     @SuppressWarnings("unchecked")
     void multiTurnRetainsContextForSameConversation() throws Exception {
         Map<String, Object> turn1 = Map.of("messages", List.of(userMessage("a")), "conversation_id", "c-multi",
-                "stream", false);
+            "stream", false);
         Map<String, Object> turn2 = Map.of("messages", List.of(userMessage("b")), "conversation_id", "c-multi",
-                "stream", false);
+            "stream", false);
 
         Map<String, Object> r1 = mapper.readValue(postQuery("/v1/query", turn1).getBody(), Map.class);
         Map<String, Object> r2 = mapper.readValue(postQuery("/v1/query", turn2).getBody(), Map.class);
@@ -211,13 +211,13 @@ class QueryMvcIntegrationTest {
     @Test
     void differentConversationIdsKeepContextIsolated() throws Exception {
         Map<String, Object> conv1Turn1 = result(postQuery("/v1/query",
-                Map.of("messages", List.of(userMessage("a1")), "conversation_id", "c-isolated-1", "stream", false)));
+            Map.of("messages", List.of(userMessage("a1")), "conversation_id", "c-isolated-1", "stream", false)));
         Map<String, Object> conv2Turn1 = result(postQuery("/v1/query",
-                Map.of("messages", List.of(userMessage("b1")), "conversation_id", "c-isolated-2", "stream", false)));
+            Map.of("messages", List.of(userMessage("b1")), "conversation_id", "c-isolated-2", "stream", false)));
         Map<String, Object> conv1Turn2 = result(postQuery("/v1/query",
-                Map.of("messages", List.of(userMessage("a2")), "conversation_id", "c-isolated-1", "stream", false)));
+            Map.of("messages", List.of(userMessage("a2")), "conversation_id", "c-isolated-1", "stream", false)));
         Map<String, Object> conv2Turn2 = result(postQuery("/v1/query",
-                Map.of("messages", List.of(userMessage("b2")), "conversation_id", "c-isolated-2", "stream", false)));
+            Map.of("messages", List.of(userMessage("b2")), "conversation_id", "c-isolated-2", "stream", false)));
 
         assertThat(conv1Turn1).containsEntry("content", "turn1:a1");
         assertThat(conv2Turn1).containsEntry("content", "turn1:b1");
@@ -234,9 +234,9 @@ class QueryMvcIntegrationTest {
         ThreadPoolExecutor executor = fixedTestExecutor("query-mvc-concurrent", concurrency, uncaught);
         try {
             List<CompletableFuture<Map<String, Object>>> futures = IntStream.range(0, concurrency)
-                    .mapToObj(index -> CompletableFuture.supplyAsync(
-                            () -> streamEvent("c-mvc-concurrent-" + index, "mvc-concurrent-" + index), executor))
-                    .toList();
+                .mapToObj(index -> CompletableFuture.supplyAsync(
+                    () -> streamEvent("c-mvc-concurrent-" + index, "mvc-concurrent-" + index), executor))
+                .toList();
 
             CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
 
@@ -253,7 +253,7 @@ class QueryMvcIntegrationTest {
 
     private Map<String, Object> streamEvent(String conversationId, String content) {
         ResponseEntity<String> response = postQuery("/v1/query",
-                Map.of("messages", List.of(userMessage(content)), "conversation_id", conversationId, "stream", true));
+            Map.of("messages", List.of(userMessage(content)), "conversation_id", conversationId, "stream", true));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getHeaders().getContentType().toString()).startsWith(MediaType.TEXT_EVENT_STREAM_VALUE);
 
@@ -276,7 +276,7 @@ class QueryMvcIntegrationTest {
     @SuppressWarnings("unchecked")
     void tenantHeadersOverrideBodyFields() throws Exception {
         Map<String, Object> body = Map.of("messages", List.of(userMessage("ctx")), "conversation_id", "c-context",
-                "user_id", "body-user", "space_id", "body-space", "tenant_id", "body-tenant", "stream", false);
+            "user_id", "body-user", "space_id", "body-space", "tenant_id", "body-tenant", "stream", false);
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-User-ID", "header-user");
         headers.set("X-Space-ID", "header-space");
@@ -294,7 +294,7 @@ class QueryMvcIntegrationTest {
     @Test
     void blankTenantHeadersDoNotOverrideBodyFields() throws Exception {
         Map<String, Object> body = Map.of("messages", List.of(userMessage("ctx")), "conversation_id", "c-blank-context",
-                "user_id", "body-user", "space_id", "body-space", "tenant_id", "body-tenant", "stream", false);
+            "user_id", "body-user", "space_id", "body-space", "tenant_id", "body-tenant", "stream", false);
         // SB 4 RestClient rejects whitespace-only header values; absent headers match
         // isBlank() semantics.
         HttpHeaders headers = new HttpHeaders();
@@ -321,7 +321,7 @@ class QueryMvcIntegrationTest {
     @Test
     void blankConversationIdReturnsBadRequestBody() throws Exception {
         Map<String, Object> body = Map.of("conversation_id", " ", "messages", List.of(userMessage("hi")), "stream",
-                false);
+            false);
 
         ResponseEntity<String> resp = postQuery("/v1/query", body);
         Map<String, Object> json = responseJson(resp);

@@ -76,8 +76,7 @@ public class A2ARemoteAgentCardRegistry {
     /**
      * A registered remote agent entry holding the card and timeout configuration.
      */
-    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds) {
-    }
+    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds) {}
 
     /**
      * Registers a remote agent card with a specific timeout.

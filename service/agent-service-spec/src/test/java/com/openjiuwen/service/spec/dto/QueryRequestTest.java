@@ -24,14 +24,14 @@ class QueryRequestTest {
     @Test
     void deserializesPythonStyleSnakeCaseFields() throws Exception {
         String json = """
-                {
-                  "conversation_id": "conv-1",
-                  "messages": [{"role": "user", "content": "hello"}],
-                  "user_id": "u1",
-                  "space_id": "s1",
-                  "stream": true
-                }
-                """;
+            {
+              "conversation_id": "conv-1",
+              "messages": [{"role": "user", "content": "hello"}],
+              "user_id": "u1",
+              "space_id": "s1",
+              "stream": true
+            }
+            """;
 
         QueryRequest req = mapper.readValue(json, QueryRequest.class);
 
@@ -72,9 +72,8 @@ class QueryRequestTest {
     @Test
     void lastUserQueryUsesLatestUserMessage() {
         ServeRequest serve = new ServeRequest();
-        serve.setMessages(List.of(
-                Map.of("role", "user", "content", "first"),
-                Map.of("role", "assistant", "content", "ignored"),
+        serve.setMessages(
+            List.of(Map.of("role", "user", "content", "first"), Map.of("role", "assistant", "content", "ignored"),
                 Map.of("role", "user", "content", "latest")));
 
         assertThat(serve.lastUserQuery()).isEqualTo("latest");
@@ -83,9 +82,8 @@ class QueryRequestTest {
     @Test
     void lastUserQueryFallsBackToLastMessageWhenNoUserRoleExists() {
         ServeRequest serve = new ServeRequest();
-        serve.setMessages(List.of(
-                Map.of("role", "assistant", "content", "first"),
-                Map.of("role", "tool", "content", "fallback")));
+        serve.setMessages(
+            List.of(Map.of("role", "assistant", "content", "first"), Map.of("role", "tool", "content", "fallback")));
 
         assertThat(serve.lastUserQuery()).isEqualTo("fallback");
     }

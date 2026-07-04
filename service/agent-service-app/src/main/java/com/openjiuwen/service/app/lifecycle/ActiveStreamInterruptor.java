@@ -23,10 +23,11 @@ public final class ActiveStreamInterruptor {
     private static final Logger log = LoggerFactory.getLogger(ActiveStreamInterruptor.class);
 
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
+
     private final List<AgentInterruptHandler> interruptHandlers;
 
     public ActiveStreamInterruptor(ObjectProvider<ServeOrchestrator> orchestratorProvider,
-            List<AgentInterruptHandler> interruptHandlers) {
+        List<AgentInterruptHandler> interruptHandlers) {
         this.orchestratorProvider = orchestratorProvider;
         this.interruptHandlers = interruptHandlers;
     }
@@ -53,7 +54,7 @@ public final class ActiveStreamInterruptor {
                 handler.interrupt(conversationId, InterruptReason.LIFECYCLE_INTERRUPT);
             } catch (Exception ex) {
                 log.warn("AgentInterruptHandler failed: {}, conversation_id={}", handler.getClass().getName(),
-                        conversationId, ex);
+                    conversationId, ex);
             }
         }
     }

@@ -40,9 +40,10 @@ import java.util.Map;
  * business {@code @Bean AgentHandler}.
  */
 @SpringBootTest(classes = AgentCoreHandlerAutoConfigurationIntegrationTest.CoreAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@TestPropertySource(properties = {"openjiuwen.service.agent-id=it-agent",
-        "openjiuwen.service.query.webflux.enabled=false"})
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestPropertySource(properties = {
+    "openjiuwen.service.agent-id=it-agent", "openjiuwen.service.query.webflux.enabled=false"
+})
 @AutoConfigureTestRestTemplate
 class AgentCoreHandlerAutoConfigurationIntegrationTest {
     private static final String AGENT_ID = "it-agent";
@@ -57,8 +58,8 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
 
     @BeforeAll
     static void registerAgentInResourceMgr() {
-        Runner.resourceMgr().addAgent(AgentCard.builder().id(AGENT_ID).name(AGENT_ID).build(), SessionEchoAgent::new,
-                null);
+        Runner.resourceMgr()
+            .addAgent(AgentCard.builder().id(AGENT_ID).name(AGENT_ID).build(), SessionEchoAgent::new, null);
     }
 
     @AfterAll
@@ -77,8 +78,8 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
     @SuppressWarnings("unchecked")
     void queryEndpointWorksWithoutCustomHandlerBean() throws Exception {
         ResponseEntity<String> resp = postQuery("/v1/query",
-                Map.of("messages", List.of(Map.of("role", "user", "content", "hello")), "conversation_id",
-                        "c-agent-id-it", "stream", false));
+            Map.of("messages", List.of(Map.of("role", "user", "content", "hello")), "conversation_id", "c-agent-id-it",
+                "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
@@ -95,6 +96,5 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    static class CoreAgentApplication {
-    }
+    static class CoreAgentApplication {}
 }

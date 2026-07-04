@@ -33,43 +33,34 @@ public class ExternalCallExecutor {
     private static final ExecutorService DEFAULT_TIMEOUT_EXECUTOR = newTimeoutExecutor();
 
     private final String adapterType;
+
     private final String targetId;
+
     private final ExternalCallPolicy policy;
+
     private final ExternalSvcAdapterErrorCode outboundFailureCode;
+
     private final ExternalSvcAdapterErrorCode circuitOpenCode;
+
     private final ExternalSvcAdapterErrorCode retryInterruptedCode;
+
     private final ExternalSvcAdapterErrorCode timeoutCode;
+
     private final ExecutorService timeoutExecutor;
+
     private final Map<String, CircuitState> circuitStates = new ConcurrentHashMap<>();
 
-    public ExternalCallExecutor(
-            String adapterType,
-            String targetId,
-            ExternalCallPolicy policy,
-            ExternalSvcAdapterErrorCode outboundFailureCode,
-            ExternalSvcAdapterErrorCode circuitOpenCode,
-            ExternalSvcAdapterErrorCode retryInterruptedCode,
-            ExternalSvcAdapterErrorCode timeoutCode) {
-        this(
-                adapterType,
-                targetId,
-                policy,
-                outboundFailureCode,
-                circuitOpenCode,
-                retryInterruptedCode,
-                timeoutCode,
-                DEFAULT_TIMEOUT_EXECUTOR);
+    public ExternalCallExecutor(String adapterType, String targetId, ExternalCallPolicy policy,
+        ExternalSvcAdapterErrorCode outboundFailureCode, ExternalSvcAdapterErrorCode circuitOpenCode,
+        ExternalSvcAdapterErrorCode retryInterruptedCode, ExternalSvcAdapterErrorCode timeoutCode) {
+        this(adapterType, targetId, policy, outboundFailureCode, circuitOpenCode, retryInterruptedCode, timeoutCode,
+            DEFAULT_TIMEOUT_EXECUTOR);
     }
 
-    ExternalCallExecutor(
-            String adapterType,
-            String targetId,
-            ExternalCallPolicy policy,
-            ExternalSvcAdapterErrorCode outboundFailureCode,
-            ExternalSvcAdapterErrorCode circuitOpenCode,
-            ExternalSvcAdapterErrorCode retryInterruptedCode,
-            ExternalSvcAdapterErrorCode timeoutCode,
-            ExecutorService timeoutExecutor) {
+    ExternalCallExecutor(String adapterType, String targetId, ExternalCallPolicy policy,
+        ExternalSvcAdapterErrorCode outboundFailureCode, ExternalSvcAdapterErrorCode circuitOpenCode,
+        ExternalSvcAdapterErrorCode retryInterruptedCode, ExternalSvcAdapterErrorCode timeoutCode,
+        ExecutorService timeoutExecutor) {
         this.adapterType = adapterType != null && !adapterType.isBlank() ? adapterType : "external";
         this.targetId = targetId != null && !targetId.isBlank() ? targetId : "default";
         this.policy = policy != null ? policy : new DefaultExternalCallPolicy();
@@ -106,12 +97,8 @@ public class ExternalCallExecutor {
      * @param callable external operation callback
      * @return operation result returned by the callback
      */
-    public <T> T execute(
-            String operationType,
-            String method,
-            boolean shouldRetry,
-            Object request,
-            Callable<T> callable) {
+    public <T> T execute(String operationType, String method, boolean shouldRetry, Object request,
+        Callable<T> callable) {
         String circuitKey = operationType + "." + method;
         int maxAttempts = shouldRetry ? 1 + policy.getRetry().getMax() : 1;
         RuntimeException lastFailure = null;
@@ -151,25 +138,19 @@ public class ExternalCallExecutor {
         try {
             future = timeoutExecutor.submit(callable);
         } catch (RejectedExecutionException ex) {
-            throw new ExternalSvcAdapterException(
-                    outboundFailureCode,
-                    adapterType + " timeout executor rejected call, target=" + targetId
-                            + ", method=" + operationType + "." + method,
-                    ex);
+            throw new ExternalSvcAdapterException(outboundFailureCode,
+                adapterType + " timeout executor rejected call, target=" + targetId + ", method=" + operationType + "."
+                    + method, ex);
         }
         try {
             return future.get(policy.getTimeoutMs(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException ex) {
             future.cancel(false);
-            throw new ExternalSvcAdapterException(
-                    timeoutCode,
-                    adapterType + " call timed out, target=" + targetId + ", method=" + operationType + "." + method,
-                    ex);
+            throw new ExternalSvcAdapterException(timeoutCode,
+                adapterType + " call timed out, target=" + targetId + ", method=" + operationType + "." + method, ex);
         } catch (InterruptedException ex) {
-            throw new ExternalSvcAdapterException(
-                    retryInterruptedCode,
-                    adapterType + " call interrupted, target=" + targetId + ", method=" + operationType + "." + method,
-                    ex);
+            throw new ExternalSvcAdapterException(retryInterruptedCode,
+                adapterType + " call interrupted, target=" + targetId + ", method=" + operationType + "." + method, ex);
         } catch (ExecutionException ex) {
             Throwable cause = ex.getCause();
             if (cause instanceof RuntimeException runtimeException) {
@@ -192,10 +173,8 @@ public class ExternalCallExecutor {
             circuitStates.remove(circuitKey);
             return;
         }
-        throw new ExternalSvcAdapterException(
-                circuitOpenCode,
-                adapterType + " circuit breaker is open, target=" + targetId
-                        + ", method=" + operationType + "." + method);
+        throw new ExternalSvcAdapterException(circuitOpenCode,
+            adapterType + " circuit breaker is open, target=" + targetId + ", method=" + operationType + "." + method);
     }
 
     private void recordSuccess(String circuitKey) {
@@ -217,7 +196,7 @@ public class ExternalCallExecutor {
     private boolean isNonRetryableExternalFailure(RuntimeException ex) {
         if (ex instanceof ExternalSvcAdapterException adapterException) {
             return adapterException.getErrorCode() == circuitOpenCode
-                    || adapterException.getErrorCode() == retryInterruptedCode;
+                || adapterException.getErrorCode() == retryInterruptedCode;
         }
         return false;
     }
@@ -226,11 +205,8 @@ public class ExternalCallExecutor {
         if (ex instanceof ExternalSvcAdapterException adapterException) {
             return adapterException;
         }
-        return new ExternalSvcAdapterException(
-                outboundFailureCode,
-                adapterType + " outbound call failed, target=" + targetId
-                        + ", method=" + operationType + "." + method,
-                ex);
+        return new ExternalSvcAdapterException(outboundFailureCode,
+            adapterType + " outbound call failed, target=" + targetId + ", method=" + operationType + "." + method, ex);
     }
 
     private void sleepBeforeRetry() {
@@ -241,63 +217,32 @@ public class ExternalCallExecutor {
         try {
             Thread.sleep(backoffMs);
         } catch (InterruptedException ex) {
-            throw new ExternalSvcAdapterException(
-                    retryInterruptedCode,
-                    adapterType + " retry interrupted, target=" + targetId,
-                    ex);
+            throw new ExternalSvcAdapterException(retryInterruptedCode,
+                adapterType + " retry interrupted, target=" + targetId, ex);
         }
     }
 
-    private void auditSuccess(
-            String operationType,
-            String method,
-            int attempt,
-            long elapsedMs,
-            Object request,
-            Object result) {
+    private void auditSuccess(String operationType, String method, int attempt, long elapsedMs, Object request,
+        Object result) {
         if (!policy.getAudit().isEnabled()) {
             return;
         }
-        log.info(
-                "{} adapter={}, success=true, target={}, method={}.{}, attempt={}, "
-                        + "elapsedMs={}, request={}, response={}",
-                AUDIT_MARKER,
-                adapterType,
-                targetId,
-                operationType,
-                method,
-                attempt,
-                elapsedMs,
-                summarize(request),
-                summarize(result));
+        log.info("{} adapter={}, success=true, target={}, method={}.{}, attempt={}, "
+                + "elapsedMs={}, request={}, response={}", AUDIT_MARKER, adapterType, targetId, operationType, method,
+            attempt, elapsedMs, summarize(request), summarize(result));
     }
 
-    private void auditFailure(
-            String operationType,
-            String method,
-            int attempt,
-            long elapsedMs,
-            Object request,
-            RuntimeException ex) {
+    private void auditFailure(String operationType, String method, int attempt, long elapsedMs, Object request,
+        RuntimeException ex) {
         if (!policy.getAudit().isEnabled()) {
             return;
         }
-        String code = ex instanceof ExternalSvcAdapterException adapterException
-                ? adapterException.getErrorCode().getCode()
-                : outboundFailureCode.getCode();
-        log.warn(
-                "{} adapter={}, success=false, code={}, target={}, method={}.{}, attempt={}, "
-                        + "elapsedMs={}, request={}, error={}",
-                AUDIT_MARKER,
-                adapterType,
-                code,
-                targetId,
-                operationType,
-                method,
-                attempt,
-                elapsedMs,
-                summarize(request),
-                ex.getClass().getSimpleName() + ":" + Objects.toString(ex.getMessage(), ""));
+        String code = ex instanceof ExternalSvcAdapterException adapterException ? adapterException.getErrorCode()
+            .getCode() : outboundFailureCode.getCode();
+        log.warn("{} adapter={}, success=false, code={}, target={}, method={}.{}, attempt={}, "
+                + "elapsedMs={}, request={}, error={}", AUDIT_MARKER, adapterType, code, targetId, operationType, method,
+            attempt, elapsedMs, summarize(request),
+            ex.getClass().getSimpleName() + ":" + Objects.toString(ex.getMessage(), ""));
     }
 
     private static long elapsedMs(long startNanos) {
@@ -325,13 +270,8 @@ public class ExternalCallExecutor {
     }
 
     private static ThreadPoolExecutor newTimeoutExecutor() {
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(
-                0,
-                64,
-                100L,
-                TimeUnit.MILLISECONDS,
-                new SynchronousQueue<>(),
-                new ThreadPoolExecutor.AbortPolicy());
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(0, 64, 100L, TimeUnit.MILLISECONDS,
+            new SynchronousQueue<>(), new ThreadPoolExecutor.AbortPolicy());
         return executor;
     }
 
@@ -352,12 +292,15 @@ public class ExternalCallExecutor {
 
     private static final class CircuitState {
         private int failures;
+
         private long lastFailureMs;
     }
 
     private static final class DefaultExternalCallPolicy implements ExternalCallPolicy {
         private final ExternalRetryPolicy retry = new ExternalRetryPolicy();
+
         private final ExternalCircuitBreakerPolicy circuitBreaker = new ExternalCircuitBreakerPolicy();
+
         private final ExternalAuditPolicy audit = new ExternalAuditPolicy();
 
         @Override

@@ -27,15 +27,15 @@ class AgentHandlerHolderTest {
 
         assertThat(holder.isLoaded()).isFalse();
         assertThatThrownBy(() -> holder.query(new ServeRequest())).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Agent not loaded");
+            .hasMessageContaining("Agent not loaded");
     }
 
     @Test
     void rejectsStreamQueryBeforeAgentLoaded() {
         AgentHandlerHolder holder = new AgentHandlerHolder();
 
-        assertThatThrownBy(() -> holder.streamQuery(new ServeRequest(), noopObserver()))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Agent not loaded");
+        assertThatThrownBy(() -> holder.streamQuery(new ServeRequest(), noopObserver())).isInstanceOf(
+            IllegalStateException.class).hasMessageContaining("Agent not loaded");
     }
 
     @Test
@@ -103,9 +103,9 @@ class AgentHandlerHolderTest {
 
         @Override
         public com.openjiuwen.service.spec.dto.QueryResponse query(
-                com.openjiuwen.service.spec.dto.ServeRequest request) {
+            com.openjiuwen.service.spec.dto.ServeRequest request) {
             return new com.openjiuwen.service.spec.dto.QueryResponse("demo:" + request.lastUserQuery(),
-                    request.getConversationId());
+                request.getConversationId());
         }
 
         @Override

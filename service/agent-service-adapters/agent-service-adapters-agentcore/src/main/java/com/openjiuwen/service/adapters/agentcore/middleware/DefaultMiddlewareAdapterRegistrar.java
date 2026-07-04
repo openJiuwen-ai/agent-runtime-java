@@ -18,10 +18,11 @@ import java.util.Map;
  */
 public class DefaultMiddlewareAdapterRegistrar implements MiddlewareAdapterRegistrar {
     private final MiddlewareProperties middlewareProperties;
+
     private final CredentialDecryptor credentialDecryptor;
 
     public DefaultMiddlewareAdapterRegistrar(MiddlewareProperties middlewareProperties,
-            CredentialDecryptor credentialDecryptor) {
+        CredentialDecryptor credentialDecryptor) {
         this.middlewareProperties = middlewareProperties;
         this.credentialDecryptor = credentialDecryptor;
     }
@@ -29,7 +30,7 @@ public class DefaultMiddlewareAdapterRegistrar implements MiddlewareAdapterRegis
     @Override
     public void applyToRunnerConfig(RunnerConfig runnerConfig) {
         Map<String, Object> checkpointerConfig = AgentCoreCheckpointerConfigAssembler.build(middlewareProperties,
-                credentialDecryptor);
+            credentialDecryptor);
         runnerConfig.setCheckpointerConfig(checkpointerConfig);
     }
 }

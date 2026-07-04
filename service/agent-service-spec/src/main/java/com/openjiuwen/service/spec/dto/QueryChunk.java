@@ -23,9 +23,12 @@ public class QueryChunk {
     public static final String TYPE_ERROR = "error";
 
     private String type = TYPE_CHUNK;
+
     private Object data;
 
-    /** Default constructor for JSON deserialization. */
+    /**
+     * Default constructor for JSON deserialization.
+     */
     public QueryChunk() {
     }
 

@@ -42,7 +42,7 @@ class A2AProtocolAdapterTest {
         ctx.setContextId("conv-1");
         ctx.setMetadata(Map.of("key", "val"));
         ctx.setA2aMessage(
-                Message.builder().role(Message.Role.ROLE_USER).parts(List.<Part<?>>of(new TextPart("hello"))).build());
+            Message.builder().role(Message.Role.ROLE_USER).parts(List.<Part<?>>of(new TextPart("hello"))).build());
 
         ServeRequest req = adapter.toServeRequest(ctx);
 

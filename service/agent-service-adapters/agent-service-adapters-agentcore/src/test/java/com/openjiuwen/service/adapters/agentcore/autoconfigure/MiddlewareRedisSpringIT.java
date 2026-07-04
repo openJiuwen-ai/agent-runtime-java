@@ -46,20 +46,21 @@ import java.util.Map;
 @Tag("system-test")
 class MiddlewareRedisSpringIT {
     private static final String LOCAL_REDIS_HOST = "127.0.0.1";
+
     private static final int LOCAL_REDIS_PORT = 6379;
 
     private String localRedisCleanupPrefix;
 
-    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class,
-                    MiddlewareAdaptersAutoConfiguration.class, AgentCoreAdaptersAutoConfiguration.class))
-            .withUserConfiguration(TestAgentHandlerConfiguration.class)
-            .withPropertyValues("openjiuwen.service.agent-id=spring-it-agent",
-                    "openjiuwen.service.middleware.checkpointer.type=redis",
-                    "openjiuwen.service.middleware.redis.default.host=" + LOCAL_REDIS_HOST,
-                    "openjiuwen.service.middleware.redis.default.port=" + LOCAL_REDIS_PORT,
-                    "openjiuwen.service.middleware.redis.default.database=0",
-                    "openjiuwen.service.middleware.redis.default.encrypted-password=");
+    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
+            AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class, MiddlewareAdaptersAutoConfiguration.class,
+                AgentCoreAdaptersAutoConfiguration.class))
+        .withUserConfiguration(TestAgentHandlerConfiguration.class)
+        .withPropertyValues("openjiuwen.service.agent-id=spring-it-agent",
+            "openjiuwen.service.middleware.checkpointer.type=redis",
+            "openjiuwen.service.middleware.redis.default.host=" + LOCAL_REDIS_HOST,
+            "openjiuwen.service.middleware.redis.default.port=" + LOCAL_REDIS_PORT,
+            "openjiuwen.service.middleware.redis.default.database=0",
+            "openjiuwen.service.middleware.redis.default.encrypted-password=");
 
     @AfterEach
     void tearDown() {
@@ -108,7 +109,12 @@ class MiddlewareRedisSpringIT {
     /** Spring test configuration for Redis middleware integration. */
     @Configuration
     static class TestAgentHandlerConfiguration {
-        /** Creates the Redis IT agent handler bean. */
+        /**
+         * Creates the Redis IT agent handler bean.
+         *
+         * @param registrar registrar
+         * @return JiuwenCoreAgentHandler
+         */
         @Bean
         JiuwenCoreAgentHandler springItAgentHandler(MiddlewareAdapterRegistrar registrar) {
             return new JiuwenCoreAgentHandler(new SessionEchoAgent(), registrar);
@@ -131,8 +137,8 @@ class MiddlewareRedisSpringIT {
             String query = String.valueOf(inputMap.get("query"));
             Object priorState = session.getState("history");
             List<String> history = priorState instanceof List<?>
-                    ? new ArrayList<>((List<String>) priorState)
-                    : new ArrayList<>();
+                ? new ArrayList<>((List<String>) priorState)
+                : new ArrayList<>();
             String reply = "turn" + (history.size() + 1) + ":" + query;
             if (!history.isEmpty()) {
                 reply += "|prev=" + String.join(",", history);

@@ -33,12 +33,12 @@ public class SandboxDemoApplication {
 
     @Bean
     AgentHandler agentHandler(DemoLlmProperties llmProperties,
-            ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
+        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
         llmProperties.applyApiConfigIfPresent();
         llmProperties.requireConfigured();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Demo Sandbox Agent",
-                "ReAct agent with external Sandbox client", llmProperties);
+            "ReAct agent with external Sandbox client", llmProperties);
         return new JiuwenCoreAgentHandler(agent,
-                externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
+            externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
     }
 }

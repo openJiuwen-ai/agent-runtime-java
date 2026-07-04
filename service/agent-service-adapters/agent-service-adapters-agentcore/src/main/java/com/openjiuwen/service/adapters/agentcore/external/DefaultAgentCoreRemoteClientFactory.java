@@ -29,24 +29,25 @@ public class DefaultAgentCoreRemoteClientFactory implements AgentCoreRemoteClien
     private static final Logger log = LoggerFactory.getLogger(DefaultAgentCoreRemoteClientFactory.class);
 
     private final AgentCoreExternalProperties properties;
+
     private final AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory;
+
     private final List<RemoteClientProvider> customRemoteClientProviders;
 
     public DefaultAgentCoreRemoteClientFactory(AgentCoreExternalProperties properties,
-            AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory) {
+        AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory) {
         this(properties, remoteDecoratorFactory, List.of());
     }
 
     public DefaultAgentCoreRemoteClientFactory(AgentCoreExternalProperties properties,
-            AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
-            List<RemoteClientProvider> customRemoteClientProviders) {
+        AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
+        List<RemoteClientProvider> customRemoteClientProviders) {
         this.properties = properties != null ? properties : new AgentCoreExternalProperties();
         this.remoteDecoratorFactory = remoteDecoratorFactory != null
-                ? remoteDecoratorFactory
-                : new DefaultAgentCoreRemoteClientDecoratorFactory();
-        this.customRemoteClientProviders = customRemoteClientProviders != null
-                ? List.copyOf(customRemoteClientProviders)
-                : Collections.emptyList();
+            ? remoteDecoratorFactory
+            : new DefaultAgentCoreRemoteClientDecoratorFactory();
+        this.customRemoteClientProviders = customRemoteClientProviders != null ? List.copyOf(
+            customRemoteClientProviders) : Collections.emptyList();
         this.properties.getRemote().validateClients();
     }
 
@@ -66,9 +67,13 @@ public class DefaultAgentCoreRemoteClientFactory implements AgentCoreRemoteClien
         AgentCoreExternalProperties.RemotePolicy policy = properties.getRemote();
         policy.validateClients();
         AgentCoreExternalProperties.RemoteClientEndpoint client = policy.findClient(clientId)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown remote client: " + clientId));
-        return RemoteClientConfig.builder().id(client.getId()).name(defaultText(client.getName(), client.getId()))
-                .protocol(toProtocol(client.getProtocol())).url(client.getUrl()).build();
+            .orElseThrow(() -> new IllegalArgumentException("Unknown remote client: " + clientId));
+        return RemoteClientConfig.builder()
+            .id(client.getId())
+            .name(defaultText(client.getName(), client.getId()))
+            .protocol(toProtocol(client.getProtocol()))
+            .url(client.getUrl())
+            .build();
     }
 
     private void registerRemoteClientProviders() {

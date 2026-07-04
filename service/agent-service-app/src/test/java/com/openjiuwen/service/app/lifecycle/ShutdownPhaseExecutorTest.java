@@ -40,8 +40,8 @@ class ShutdownPhaseExecutorTest {
         AgentHandler handler = trackingHandler(stopCalled);
 
         ShutdownPhaseExecutor executor = new ShutdownPhaseExecutor(new DefaultAgentServiceIdentity("shutdown-test"),
-                new AgentLifecycleHooks(List.of(), List.of(context -> shutdownHookRan.set(true)), List.of()), readiness,
-                registry, providerOf(handler), properties);
+            new AgentLifecycleHooks(List.of(), List.of(context -> shutdownHookRan.set(true)), List.of()), readiness,
+            registry, providerOf(handler), properties);
 
         executor.run();
 

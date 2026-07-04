@@ -29,8 +29,8 @@ import java.util.Map;
  * @since 2026-07-03
  */
 @SpringBootTest(classes = HealthAutoConfigurationIntegrationTest.MinimalAgentApplication.class, properties = {
-        "spring.application.name=probe-test-app",
-        "openjiuwen.service.version=1.2.3-test"}, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    "spring.application.name=probe-test-app", "openjiuwen.service.version=1.2.3-test"
+}, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class HealthAutoConfigurationIntegrationTest {
     @Autowired
@@ -76,6 +76,5 @@ class HealthAutoConfigurationIntegrationTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    static class MinimalAgentApplication {
-    }
+    static class MinimalAgentApplication {}
 }

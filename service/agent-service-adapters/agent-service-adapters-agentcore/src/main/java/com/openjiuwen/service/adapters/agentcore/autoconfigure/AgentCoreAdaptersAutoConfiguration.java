@@ -21,8 +21,8 @@ import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegi
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
@@ -75,12 +75,12 @@ public class AgentCoreAdaptersAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(ExternalSvcAdapterRegistrar.class)
     public ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar(AgentCoreExternalProperties properties,
-            AgentCoreMcpClientDecoratorFactory decoratorFactory,
-            AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
-            ObjectProvider<McpClientProvider> mcpClientProviders,
-            ObjectProvider<RemoteClientProvider> remoteClientProviders) {
+        AgentCoreMcpClientDecoratorFactory decoratorFactory,
+        AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
+        ObjectProvider<McpClientProvider> mcpClientProviders,
+        ObjectProvider<RemoteClientProvider> remoteClientProviders) {
         return new DefaultExternalSvcAdapterRegistrar(properties, decoratorFactory, remoteDecoratorFactory,
-                mcpClientProviders.orderedStream().toList(), remoteClientProviders.orderedStream().toList());
+            mcpClientProviders.orderedStream().toList(), remoteClientProviders.orderedStream().toList());
     }
 
     /**
@@ -96,10 +96,10 @@ public class AgentCoreAdaptersAutoConfiguration {
     @ConditionalOnProperty(prefix = "openjiuwen.service.external.remote.clients[0]", name = "id")
     @ConditionalOnMissingBean(AgentCoreRemoteClientFactory.class)
     public AgentCoreRemoteClientFactory agentCoreRemoteClientFactory(AgentCoreExternalProperties properties,
-            AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
-            ObjectProvider<RemoteClientProvider> remoteClientProviders) {
+        AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
+        ObjectProvider<RemoteClientProvider> remoteClientProviders) {
         return new DefaultAgentCoreRemoteClientFactory(properties, remoteDecoratorFactory,
-                remoteClientProviders.orderedStream().toList());
+            remoteClientProviders.orderedStream().toList());
     }
 
     /**
@@ -126,11 +126,11 @@ public class AgentCoreAdaptersAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(AgentHandler.class)
-    @ConditionalOnExpression("'${openjiuwen.service.agent-id:}' != '' "
-            + "&& '${openjiuwen.service.handler:agentcore}' == 'agentcore'")
+    @ConditionalOnExpression(
+        "'${openjiuwen.service.agent-id:}' != '' " + "&& '${openjiuwen.service.handler:agentcore}' == 'agentcore'")
     public AgentHandler coreAgentHandler(@Value("${openjiuwen.service.agent-id}") String agentId,
-            @Autowired(required = false) MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
-            ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
+        @Autowired(required = false) MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
+        ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         return new JiuwenCoreAgentHandler(agentId, middlewareAdapterRegistrar, externalSvcAdapterRegistrar);
     }
 }

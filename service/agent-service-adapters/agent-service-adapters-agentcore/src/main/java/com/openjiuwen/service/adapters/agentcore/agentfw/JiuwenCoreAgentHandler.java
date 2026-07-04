@@ -45,22 +45,32 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class JiuwenCoreAgentHandler implements AgentHandler {
     private static final Logger log = LoggerFactory.getLogger(JiuwenCoreAgentHandler.class);
+
     private static final AtomicBoolean RUNNER_STARTED = new AtomicBoolean(false);
 
     /** agent-core-java OutputSchema type name for tool-call interrupts. */
     private static final String INTERACTION_TYPE = "__interaction__";
 
     private static final String INPUT_QUERY = "query";
+
     private static final String INPUT_CONVERSATION_ID = "conversation_id";
+
     private static final String INPUT_MESSAGES = "messages";
+
     private static final String INPUT_USER_ID = "user_id";
+
     private static final String INPUT_SPACE_ID = "space_id";
+
     private static final String INPUT_TENANT_ID = "tenant_id";
+
     private static final String DEFAULT_AGENT_SESSION_ID = "default_session";
+
     private static final String SYNTHETIC_AGENT_ID_PREFIX = "service-agentcore:";
 
     private final Object agent;
+
     private final MiddlewareAdapterRegistrar middlewareAdapterRegistrar;
+
     private final ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar;
 
     /**
@@ -109,12 +119,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param externalSvcAdapterRegistrar the external service adapter registrar
      */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
-            ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
+        ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
         this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
-                ? externalSvcAdapterRegistrar
-                : ExternalSvcAdapterRegistrar.noop();
+            ? externalSvcAdapterRegistrar
+            : ExternalSvcAdapterRegistrar.noop();
     }
 
     @Override
@@ -169,11 +179,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         String convId = request.getConversationId();
         String query = request.lastUserQuery();
         log.info("JiuwenCoreAgentHandler streamQuery convId={} textLen={} msgCount={}", convId,
-                query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
+            query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
         try {
             List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
             Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request),
-                    null, streamModes);
+                null, streamModes);
             while (!observer.isCancelled() && source.hasNext()) {
                 if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
                     break;
@@ -206,7 +216,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Object lastPayload = null;
         List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
         Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request), null,
-                streamModes);
+            streamModes);
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
             lastPayload = payload;
@@ -226,8 +236,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
         if (rawResult instanceof Map<?, ?> rawMap) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> map = (Map<String, Object>) rawMap;
+            @SuppressWarnings("unchecked") Map<String, Object> map = (Map<String, Object>) rawMap;
             if ("interrupt".equals(map.get("result_type")) && map.get("state") instanceof List<?> states) {
                 Object lastInterrupt = null;
                 for (Object state : states) {
@@ -236,8 +245,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                     }
                 }
                 if (lastInterrupt instanceof Map<?, ?> interruptMap) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> interruptData = (Map<String, Object>) interruptMap;
+                    @SuppressWarnings("unchecked") Map<String, Object> interruptData
+                        = (Map<String, Object>) interruptMap;
                     if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
                         result.put("_interrupt", interruptData);
                         result.put("content", interruptData.getOrDefault("message", ""));
@@ -257,7 +266,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private static QueryResponse buildQueryResponseFromControllerOutput(ControllerOutput controllerOutput,
-            String conversationId) {
+        String conversationId) {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
         Object data = controllerOutput.getData();
@@ -275,8 +284,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
         if (lastPayload instanceof Map<?, ?> raw && INTERACTION_TYPE.equals(raw.get("type"))) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> interrupt = (Map<String, Object>) raw;
+            @SuppressWarnings("unchecked") Map<String, Object> interrupt = (Map<String, Object>) raw;
             result.put("_interrupt", interrupt);
             result.put("content", interrupt.getOrDefault("message", ""));
         } else {
@@ -333,14 +341,17 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return conversationId;
         }
         String sessionId = conversationId != null && !conversationId.isBlank()
-                ? conversationId
-                : DEFAULT_AGENT_SESSION_ID;
+            ? conversationId
+            : DEFAULT_AGENT_SESSION_ID;
         String agentId = agent instanceof String stringAgentId
-                ? stringAgentId
-                : SYNTHETIC_AGENT_ID_PREFIX + agent.getClass().getName();
+            ? stringAgentId
+            : SYNTHETIC_AGENT_ID_PREFIX + agent.getClass().getName();
         String agentName = agent instanceof String stringAgentId ? stringAgentId : agent.getClass().getSimpleName();
-        BaseCard card = BaseCard.builder().id(agentId).name(agentName)
-                .description("Synthetic card for AgentCore session").build();
+        BaseCard card = BaseCard.builder()
+            .id(agentId)
+            .name(agentName)
+            .description("Synthetic card for AgentCore session")
+            .build();
         return new AgentSessionApi(sessionId, null, card, List.of(StreamMode.OUTPUT));
     }
 
@@ -476,10 +487,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Object type = map.get("type");
         Object rawPayload = map.get("payload");
         Optional<Object> text = firstNonNull(map.get("content"), map.get("delta"), map.get("output"),
-                map.get("response"));
+            map.get("response"));
         if (rawPayload instanceof Map<?, ?> payloadMap) {
             Optional<Object> payloadText = firstNonNull(payloadMap.get("content"), payloadMap.get("delta"),
-                    payloadMap.get("output"), payloadMap.get("response"));
+                payloadMap.get("output"), payloadMap.get("response"));
             if (payloadText.isPresent()) {
                 text = payloadText;
             }

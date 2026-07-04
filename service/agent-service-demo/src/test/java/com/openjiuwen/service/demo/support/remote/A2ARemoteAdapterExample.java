@@ -43,17 +43,16 @@ public final class A2ARemoteAdapterExample {
         properties.getRemote().getCircuitBreaker().setFailureThreshold(3);
         properties.getRemote().getCircuitBreaker().setResetTimeoutMs(30000);
 
-        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient =
-                new AgentCoreExternalProperties.RemoteClientEndpoint();
+        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient
+            = new AgentCoreExternalProperties.RemoteClientEndpoint();
         remoteClient.setId(clientId);
         remoteClient.setName(option(args, "--client-name=", "Demo A2A Remote"));
         remoteClient.setProtocol("A2A");
         remoteClient.setUrl(remoteUrl);
         properties.getRemote().setClients(List.of(remoteClient));
 
-        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(
-                properties,
-                new DefaultAgentCoreRemoteClientDecoratorFactory());
+        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(properties,
+            new DefaultAgentCoreRemoteClientDecoratorFactory());
         RemoteClient client = factory.create(clientId);
 
         log.info("A2A Remote URL: {}", remoteUrl);
@@ -68,9 +67,7 @@ public final class A2ARemoteAdapterExample {
         }
         String message = option(args, "--message=", "hello remote");
         String conversationId = option(args, "--conversation-id=", "demo-session");
-        Object result = client.invoke(Map.of(
-                "message", message,
-                "conversation_id", conversationId), null);
+        Object result = client.invoke(Map.of("message", message, "conversation_id", conversationId), null);
         logAgentResult(result);
     }
 

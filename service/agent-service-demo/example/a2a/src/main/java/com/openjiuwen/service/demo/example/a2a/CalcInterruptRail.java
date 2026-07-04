@@ -28,13 +28,14 @@ public class CalcInterruptRail extends BaseInterruptRail {
 
     public CalcInterruptRail() {
         super(List.of(TOOL_NAME));
-        ToolCard card = ToolCard.builder().id(TOOL_NAME).name(TOOL_NAME)
-                .description("Perform mathematical calculations. Provide the expression to evaluate.")
-                .inputParams(Map.of("type", "object", "properties",
-                        Map.of("expression",
-                                Map.of("type", "string", "description", "The math expression to evaluate, e.g. '1+1'")),
-                        "required", List.of("expression")))
-                .build();
+        ToolCard card = ToolCard.builder()
+            .id(TOOL_NAME)
+            .name(TOOL_NAME)
+            .description("Perform mathematical calculations. Provide the expression to evaluate.")
+            .inputParams(Map.of("type", "object", "properties", Map.of("expression",
+                    Map.of("type", "string", "description", "The math expression to evaluate, e.g. '1+1'")), "required",
+                List.of("expression")))
+            .build();
         getTools().add(card);
     }
 
@@ -45,8 +46,10 @@ public class CalcInterruptRail extends BaseInterruptRail {
             return reject(String.valueOf(resumeInput));
         }
         // First call: ask-user interrupt (INPUT_REQUIRED).
-        var request = InterruptRequest.builder().message("Please confirm the calculation")
-                .context(Map.of("_interrupt_kind", "ask_user")).build();
+        var request = InterruptRequest.builder()
+            .message("Please confirm the calculation")
+            .context(Map.of("_interrupt_kind", "ask_user"))
+            .build();
         return interrupt(request);
     }
 }

@@ -76,8 +76,9 @@ class QueryPathIsolationIntegrationTest {
     }
 
     @Nested
-    @TestPropertySource(properties = {"openjiuwen.service.query.webflux.enabled=false",
-            "openjiuwen.service.query.legacy-path-enabled=false"})
+    @TestPropertySource(properties = {
+        "openjiuwen.service.query.webflux.enabled=false", "openjiuwen.service.query.legacy-path-enabled=false"
+    })
     class WhenLegacyPathDisabled {
         @Autowired
         private TestRestTemplate rest;
@@ -99,7 +100,7 @@ class QueryPathIsolationIntegrationTest {
 
     private static Map<String, Object> body(String content, String conversationId) {
         return Map.of("messages", List.of(Map.of("role", "user", "content", content)), "conversation_id",
-                conversationId, "stream", false);
+            conversationId, "stream", false);
     }
 
     private ResponseEntity<String> post(String path, Map<String, Object> body) {

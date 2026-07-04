@@ -36,7 +36,7 @@ public final class RedisConnectionAssembler {
         MiddlewareProperties.RedisEndpoint endpoint = properties.getRedis().get(ref);
         if (endpoint == null) {
             throw new IllegalArgumentException(
-                    "openjiuwen.service.middleware.redis." + ref + " is required for redis middleware");
+                "openjiuwen.service.middleware.redis." + ref + " is required for redis middleware");
         }
         return endpoint;
     }
@@ -49,7 +49,7 @@ public final class RedisConnectionAssembler {
      * @return the connection map
      */
     public static Map<String, Object> buildConnectionMap(MiddlewareProperties.RedisEndpoint endpoint,
-            String decryptedPassword) {
+        String decryptedPassword) {
         Map<String, Object> connection = new LinkedHashMap<>();
         connection.put("url", buildRedisUrl(endpoint, decryptedPassword));
         return connection;
@@ -64,7 +64,7 @@ public final class RedisConnectionAssembler {
      * @return the connection map
      */
     public static Map<String, Object> buildConnectionMap(MiddlewareProperties properties, String redisRef,
-            CredentialDecryptor decryptor) {
+        CredentialDecryptor decryptor) {
         MiddlewareProperties.RedisEndpoint endpoint = resolveEndpoint(properties, redisRef);
         String password = decryptor.decrypt(endpoint.getEncryptedPassword());
         return buildConnectionMap(endpoint, password);

@@ -36,7 +36,7 @@ class DefaultServeOrchestratorInterruptTest {
         AgentHandler handler = new AgentHandler() {
             @Override
             public com.openjiuwen.service.spec.dto.QueryResponse query(
-                    com.openjiuwen.service.spec.dto.ServeRequest request) {
+                com.openjiuwen.service.spec.dto.ServeRequest request) {
                 return null;
             }
 

@@ -43,8 +43,8 @@ public final class AgentCoreCheckpointerConfigAssembler {
         if (TYPE_REDIS.equals(type)) {
             return Map.of("type", TYPE_REDIS, "conf", buildRedisConf(properties, decryptor));
         }
-        throw new IllegalArgumentException("Unsupported openjiuwen.service.middleware.checkpointer.type: " + type
-                + " (supported: in_memory, redis)");
+        throw new IllegalArgumentException(
+            "Unsupported openjiuwen.service.middleware.checkpointer.type: " + type + " (supported: in_memory, redis)");
     }
 
     private static String normalizeType(String type) {

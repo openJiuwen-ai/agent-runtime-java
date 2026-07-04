@@ -71,7 +71,8 @@ bash agent-service-demo/example/query/smoke-query.sh
 - `EXPECTED_APP`：默认 `demo-agent-service`（通过 `/health` 校验是否连对服务）
 - `MODE=mvc`（默认）或 `MODE=flux`（需以 WebFlux 模式启动 demo）
 
-脚本对成功响应做**结构断言**（HTTP 200、`role=assistant`、非空 content、`conversation_id` 匹配），不依赖固定 echo 文本，因此适用于真实大模型。
+脚本对成功响应做**结构断言**（HTTP 200、`role=assistant`、非空 content、`conversation_id` 匹配），不依赖固定 echo
+文本，因此适用于真实大模型。
 
 WebFlux 模式启动示例：
 
@@ -82,4 +83,5 @@ mvn -pl agent-service-demo -am spring-boot:run \
 MODE=flux bash agent-service-demo/example/query/smoke-query.sh
 ```
 
-同一 `conversation_id` 可验证 Core Session / Checkpointer 多轮能力。Redis 外置 checkpointer 见 [../redis/README.md](../redis/README.md)。
+同一 `conversation_id` 可验证 Core Session / Checkpointer 多轮能力。Redis 外置 checkpointer
+见 [../redis/README.md](../redis/README.md)。

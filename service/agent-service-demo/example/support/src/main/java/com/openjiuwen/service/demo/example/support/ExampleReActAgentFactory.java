@@ -34,10 +34,12 @@ public final class ExampleReActAgentFactory {
         AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
         ReActAgent agent = new ReActAgent(card);
         ReActAgentConfig config = ReActAgentConfig.builder()
-                .promptTemplate(List.of(Map.of("role", "system", "content", props.getSystemPrompt())))
-                .maxIterations(props.getMaxIterations()).build().configureModelClient(props.getProvider(),
-                        props.getApiKey(), props.getApiBase(), props.getModelName(), props.isSslVerify())
-                .configureContextEngine(null, props.getContextWindowLimit(), false);
+            .promptTemplate(List.of(Map.of("role", "system", "content", props.getSystemPrompt())))
+            .maxIterations(props.getMaxIterations())
+            .build()
+            .configureModelClient(props.getProvider(), props.getApiKey(), props.getApiBase(), props.getModelName(),
+                props.isSslVerify())
+            .configureContextEngine(null, props.getContextWindowLimit(), false);
         ModelRequestConfig requestConfig = config.getModelConfigObj();
         requestConfig.setTemperature(props.getTemperature());
         requestConfig.setTopP(props.getTopP());

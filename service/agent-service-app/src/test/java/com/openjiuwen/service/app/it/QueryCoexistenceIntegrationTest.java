@@ -51,9 +51,9 @@ class QueryCoexistenceIntegrationTest {
     @SuppressWarnings("unchecked")
     void mvcAndWebFluxEndpointsCoexistOnServletStack() throws Exception {
         Map<String, Object> mvcBody = Map.of("messages", List.of(userMessage("mvc")), "conversation_id",
-                "c-coexist-mvc", "stream", false);
+            "c-coexist-mvc", "stream", false);
         Map<String, Object> webFluxBody = Map.of("messages", List.of(userMessage("flux")), "conversation_id",
-                "c-coexist-flux", "stream", false);
+            "c-coexist-flux", "stream", false);
 
         ResponseEntity<String> mvcResp = postQuery("/v1/query", mvcBody);
         assertThat(mvcResp.getStatusCode()).isEqualTo(HttpStatus.OK);

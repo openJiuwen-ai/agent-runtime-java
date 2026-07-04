@@ -54,7 +54,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DemoAgentLlmApplicationTest {
     private static final String TEST_PROVIDER = "DemoCoreMemoryProvider";
+
     private static final AtomicBoolean FACTORY_REGISTERED = new AtomicBoolean(false);
+
     private static final List<List<Map<String, Object>>> MODEL_MESSAGES = new CopyOnWriteArrayList<>();
 
     @DynamicPropertySource
@@ -93,11 +95,11 @@ class DemoAgentLlmApplicationTest {
     @SuppressWarnings("unchecked")
     void configuredLlmUsesCoreSessionForMultiTurnContext() throws Exception {
         ResponseEntity<String> first = postQuery(
-                Map.of("message", "????", "conversation_id", "memory-c1", "stream", false));
+            Map.of("message", "????", "conversation_id", "memory-c1", "stream", false));
         assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
 
         ResponseEntity<String> second = postQuery(
-                Map.of("message", "????", "conversation_id", "memory-c1", "stream", false));
+            Map.of("message", "????", "conversation_id", "memory-c1", "stream", false));
 
         assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(second.getBody(), Map.class);
@@ -107,8 +109,8 @@ class DemoAgentLlmApplicationTest {
 
         assertThat(MODEL_MESSAGES).hasSizeGreaterThanOrEqualTo(2);
         List<Map<String, Object>> secondCallMessages = MODEL_MESSAGES.get(MODEL_MESSAGES.size() - 1);
-        assertThat(secondCallMessages).extracting(message -> String.valueOf(message.get("content"))).contains("????",
-                "????");
+        assertThat(secondCallMessages).extracting(message -> String.valueOf(message.get("content")))
+            .contains("????", "????");
     }
 
     private ResponseEntity<String> postQuery(Map<String, Object> body) {
@@ -136,12 +138,12 @@ class DemoAgentLlmApplicationTest {
 
         @Override
         public AssistantMessage invoke(Object messages, Object tools, Float temperature, Float topP, String model,
-                Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
-                Map<String, Object> kwargs) {
+            Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout, Map<String, Object> kwargs) {
             List<Map<String, Object>> converted = new ArrayList<>(convertMessagesToDict(messages));
             MODEL_MESSAGES.add(converted);
-            String joined = converted.stream().map(message -> String.valueOf(message.get("content"))).reduce("",
-                    (left, right) -> left + "\n" + right);
+            String joined = converted.stream()
+                .map(message -> String.valueOf(message.get("content")))
+                .reduce("", (left, right) -> left + "\n" + right);
             if (joined.contains("????") && joined.contains("????")) {
                 return new AssistantMessage("????");
             }
@@ -150,28 +152,28 @@ class DemoAgentLlmApplicationTest {
 
         @Override
         public Iterator<AssistantMessageChunk> stream(Object messages, Object tools, Float temperature, Float topP,
-                String model, Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
-                Map<String, Object> kwargs) {
+            String model, Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
+            Map<String, Object> kwargs) {
             return List.<AssistantMessageChunk>of().iterator();
         }
 
         @Override
         public ImageGenerationResponse generateImage(List<UserMessage> messages, String model, String size,
-                String negativePrompt, int n, boolean promptExtend, boolean watermark, int seed,
-                Map<String, Object> kwargs) {
+            String negativePrompt, int n, boolean promptExtend, boolean watermark, int seed,
+            Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
 
         @Override
         public AudioGenerationResponse generateSpeech(List<UserMessage> messages, String model, String voice,
-                String languageType, Map<String, Object> kwargs) {
+            String languageType, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
 
         @Override
         public VideoGenerationResponse generateVideo(List<UserMessage> messages, String imgUrl, String audioUrl,
-                String model, String size, String resolution, int duration, boolean promptExtend, boolean watermark,
-                String negativePrompt, Integer seed, Map<String, Object> kwargs) {
+            String model, String size, String resolution, int duration, boolean promptExtend, boolean watermark,
+            String negativePrompt, Integer seed, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
     }

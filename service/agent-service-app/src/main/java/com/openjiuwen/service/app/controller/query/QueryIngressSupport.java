@@ -29,7 +29,7 @@ public final class QueryIngressSupport {
     public static final String HEADER_TENANT_ID = "X-Tenant-ID";
 
     private static final Set<String> EXCLUDED_HEADERS = Set.of("authorization", "cookie", "set-cookie", "x-api-key",
-            "proxy-authorization", "x-csrf-token");
+        "proxy-authorization", "x-csrf-token");
 
     private QueryIngressSupport() {
     }
@@ -72,8 +72,7 @@ public final class QueryIngressSupport {
      * Validation result containing the resolved {@link ServeRequest} or error details.
      */
     public record ValidationResult(boolean valid, int errorStatus, Map<String, Object> errorBody,
-            ServeRequest serveRequest) {
-
+                                    ServeRequest serveRequest) {
         static ValidationResult ok(ServeRequest serveRequest) {
             return new ValidationResult(true, 0, null, serveRequest);
         }
@@ -93,7 +92,7 @@ public final class QueryIngressSupport {
      * @return a new metadata map with filtered headers, query params, path, and body
      */
     public static Map<String, Object> buildMetadata(HttpHeaders headers, Map<String, String> queryParams, String path,
-            Map<String, Object> bodyMap) {
+        Map<String, Object> bodyMap) {
         Map<String, Object> metadata = new LinkedHashMap<>();
 
         Map<String, String> headerMap = new LinkedHashMap<>();

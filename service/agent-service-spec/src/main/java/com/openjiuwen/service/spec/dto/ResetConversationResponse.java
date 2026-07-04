@@ -14,9 +14,12 @@ import lombok.Data;
 @Data
 public class ResetConversationResponse {
     private String status;
+
     private String message;
 
-    /** Default constructor for JSON deserialization. */
+    /**
+     * Default constructor for JSON deserialization.
+     */
     public ResetConversationResponse() {
     }
 

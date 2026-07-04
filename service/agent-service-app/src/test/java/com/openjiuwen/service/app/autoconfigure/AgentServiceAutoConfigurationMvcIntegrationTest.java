@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 2026-07-03
  */
 @SpringBootTest(classes = AgentServiceAutoConfigurationMvcIntegrationTest.MinimalAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
 @AutoConfigureTestRestTemplate
 class AgentServiceAutoConfigurationMvcIntegrationTest {
@@ -52,7 +52,7 @@ class AgentServiceAutoConfigurationMvcIntegrationTest {
     @SuppressWarnings("unchecked")
     void autoConfigurationExposesQueryEndpointWithoutBusinessController() throws Exception {
         ResponseEntity<String> resp = postQuery("/v1/query",
-                Map.of("message", "hello", "conversation_id", "c-auto", "stream", false));
+            Map.of("message", "hello", "conversation_id", "c-auto", "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
@@ -65,8 +65,8 @@ class AgentServiceAutoConfigurationMvcIntegrationTest {
     @SuppressWarnings("unchecked")
     void legacyQueryPathUsesSameAutoConfiguredChain() throws Exception {
         ResponseEntity<String> resp = postQuery("/query",
-                Map.of("messages", List.of(Map.of("role", "user", "content", "legacy")), "conversation_id",
-                        "c-auto-legacy", "stream", false));
+            Map.of("messages", List.of(Map.of("role", "user", "content", "legacy")), "conversation_id", "c-auto-legacy",
+                "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);

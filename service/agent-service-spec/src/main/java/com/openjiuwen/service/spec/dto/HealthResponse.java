@@ -16,7 +16,9 @@ import lombok.Data;
 @Data
 public class HealthResponse {
     private String status;
+
     private String app;
+
     private String version;
 
     @JsonProperty("process_up")
@@ -25,7 +27,9 @@ public class HealthResponse {
     @JsonProperty("agent_loaded")
     private boolean agentLoaded;
 
-    /** Default constructor for JSON deserialization. */
+    /**
+     * Default constructor for JSON deserialization.
+     */
     public HealthResponse() {
     }
 

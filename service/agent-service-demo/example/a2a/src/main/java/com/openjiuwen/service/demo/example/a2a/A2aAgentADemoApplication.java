@@ -31,9 +31,9 @@ public class A2aAgentADemoApplication {
     private static final String AGENT_ID = "demo-a2a-agent-a";
 
     public static void main(String[] args) {
-        new SpringApplicationBuilder(A2aAgentADemoApplication.class).properties("spring.config.import="
-                + "optional:classpath:application-base.yml," + "optional:classpath:application-base_local.yml,"
-                + "optional:classpath:application-a2a-agent-a.yml,"
+        new SpringApplicationBuilder(A2aAgentADemoApplication.class).properties(
+            "spring.config.import=" + "optional:classpath:application-base.yml,"
+                + "optional:classpath:application-base_local.yml," + "optional:classpath:application-a2a-agent-a.yml,"
                 + "optional:classpath:application-a2a-redis.local.yml").run(args);
     }
 
@@ -42,7 +42,7 @@ public class A2aAgentADemoApplication {
         llmProperties.applyApiConfigIfPresent();
         llmProperties.requireConfigured();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Agent A (A2A Demo)",
-                "ReAct agent that delegates to Agent B via A2A", llmProperties);
+            "ReAct agent that delegates to Agent B via A2A", llmProperties);
         agent.registerRail(new A2aDelegateRail());
         return new JiuwenCoreAgentHandler(agent);
     }

@@ -106,7 +106,7 @@ public class AgentCoreExternalProperties {
     }
 
     private static void validateCallPolicy(String policyName, int timeoutMs, ExternalRetryPolicy retry,
-            ExternalCircuitBreakerPolicy circuitBreaker) {
+        ExternalCircuitBreakerPolicy circuitBreaker) {
         if (timeoutMs <= 0) {
             throw new IllegalArgumentException(policyName + " timeout-ms must be greater than zero");
         }
@@ -118,11 +118,11 @@ public class AgentCoreExternalProperties {
         }
         if (circuitBreaker.getFailureThreshold() <= 0) {
             throw new IllegalArgumentException(
-                    policyName + " circuit-breaker.failure-threshold must be greater than zero");
+                policyName + " circuit-breaker.failure-threshold must be greater than zero");
         }
         if (circuitBreaker.getResetTimeoutMs() <= 0) {
             throw new IllegalArgumentException(
-                    policyName + " circuit-breaker.reset-timeout-ms must be greater than zero");
+                policyName + " circuit-breaker.reset-timeout-ms must be greater than zero");
         }
     }
 
@@ -676,7 +676,7 @@ public class AgentCoreExternalProperties {
             }
             if (!isHttpUrl(server.getServiceUrl())) {
                 throw new IllegalArgumentException(
-                        "Sandbox service-url must be an http(s) URL: " + server.getServiceUrl());
+                    "Sandbox service-url must be an http(s) URL: " + server.getServiceUrl());
             }
             if (server.getSandboxType() == null || server.getSandboxType().isBlank()) {
                 throw new IllegalArgumentException("Sandbox sandbox-type must not be blank");

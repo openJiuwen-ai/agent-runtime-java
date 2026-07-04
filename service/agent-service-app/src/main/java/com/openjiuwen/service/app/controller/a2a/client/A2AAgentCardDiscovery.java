@@ -33,13 +33,19 @@ import java.util.concurrent.TimeUnit;
  */
 public class A2AAgentCardDiscovery {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentCardDiscovery.class);
+
     private static final long RETRY_INTERVAL_SECONDS = 30L;
+
     private static final long SHUTDOWN_TIMEOUT_SECONDS = 5L;
 
     private final A2AProperties properties;
+
     private final A2ARemoteAgentCardRegistry registry;
+
     private final RestClient restClient;
+
     private final ScheduledExecutorService retryExecutor;
+
     private final Map<String, ScheduledFuture<?>> retryFutures = new ConcurrentHashMap<>();
 
     /**
@@ -56,7 +62,7 @@ public class A2AAgentCardDiscovery {
             Thread t = new Thread(r, "a2a-discovery-retry");
             t.setDaemon(true);
             t.setUncaughtExceptionHandler(
-                    (thread, ex) -> log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
+                (thread, ex) -> log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
             return t;
         });
     }
@@ -80,7 +86,7 @@ public class A2AAgentCardDiscovery {
             discoverAndRegister(remote);
         } catch (org.springframework.web.client.RestClientException e) {
             log.warn("Failed to discover {}, retry every {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
-                    e.getMessage());
+                e.getMessage());
             ScheduledFuture<?> future = retryExecutor.scheduleWithFixedDelay(() -> {
                 try {
                     discoverAndRegister(remote);
@@ -88,7 +94,7 @@ public class A2AAgentCardDiscovery {
                     cancelRetry(remote.getName());
                 } catch (org.springframework.web.client.RestClientException ex) {
                     log.warn("Retry {} failed, will retry in {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
-                            ex.getMessage());
+                        ex.getMessage());
                 }
             }, RETRY_INTERVAL_SECONDS, RETRY_INTERVAL_SECONDS, TimeUnit.SECONDS);
             retryFutures.put(remote.getName(), future);

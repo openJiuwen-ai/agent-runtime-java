@@ -43,7 +43,7 @@ public final class RedisJedisClientFactory {
     public static Jedis createClient(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         HostAndPort hostAndPort = hostAndPort(endpoint);
         return clientConfig(endpoint, password).map(cfg -> new Jedis(hostAndPort, cfg))
-                .orElseGet(() -> new Jedis(hostAndPort));
+            .orElseGet(() -> new Jedis(hostAndPort));
     }
 
     /**
@@ -59,8 +59,8 @@ public final class RedisJedisClientFactory {
      */
     public static JedisPooled createPooled(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         HostAndPort hostAndPort = hostAndPort(endpoint);
-        JedisClientConfig clientConfig = clientConfig(endpoint, password)
-                .orElseGet(() -> DefaultJedisClientConfig.builder().build());
+        JedisClientConfig clientConfig = clientConfig(endpoint, password).orElseGet(
+            () -> DefaultJedisClientConfig.builder().build());
         return new JedisPooled(hostAndPort, clientConfig, pooledConnectionConfig());
     }
 
@@ -76,8 +76,8 @@ public final class RedisJedisClientFactory {
      */
     public static JedisPool createPool(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         HostAndPort hostAndPort = hostAndPort(endpoint);
-        JedisClientConfig clientConfig = clientConfig(endpoint, password)
-                .orElseGet(() -> DefaultJedisClientConfig.builder().build());
+        JedisClientConfig clientConfig = clientConfig(endpoint, password).orElseGet(
+            () -> DefaultJedisClientConfig.builder().build());
         return new JedisPool(poolConfig(), hostAndPort, clientConfig);
     }
 
@@ -98,15 +98,16 @@ public final class RedisJedisClientFactory {
      * @return Optional<JedisClientConfig>
      */
     private static Optional<JedisClientConfig> clientConfig(MiddlewareProperties.RedisEndpoint endpoint,
-            String password) {
+        String password) {
         int timeoutMs = endpoint.getTimeoutMs() > 0 ? endpoint.getTimeoutMs() : 3000;
         boolean hasPassword = password != null && !password.isBlank();
         int database = endpoint.getDatabase();
         if (!hasPassword && database <= 0) {
             return Optional.empty();
         }
-        DefaultJedisClientConfig.Builder builder = DefaultJedisClientConfig.builder().connectionTimeoutMillis(timeoutMs)
-                .socketTimeoutMillis(timeoutMs);
+        DefaultJedisClientConfig.Builder builder = DefaultJedisClientConfig.builder()
+            .connectionTimeoutMillis(timeoutMs)
+            .socketTimeoutMillis(timeoutMs);
         if (hasPassword) {
             builder.password(password);
         }

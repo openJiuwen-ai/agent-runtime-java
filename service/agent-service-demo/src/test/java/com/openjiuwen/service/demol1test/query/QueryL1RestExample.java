@@ -36,9 +36,9 @@ public class QueryL1RestExample {
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(QueryL1RestExample.class);
         application.setDefaultProperties(
-                Map.of("server.port", "8090", "spring.main.web-application-type", "servlet", "spring.application.name",
-                        "query-l1-example", "openjiuwen.service.version", "0.1.0", "example.query.l1.handler", "echo",
-                        "example.query.l1.stream-chunks", "1", "example.query.l1.stream-delay-ms", "0"));
+            Map.of("server.port", "8090", "spring.main.web-application-type", "servlet", "spring.application.name",
+                "query-l1-example", "openjiuwen.service.version", "0.1.0", "example.query.l1.handler", "echo",
+                "example.query.l1.stream-chunks", "1", "example.query.l1.stream-delay-ms", "0"));
         application.run(args);
     }
 
@@ -66,13 +66,12 @@ public class QueryL1RestExample {
     @Configuration
     @ConditionalOnProperty(prefix = "example.query.l1", name = "controller", havingValue = "query-only")
     @Import(QueryMvcController.class)
-    static class QueryOnlyControllerConfiguration {
-    }
+    static class QueryOnlyControllerConfiguration {}
 
     @Bean
     @ConditionalOnProperty(prefix = "example.query.l1", name = "handler", havingValue = "echo", matchIfMissing = true)
     AgentHandler queryL1EchoAgentHandler(@Value("${example.query.l1.stream-chunks:1}") int streamChunks,
-            @Value("${example.query.l1.stream-delay-ms:0}") long streamDelayMs) {
+        @Value("${example.query.l1.stream-delay-ms:0}") long streamDelayMs) {
         return new EchoAgentHandler(streamChunks, streamDelayMs);
     }
 
@@ -99,7 +98,9 @@ public class QueryL1RestExample {
 
     private static final class EchoAgentHandler implements AgentHandler {
         private final int streamChunks;
+
         private final long streamDelayMs;
+
         private final Map<String, List<String>> conversationHistory = new ConcurrentHashMap<>();
 
         private EchoAgentHandler(int streamChunks, long streamDelayMs) {
@@ -129,7 +130,7 @@ public class QueryL1RestExample {
         private Map<String, Object> responseBody(ServeRequest request, int chunkIndex) {
             String query = request.lastUserQuery();
             List<String> history = conversationHistory.computeIfAbsent(request.getConversationId(),
-                    ignored -> new ArrayList<>());
+                ignored -> new ArrayList<>());
             String previousQuery = history.isEmpty() ? null : history.get(history.size() - 1);
             history.add(query);
 

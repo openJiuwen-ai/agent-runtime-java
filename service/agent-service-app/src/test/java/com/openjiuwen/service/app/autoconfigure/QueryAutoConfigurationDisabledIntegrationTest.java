@@ -35,9 +35,10 @@ import java.util.Map;
  * @since 2026-07-03
  */
 @SpringBootTest(classes = QueryAutoConfigurationDisabledIntegrationTest.MinimalAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@TestPropertySource(properties = {"openjiuwen.service.query.enabled=false",
-        "openjiuwen.service.query.webflux.enabled=false"})
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestPropertySource(properties = {
+    "openjiuwen.service.query.enabled=false", "openjiuwen.service.query.webflux.enabled=false"
+})
 @AutoConfigureTestRestTemplate
 class QueryAutoConfigurationDisabledIntegrationTest {
     @Autowired
@@ -46,7 +47,7 @@ class QueryAutoConfigurationDisabledIntegrationTest {
     @Test
     void queryEnabledPropertyDoesNotPreventQueryEndpointAutoRegistration() {
         ResponseEntity<String> resp = postQuery("/v1/query",
-                Map.of("message", "hello", "conversation_id", "c-query-disabled", "stream", false));
+            Map.of("message", "hello", "conversation_id", "c-query-disabled", "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
     }

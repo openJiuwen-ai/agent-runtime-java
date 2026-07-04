@@ -23,5 +23,5 @@ public interface AgentCoreRemoteClientDecoratorFactory {
      * @return decorated remote client
      */
     RemoteClient decorate(RemoteClientConfig config, RemoteClient delegate,
-            AgentCoreExternalProperties.RemotePolicy policy);
+        AgentCoreExternalProperties.RemotePolicy policy);
 }

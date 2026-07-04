@@ -21,7 +21,7 @@ class ResetConversationRequestTest {
     @Test
     void deserializesPythonAlignedFields() throws Exception {
         ResetConversationRequest request = mapper.readValue("{\"conversation_id\":\"conv-1\",\"user_id\":\"u1\"}",
-                ResetConversationRequest.class);
+            ResetConversationRequest.class);
 
         assertThat(request.getConversationId()).isEqualTo("conv-1");
         assertThat(request.getUserId()).isEqualTo("u1");

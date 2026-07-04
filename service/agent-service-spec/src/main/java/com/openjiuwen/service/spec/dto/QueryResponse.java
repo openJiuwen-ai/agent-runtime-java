@@ -24,7 +24,9 @@ public class QueryResponse {
     @JsonProperty("conversation_id")
     private String conversationId;
 
-    /** Default constructor for JSON deserialization. */
+    /**
+     * Default constructor for JSON deserialization.
+     */
     public QueryResponse() {
     }
 

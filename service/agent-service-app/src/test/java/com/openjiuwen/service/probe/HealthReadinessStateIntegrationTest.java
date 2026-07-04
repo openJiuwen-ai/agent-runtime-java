@@ -30,7 +30,7 @@ import java.util.Map;
  * @since 0.1.0
  */
 @SpringBootTest(classes = HealthReadinessStateIntegrationTest.MinimalAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class HealthReadinessStateIntegrationTest {
     @Autowired
@@ -75,6 +75,5 @@ class HealthReadinessStateIntegrationTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    static class MinimalAgentApplication {
-    }
+    static class MinimalAgentApplication {}
 }

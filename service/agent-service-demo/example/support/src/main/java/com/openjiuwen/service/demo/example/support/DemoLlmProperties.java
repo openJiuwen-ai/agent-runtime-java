@@ -23,17 +23,29 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "openjiuwen.demo.llm")
 public class DemoLlmProperties {
     private String configFile;
+
     private boolean autoDiscover = true;
+
     private String provider = "OpenAI";
+
     private String apiKey = "";
+
     private String apiBase = "";
+
     private String modelName = "";
+
     private boolean sslVerify = true;
+
     private String systemPrompt = "You are a helpful assistant. Answer concisely and accurately.";
+
     private Double temperature = 0.6;
+
     private Double topP = 0.8;
+
     private Duration timeout = Duration.ofSeconds(60);
+
     private int contextWindowLimit = 10;
+
     private int maxIterations = 5;
 
     /**
@@ -93,8 +105,8 @@ public class DemoLlmProperties {
 
     public void setSystemPrompt(String systemPrompt) {
         this.systemPrompt = hasText(systemPrompt)
-                ? systemPrompt
-                : "You are a helpful assistant. Answer concisely and accurately.";
+            ? systemPrompt
+            : "You are a helpful assistant. Answer concisely and accurately.";
     }
 
     public void setTimeout(Duration timeout) {

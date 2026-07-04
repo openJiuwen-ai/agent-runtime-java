@@ -26,7 +26,7 @@ class DefaultMiddlewareAdapterRegistrarTest {
     void appliesInMemoryCheckpointerConfig() {
         MiddlewareProperties properties = new MiddlewareProperties();
         DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
-                new PassthroughCredentialDecryptor());
+            new PassthroughCredentialDecryptor());
 
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);
@@ -47,15 +47,14 @@ class DefaultMiddlewareAdapterRegistrarTest {
         properties.getRedis().put("default", endpoint);
 
         DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
-                new PassthroughCredentialDecryptor());
+            new PassthroughCredentialDecryptor());
 
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> conf = (Map<String, Object>) runnerConfig.getCheckpointerConfig().get("conf");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
+        @SuppressWarnings("unchecked") Map<String, Object> conf
+            = (Map<String, Object>) runnerConfig.getCheckpointerConfig().get("conf");
+        @SuppressWarnings("unchecked") Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
         assertThat(connection.get("redis_client")).isNotNull();
         var checkpointer = CheckpointerFactory.create("redis", conf);
         assertThat(checkpointer).isInstanceOf(RedisCheckpointer.class);

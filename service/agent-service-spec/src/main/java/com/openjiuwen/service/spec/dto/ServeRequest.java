@@ -19,11 +19,17 @@ import java.util.Map;
 @Data
 public class ServeRequest {
     private String conversationId;
+
     private List<Map<String, Object>> messages = new ArrayList<>();
+
     private String userId;
+
     private String spaceId;
+
     private String tenantId;
+
     private boolean stream = true;
+
     private Map<String, Object> metadata = new LinkedHashMap<>();
 
     /**

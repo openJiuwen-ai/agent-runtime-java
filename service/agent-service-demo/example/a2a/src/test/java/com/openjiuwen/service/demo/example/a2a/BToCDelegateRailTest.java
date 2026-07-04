@@ -19,8 +19,10 @@ class BToCDelegateRailTest {
     @Test
     void firstCallDelegatesToAgentCWithSseMode() {
         TestRail rail = new TestRail();
-        ToolCall call = ToolCall.builder().name("delegate_to_agentc").arguments("{\"message\":\"推荐一道适合团队午餐的菜\"}")
-                .build();
+        ToolCall call = ToolCall.builder()
+            .name("delegate_to_agentc")
+            .arguments("{\"message\":\"推荐一道适合团队午餐的菜\"}")
+            .build();
 
         Object result = rail.resolve(call, null);
 
@@ -28,7 +30,8 @@ class BToCDelegateRailTest {
             assertThat(rail.getTools()).extracting("name").contains("delegate_to_agentc");
             assertThat(interruptResult.getRequest().getMessage()).isEqualTo("推荐一道适合团队午餐的菜");
             assertThat(interruptResult.getRequest().getContext()).containsEntry("agentName", "agentc")
-                    .containsEntry("_interrupt_kind", "a2a_delegate").containsEntry("_stream_mode", "sse");
+                .containsEntry("_interrupt_kind", "a2a_delegate")
+                .containsEntry("_stream_mode", "sse");
         });
     }
 
@@ -39,7 +42,7 @@ class BToCDelegateRailTest {
         Object result = rail.resolve(ToolCall.builder().build(), "Agent C 推荐宫保鸡丁");
 
         assertThat(result).isInstanceOfSatisfying(RejectResult.class,
-                rejectResult -> assertThat(rejectResult.getToolResult()).isEqualTo("Agent C 推荐宫保鸡丁"));
+            rejectResult -> assertThat(rejectResult.getToolResult()).isEqualTo("Agent C 推荐宫保鸡丁"));
     }
 
     private static final class TestRail extends BToCDelegateRail {

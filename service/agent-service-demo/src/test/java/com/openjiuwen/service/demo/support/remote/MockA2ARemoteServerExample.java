@@ -29,9 +29,10 @@ import java.util.concurrent.TimeUnit;
  */
 public class MockA2ARemoteServerExample {
     private static final Logger log = LoggerFactory.getLogger(MockA2ARemoteServerExample.class);
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
-    };
+
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
     public static void main(String[] args) throws Exception {
         Map<String, String> options = parseArgs(args);
@@ -49,13 +50,8 @@ public class MockA2ARemoteServerExample {
     }
 
     private static ThreadPoolExecutor newServerExecutor() {
-        return new ThreadPoolExecutor(
-                2,
-                2,
-                0L,
-                TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<>(100),
-                new ThreadPoolExecutor.AbortPolicy());
+        return new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(100),
+            new ThreadPoolExecutor.AbortPolicy());
     }
 
     private void handle(HttpExchange exchange) throws IOException {

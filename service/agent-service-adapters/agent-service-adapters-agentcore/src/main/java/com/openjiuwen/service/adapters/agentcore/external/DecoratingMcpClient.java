@@ -24,24 +24,27 @@ public class DecoratingMcpClient implements McpClient {
     private static final float FLOAT_COMPARISON_EPSILON = 0.000001F;
 
     private final McpServerConfig config;
+
     private final McpClient delegate;
+
     private final AgentCoreExternalProperties.McpPolicy policy;
+
     private final ExternalCallExecutor executor;
 
     public DecoratingMcpClient(McpServerConfig config, McpClient delegate,
-            AgentCoreExternalProperties.McpPolicy policy) {
+        AgentCoreExternalProperties.McpPolicy policy) {
         this.config = config;
         this.delegate = delegate;
         this.policy = policy != null ? policy : new AgentCoreExternalProperties.McpPolicy();
         this.executor = new ExternalCallExecutor("MCP", serverLabel(), this.policy,
-                ExternalSvcAdapterErrorCode.MCP_OUTBOUND_CALL_FAILED, ExternalSvcAdapterErrorCode.MCP_CIRCUIT_OPEN,
-                ExternalSvcAdapterErrorCode.MCP_RETRY_INTERRUPTED, ExternalSvcAdapterErrorCode.MCP_TIMEOUT);
+            ExternalSvcAdapterErrorCode.MCP_OUTBOUND_CALL_FAILED, ExternalSvcAdapterErrorCode.MCP_CIRCUIT_OPEN,
+            ExternalSvcAdapterErrorCode.MCP_RETRY_INTERRUPTED, ExternalSvcAdapterErrorCode.MCP_TIMEOUT);
     }
 
     @Override
     public boolean connect(int retryTimes, float timeout) throws Exception {
         return executor.execute("mcp", "connect", true, Map.of("retryTimes", retryTimes),
-                () -> delegate.connect(retryTimes, resolveTimeout(timeout)));
+            () -> delegate.connect(retryTimes, resolveTimeout(timeout)));
     }
 
     @Override
@@ -62,19 +65,19 @@ public class DecoratingMcpClient implements McpClient {
     @Override
     public List<Object> readResource(String uri, float timeout) throws Exception {
         return executor.execute("mcp", "resources/read", true, Map.of("uri", uri),
-                () -> delegate.readResource(uri, resolveTimeout(timeout)));
+            () -> delegate.readResource(uri, resolveTimeout(timeout)));
     }
 
     @Override
     public Object callTool(String toolName, Map<String, Object> arguments, float timeout) throws Exception {
         return executor.execute("mcp", "tools/call", policy.isRetryToolCalls(), toolRequest(toolName, arguments),
-                () -> delegate.callTool(toolName, arguments, resolveTimeout(timeout)));
+            () -> delegate.callTool(toolName, arguments, resolveTimeout(timeout)));
     }
 
     @Override
     public Optional<Object> getToolInfo(String toolName, float timeout) throws Exception {
         return executor.execute("mcp", "tools/get", true, Map.of("toolName", toolName),
-                () -> delegate.getToolInfo(toolName, resolveTimeout(timeout)));
+            () -> delegate.getToolInfo(toolName, resolveTimeout(timeout)));
     }
 
     @Override

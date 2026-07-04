@@ -34,7 +34,7 @@ import java.util.Map;
  * @since 0.1.0
  */
 @SpringBootTest(classes = QueryMvcNoOrchestratorIntegrationTest.QueryOnlyApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class QueryMvcNoOrchestratorIntegrationTest {
     @Autowired
@@ -46,7 +46,7 @@ class QueryMvcNoOrchestratorIntegrationTest {
     @SuppressWarnings("unchecked")
     void queryReturnsServiceUnavailableWhenNoOrchestratorIsConfigured() throws Exception {
         ResponseEntity<String> response = postQuery("/v1/query",
-                Map.of("message", "blocked", "conversation_id", "c-no-orchestrator", "stream", false));
+            Map.of("message", "blocked", "conversation_id", "c-no-orchestrator", "stream", false));
 
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
@@ -63,6 +63,5 @@ class QueryMvcNoOrchestratorIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration(exclude = {AgentServiceAutoConfiguration.class, A2AAutoConfiguration.class})
     @Import(QueryMvcController.class)
-    static class QueryOnlyApplication {
-    }
+    static class QueryOnlyApplication {}
 }

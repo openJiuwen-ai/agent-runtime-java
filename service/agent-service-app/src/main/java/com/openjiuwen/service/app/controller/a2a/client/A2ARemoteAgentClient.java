@@ -46,9 +46,10 @@ import java.util.function.BiConsumer;
  */
 public class A2ARemoteAgentClient {
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
+
     private static final Gson GSON = new Gson();
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
-    }.getType();
+
+    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
 
     /**
      * AgentCore stream-envelope {@code type} value that marks the final answer
@@ -57,6 +58,7 @@ public class A2ARemoteAgentClient {
     private static final String ANSWER_ENVELOPE_TYPE = "answer";
 
     private final A2ARemoteAgentCardRegistry registry;
+
     private final Map<String, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
@@ -85,8 +87,7 @@ public class A2ARemoteAgentClient {
      *            additional metadata for the call
      */
     public record RemoteCall(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata) {
-    }
+                            Map<String, Object> metadata) {}
 
     /**
      * Parameter object bundling the result of {@link #prepareCall}.
@@ -101,8 +102,7 @@ public class A2ARemoteAgentClient {
      *            the metadata map
      */
     private record RemoteCallSetup(A2ARemoteAgentCardRegistry.RemoteAgentEntry entry, Message message, String contextId,
-            Map<String, Object> metadata) {
-    }
+                                    Map<String, Object> metadata) {}
 
     /**
      * Resolves the remote agent entry and builds the SDK message.
@@ -120,12 +120,14 @@ public class A2ARemoteAgentClient {
      * @return the prepared call setup
      */
     private RemoteCallSetup prepareCall(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata) {
+        Map<String, Object> metadata) {
         var entry = registry.get(agentName)
-                .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + agentName));
+            .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + agentName));
         var ctxId = contextId != null ? contextId : java.util.UUID.randomUUID().toString();
-        var msgBuilder = Message.builder().role(Message.Role.ROLE_USER).contextId(ctxId)
-                .parts(List.<Part<?>>of(new TextPart(message)));
+        var msgBuilder = Message.builder()
+            .role(Message.Role.ROLE_USER)
+            .contextId(ctxId)
+            .parts(List.<Part<?>>of(new TextPart(message)));
         if (taskId != null && !taskId.isBlank()) {
             msgBuilder.taskId(taskId);
         }
@@ -143,9 +145,10 @@ public class A2ARemoteAgentClient {
      * @return the SDK client
      */
     private Client createClient(AgentCard card, boolean isStreaming) {
-        return clientCache.computeIfAbsent(card.name() + ":" + isStreaming,
-                k -> Client.builder(card).clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
-                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig()).build());
+        return clientCache.computeIfAbsent(card.name() + ":" + isStreaming, k -> Client.builder(card)
+            .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
+            .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig())
+            .build());
     }
 
     /**
@@ -164,8 +167,8 @@ public class A2ARemoteAgentClient {
             return;
         }
         future.completeExceptionally(
-                new RemoteInputRequiredException(statusText.isBlank() ? "Remote agent requires input" : statusText,
-                        remoteTaskId != null ? remoteTaskId : ""));
+            new RemoteInputRequiredException(statusText.isBlank() ? "Remote agent requires input" : statusText,
+                remoteTaskId != null ? remoteTaskId : ""));
     }
 
     /**
@@ -183,8 +186,8 @@ public class A2ARemoteAgentClient {
     public CompletableFuture<String> callStreaming(RemoteCall call, QueryStreamObserver streamObserver) {
         var setup = prepareCall(call.agentName(), call.message(), call.contextId(), call.taskId(), call.metadata());
         log.info("A2A streaming call agent={} taskId={} contextId={} textLen={}", call.agentName(),
-                call.taskId() != null ? call.taskId() : "new", setup.contextId,
-                call.message() != null ? call.message().length() : 0);
+            call.taskId() != null ? call.taskId() : "new", setup.contextId,
+            call.message() != null ? call.message().length() : 0);
 
         Client client = createClient(setup.entry.card(), true);
         var params = MessageSendParams.builder().message(setup.message).metadata(setup.metadata).build();
@@ -231,7 +234,7 @@ public class A2ARemoteAgentClient {
      *            the observer for forwarding streaming chunks
      */
     private void handleArtifact(TaskArtifactUpdateEvent aue, CompletableFuture<String> result,
-            QueryStreamObserver streamObserver) {
+        QueryStreamObserver streamObserver) {
         Artifact a = aue.artifact();
         if (a == null || a.parts() == null) {
             return;
@@ -266,7 +269,7 @@ public class A2ARemoteAgentClient {
      */
     static Optional<String> answerText(String raw) {
         return parseEnvelope(raw).filter(envelope -> ANSWER_ENVELOPE_TYPE.equals(envelope.get("type")))
-                .map(envelope -> extractBusinessText(envelope).orElse(raw));
+            .map(envelope -> extractBusinessText(envelope).orElse(raw));
     }
 
     /**
@@ -302,8 +305,8 @@ public class A2ARemoteAgentClient {
             return Optional.empty();
         }
         Optional<String> fromPayload = map.get("payload") instanceof Map<?, ?> payload
-                ? firstText(payload)
-                : Optional.empty();
+            ? firstText(payload)
+            : Optional.empty();
         return fromPayload.isPresent() ? fromPayload : firstText(map);
     }
 
@@ -369,9 +372,8 @@ public class A2ARemoteAgentClient {
             log.info("A2A remote INPUT_REQUIRED taskId={} statusText={}", task.id(), statusText);
             handleInputRequired(result, task.id(), statusText);
         } else if (task.status().state().isFinal()) {
-            String text = task.artifacts() != null && !task.artifacts().isEmpty()
-                    ? extractText(task.artifacts().get(0).parts())
-                    : "";
+            String text = task.artifacts() != null && !task.artifacts().isEmpty() ? extractText(
+                task.artifacts().get(0).parts()) : "";
             log.info("A2A remote result ({} chars)", text.length());
             result.complete(text);
         } else {
@@ -398,10 +400,10 @@ public class A2ARemoteAgentClient {
      *             if the remote agent requires user input
      */
     public String callSync(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata) throws RemoteInputRequiredException {
+        Map<String, Object> metadata) throws RemoteInputRequiredException {
         var setup = prepareCall(agentName, message, contextId, taskId, metadata);
         log.info("A2A sync call agent={} taskId={} contextId={} textLen={}", agentName, taskId != null ? taskId : "new",
-                setup.contextId, message != null ? message.length() : 0);
+            setup.contextId, message != null ? message.length() : 0);
 
         Client client = createClient(setup.entry.card(), false);
         var params = MessageSendParams.builder().message(setup.message).metadata(setup.metadata).build();

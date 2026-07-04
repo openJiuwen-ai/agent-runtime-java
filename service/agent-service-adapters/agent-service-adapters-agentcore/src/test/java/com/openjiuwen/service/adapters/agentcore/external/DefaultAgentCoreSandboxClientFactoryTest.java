@@ -94,7 +94,7 @@ class DefaultAgentCoreSandboxClientFactoryTest {
         DefaultAgentCoreSandboxClientFactory factory = new DefaultAgentCoreSandboxClientFactory(properties());
 
         assertThatThrownBy(() -> factory.configFor("missing")).isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Unknown sandbox server");
+            .hasMessageContaining("Unknown sandbox server");
     }
 
     @Test
@@ -102,8 +102,8 @@ class DefaultAgentCoreSandboxClientFactoryTest {
         AgentCoreExternalProperties properties = properties();
         properties.getSandbox().getServers().get(0).setServiceUrl("file:///tmp/sandbox");
 
-        assertThatThrownBy(() -> new DefaultAgentCoreSandboxClientFactory(properties))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("service-url");
+        assertThatThrownBy(() -> new DefaultAgentCoreSandboxClientFactory(properties)).isInstanceOf(
+            IllegalArgumentException.class).hasMessageContaining("service-url");
     }
 
     private AgentCoreExternalProperties properties() {

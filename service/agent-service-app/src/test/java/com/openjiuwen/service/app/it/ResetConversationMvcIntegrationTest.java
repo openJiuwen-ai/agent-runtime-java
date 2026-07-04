@@ -58,7 +58,7 @@ class ResetConversationMvcIntegrationTest {
         assertThat(((Map<?, ?>) secondJson.get("result")).get("content")).asString().contains("prev=hello");
 
         ResponseEntity<String> reset = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
-                Map.of("conversation_id", conversationId));
+            Map.of("conversation_id", conversationId));
         assertThat(reset.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> resetJson = mapper.readValue(reset.getBody(), Map.class);
         assertThat(resetJson).containsEntry("status", "ok");
@@ -79,7 +79,7 @@ class ResetConversationMvcIntegrationTest {
     @SuppressWarnings("unchecked")
     void blankConversationIdReturns400WithErrorBody() throws Exception {
         ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
-                Map.of("conversation_id", ""));
+            Map.of("conversation_id", ""));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
@@ -91,7 +91,7 @@ class ResetConversationMvcIntegrationTest {
     @SuppressWarnings("unchecked")
     void legacyResetPathReturnsOk() throws Exception {
         ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_LEGACY,
-                Map.of("conversation_id", "legacy-c1"));
+            Map.of("conversation_id", "legacy-c1"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
@@ -105,7 +105,7 @@ class ResetConversationMvcIntegrationTest {
         readiness.markShuttingDown();
 
         ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
-                Map.of("conversation_id", "shutdown-c1"));
+            Map.of("conversation_id", "shutdown-c1"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     }

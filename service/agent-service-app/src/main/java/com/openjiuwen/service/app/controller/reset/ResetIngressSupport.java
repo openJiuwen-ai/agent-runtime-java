@@ -24,8 +24,7 @@ public final class ResetIngressSupport {
      * @return the validation result
      */
     public static ValidationResult validate(ResetConversationRequest request) {
-        if (request == null || request.getConversationId() == null
-                || request.getConversationId().isBlank()) {
+        if (request == null || request.getConversationId() == null || request.getConversationId().isBlank()) {
             return ValidationResult.error(400, Map.of("type", "error", "error", "conversation_id is required"));
         }
         return ValidationResult.ok(request.getConversationId());
@@ -33,7 +32,6 @@ public final class ResetIngressSupport {
 
     public record ValidationResult(boolean valid, int errorStatus, Map<String, Object> errorBody,
                                     String conversationId) {
-
         static ValidationResult ok(String conversationId) {
             return new ValidationResult(true, 0, null, conversationId);
         }

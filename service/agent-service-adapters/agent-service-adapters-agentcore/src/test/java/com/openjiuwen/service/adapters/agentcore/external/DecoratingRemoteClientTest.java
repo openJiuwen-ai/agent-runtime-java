@@ -73,9 +73,10 @@ class DecoratingRemoteClientTest {
         DecoratingRemoteClient client = new DecoratingRemoteClient(config(), delegate, policy);
 
         long startNanos = System.nanoTime();
-        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_TIMEOUT);
+        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_TIMEOUT);
         long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
 
         assertThat(elapsedMs).isLessThan(200);
@@ -89,9 +90,10 @@ class DecoratingRemoteClientTest {
 
         DecoratingRemoteClient client = new DecoratingRemoteClient(config(), delegate, policy);
 
-        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_OUTBOUND_CALL_FAILED);
         assertThat(delegate.invokeAttempts).isEqualTo(1);
     }
 
@@ -117,9 +119,10 @@ class DecoratingRemoteClientTest {
 
         DecoratingRemoteClient client = new DecoratingRemoteClient(config(), delegate, policy);
 
-        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_OUTBOUND_CALL_FAILED);
         assertThat(delegate.invokeAttempts).isEqualTo(2);
     }
 
@@ -133,12 +136,14 @@ class DecoratingRemoteClientTest {
 
         DecoratingRemoteClient client = new DecoratingRemoteClient(config(), delegate, policy);
 
-        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_OUTBOUND_CALL_FAILED);
-        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_CIRCUIT_OPEN);
+        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_CIRCUIT_OPEN);
         assertThat(delegate.invokeAttempts).isEqualTo(1);
     }
 
@@ -152,9 +157,10 @@ class DecoratingRemoteClientTest {
 
         DecoratingRemoteClient client = new DecoratingRemoteClient(config(), delegate, policy);
 
-        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(() -> client.invoke(Map.of("query", "hi"), null)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_OUTBOUND_CALL_FAILED);
 
         Thread.sleep(5);
 
@@ -186,9 +192,10 @@ class DecoratingRemoteClientTest {
 
         DecoratingRemoteClient client = new DecoratingRemoteClient(config(), delegate, policy);
 
-        assertThatThrownBy(() -> client.stream(Map.of("query", "hi"), null))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_STREAM_FAILED);
+        assertThatThrownBy(() -> client.stream(Map.of("query", "hi"), null)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_STREAM_FAILED);
         assertThat(delegate.streamAttempts).isEqualTo(1);
     }
 
@@ -202,14 +209,19 @@ class DecoratingRemoteClientTest {
         Iterator<Object> iterator = client.stream(Map.of("query", "hi"), null);
 
         assertThat(iterator.hasNext()).isTrue();
-        assertThatThrownBy(iterator::next).isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_STREAM_FAILED);
+        assertThatThrownBy(iterator::next).isInstanceOf(ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.REMOTE_STREAM_FAILED);
         assertThat(delegate.streamAttempts).isEqualTo(1);
     }
 
     private RemoteClientConfig config() {
-        return RemoteClientConfig.builder().id("a2a-agent").name("A2A Agent").protocol(ProtocolEnum.A2A)
-                .url("http://localhost:18081/a2a").build();
+        return RemoteClientConfig.builder()
+            .id("a2a-agent")
+            .name("A2A Agent")
+            .protocol(ProtocolEnum.A2A)
+            .url("http://localhost:18081/a2a")
+            .build();
     }
 
     private AgentCoreExternalProperties.RemotePolicy policy() {
@@ -218,14 +230,23 @@ class DecoratingRemoteClientTest {
 
     private static final class RecordingRemoteClient implements RemoteClient {
         private final int failuresBeforeSuccess;
+
         private int invokeAttempts;
+
         private int streamAttempts;
+
         private int startCalls;
+
         private int stopCalls;
+
         private boolean isStarted;
+
         private boolean shouldFailStream;
+
         private boolean shouldFailDuringStreamIteration;
+
         private long invokeDelayMs;
+
         private Double lastTimeoutSeconds;
 
         private RecordingRemoteClient(int failuresBeforeSuccess) {

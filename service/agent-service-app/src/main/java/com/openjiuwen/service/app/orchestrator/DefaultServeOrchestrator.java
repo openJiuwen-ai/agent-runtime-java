@@ -30,6 +30,7 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(DefaultServeOrchestrator.class);
 
     private final AgentHandler agentHandler;
+
     private final ActiveStreamRegistry streamRegistry;
 
     public DefaultServeOrchestrator(AgentHandler agentHandler, ActiveStreamRegistry streamRegistry) {

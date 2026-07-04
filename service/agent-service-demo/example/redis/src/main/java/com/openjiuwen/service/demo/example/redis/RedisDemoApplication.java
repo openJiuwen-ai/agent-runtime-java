@@ -33,12 +33,12 @@ public class RedisDemoApplication {
 
     @Bean
     AgentHandler agentHandler(DemoLlmProperties llmProperties,
-            ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
+        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
         llmProperties.applyApiConfigIfPresent();
         llmProperties.requireConfigured();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Demo Redis Agent",
-                "ReAct agent for Redis Checkpointer demo", llmProperties);
+            "ReAct agent for Redis Checkpointer demo", llmProperties);
         return new JiuwenCoreAgentHandler(agent,
-                externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
+            externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
     }
 }

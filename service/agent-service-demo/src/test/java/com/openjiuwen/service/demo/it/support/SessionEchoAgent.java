@@ -34,8 +34,8 @@ public class SessionEchoAgent {
         String query = String.valueOf(inputMap.get("query"));
         Object priorState = session.getState("history");
         List<String> history = priorState instanceof List<?>
-                ? new ArrayList<>((List<String>) priorState)
-                : new ArrayList<>();
+            ? new ArrayList<>((List<String>) priorState)
+            : new ArrayList<>();
         String reply = "turn" + (history.size() + 1) + ":" + query;
         if (!history.isEmpty()) {
             reply += "|prev=" + String.join(",", history);

@@ -59,6 +59,7 @@ import java.util.Map;
 @EnableConfigurationProperties(DemoLlmProperties.class)
 public class DemoAgentApplication {
     private static final Logger log = LoggerFactory.getLogger(DemoAgentApplication.class);
+
     private static final String REACT_AGENT_ID = "demo-react-agent";
 
     public static void main(String[] args) {
@@ -67,13 +68,13 @@ public class DemoAgentApplication {
 
     @Bean
     AgentHandler demoAgentHandler(DemoLlmProperties llmProperties,
-            ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
-            ObjectProvider<AgentCoreExternalProperties> externalPropertiesProvider) {
+        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
+        ObjectProvider<AgentCoreExternalProperties> externalPropertiesProvider) {
         llmProperties.applyApiConfigIfPresent();
         ReActAgent agent = buildReActAgent(llmProperties);
         bindMcpServers(agent, externalPropertiesProvider.getIfAvailable());
         return new JiuwenCoreAgentHandler(agent,
-                externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
+            externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
     }
 
     /**
@@ -107,21 +108,25 @@ public class DemoAgentApplication {
             config.setServerName(server.getServerName());
             agent.getAbilityManager().add(config);
             log.info("Bound MCP server to agent ability manager, serverId={}, serverName={}", config.getServerId(),
-                    config.getServerName());
+                config.getServerName());
         }
     }
 
     private static ReActAgent buildReActAgent(DemoLlmProperties llmProperties) {
         llmProperties.requireConfigured();
-        AgentCard card = AgentCard.builder().id(REACT_AGENT_ID).name(REACT_AGENT_ID)
-                .description("Demo ReAct agent for Agent Service").build();
+        AgentCard card = AgentCard.builder()
+            .id(REACT_AGENT_ID)
+            .name(REACT_AGENT_ID)
+            .description("Demo ReAct agent for Agent Service")
+            .build();
         ReActAgent agent = new ReActAgent(card);
         ReActAgentConfig config = ReActAgentConfig.builder()
-                .promptTemplate(List.of(Map.of("role", "system", "content", llmProperties.getSystemPrompt())))
-                .maxIterations(llmProperties.getMaxIterations()).build()
-                .configureModelClient(llmProperties.getProvider(), llmProperties.getApiKey(),
-                        llmProperties.getApiBase(), llmProperties.getModelName(), llmProperties.isSslVerify())
-                .configureContextEngine(null, llmProperties.getContextWindowLimit(), false);
+            .promptTemplate(List.of(Map.of("role", "system", "content", llmProperties.getSystemPrompt())))
+            .maxIterations(llmProperties.getMaxIterations())
+            .build()
+            .configureModelClient(llmProperties.getProvider(), llmProperties.getApiKey(), llmProperties.getApiBase(),
+                llmProperties.getModelName(), llmProperties.isSslVerify())
+            .configureContextEngine(null, llmProperties.getContextWindowLimit(), false);
         ModelRequestConfig requestConfig = config.getModelConfigObj();
         requestConfig.setTemperature(llmProperties.getTemperature());
         requestConfig.setTopP(llmProperties.getTopP());

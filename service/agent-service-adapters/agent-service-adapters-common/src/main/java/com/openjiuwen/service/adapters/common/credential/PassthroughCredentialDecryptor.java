@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class PassthroughCredentialDecryptor implements CredentialDecryptor {
     private static final Logger log = LoggerFactory.getLogger(PassthroughCredentialDecryptor.class);
+
     private static final AtomicBoolean WARNED = new AtomicBoolean(false);
 
     @Override

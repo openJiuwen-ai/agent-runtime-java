@@ -16,8 +16,8 @@ openjiuwen:
     a2a:
       agent-description: "A2A Agent A — entry ReAct LLM agent that delegates user requests to remote Agent B"
       is-streaming: true
-      default-input-modes: [text, text/plain]
-      default-output-modes: [text, text/plain]
+      default-input-modes: [ text, text/plain ]
+      default-output-modes: [ text, text/plain ]
       remote-agents:
         - name: agentb
           url: http://localhost:18091/a2a/
@@ -26,19 +26,19 @@ openjiuwen:
         - id: general_chat
           name: General Chat
           description: Handle general conversation and Q&A using ReAct LLM reasoning
-          tags: [chat, qa, reasoning]
+          tags: [ chat, qa, reasoning ]
           examples:
             - What is the capital of France?
             - Explain how a transformer model works
-          input-modes: [text, text/plain]
-          output-modes: [text, text/plain]
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
         - id: delegate_to_agentb
           name: Delegate to Agent B
           description: Delegate user questions to remote Agent B; Agent B routes math requests locally and dining requests to Agent C
-          tags: [delegation, remote, agentb, routing]
+          tags: [ delegation, remote, agentb, routing ]
           examples:
             - What is 1+1?
             - Calculate 15 * 7
             - Recommend a dish for a team lunch
-          input-modes: [text, text/plain]
-          output-modes: [text, text/plain]
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]

@@ -43,43 +43,42 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
     private static final Logger log = LoggerFactory.getLogger(DefaultExternalSvcAdapterRegistrar.class);
 
     private final AgentCoreExternalProperties properties;
+
     private final AgentCoreMcpClientDecoratorFactory decoratorFactory;
+
     private final AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory;
+
     private final List<McpClientProvider> customMcpClientProviders;
+
     private final List<RemoteClientProvider> customRemoteClientProviders;
 
-    public DefaultExternalSvcAdapterRegistrar(
-            AgentCoreExternalProperties properties,
-            AgentCoreMcpClientDecoratorFactory decoratorFactory) {
+    public DefaultExternalSvcAdapterRegistrar(AgentCoreExternalProperties properties,
+        AgentCoreMcpClientDecoratorFactory decoratorFactory) {
         this(properties, decoratorFactory, new DefaultAgentCoreRemoteClientDecoratorFactory());
     }
 
-    public DefaultExternalSvcAdapterRegistrar(
-            AgentCoreExternalProperties properties,
-            AgentCoreMcpClientDecoratorFactory decoratorFactory,
-            AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory) {
+    public DefaultExternalSvcAdapterRegistrar(AgentCoreExternalProperties properties,
+        AgentCoreMcpClientDecoratorFactory decoratorFactory,
+        AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory) {
         this(properties, decoratorFactory, remoteDecoratorFactory, List.of(), List.of());
     }
 
-    public DefaultExternalSvcAdapterRegistrar(
-            AgentCoreExternalProperties properties,
-            AgentCoreMcpClientDecoratorFactory decoratorFactory,
-            AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
-            List<McpClientProvider> customMcpClientProviders,
-            List<RemoteClientProvider> customRemoteClientProviders) {
+    public DefaultExternalSvcAdapterRegistrar(AgentCoreExternalProperties properties,
+        AgentCoreMcpClientDecoratorFactory decoratorFactory,
+        AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory, List<McpClientProvider> customMcpClientProviders,
+        List<RemoteClientProvider> customRemoteClientProviders) {
         this.properties = properties != null ? properties : new AgentCoreExternalProperties();
         this.decoratorFactory = decoratorFactory != null
-                ? decoratorFactory
-                : new DefaultAgentCoreMcpClientDecoratorFactory();
+            ? decoratorFactory
+            : new DefaultAgentCoreMcpClientDecoratorFactory();
         this.remoteDecoratorFactory = remoteDecoratorFactory != null
-                ? remoteDecoratorFactory
-                : new DefaultAgentCoreRemoteClientDecoratorFactory();
+            ? remoteDecoratorFactory
+            : new DefaultAgentCoreRemoteClientDecoratorFactory();
         this.customMcpClientProviders = customMcpClientProviders != null
-                ? List.copyOf(customMcpClientProviders)
-                : Collections.emptyList();
-        this.customRemoteClientProviders = customRemoteClientProviders != null
-                ? List.copyOf(customRemoteClientProviders)
-                : Collections.emptyList();
+            ? List.copyOf(customMcpClientProviders)
+            : Collections.emptyList();
+        this.customRemoteClientProviders = customRemoteClientProviders != null ? List.copyOf(
+            customRemoteClientProviders) : Collections.emptyList();
     }
 
     @Override
@@ -113,25 +112,22 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
         }
         for (AgentCoreExternalProperties.McpServer server : servers) {
             McpServerConfig config = toCoreConfig(server);
-            List<Result<String>> results = addMcpServer(
-                    config,
-                    nonBlankText(server.getTag()).orElse(null),
-                    server.getExpiryTimeMs());
+            List<Result<String>> results = addMcpServer(config, nonBlankText(server.getTag()).orElse(null),
+                server.getExpiryTimeMs());
             for (Result<String> result : results) {
                 if (result.isError()) {
-                    throw new IllegalStateException(
-                            "Failed to register MCP server " + config.getServerName(),
-                            result.getError());
+                    throw new IllegalStateException("Failed to register MCP server " + config.getServerName(),
+                        result.getError());
                 }
             }
-            log.info("Registered external MCP server, serverId={}, serverName={}",
-                    config.getServerId(), config.getServerName());
+            log.info("Registered external MCP server, serverId={}, serverName={}", config.getServerId(),
+                config.getServerName());
         }
     }
 
     private List<Result<String>> addMcpServer(McpServerConfig config, String tag, Double expiryTimeMs) {
         FutureTask<List<Result<String>>> registrationTask = new FutureTask<>(
-                () -> Runner.resourceMgr().addMcpServer(config, tag, expiryTimeMs));
+            () -> Runner.resourceMgr().addMcpServer(config, tag, expiryTimeMs));
         registrationTask.run();
         try {
             return registrationTask.get();

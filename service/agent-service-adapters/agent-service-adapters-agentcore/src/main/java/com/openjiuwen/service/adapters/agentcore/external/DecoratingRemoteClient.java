@@ -22,23 +22,26 @@ import java.util.OptionalDouble;
  */
 public class DecoratingRemoteClient implements RemoteClient {
     private final RemoteClientConfig config;
+
     private final RemoteClient delegate;
+
     private final AgentCoreExternalProperties.RemotePolicy policy;
+
     private final ExternalCallExecutor invokeExecutor;
+
     private final ExternalCallExecutor streamExecutor;
 
     public DecoratingRemoteClient(RemoteClientConfig config, RemoteClient delegate,
-            AgentCoreExternalProperties.RemotePolicy policy) {
+        AgentCoreExternalProperties.RemotePolicy policy) {
         this.config = config;
         this.delegate = delegate;
         this.policy = policy != null ? policy : new AgentCoreExternalProperties.RemotePolicy();
         this.invokeExecutor = new ExternalCallExecutor("Remote", remoteLabel(), this.policy,
-                ExternalSvcAdapterErrorCode.REMOTE_OUTBOUND_CALL_FAILED,
-                ExternalSvcAdapterErrorCode.REMOTE_CIRCUIT_OPEN, ExternalSvcAdapterErrorCode.REMOTE_RETRY_INTERRUPTED,
-                ExternalSvcAdapterErrorCode.REMOTE_TIMEOUT);
+            ExternalSvcAdapterErrorCode.REMOTE_OUTBOUND_CALL_FAILED, ExternalSvcAdapterErrorCode.REMOTE_CIRCUIT_OPEN,
+            ExternalSvcAdapterErrorCode.REMOTE_RETRY_INTERRUPTED, ExternalSvcAdapterErrorCode.REMOTE_TIMEOUT);
         this.streamExecutor = new ExternalCallExecutor("Remote", remoteLabel(), this.policy,
-                ExternalSvcAdapterErrorCode.REMOTE_STREAM_FAILED, ExternalSvcAdapterErrorCode.REMOTE_CIRCUIT_OPEN,
-                ExternalSvcAdapterErrorCode.REMOTE_RETRY_INTERRUPTED, ExternalSvcAdapterErrorCode.REMOTE_TIMEOUT);
+            ExternalSvcAdapterErrorCode.REMOTE_STREAM_FAILED, ExternalSvcAdapterErrorCode.REMOTE_CIRCUIT_OPEN,
+            ExternalSvcAdapterErrorCode.REMOTE_RETRY_INTERRUPTED, ExternalSvcAdapterErrorCode.REMOTE_TIMEOUT);
     }
 
     @Override
@@ -64,13 +67,13 @@ public class DecoratingRemoteClient implements RemoteClient {
     @Override
     public Iterator<Object> stream(Map<String, Object> inputs, Double timeoutSeconds) throws Exception {
         Iterator<Object> iterator = streamExecutor.execute("remote", "stream", false, inputs,
-                () -> streamDelegate(inputs, resolveTimeout(timeoutSeconds)));
+            () -> streamDelegate(inputs, resolveTimeout(timeoutSeconds)));
         return new ExecutedRemoteIterator(iterator, inputs);
     }
 
     private Object executeInvoke(Map<String, Object> inputs, Double timeoutSeconds) throws Exception {
         return invokeExecutor.execute("remote", "invoke", policy.isRetryInvoke(), inputs,
-                () -> invokeDelegate(inputs, resolveTimeout(timeoutSeconds)));
+            () -> invokeDelegate(inputs, resolveTimeout(timeoutSeconds)));
     }
 
     private Object invokeDelegate(Map<String, Object> inputs, OptionalDouble timeoutSeconds) throws Exception {
@@ -81,7 +84,7 @@ public class DecoratingRemoteClient implements RemoteClient {
     }
 
     private Iterator<Object> streamDelegate(Map<String, Object> inputs, OptionalDouble timeoutSeconds)
-            throws Exception {
+        throws Exception {
         if (timeoutSeconds.isPresent()) {
             return delegate.stream(inputs, timeoutSeconds.getAsDouble());
         }
@@ -107,6 +110,7 @@ public class DecoratingRemoteClient implements RemoteClient {
 
     private final class ExecutedRemoteIterator implements Iterator<Object> {
         private final Iterator<Object> delegateIterator;
+
         private final Map<String, Object> inputs;
 
         private ExecutedRemoteIterator(Iterator<Object> delegateIterator, Map<String, Object> inputs) {

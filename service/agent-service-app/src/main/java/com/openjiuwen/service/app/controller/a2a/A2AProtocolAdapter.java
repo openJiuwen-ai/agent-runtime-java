@@ -29,7 +29,7 @@ public class A2AProtocolAdapter {
     private static final Logger log = LoggerFactory.getLogger(A2AProtocolAdapter.class);
 
     private static final Map<String, String> ROLE_MAP = Map.of("ROLE_USER", "user", "ROLE_AGENT", "assistant",
-            "ROLE_SYSTEM", "system");
+        "ROLE_SYSTEM", "system");
 
     /**
      * Converts an A2A message context into an internal {@link ServeRequest}.
@@ -64,14 +64,16 @@ public class A2AProtocolAdapter {
         req.setMessages(List.of(userMsg));
 
         log.info("A2A toServeRequest taskId={} contextId={} conversationId={} textLen={}", ctx.getTaskId(),
-                ctx.getContextId(), req.getConversationId(), rawText != null ? rawText.length() : 0);
+            ctx.getContextId(), req.getConversationId(), rawText != null ? rawText.length() : 0);
 
         return req;
     }
 
     private String extractText(List<Part<?>> parts) {
-        return parts.stream().filter(p -> p instanceof TextPart).map(p -> ((TextPart) p).text())
-                .collect(Collectors.joining());
+        return parts.stream()
+            .filter(p -> p instanceof TextPart)
+            .map(p -> ((TextPart) p).text())
+            .collect(Collectors.joining());
     }
 
     static String normalizeRole(String raw) {

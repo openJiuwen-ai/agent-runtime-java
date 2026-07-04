@@ -16,23 +16,23 @@ openjiuwen:
     a2a:
       agent-description: "A2A Agent C — DeepAgent that asks for confirmation before returning food recommendations"
       is-streaming: true
-      default-input-modes: [text, text/plain]
-      default-output-modes: [text, text/plain]
+      default-input-modes: [ text, text/plain ]
+      default-output-modes: [ text, text/plain ]
       skills:
         - id: general_chat
           name: General Chat
           description: Handle general conversation and Q&A using DeepAgent reasoning
-          tags: [chat, qa, reasoning, deepagent]
+          tags: [ chat, qa, reasoning, deepagent ]
           examples:
             - Explain how a transformer model works
-          input-modes: [text, text/plain]
-          output-modes: [text, text/plain]
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
         - id: food_recommend
           name: Food Recommendation Confirmation
           description: Ask the user to confirm before Agent C returns a dining recommendation
-          tags: [food, dining, recommendation, confirmation, deepagent]
+          tags: [ food, dining, recommendation, confirmation, deepagent ]
           examples:
             - Recommend a dish for a team lunch
             - What should we eat for dinner today?
-          input-modes: [text, text/plain]
-          output-modes: [text, text/plain]
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]

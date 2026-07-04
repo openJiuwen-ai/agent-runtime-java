@@ -29,9 +29,10 @@ import java.util.concurrent.TimeUnit;
  */
 public class MockMcpServerExample {
     private static final Logger log = LoggerFactory.getLogger(MockMcpServerExample.class);
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
-    };
+
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
     public static void main(String[] args) throws Exception {
         Map<String, String> options = parseArgs(args);
@@ -46,13 +47,8 @@ public class MockMcpServerExample {
     }
 
     private static ThreadPoolExecutor newServerExecutor() {
-        return new ThreadPoolExecutor(
-                2,
-                2,
-                0L,
-                TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<>(100),
-                new ThreadPoolExecutor.AbortPolicy());
+        return new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(100),
+            new ThreadPoolExecutor.AbortPolicy());
     }
 
     private void handle(HttpExchange exchange) throws IOException {
@@ -63,36 +59,29 @@ public class MockMcpServerExample {
         Map<String, Object> request = MAPPER.readValue(exchange.getRequestBody(), MAP_TYPE);
         Object method = request.get("method");
         if ("initialize".equals(method)) {
-            writeJson(exchange, 200, response(request.get("id"), Map.of(
-                    "protocolVersion", "2024-11-05",
-                    "capabilities", Map.of(),
-                    "serverInfo", Map.of("name", "mock-mcp-demo", "version", "1.0.0"))));
+            writeJson(exchange, 200, response(request.get("id"),
+                Map.of("protocolVersion", "2024-11-05", "capabilities", Map.of(), "serverInfo",
+                    Map.of("name", "mock-mcp-demo", "version", "1.0.0"))));
             return;
         }
         if ("tools/list".equals(method)) {
-            writeJson(exchange, 200, response(request.get("id"), Map.of(
-                    "tools", List.of(Map.of(
-                            "name", "demo_echo",
-                            "description", "Echo text from the demo MCP server",
-                            "inputSchema", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of("text", Map.of("type", "string")),
-                                    "required", List.of("text")))))));
+            writeJson(exchange, 200, response(request.get("id"), Map.of("tools", List.of(
+                Map.of("name", "demo_echo", "description", "Echo text from the demo MCP server", "inputSchema",
+                    Map.of("type", "object", "properties", Map.of("text", Map.of("type", "string")), "required",
+                        List.of("text")))))));
             return;
         }
         if ("tools/call".equals(method)) {
             Map<String, Object> params = asMap(request.get("params"));
             Map<String, Object> arguments = asMap(params.get("arguments"));
             Object text = arguments.getOrDefault("text", "");
-            writeJson(exchange, 200, response(request.get("id"), Map.of(
-                    "content", List.of(Map.of("type", "text", "text", "demo_echo:" + text)))));
+            writeJson(exchange, 200, response(request.get("id"),
+                Map.of("content", List.of(Map.of("type", "text", "text", "demo_echo:" + text)))));
             return;
         }
 
-        writeJson(exchange, 200, Map.of(
-                "jsonrpc", "2.0",
-                "id", request.get("id"),
-                "error", Map.of("code", -32601, "message", "Method not found")));
+        writeJson(exchange, 200, Map.of("jsonrpc", "2.0", "id", request.get("id"), "error",
+            Map.of("code", -32601, "message", "Method not found")));
     }
 
     private static Map<String, Object> response(Object id, Map<String, Object> result) {

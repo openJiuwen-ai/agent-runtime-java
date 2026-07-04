@@ -41,48 +41,31 @@ import javax.tools.ToolProvider;
  */
 class SandboxExampleJiuwenBoxLocalServerTest {
     private static final String DECORATING_SANDBOX_CLIENT = "Created client: "
-            + "com.openjiuwen.service.adapters.agentcore.external.DecoratingSandboxClient";
+        + "com.openjiuwen.service.adapters.agentcore.external.DecoratingSandboxClient";
 
     @Tag("smoke")
     @Test
     void sandboxAdapterExampleCanCallLocalJiuwenBoxCompatibleServer()
-            throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        throws IOException, InterruptedException, ExecutionException, TimeoutException {
         Path classesDir = compileSandboxExample();
         String classpath = exampleClasspath(classesDir);
 
         try (JiuwenBoxMockServer server = JiuwenBoxMockServer.start()) {
             String serviceUrl = "http://127.0.0.1:" + server.port();
-            String readFileOutput = runClient(
-                    classpath,
-                    "--url=" + serviceUrl,
-                    "--retry-max=0",
-                    "--operation=read-file",
-                    "--path=/tmp/demo.txt");
-            String shellOutput = runClient(
-                    classpath,
-                    "--url=" + serviceUrl,
-                    "--retry-max=0",
-                    "--operation=shell",
-                    "--command=echo sandbox");
-            String codeOutput = runClient(
-                    classpath,
-                    "--url=" + serviceUrl,
-                    "--retry-max=0",
-                    "--operation=code",
-                    "--language=python",
-                    "--code=print('sandbox')");
+            String readFileOutput = runClient(classpath, "--url=" + serviceUrl, "--retry-max=0",
+                "--operation=read-file", "--path=/tmp/demo.txt");
+            String shellOutput = runClient(classpath, "--url=" + serviceUrl, "--retry-max=0", "--operation=shell",
+                "--command=echo sandbox");
+            String codeOutput = runClient(classpath, "--url=" + serviceUrl, "--retry-max=0", "--operation=code",
+                "--language=python", "--code=print('sandbox')");
 
-            assertThat(readFileOutput)
-                    .contains(DECORATING_SANDBOX_CLIENT)
-                    .contains("read-file content: mock jiuwenbox file:/tmp/demo.txt");
-            assertThat(shellOutput)
-                    .contains("shell exit code: 0")
-                    .contains("shell stdout: mock jiuwenbox shell: echo sandbox");
-            assertThat(codeOutput)
-                    .contains("code exit code: 0")
-                    .contains("code stdout: mock jiuwenbox code: python");
-            assertThat(server.requests()).anySatisfy(request -> assertThat(request.path())
-                    .isEqualTo("/api/v1/sandboxes"));
+            assertThat(readFileOutput).contains(DECORATING_SANDBOX_CLIENT)
+                .contains("read-file content: mock jiuwenbox file:/tmp/demo.txt");
+            assertThat(shellOutput).contains("shell exit code: 0")
+                .contains("shell stdout: mock jiuwenbox shell: echo sandbox");
+            assertThat(codeOutput).contains("code exit code: 0").contains("code stdout: mock jiuwenbox code: python");
+            assertThat(server.requests()).anySatisfy(
+                request -> assertThat(request.path()).isEqualTo("/api/v1/sandboxes"));
             assertThat(server.requests()).anySatisfy(request -> {
                 assertThat(request.path()).isEqualTo("/api/v1/sandboxes/mock-sandbox/download");
                 assertThat(request.query()).containsEntry("sandbox_path", "/tmp/demo.txt");
@@ -104,14 +87,8 @@ class SandboxExampleJiuwenBoxLocalServerTest {
 
         Path classesDir = Path.of("target/sandbox-example-test-classes");
         Files.createDirectories(classesDir);
-        int exitCode = ToolProvider.getSystemJavaCompiler().run(
-                null,
-                null,
-                null,
-                "-cp",
-                exampleDependencyClasspath(),
-                "-d",
-                classesDir.toString(),
+        int exitCode = ToolProvider.getSystemJavaCompiler()
+            .run(null, null, null, "-cp", exampleDependencyClasspath(), "-d", classesDir.toString(),
                 adapterSource.toString());
         assertThat(exitCode).isZero();
         return classesDir;
@@ -147,16 +124,14 @@ class SandboxExampleJiuwenBoxLocalServerTest {
     }
 
     private String runClient(String classpath, String... args)
-            throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        throws IOException, InterruptedException, ExecutionException, TimeoutException {
         List<String> command = new ArrayList<>();
         command.add(javaCommand());
         command.add("-cp");
         command.add(classpath);
         command.add("com.openjiuwen.service.demo.example.sandbox.SandboxAdapterExample");
         command.addAll(List.of(args));
-        Process process = new ProcessBuilder(command)
-                .redirectErrorStream(true)
-                .start();
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
         CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(() -> readProcessOutput(process));
         Process completed;
         try {
@@ -186,9 +161,11 @@ class SandboxExampleJiuwenBoxLocalServerTest {
 
     private static final class JiuwenBoxMockServer implements AutoCloseable {
         private static final ObjectMapper MAPPER = new ObjectMapper();
+
         private static final String SANDBOX_ID = "mock-sandbox";
 
         private final HttpServer server;
+
         private final ConcurrentLinkedQueue<RecordedRequest> requests = new ConcurrentLinkedQueue<>();
 
         private JiuwenBoxMockServer(HttpServer server) {
@@ -229,8 +206,8 @@ class SandboxExampleJiuwenBoxLocalServerTest {
                 return;
             }
             if ("GET".equals(method) && sandboxPath("/download").equals(path)) {
-                respondBytes(exchange, 200, ("mock jiuwenbox file:" + query.get("sandbox_path"))
-                        .getBytes(StandardCharsets.UTF_8));
+                respondBytes(exchange, 200,
+                    ("mock jiuwenbox file:" + query.get("sandbox_path")).getBytes(StandardCharsets.UTF_8));
                 return;
             }
             if ("POST".equals(method) && sandboxPath("/exec").equals(path)) {
@@ -261,8 +238,7 @@ class SandboxExampleJiuwenBoxLocalServerTest {
             if (bytes.length == 0) {
                 return Map.of();
             }
-            return MAPPER.readValue(bytes, new TypeReference<>() {
-            });
+            return MAPPER.readValue(bytes, new TypeReference<>() {});
         }
 
         private Map<String, String> queryParameters(URI uri) {
@@ -270,11 +246,10 @@ class SandboxExampleJiuwenBoxLocalServerTest {
             if (rawQuery == null || rawQuery.isBlank()) {
                 return Map.of();
             }
-            return List.of(rawQuery.split("&")).stream()
-                    .map(part -> part.split("=", 2))
-                    .collect(Collectors.toMap(
-                            part -> decode(part[0]),
-                            part -> part.length > 1 ? decode(part[1]) : ""));
+            return List.of(rawQuery.split("&"))
+                .stream()
+                .map(part -> part.split("=", 2))
+                .collect(Collectors.toMap(part -> decode(part[0]), part -> part.length > 1 ? decode(part[1]) : ""));
         }
 
         private String decode(String value) {
@@ -294,11 +269,7 @@ class SandboxExampleJiuwenBoxLocalServerTest {
         }
     }
 
-    private record RecordedRequest(
-            String method,
-            String path,
-            Map<String, String> query,
-            Map<String, Object> body) {
+    private record RecordedRequest(String method, String path, Map<String, String> query, Map<String, Object> body) {
         private String commandText() {
             return SandboxExampleJiuwenBoxLocalServerTest.commandText(body);
         }
@@ -307,9 +278,7 @@ class SandboxExampleJiuwenBoxLocalServerTest {
     private static String commandText(Map<String, Object> body) {
         Object command = body.get("command");
         if (command instanceof List<?> commandList) {
-            return commandList.stream()
-                    .map(String::valueOf)
-                    .collect(Collectors.joining(" "));
+            return commandList.stream().map(String::valueOf).collect(Collectors.joining(" "));
         }
         return "";
     }

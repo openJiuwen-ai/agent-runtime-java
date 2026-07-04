@@ -29,8 +29,9 @@ import java.util.Map;
 public class HealthL1ProbeExample {
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(HealthL1ProbeExample.class);
-        application.setDefaultProperties(Map.of("server.port", "8090", "spring.main.web-application-type", "servlet",
-                "example.health.l1.mode", "normal", "example.health.l1.handler", "loaded"));
+        application.setDefaultProperties(
+            Map.of("server.port", "8090", "spring.main.web-application-type", "servlet", "example.health.l1.mode",
+                "normal", "example.health.l1.handler", "loaded"));
         application.run(args);
     }
 
@@ -73,8 +74,8 @@ public class HealthL1ProbeExample {
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "example.health.l1", name = "handler",
-            havingValue = "loaded", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "example.health.l1", name = "handler", havingValue = "loaded",
+        matchIfMissing = true)
     AgentHandler loadedHealthL1AgentHandler() {
         return queryFailingHandler();
     }

@@ -44,9 +44,8 @@ class DefaultExternalSvcAdapterRegistrarTest {
         properties.getMcp().setServers(List.of(server));
 
         RunnerConfig runnerConfig = RunnerConfig.builder().build();
-        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(
-                properties,
-                new DefaultAgentCoreMcpClientDecoratorFactory());
+        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(properties,
+            new DefaultAgentCoreMcpClientDecoratorFactory());
 
         try (CoreProviderRegistrySnapshot ignored = CoreProviderRegistrySnapshot.capture()) {
             registrar.registerTo(runnerConfig);
@@ -65,24 +64,20 @@ class DefaultExternalSvcAdapterRegistrarTest {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         properties.getMcp().setServers(List.of(new AgentCoreExternalProperties.McpServer()));
 
-        assertThatCode(() -> new DefaultExternalSvcAdapterRegistrar(
-                properties,
-                new DefaultAgentCoreMcpClientDecoratorFactory()))
-                .doesNotThrowAnyException();
+        assertThatCode(() -> new DefaultExternalSvcAdapterRegistrar(properties,
+            new DefaultAgentCoreMcpClientDecoratorFactory())).doesNotThrowAnyException();
     }
 
     @Test
     void registerToRunnerConfigRejectsInvalidMcpServerConfig() {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         properties.getMcp().setServers(List.of(new AgentCoreExternalProperties.McpServer()));
-        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(
-                properties,
-                new DefaultAgentCoreMcpClientDecoratorFactory());
+        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(properties,
+            new DefaultAgentCoreMcpClientDecoratorFactory());
 
         try (CoreProviderRegistrySnapshot ignored = CoreProviderRegistrySnapshot.capture()) {
-            assertThatThrownBy(() -> registrar.registerTo(RunnerConfig.builder().build()))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("MCP server-name");
+            assertThatThrownBy(() -> registrar.registerTo(RunnerConfig.builder().build())).isInstanceOf(
+                IllegalArgumentException.class).hasMessageContaining("MCP server-name");
         }
     }
 
@@ -102,21 +97,18 @@ class DefaultExternalSvcAdapterRegistrarTest {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         properties.getMcp().setServers(List.of(firstServer, secondServer));
         RunnerConfig runnerConfig = RunnerConfig.builder().build();
-        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(
-                properties,
-                new DefaultAgentCoreMcpClientDecoratorFactory());
+        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(properties,
+            new DefaultAgentCoreMcpClientDecoratorFactory());
 
         try (CoreProviderRegistrySnapshot ignored = CoreProviderRegistrySnapshot.capture()) {
             registrar.registerTo(runnerConfig);
         }
 
         assertThat(runnerConfig.getMcpServers()).hasSize(2);
-        assertThat(runnerConfig.getMcpServers())
-                .extracting(McpServerConfig::getServerId)
-                .containsExactly("srv-1", "srv-2");
-        assertThat(runnerConfig.getMcpServers())
-                .extracting(McpServerConfig::getClientType)
-                .containsExactly("sse", "streamable_http");
+        assertThat(runnerConfig.getMcpServers()).extracting(McpServerConfig::getServerId)
+            .containsExactly("srv-1", "srv-2");
+        assertThat(runnerConfig.getMcpServers()).extracting(McpServerConfig::getClientType)
+            .containsExactly("sse", "streamable_http");
         assertThat(runnerConfig.getMcpServers().get(0).getParams()).containsEntry("tenant", "a");
     }
 
@@ -135,14 +127,10 @@ class DefaultExternalSvcAdapterRegistrarTest {
         defaultServer.setServerPath("http://localhost:9002/mcp");
         properties.getMcp().setServers(List.of(fastServer, defaultServer));
 
-        AgentCoreExternalProperties.McpPolicy fastPolicy = properties.policyFor(McpServerConfig.builder()
-                .serverId("fast")
-                .serverName("fast-tools")
-                .build());
-        AgentCoreExternalProperties.McpPolicy defaultPolicy = properties.policyFor(McpServerConfig.builder()
-                .serverId("default")
-                .serverName("default-tools")
-                .build());
+        AgentCoreExternalProperties.McpPolicy fastPolicy = properties.policyFor(
+            McpServerConfig.builder().serverId("fast").serverName("fast-tools").build());
+        AgentCoreExternalProperties.McpPolicy defaultPolicy = properties.policyFor(
+            McpServerConfig.builder().serverId("default").serverName("default-tools").build());
 
         assertThat(fastPolicy.getTimeoutMs()).isEqualTo(1000);
         assertThat(defaultPolicy.getTimeoutMs()).isEqualTo(3000);
@@ -151,8 +139,8 @@ class DefaultExternalSvcAdapterRegistrarTest {
     @Test
     void mcpServerPropertiesDoNotExposeAuthConfiguration() {
         assertThat(Arrays.stream(AgentCoreExternalProperties.McpServer.class.getMethods())
-                .map(Method::getName))
-                .doesNotContain("getAuthHeaders", "setAuthHeaders", "getAuthQueryParams", "setAuthQueryParams");
+            .map(Method::getName)).doesNotContain("getAuthHeaders", "setAuthHeaders", "getAuthQueryParams",
+            "setAuthQueryParams");
     }
 
     @Test
@@ -160,24 +148,19 @@ class DefaultExternalSvcAdapterRegistrarTest {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         properties.getRemote().setTimeoutMs(4500);
         RecordingRemoteDecoratorFactory remoteDecoratorFactory = new RecordingRemoteDecoratorFactory();
-        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(
-                properties,
-                new DefaultAgentCoreMcpClientDecoratorFactory(),
-                remoteDecoratorFactory);
+        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(properties,
+            new DefaultAgentCoreMcpClientDecoratorFactory(), remoteDecoratorFactory);
 
         try (CoreProviderRegistrySnapshot ignored = CoreProviderRegistrySnapshot.capture()) {
             registrar.registerToRunner();
 
             RemoteClient a2aClient = RemoteClientFactory.create(RemoteClientConfig.builder()
-                    .id("remote-a2a")
-                    .protocol(ProtocolEnum.A2A)
-                    .url("http://localhost:18081/a2a")
-                    .build());
-            RemoteClient mqClient = RemoteClientFactory.create(RemoteClientConfig.builder()
-                    .id("remote-mq")
-                    .protocol(ProtocolEnum.MQ)
-                    .topic("agent-topic")
-                    .build());
+                .id("remote-a2a")
+                .protocol(ProtocolEnum.A2A)
+                .url("http://localhost:18081/a2a")
+                .build());
+            RemoteClient mqClient = RemoteClientFactory.create(
+                RemoteClientConfig.builder().id("remote-mq").protocol(ProtocolEnum.MQ).topic("agent-topic").build());
 
             assertThat(a2aClient).isInstanceOf(RecordingRemoteDecoratorFactory.MarkerRemoteClient.class);
             assertThat(mqClient).isNotInstanceOf(RecordingRemoteDecoratorFactory.MarkerRemoteClient.class);
@@ -189,22 +172,19 @@ class DefaultExternalSvcAdapterRegistrarTest {
     @Test
     void customMcpClientProviderOverridesDefaultProviderForSameTransportType() {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
-        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(
-                properties,
-                new DefaultAgentCoreMcpClientDecoratorFactory(),
-                new DefaultAgentCoreRemoteClientDecoratorFactory(),
-                List.of(new CustomMcpClientProvider()),
-                List.of());
+        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(properties,
+            new DefaultAgentCoreMcpClientDecoratorFactory(), new DefaultAgentCoreRemoteClientDecoratorFactory(),
+            List.of(new CustomMcpClientProvider()), List.of());
 
         try (CoreProviderRegistrySnapshot ignored = CoreProviderRegistrySnapshot.capture()) {
             registrar.registerToRunner();
 
             McpClient client = McpClientFactory.create(McpServerConfig.builder()
-                    .serverId("custom-sse")
-                    .serverName("custom")
-                    .serverPath("http://localhost/mcp")
-                    .clientType("sse")
-                    .build());
+                .serverId("custom-sse")
+                .serverName("custom")
+                .serverPath("http://localhost/mcp")
+                .clientType("sse")
+                .build());
 
             assertThat(client).isInstanceOf(CustomMcpClient.class);
         }
@@ -213,21 +193,18 @@ class DefaultExternalSvcAdapterRegistrarTest {
     @Test
     void customRemoteClientProviderOverridesDefaultProviderForSameProtocol() {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
-        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(
-                properties,
-                new DefaultAgentCoreMcpClientDecoratorFactory(),
-                new DefaultAgentCoreRemoteClientDecoratorFactory(),
-                List.of(),
-                List.of(new CustomA2ARemoteClientProvider()));
+        DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(properties,
+            new DefaultAgentCoreMcpClientDecoratorFactory(), new DefaultAgentCoreRemoteClientDecoratorFactory(),
+            List.of(), List.of(new CustomA2ARemoteClientProvider()));
 
         try (CoreProviderRegistrySnapshot ignored = CoreProviderRegistrySnapshot.capture()) {
             registrar.registerToRunner();
 
             RemoteClient client = RemoteClientFactory.create(RemoteClientConfig.builder()
-                    .id("custom-a2a")
-                    .protocol(ProtocolEnum.A2A)
-                    .url("http://localhost:18081/a2a")
-                    .build());
+                .id("custom-a2a")
+                .protocol(ProtocolEnum.A2A)
+                .url("http://localhost:18081/a2a")
+                .build());
 
             assertThat(client).isInstanceOf(CustomRemoteClient.class);
         }
@@ -235,13 +212,12 @@ class DefaultExternalSvcAdapterRegistrarTest {
 
     private static final class RecordingRemoteDecoratorFactory implements AgentCoreRemoteClientDecoratorFactory {
         private RemoteClientConfig seenConfig;
+
         private AgentCoreExternalProperties.RemotePolicy seenPolicy;
 
         @Override
-        public RemoteClient decorate(
-                RemoteClientConfig config,
-                RemoteClient delegate,
-                AgentCoreExternalProperties.RemotePolicy policy) {
+        public RemoteClient decorate(RemoteClientConfig config, RemoteClient delegate,
+            AgentCoreExternalProperties.RemotePolicy policy) {
             this.seenConfig = config;
             this.seenPolicy = policy;
             return new MarkerRemoteClient(delegate);
@@ -269,9 +245,8 @@ class DefaultExternalSvcAdapterRegistrarTest {
             }
 
             @Override
-            public java.util.Iterator<Object> stream(
-                    java.util.Map<String, Object> inputs,
-                    Double timeoutSeconds) throws Exception {
+            public java.util.Iterator<Object> stream(java.util.Map<String, Object> inputs, Double timeoutSeconds)
+                throws Exception {
                 return delegate.stream(inputs, timeoutSeconds);
             }
         }

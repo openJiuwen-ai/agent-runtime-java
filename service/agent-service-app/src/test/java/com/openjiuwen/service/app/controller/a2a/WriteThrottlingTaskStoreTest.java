@@ -28,11 +28,15 @@ import java.util.function.LongSupplier;
  */
 class WriteThrottlingTaskStoreTest {
     private static final String ID = "task-1";
+
     private static final long INTERVAL_MS = 200L;
 
     private final long[] now = {1_000L};
+
     private final LongSupplier clock = () -> now[0];
+
     private final CountingStore delegate = new CountingStore();
+
     private final WriteThrottlingTaskStore store = new WriteThrottlingTaskStore(delegate, INTERVAL_MS, clock);
 
     @Test
@@ -117,6 +121,7 @@ class WriteThrottlingTaskStoreTest {
      */
     private static final class CountingStore implements TaskStore {
         private final Map<String, Task> data = new HashMap<>();
+
         private int saveCount;
 
         @Override

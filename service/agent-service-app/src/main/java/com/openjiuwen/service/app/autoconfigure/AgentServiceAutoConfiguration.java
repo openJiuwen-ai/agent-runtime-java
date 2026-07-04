@@ -111,7 +111,7 @@ public class AgentServiceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(AgentLifecycleHooks.class)
     public AgentLifecycleHooks agentLifecycleHooks(List<AgentInitHook> initHooks, List<AgentShutdownHook> shutdownHooks,
-            List<AgentInterruptHandler> interruptHandlers) {
+        List<AgentInterruptHandler> interruptHandlers) {
         return new AgentLifecycleHooks(initHooks, shutdownHooks, interruptHandlers);
     }
 
@@ -128,8 +128,8 @@ public class AgentServiceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(InitPhaseExecutor.class)
     public InitPhaseExecutor initPhaseExecutor(AgentServiceIdentity identity, AgentLifecycleHooks hooks,
-            DefaultAgentReadiness readiness, ObjectProvider<AgentHandler> agentHandlerProvider,
-            LifecycleProperties lifecycleProperties) {
+        DefaultAgentReadiness readiness, ObjectProvider<AgentHandler> agentHandlerProvider,
+        LifecycleProperties lifecycleProperties) {
         return new InitPhaseExecutor(identity, hooks, readiness, agentHandlerProvider, lifecycleProperties);
     }
 
@@ -147,10 +147,10 @@ public class AgentServiceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(ShutdownPhaseExecutor.class)
     public ShutdownPhaseExecutor shutdownPhaseExecutor(AgentServiceIdentity identity, AgentLifecycleHooks hooks,
-            DefaultAgentReadiness readiness, ActiveStreamRegistry streamRegistry,
-            ObjectProvider<AgentHandler> agentHandlerProvider, LifecycleProperties lifecycleProperties) {
+        DefaultAgentReadiness readiness, ActiveStreamRegistry streamRegistry,
+        ObjectProvider<AgentHandler> agentHandlerProvider, LifecycleProperties lifecycleProperties) {
         return new ShutdownPhaseExecutor(identity, hooks, readiness, streamRegistry, agentHandlerProvider,
-                lifecycleProperties);
+            lifecycleProperties);
     }
 
     /**
@@ -163,7 +163,7 @@ public class AgentServiceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(ActiveStreamInterruptor.class)
     public ActiveStreamInterruptor activeStreamInterruptor(ObjectProvider<ServeOrchestrator> orchestratorProvider,
-            AgentLifecycleHooks hooks) {
+        AgentLifecycleHooks hooks) {
         return new ActiveStreamInterruptor(orchestratorProvider, hooks.interruptHandlers());
     }
 
@@ -178,7 +178,7 @@ public class AgentServiceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(AgentLifecycleManager.class)
     public DefaultAgentLifecycleManager agentLifecycleManager(InitPhaseExecutor initPhaseExecutor,
-            ShutdownPhaseExecutor shutdownPhaseExecutor, ActiveStreamInterruptor streamInterruptor) {
+        ShutdownPhaseExecutor shutdownPhaseExecutor, ActiveStreamInterruptor streamInterruptor) {
         return new DefaultAgentLifecycleManager(initPhaseExecutor, shutdownPhaseExecutor, streamInterruptor);
     }
 

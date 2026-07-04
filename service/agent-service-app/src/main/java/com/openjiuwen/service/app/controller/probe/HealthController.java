@@ -23,14 +23,17 @@ import org.springframework.web.bind.annotation.RestController;
 @ConditionalOnWebApplication
 public class HealthController {
     private static final String STATUS_HEALTHY = "healthy";
+
     private static final String DEFAULT_APP = "agent-service";
 
     private final AgentReadiness readiness;
+
     private final AgentServiceIdentity identity;
+
     private final ServiceProperties serviceProperties;
 
     public HealthController(AgentReadiness readiness, AgentServiceIdentity identity,
-            ServiceProperties serviceProperties) {
+        ServiceProperties serviceProperties) {
         this.readiness = readiness;
         this.identity = identity;
         this.serviceProperties = serviceProperties;

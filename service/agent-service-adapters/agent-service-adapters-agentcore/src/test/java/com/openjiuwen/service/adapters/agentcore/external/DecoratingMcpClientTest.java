@@ -36,8 +36,9 @@ class DecoratingMcpClientTest {
         policy.setTimeoutMs(2500);
         policy.getRetry().setMax(1);
 
-        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder().serverId("srv-1")
-                .serverName("demo").serverPath("http://localhost/mcp").build(), delegate, policy);
+        DecoratingMcpClient client = new DecoratingMcpClient(
+            McpServerConfig.builder().serverId("srv-1").serverName("demo").serverPath("http://localhost/mcp").build(),
+            delegate, policy);
 
         List<Object> result = client.listTools(McpServerConfig.NO_TIMEOUT);
 
@@ -55,8 +56,11 @@ class DecoratingMcpClientTest {
         policy.getRetry().setMax(1);
         policy.getRetry().setBackoffMs(80);
 
-        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder().serverId("srv-backoff")
-                .serverName("demo").serverPath("http://localhost/mcp").build(), delegate, policy);
+        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder()
+            .serverId("srv-backoff")
+            .serverName("demo")
+            .serverPath("http://localhost/mcp")
+            .build(), delegate, policy);
 
         long startNanos = System.nanoTime();
         List<Object> result = client.listTools(McpServerConfig.NO_TIMEOUT);
@@ -72,15 +76,23 @@ class DecoratingMcpClientTest {
         FlakyMcpClient delegate = new FlakyMcpClient(0);
         AgentCoreExternalProperties.McpPolicy policy = new AgentCoreExternalProperties.McpPolicy();
 
-        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder().serverId("srv-audit")
-                .serverName("demo").serverPath("http://localhost/mcp").build(), delegate, policy);
+        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder()
+            .serverId("srv-audit")
+            .serverName("demo")
+            .serverPath("http://localhost/mcp")
+            .build(), delegate, policy);
 
-        assertThat(client.callTool("echo", Map.of("text", "hi", "secret", "token-123"), McpServerConfig.NO_TIMEOUT))
-                .isEqualTo("ok");
+        assertThat(
+            client.callTool("echo", Map.of("text", "hi", "secret", "token-123"), McpServerConfig.NO_TIMEOUT)).isEqualTo(
+            "ok");
 
-        assertThat(output).contains("EXTERNAL_CALL_AUDIT").contains("adapter=MCP").contains("success=true")
-                .contains("target=srv-audit/demo").contains("method=mcp.tools/call").contains("request=Map(size=2")
-                .doesNotContain("token-123");
+        assertThat(output).contains("EXTERNAL_CALL_AUDIT")
+            .contains("adapter=MCP")
+            .contains("success=true")
+            .contains("target=srv-audit/demo")
+            .contains("method=mcp.tools/call")
+            .contains("request=Map(size=2")
+            .doesNotContain("token-123");
     }
 
     @Test
@@ -88,15 +100,23 @@ class DecoratingMcpClientTest {
         FlakyMcpClient delegate = new FlakyMcpClient(Integer.MAX_VALUE);
         AgentCoreExternalProperties.McpPolicy policy = new AgentCoreExternalProperties.McpPolicy();
 
-        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder().serverId("srv-audit-failure")
-                .serverName("demo").serverPath("http://localhost/mcp").build(), delegate, policy);
+        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder()
+            .serverId("srv-audit-failure")
+            .serverName("demo")
+            .serverPath("http://localhost/mcp")
+            .build(), delegate, policy);
 
-        assertThatThrownBy(() -> client.callTool("echo", Map.of("text", "hi"), McpServerConfig.NO_TIMEOUT))
-                .isInstanceOf(ExternalSvcAdapterException.class);
+        assertThatThrownBy(
+            () -> client.callTool("echo", Map.of("text", "hi"), McpServerConfig.NO_TIMEOUT)).isInstanceOf(
+            ExternalSvcAdapterException.class);
 
-        assertThat(output).contains("EXTERNAL_CALL_AUDIT").contains("adapter=MCP").contains("success=false")
-                .contains("code=EXT_MCP_001").contains("target=srv-audit-failure/demo")
-                .contains("method=mcp.tools/call").contains("error=IllegalStateException:boom");
+        assertThat(output).contains("EXTERNAL_CALL_AUDIT")
+            .contains("adapter=MCP")
+            .contains("success=false")
+            .contains("code=EXT_MCP_001")
+            .contains("target=srv-audit-failure/demo")
+            .contains("method=mcp.tools/call")
+            .contains("error=IllegalStateException:boom");
     }
 
     @Test
@@ -105,8 +125,11 @@ class DecoratingMcpClientTest {
         AgentCoreExternalProperties.McpPolicy policy = new AgentCoreExternalProperties.McpPolicy();
         policy.getAudit().setEnabled(false);
 
-        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder().serverId("srv-audit-off")
-                .serverName("demo").serverPath("http://localhost/mcp").build(), delegate, policy);
+        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder()
+            .serverId("srv-audit-off")
+            .serverName("demo")
+            .serverPath("http://localhost/mcp")
+            .build(), delegate, policy);
 
         assertThat(client.callTool("echo", Map.of("text", "hi"), McpServerConfig.NO_TIMEOUT)).isEqualTo("ok");
 
@@ -121,13 +144,17 @@ class DecoratingMcpClientTest {
         policy.setTimeoutMs(50);
         policy.getRetry().setMax(0);
 
-        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder().serverId("srv-timeout")
-                .serverName("demo").serverPath("http://localhost/mcp").build(), delegate, policy);
+        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder()
+            .serverId("srv-timeout")
+            .serverName("demo")
+            .serverPath("http://localhost/mcp")
+            .build(), delegate, policy);
 
         long startNanos = System.nanoTime();
-        assertThatThrownBy(() -> client.listTools(McpServerConfig.NO_TIMEOUT))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.MCP_TIMEOUT);
+        assertThatThrownBy(() -> client.listTools(McpServerConfig.NO_TIMEOUT)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.MCP_TIMEOUT);
         long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
 
         assertThat(elapsedMs).isLessThan(200);
@@ -139,12 +166,17 @@ class DecoratingMcpClientTest {
         AgentCoreExternalProperties.McpPolicy policy = new AgentCoreExternalProperties.McpPolicy();
         policy.getRetry().setMax(2);
 
-        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder().serverId("srv-unsafe")
-                .serverName("demo").serverPath("http://localhost/mcp").build(), delegate, policy);
+        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder()
+            .serverId("srv-unsafe")
+            .serverName("demo")
+            .serverPath("http://localhost/mcp")
+            .build(), delegate, policy);
 
-        assertThatThrownBy(() -> client.callTool("echo", Map.of("text", "hi"), McpServerConfig.NO_TIMEOUT))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.MCP_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(
+            () -> client.callTool("echo", Map.of("text", "hi"), McpServerConfig.NO_TIMEOUT)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.MCP_OUTBOUND_CALL_FAILED);
         assertThat(delegate.callToolAttempts).isEqualTo(1);
     }
 
@@ -155,8 +187,11 @@ class DecoratingMcpClientTest {
         policy.setRetryToolCalls(true);
         policy.getRetry().setMax(1);
 
-        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder().serverId("srv-retry-tool")
-                .serverName("demo").serverPath("http://localhost/mcp").build(), delegate, policy);
+        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder()
+            .serverId("srv-retry-tool")
+            .serverName("demo")
+            .serverPath("http://localhost/mcp")
+            .build(), delegate, policy);
 
         assertThat(client.callTool("echo", Map.of("text", "hi"), McpServerConfig.NO_TIMEOUT)).isEqualTo("ok");
         assertThat(delegate.callToolAttempts).isEqualTo(2);
@@ -170,15 +205,18 @@ class DecoratingMcpClientTest {
         policy.getCircuitBreaker().setFailureThreshold(1);
         policy.getCircuitBreaker().setResetTimeoutMs(60000);
 
-        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder().serverId("srv-2")
-                .serverName("demo").serverPath("http://localhost/mcp").build(), delegate, policy);
+        DecoratingMcpClient client = new DecoratingMcpClient(
+            McpServerConfig.builder().serverId("srv-2").serverName("demo").serverPath("http://localhost/mcp").build(),
+            delegate, policy);
 
-        assertThatThrownBy(() -> client.callTool("echo", Map.of(), McpServerConfig.NO_TIMEOUT))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.MCP_OUTBOUND_CALL_FAILED);
-        assertThatThrownBy(() -> client.callTool("echo", Map.of(), McpServerConfig.NO_TIMEOUT))
-                .isInstanceOf(ExternalSvcAdapterException.class).extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.MCP_CIRCUIT_OPEN);
+        assertThatThrownBy(() -> client.callTool("echo", Map.of(), McpServerConfig.NO_TIMEOUT)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.MCP_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(() -> client.callTool("echo", Map.of(), McpServerConfig.NO_TIMEOUT)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.MCP_CIRCUIT_OPEN);
         assertThat(delegate.callToolAttempts).isEqualTo(1);
     }
 
@@ -189,21 +227,30 @@ class DecoratingMcpClientTest {
         policy.getRetry().setMax(1);
         policy.setRetryToolCalls(true);
 
-        DecoratingMcpClient client = new DecoratingMcpClient(McpServerConfig.builder().serverId("srv-3")
-                .serverName("demo").serverPath("http://localhost/mcp").build(), delegate, policy);
+        DecoratingMcpClient client = new DecoratingMcpClient(
+            McpServerConfig.builder().serverId("srv-3").serverName("demo").serverPath("http://localhost/mcp").build(),
+            delegate, policy);
 
-        assertThatThrownBy(() -> client.callTool("echo", Map.of(), McpServerConfig.NO_TIMEOUT))
-                .isInstanceOf(ExternalSvcAdapterException.class).hasMessageContaining("MCP outbound call failed")
-                .hasCauseInstanceOf(IllegalStateException.class).cause().hasMessageContaining("boom");
+        assertThatThrownBy(() -> client.callTool("echo", Map.of(), McpServerConfig.NO_TIMEOUT)).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .hasMessageContaining("MCP outbound call failed")
+            .hasCauseInstanceOf(IllegalStateException.class)
+            .cause()
+            .hasMessageContaining("boom");
         assertThat(delegate.callToolAttempts).isEqualTo(2);
     }
 
     private static final class FlakyMcpClient implements McpClient {
         private final int failuresBeforeSuccess;
+
         private int callToolAttempts;
+
         private int listToolsAttempts;
+
         private int failListToolsAttempts;
+
         private long listToolsDelayMs;
+
         private float lastTimeout;
 
         private FlakyMcpClient(int failuresBeforeSuccess) {

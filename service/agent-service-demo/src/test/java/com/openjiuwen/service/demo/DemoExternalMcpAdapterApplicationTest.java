@@ -26,16 +26,18 @@ import org.springframework.context.annotation.Primary;
  *
  * @since 2026-06-24
  */
-@SpringBootTest(classes = {DemoAgentApplication.class,
-        DemoExternalMcpAdapterApplicationTest.ExternalAdapterTestConfig.class}, properties = {
-                "openjiuwen.demo.llm.enabled=true", "openjiuwen.demo.llm.provider=DemoExternalMcpProvider",
-                "openjiuwen.demo.llm.api-key=test-key", "openjiuwen.demo.llm.api-base=mirror://demo-external-mcp",
-                "openjiuwen.demo.llm.model-name=test-model", "openjiuwen.demo.llm.auto-discover=false",
-                "openjiuwen.service.external.mcp.servers[0].server-id=demo-mcp",
-                "openjiuwen.service.external.mcp.servers[0].server-name=demo-tools",
-                "openjiuwen.service.external.mcp.servers[0].server-path=http://127.0.0.1:8999/mcp",
-                "openjiuwen.service.external.mcp.servers[0].client-type=sse",
-                "openjiuwen.service.external.mcp.timeout-ms=1500", "openjiuwen.service.external.mcp.retry.max=1"})
+@SpringBootTest(classes = {
+    DemoAgentApplication.class, DemoExternalMcpAdapterApplicationTest.ExternalAdapterTestConfig.class
+}, properties = {
+    "openjiuwen.demo.llm.enabled=true", "openjiuwen.demo.llm.provider=DemoExternalMcpProvider",
+    "openjiuwen.demo.llm.api-key=test-key", "openjiuwen.demo.llm.api-base=mirror://demo-external-mcp",
+    "openjiuwen.demo.llm.model-name=test-model", "openjiuwen.demo.llm.auto-discover=false",
+    "openjiuwen.service.external.mcp.servers[0].server-id=demo-mcp",
+    "openjiuwen.service.external.mcp.servers[0].server-name=demo-tools",
+    "openjiuwen.service.external.mcp.servers[0].server-path=http://127.0.0.1:8999/mcp",
+    "openjiuwen.service.external.mcp.servers[0].client-type=sse", "openjiuwen.service.external.mcp.timeout-ms=1500",
+    "openjiuwen.service.external.mcp.retry.max=1"
+})
 class DemoExternalMcpAdapterApplicationTest {
     @Autowired
     private AgentHandler agentHandler;
@@ -74,6 +76,7 @@ class DemoExternalMcpAdapterApplicationTest {
 
     static class RecordingExternalSvcAdapterRegistrar implements ExternalSvcAdapterRegistrar {
         private int registerToCalls;
+
         private int registerToRunnerCalls;
 
         @Override

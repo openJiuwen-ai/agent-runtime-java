@@ -27,17 +27,23 @@ public class A2AProperties {
     private String publicUrl;
 
     private String agentDescription = "OpenJiuwen Agent Runtime Service";
+
     private String documentationUrl;
+
     private String iconUrl;
 
     private boolean isStreaming = true;
+
     private boolean isPushNotifications = false;
+
     private boolean isExtendedAgentCard = false;
 
     private List<String> defaultInputModes = List.of("text", "text/plain");
+
     private List<String> defaultOutputModes = List.of("text", "text/plain");
 
     private String providerOrganization = "";
+
     private String providerUrl = "";
 
     private List<SkillProperties> skills = List.of();
@@ -45,6 +51,7 @@ public class A2AProperties {
     private List<RemoteAgentProperties> remoteAgents = List.of();
 
     private String jsonRpcPath = "/a2a";
+
     private String agentCardPath = "/a2a/.well-known/agent-card.json";
 
     private int taskCompletionTimeoutSeconds = 300;
@@ -55,11 +62,17 @@ public class A2AProperties {
     @Data
     public static class SkillProperties {
         private String id;
+
         private String name;
+
         private String description;
+
         private List<String> tags = List.of();
+
         private List<String> examples = List.of();
+
         private List<String> inputModes = List.of("text");
+
         private List<String> outputModes = List.of("text");
     }
 
@@ -69,7 +82,9 @@ public class A2AProperties {
     @Data
     public static class RemoteAgentProperties {
         private String name;
+
         private String url;
+
         private int timeoutSeconds = 300;
     }
 }

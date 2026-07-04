@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 class ActiveStreamInterruptorTest {
     private ActiveStreamRegistry registry;
+
     private AtomicInteger interruptCount;
 
     @BeforeEach

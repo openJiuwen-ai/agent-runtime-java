@@ -2,12 +2,12 @@
 
 独立 Maven 模块 `agent-service-demo-redis`，演示 **Core Session + Redis Checkpointer** 的多轮对话与跨进程恢复。
 
-| 项 | 值 |
-| --- | --- |
-| 目录 | `example/redis/` |
-| 默认端口 | **8091**（主 demo 为 8090，可同时运行） |
-| Agent | `ReActAgent`（`ExampleReActAgentFactory`） |
-| Handler | `JiuwenCoreAgentHandler`（走 Core Runner） |
+| 项            | 值                                                        |
+|--------------|----------------------------------------------------------|
+| 目录           | `example/redis/`                                         |
+| 默认端口         | **8091**（主 demo 为 8090，可同时运行）                            |
+| Agent        | `ReActAgent`（`ExampleReActAgentFactory`）                 |
+| Handler      | `JiuwenCoreAgentHandler`（走 Core Runner）                  |
 | Checkpointer | `openjiuwen.service.middleware.checkpointer.type: redis` |
 
 ## 这个示例解决什么问题
@@ -27,12 +27,12 @@
 
 默认连接见 `../config/application-base.yml`：
 
-| 配置项 | 默认值 |
-| --- | --- |
-| host | `127.0.0.1` |
-| port | `6379` |
-| database | `0` |
-| 密码 | 无 |
+| 配置项      | 默认值         |
+|----------|-------------|
+| host     | `127.0.0.1` |
+| port     | `6379`      |
+| database | `0`         |
+| 密码       | 无           |
 
 ```powershell
 redis-cli -h 127.0.0.1 -p 6379 ping
@@ -63,7 +63,8 @@ $env:OPENJIUWEN_API_CONFIG="C:\path\to\apiconfig.json"  # PowerShell
 
 **方式 C — 环境变量**
 
-`application-base.yml` 支持占位符：`OPENJIUWEN_DEMO_LLM_API_KEY`、`OPENJIUWEN_DEMO_LLM_API_BASE`、`OPENJIUWEN_DEMO_LLM_MODEL_NAME`。
+`application-base.yml` 支持占位符：`OPENJIUWEN_DEMO_LLM_API_KEY`、`OPENJIUWEN_DEMO_LLM_API_BASE`、
+`OPENJIUWEN_DEMO_LLM_MODEL_NAME`。
 
 ### 3. 启动服务
 
@@ -155,11 +156,11 @@ spring:
       - optional:classpath:application-redis-checkpointer.yml  # 本模块：8091 + redis checkpointer
 ```
 
-| 文件 | 作用 |
-| --- | --- |
-| `../config/application-base.yml` | `openjiuwen.demo.llm`、Redis 连接、`checkpointer.type: in_memory`（默认） |
-| `../config/application-base_local.yml` | 本地 API 覆盖（勿提交） |
-| `application-redis-checkpointer.yml` | **`server.port: 8091`**、`checkpointer.type: redis` |
+| 文件                                     | 作用                                                                |
+|----------------------------------------|-------------------------------------------------------------------|
+| `../config/application-base.yml`       | `openjiuwen.demo.llm`、Redis 连接、`checkpointer.type: in_memory`（默认） |
+| `../config/application-base_local.yml` | 本地 API 覆盖（勿提交）                                                    |
+| `application-redis-checkpointer.yml`   | **`server.port: 8091`**、`checkpointer.type: redis`                |
 
 > `server.port` 必须写在 **最后 import** 的 `application-redis-checkpointer.yml` 中，否则会沿用 base 里的 8090。
 
@@ -167,14 +168,14 @@ spring:
 
 ## 常见问题
 
-| 现象 | 可能原因 | 处理 |
-| --- | --- | --- |
-| 启动报 `api-key` / `api-base` / `model-name` 未配置 | LLM 未填 | 配置 `application-base_local.yml` 或 `apiconfig.json` |
-| `Redis connection` / checkpoint 写入失败 | Redis 未启动或地址不对 | `redis-cli ping`；核对 host/port |
-| smoke 连错服务 | 8090 与 8091 端口混淆 | 确认 `/health` 中 `app=demo-redis-agent-service`，且 BASE_URL 指向 8091 |
-| 第二轮无法召回代号 | 模型未遵循指令，或未走 Core 路径 | 查看 8091 日志；换更强模型或重试；确认 `checkpointer.type=redis` |
-| `bash smoke-redis.sh` 报 `pipefail: invalid option` | 脚本 CRLF 换行 | Windows 用 `.\smoke-redis.ps1`，或 `sed -i 's/\r$//' smoke-redis.sh` |
-| smoke 通过但跨进程失败 | Redis 数据被清空或 conversation_id 不一致 | 确认 Redis 持久化策略；两轮使用相同 `conversation_id` |
+| 现象                                                 | 可能原因                             | 处理                                                                |
+|----------------------------------------------------|----------------------------------|-------------------------------------------------------------------|
+| 启动报 `api-key` / `api-base` / `model-name` 未配置      | LLM 未填                           | 配置 `application-base_local.yml` 或 `apiconfig.json`                |
+| `Redis connection` / checkpoint 写入失败               | Redis 未启动或地址不对                   | `redis-cli ping`；核对 host/port                                     |
+| smoke 连错服务                                         | 8090 与 8091 端口混淆                 | 确认 `/health` 中 `app=demo-redis-agent-service`，且 BASE_URL 指向 8091  |
+| 第二轮无法召回代号                                          | 模型未遵循指令，或未走 Core 路径              | 查看 8091 日志；换更强模型或重试；确认 `checkpointer.type=redis`                  |
+| `bash smoke-redis.sh` 报 `pipefail: invalid option` | 脚本 CRLF 换行                       | Windows 用 `.\smoke-redis.ps1`，或 `sed -i 's/\r$//' smoke-redis.sh` |
+| smoke 通过但跨进程失败                                     | Redis 数据被清空或 conversation_id 不一致 | 确认 Redis 持久化策略；两轮使用相同 `conversation_id`                           |
 
 ## 相关代码
 

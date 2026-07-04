@@ -61,10 +61,13 @@ import java.util.function.LongSupplier;
  */
 public class WriteThrottlingTaskStore implements TaskStore {
     private static final Logger log = LoggerFactory.getLogger(WriteThrottlingTaskStore.class);
+
     private static final long DEFAULT_MIN_WRITE_INTERVAL_MS = 200L;
 
     private final TaskStore delegate;
+
     private final long minWriteIntervalMs;
+
     private final LongSupplier clock;
 
     /**

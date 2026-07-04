@@ -54,8 +54,11 @@ public class A2AAgentExecutor implements AgentExecutor {
     private static final long CLOSE_DRAIN_POLL_MS = 15L;
 
     private final ServeOrchestrator orchestrator;
+
     private final A2AProtocolAdapter adapter;
+
     private final ChunkMapper chunkMapper = new ChunkMapper();
+
     private final ConcurrentMap<String, AtomicBoolean> activeCancellations = new ConcurrentHashMap<>();
 
     public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter) {
@@ -73,7 +76,7 @@ public class A2AAgentExecutor implements AgentExecutor {
 
         boolean isResume = ctx.getTask() != null;
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
-                msgCtx.getContextId(), req.getConversationId(), isResume, req.isStream());
+            msgCtx.getContextId(), req.getConversationId(), isResume, req.isStream());
 
         if (!isResume) {
             emitter.submit();
@@ -93,7 +96,7 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private void executeStreaming(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
-            AgentEmitter emitter) {
+        AgentEmitter emitter) {
         AtomicBoolean cancelled = new AtomicBoolean(false);
         AtomicBoolean interrupted = new AtomicBoolean(false);
         activeCancellations.put(ctx.getContextId(), cancelled);
@@ -103,8 +106,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 public void onNext(QueryChunk chunk) {
                     if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
                         log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
-                                msgCtx.getContextId(),
-                                chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
+                            msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
                         Message statusMsg = toStatusMessage(chunk).orElse(null);
                         emitter.requiresInput(statusMsg);
                         closeEventQueue(emitter, msgCtx.getTaskId());
@@ -127,7 +129,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 public void onComplete() {
                     if (interrupted.get()) {
                         log.info("A2A stream ended after interrupt (COMPLETED suppressed) taskId={}",
-                                msgCtx.getTaskId());
+                            msgCtx.getTaskId());
                     } else {
                         log.info("A2A stream complete taskId={}", msgCtx.getTaskId());
                         emitter.complete();
@@ -137,7 +139,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 @Override
                 public void onError(Throwable error) {
                     log.error("A2A agent stream error taskId={} contextId={}", msgCtx.getTaskId(),
-                            msgCtx.getContextId(), error);
+                        msgCtx.getContextId(), error);
                     emitter.fail();
                 }
 
@@ -153,8 +155,8 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter) {
         QueryResponse response = orchestrator.query(req);
-        if (response.getResult() instanceof Map<?, ?> result
-                && result.get("_interrupt") instanceof Map<?, ?> interruptData) {
+        if (response.getResult() instanceof Map<?, ?> result && result.get(
+            "_interrupt") instanceof Map<?, ?> interruptData) {
             log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
             Message statusMsg = toStatusMessageFromMap(interruptData).orElse(null);
             emitter.requiresInput(statusMsg);
@@ -260,7 +262,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 Thread.sleep(CLOSE_DRAIN_POLL_MS);
             }
             log.warn("A2A awaitInFlightDrained timed out after {}ms, closing anyway taskId={}", CLOSE_DRAIN_TIMEOUT_MS,
-                    taskId);
+                taskId);
         } catch (InterruptedException e) {
             log.debug("A2A awaitInFlightDrained interrupted taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {

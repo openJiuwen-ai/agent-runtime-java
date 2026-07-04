@@ -1,6 +1,7 @@
 # Agent Service（`service/`）
 
-**② Agent Service** Maven 聚合：逻辑架构中的 **Agent Server** 数据面（Agent-App + Adapters 胶水），将单 Agent 封装为 HTTP 可部署服务。完整逻辑架构见 [逻辑架构](../documents/zh/2.开发指南/逻辑架构.md)。
+**② Agent Service** Maven 聚合：逻辑架构中的 **Agent Server** 数据面（Agent-App + Adapters 胶水），将单 Agent 封装为 HTTP
+可部署服务。完整逻辑架构见 [逻辑架构](../documents/zh/2.开发指南/逻辑架构.md)。
 
 上级文档：[仓库 README](../README.zh.md) · [开发指南](../documents/zh/2.开发指南/README.md)
 
@@ -43,13 +44,13 @@ mvn -pl agent-service-demo -am spring-boot:run
 
 ## 各模块说明
 
-| 模块 | 说明 | 文档 |
-| --- | --- | --- |
-| **spec** | 路径、DTO、`AgentHandler` / `ServeOrchestrator` SPI | [spec.README](../documents/zh/2.开发指南/API文档/com.openjiuwen.service/spec.README.md) |
-| **adapters-common** | 中间件（Redis 等）、凭证解密、外部调用 DFX | 包内 `package-info` |
-| **adapters-agentcore** | `JiuwenCoreAgentHandler`；Checkpointer/MCP/远端/Sandbox 注册 | [Adapters 与 Handler](../documents/zh/2.开发指南/Adapters与Handler.md) |
-| **app** | Ingress Controller、默认 Orchestrator、Lifecycle | [HTTP 对话面](../documents/zh/2.开发指南/HTTP对话面.md) |
-| **demo** | 最小 Spring Boot 示例 | [agent-service-demo/README.md](agent-service-demo/README.md) |
+| 模块                     | 说明                                                      | 文档                                                                                |
+|------------------------|---------------------------------------------------------|-----------------------------------------------------------------------------------|
+| **spec**               | 路径、DTO、`AgentHandler` / `ServeOrchestrator` SPI         | [spec.README](../documents/zh/2.开发指南/API文档/com.openjiuwen.service/spec.README.md) |
+| **adapters-common**    | 中间件（Redis 等）、凭证解密、外部调用 DFX                              | 包内 `package-info`                                                                 |
+| **adapters-agentcore** | `JiuwenCoreAgentHandler`；Checkpointer/MCP/远端/Sandbox 注册 | [Adapters 与 Handler](../documents/zh/2.开发指南/Adapters与Handler.md)                  |
+| **app**                | Ingress Controller、默认 Orchestrator、Lifecycle            | [HTTP 对话面](../documents/zh/2.开发指南/HTTP对话面.md)                                     |
+| **demo**               | 最小 Spring Boot 示例                                       | [agent-service-demo/README.md](agent-service-demo/README.md)                      |
 
 ## 与 Agent Core 的关系
 

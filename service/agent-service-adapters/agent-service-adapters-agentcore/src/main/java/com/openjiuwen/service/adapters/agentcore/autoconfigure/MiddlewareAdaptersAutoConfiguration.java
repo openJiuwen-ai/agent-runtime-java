@@ -36,9 +36,9 @@ public class MiddlewareAdaptersAutoConfiguration {
      */
     @Bean
     public MiddlewareAdapterRegistrar middlewareAdapterRegistrar(MiddlewareProperties middlewareProperties,
-            CredentialDecryptor credentialDecryptor) {
+        CredentialDecryptor credentialDecryptor) {
         DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(middlewareProperties,
-                credentialDecryptor);
+            credentialDecryptor);
         registrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
         return registrar;
     }

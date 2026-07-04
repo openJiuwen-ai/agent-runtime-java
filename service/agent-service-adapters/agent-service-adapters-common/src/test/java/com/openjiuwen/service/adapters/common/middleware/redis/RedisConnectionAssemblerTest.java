@@ -27,8 +27,8 @@ class RedisConnectionAssemblerTest {
         endpoint.setPort(6380);
         endpoint.setDatabase(2);
 
-        assertThat(RedisConnectionAssembler.buildRedisUrl(endpoint, "plain-pass"))
-                .isEqualTo("redis://:plain-pass@redis.example:6380/2");
+        assertThat(RedisConnectionAssembler.buildRedisUrl(endpoint, "plain-pass")).isEqualTo(
+            "redis://:plain-pass@redis.example:6380/2");
     }
 
     @Test
@@ -49,7 +49,7 @@ class RedisConnectionAssemblerTest {
     @Test
     void resolveEndpointRequiresDefinition() {
         MiddlewareProperties properties = new MiddlewareProperties();
-        assertThatThrownBy(() -> RedisConnectionAssembler.resolveEndpoint(properties, "default"))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("redis.default");
+        assertThatThrownBy(() -> RedisConnectionAssembler.resolveEndpoint(properties, "default")).isInstanceOf(
+            IllegalArgumentException.class).hasMessageContaining("redis.default");
     }
 }

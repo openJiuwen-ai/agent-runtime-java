@@ -40,10 +40,8 @@ class AgentCoreCheckpointerConfigAssemblerTest {
 
         Map<String, Object> config = AgentCoreCheckpointerConfigAssembler.build(properties, ciphertext -> ciphertext);
         assertThat(config.get("type")).isEqualTo("redis");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> conf = (Map<String, Object>) config.get("conf");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
+        @SuppressWarnings("unchecked") Map<String, Object> conf = (Map<String, Object>) config.get("conf");
+        @SuppressWarnings("unchecked") Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
         assertThat(connection.get("url")).asString().contains("127.0.0.1:6379");
         assertThat(connection.get("redis_client")).isInstanceOf(JedisPooled.class);
     }
@@ -52,7 +50,7 @@ class AgentCoreCheckpointerConfigAssemblerTest {
     void redisRequiresEndpointDefinition() {
         MiddlewareProperties properties = new MiddlewareProperties();
         properties.getCheckpointer().setType("redis");
-        assertThatThrownBy(() -> AgentCoreCheckpointerConfigAssembler.build(properties, s -> s))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("redis.default");
+        assertThatThrownBy(() -> AgentCoreCheckpointerConfigAssembler.build(properties, s -> s)).isInstanceOf(
+            IllegalArgumentException.class).hasMessageContaining("redis.default");
     }
 }
