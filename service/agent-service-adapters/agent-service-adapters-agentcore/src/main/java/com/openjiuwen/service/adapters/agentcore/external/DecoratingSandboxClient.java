@@ -105,11 +105,11 @@ public class DecoratingSandboxClient extends SandboxClient {
 
         @Override
         public WriteFileResult writeFile(String path, Object content, String mode, boolean shouldPrependNewline,
-            boolean shouldAppendNewline, boolean shouldCreateIfNotExist, String permissions, String encoding,
+            boolean shouldAppendNewline, boolean shouldCreate, String permissions, String encoding,
             Map<String, Object> options) {
             return executor.execute("fs", "writeFile", false,
                 () -> delegate.writeFile(path, content, mode, shouldPrependNewline, shouldAppendNewline,
-                    shouldCreateIfNotExist, permissions, encoding, options));
+                    shouldCreate, permissions, encoding, options));
         }
 
         @Override

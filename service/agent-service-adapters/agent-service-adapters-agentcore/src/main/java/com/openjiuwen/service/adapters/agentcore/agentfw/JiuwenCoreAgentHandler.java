@@ -23,6 +23,7 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,15 +75,6 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private final ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar;
 
     /**
-     * Returns the wrapped agent instance for tests and subclasses.
-     *
-     * @return the agent delegate
-     */
-    protected Object getAgent() {
-        return agent;
-    }
-
-    /**
      * Creates a handler with the given agent and default middleware/external registrars.
      *
      * @param agent the agent instance or agent-id string
@@ -125,6 +117,15 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
             ? externalSvcAdapterRegistrar
             : ExternalSvcAdapterRegistrar.noop();
+    }
+
+    /**
+     * Returns the wrapped agent instance for tests and subclasses.
+     *
+     * @return the agent delegate
+     */
+    protected Object getAgent() {
+        return agent;
     }
 
     @Override
@@ -244,14 +245,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                         lastInterrupt = normalizeChunk(outputSchema);
                     }
                 }
-                if (lastInterrupt instanceof Map<?, ?> interruptMap) {
-                    @SuppressWarnings("unchecked") Map<String, Object> interruptData
-                        = (Map<String, Object>) interruptMap;
-                    if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
-                        result.put("_interrupt", interruptData);
-                        result.put("content", interruptData.getOrDefault("message", ""));
-                        return new QueryResponse(result, conversationId);
-                    }
+                QueryResponse result1 = getQueryResponse(conversationId, lastInterrupt, result);
+                if (result1 != null) {
+                    return result1;
                 }
             }
             Object content = firstNonNull(map.get("output"), map.get("content"), map.get("response")).orElse(null);
@@ -263,6 +259,20 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         result.put("content", stringify(rawResult));
         return new QueryResponse(result, conversationId);
+    }
+
+    private static @Nullable QueryResponse getQueryResponse(String conversationId, Object lastInterrupt,
+        Map<String, Object> result) {
+        if (lastInterrupt instanceof Map<?, ?> interruptMap) {
+            @SuppressWarnings("unchecked") Map<String, Object> interruptData
+                = (Map<String, Object>) interruptMap;
+            if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
+                result.put("_interrupt", interruptData);
+                result.put("content", interruptData.getOrDefault("message", ""));
+                return new QueryResponse(result, conversationId);
+            }
+        }
+        return null;
     }
 
     private static QueryResponse buildQueryResponseFromControllerOutput(ControllerOutput controllerOutput,

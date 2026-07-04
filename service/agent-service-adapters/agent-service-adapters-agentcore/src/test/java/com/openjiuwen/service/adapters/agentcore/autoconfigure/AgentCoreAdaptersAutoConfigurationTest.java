@@ -173,7 +173,8 @@ class AgentCoreAdaptersAutoConfigurationTest {
                 "openjiuwen.service.external.sandbox.servers[0].service-url=http://localhost:18090",
                 "openjiuwen.service.external.sandbox.servers[0].sandbox-type=jiuwenbox",
                 "openjiuwen.service.external.sandbox.servers[0].launcher-type=pre_deploy",
-                "openjiuwen.service.external.sandbox.timeout-ms=4000", "openjiuwen.service.external.sandbox.retry.max=1")
+                "openjiuwen.service.external.sandbox.timeout-ms=4000",
+                "openjiuwen.service.external.sandbox.retry.max=1")
             .run(context -> {
                 assertThat(context).hasSingleBean(AgentCoreSandboxClientFactory.class);
                 assertThat(context.getBean(AgentCoreSandboxClientFactory.class)).isInstanceOf(

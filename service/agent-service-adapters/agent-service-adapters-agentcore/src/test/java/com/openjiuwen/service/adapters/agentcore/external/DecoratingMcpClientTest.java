@@ -29,7 +29,7 @@ import java.util.Optional;
 @ExtendWith(OutputCaptureExtension.class)
 class DecoratingMcpClientTest {
     @Test
-    void listToolsRetriesFailureAndUsesConfiguredTimeoutWhenCallerDoesNotProvideOne() throws Exception {
+    void listToolsRetriesFailAndUsesConfTimeoutCallerNoProvide() throws Exception {
         FlakyMcpClient delegate = new FlakyMcpClient(0);
         delegate.failListToolsAttempts = 1;
         AgentCoreExternalProperties.McpPolicy policy = new AgentCoreExternalProperties.McpPolicy();

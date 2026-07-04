@@ -42,7 +42,7 @@ class DecoratingRemoteClientTest {
     }
 
     @Test
-    void invokeRetriesOnlyWhenExplicitlyEnabledAndUsesConfiguredTimeoutWhenCallerDoesNotProvideOne() throws Exception {
+    void invokeRetriesWhenExpEnabledUsesConfTimeoutCallerNoProvide() throws Exception {
         RecordingRemoteClient delegate = new RecordingRemoteClient(1);
         AgentCoreExternalProperties.RemotePolicy policy = policy();
         policy.setTimeoutMs(2500);
@@ -306,13 +306,14 @@ class DecoratingRemoteClientTest {
 
         private static void sleepIgnoringInterrupts(long delayMs) {
             long deadline = System.nanoTime() + delayMs * 1_000_000L;
-            while (delayMs > 0) {
+            long tmpDelayMs = delayMs;
+            while (tmpDelayMs > 0) {
                 try {
-                    Thread.sleep(delayMs);
+                    Thread.sleep(tmpDelayMs);
                 } catch (InterruptedException ignored) {
                     // Keep sleeping to prove the decorator owns the timeout.
                 }
-                delayMs = (deadline - System.nanoTime()) / 1_000_000L;
+                tmpDelayMs = (deadline - System.nanoTime()) / 1_000_000L;
             }
         }
     }

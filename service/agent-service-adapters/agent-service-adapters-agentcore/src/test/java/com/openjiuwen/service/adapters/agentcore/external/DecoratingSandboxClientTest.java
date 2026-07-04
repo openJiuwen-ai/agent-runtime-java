@@ -22,6 +22,7 @@ import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterExcepti
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Tests sandbox client decoration behavior for external adapter policies.
@@ -220,7 +221,7 @@ class DecoratingSandboxClientTest {
 
         @Override
         public WriteFileResult writeFile(String path, Object content, String mode, boolean shouldPrependNewline,
-            boolean shouldAppendNewline, boolean shouldCreateIfNotExist, String permissions, String encoding,
+            boolean shouldAppendNewline, boolean shouldCreate, String permissions, String encoding,
             Map<String, Object> options) {
             writeFileAttempts++;
             if (writeFileAttempts <= failWriteFileAttempts) {
@@ -229,16 +230,27 @@ class DecoratingSandboxClientTest {
             return new WriteFileResult(0, "ok", null);
         }
 
+        private final AtomicBoolean isInterrupted = new AtomicBoolean(false);
+
         private void sleep(long millis) {
             if (millis <= 0) {
                 return;
             }
-            try {
-                Thread.sleep(millis);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Sandbox test sleep interrupted", ex);
+            long startTime = System.currentTimeMillis();
+            while (!isInterrupted.get() && (System.currentTimeMillis() - startTime) < millis) {
+                // 使用忙等待或更高效的等待机制（如 LockSupport.parkNanos()）
+                Thread.yield(); // 避免忙等待消耗过多 CPU
             }
+            if (isInterrupted.get()) {
+                throw new IllegalStateException("Sandbox test sleep interrupted");
+            }
+        }
+
+        /**
+         * interrupt
+         */
+        public void interrupt() {
+            isInterrupted.set(true);
         }
     }
 
