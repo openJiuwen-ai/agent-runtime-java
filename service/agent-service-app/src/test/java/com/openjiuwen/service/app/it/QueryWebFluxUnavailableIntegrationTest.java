@@ -86,7 +86,6 @@ class QueryWebFluxUnavailableIntegrationTest {
     }
 
     static class UnusedAgentHandler implements AgentHandler {
-
         @Override
         public QueryResponse query(ServeRequest request) {
             return new QueryResponse(Map.of("content", "should-not-run"), request.getConversationId());

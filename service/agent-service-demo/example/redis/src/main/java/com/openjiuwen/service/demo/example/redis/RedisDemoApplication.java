@@ -25,7 +25,6 @@ import org.springframework.context.annotation.Bean;
 @SpringBootApplication(scanBasePackages = "com.openjiuwen.service.app")
 @EnableConfigurationProperties(DemoLlmProperties.class)
 public class RedisDemoApplication {
-
     private static final String AGENT_ID = "demo-redis-agent";
 
     public static void main(String[] args) {

@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test;
  * @since 2026-07-03
  */
 class ResetConversationRequestTest {
-
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test

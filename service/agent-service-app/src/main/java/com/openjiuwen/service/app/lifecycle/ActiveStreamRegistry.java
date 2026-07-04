@@ -15,7 +15,6 @@ import java.util.concurrent.TimeUnit;
  * @since 0.1.0
  */
 public class ActiveStreamRegistry {
-
     private final ConcurrentHashMap<String, Set<StreamCancellationHandle>> active = new ConcurrentHashMap<>();
 
     /**

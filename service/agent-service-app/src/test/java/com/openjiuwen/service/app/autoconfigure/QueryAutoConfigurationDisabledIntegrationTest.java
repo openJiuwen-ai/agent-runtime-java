@@ -39,7 +39,6 @@ import java.util.Map;
         "openjiuwen.service.query.webflux.enabled=false"})
 @AutoConfigureTestRestTemplate
 class QueryAutoConfigurationDisabledIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 
@@ -60,7 +59,6 @@ class QueryAutoConfigurationDisabledIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class MinimalAgentApplication {
-
         @Bean
         AgentHandler customAgentHandler() {
             return new DisabledQueryAgentHandler();
@@ -68,7 +66,6 @@ class QueryAutoConfigurationDisabledIntegrationTest {
     }
 
     static class DisabledQueryAgentHandler implements AgentHandler {
-
         @Override
         public QueryResponse query(ServeRequest request) {
             return new QueryResponse(Map.of("content", "query-disabled"), request.getConversationId());

@@ -33,7 +33,6 @@ import java.util.Map;
         "openjiuwen.service.version=1.2.3-test"}, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class HealthAutoConfigurationIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 

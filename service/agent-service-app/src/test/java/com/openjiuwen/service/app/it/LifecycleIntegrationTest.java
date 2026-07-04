@@ -48,7 +48,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @SpringBootTest(classes = LifecycleIntegrationTest.LifecycleTestApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class LifecycleIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 
@@ -185,7 +184,6 @@ class LifecycleIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class LifecycleTestApplication {
-
         @Bean
         AgentHandler slowStreamAgentHandler() {
             return new SlowStreamAgentHandler();
@@ -198,7 +196,6 @@ class LifecycleIntegrationTest {
     }
 
     static final class CountingInterruptHandler implements AgentInterruptHandler {
-
         static final CountingInterruptHandler INSTANCE = new CountingInterruptHandler();
         static final java.util.concurrent.atomic.AtomicInteger COUNT = new java.util.concurrent.atomic.AtomicInteger();
 
@@ -213,7 +210,6 @@ class LifecycleIntegrationTest {
     }
 
     static final class SlowStreamAgentHandler implements AgentHandler {
-
         private static volatile CountDownLatch startedLatch = new CountDownLatch(1);
 
         static void reset() {

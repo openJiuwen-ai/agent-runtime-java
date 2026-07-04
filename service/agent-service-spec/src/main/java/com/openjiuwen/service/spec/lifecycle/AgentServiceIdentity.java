@@ -13,7 +13,6 @@ package com.openjiuwen.service.spec.lifecycle;
  * @since 0.1.0
  */
 public interface AgentServiceIdentity {
-
     /**
      * Returns the application display name.
      *

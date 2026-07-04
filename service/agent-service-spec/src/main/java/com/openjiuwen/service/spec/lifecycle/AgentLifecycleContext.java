@@ -14,7 +14,6 @@ import java.util.Map;
  * @since 0.1.0
  */
 public final class AgentLifecycleContext {
-
     private final String appName;
     private final Map<String, Object> attributes;
 

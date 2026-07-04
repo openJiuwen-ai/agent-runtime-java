@@ -20,7 +20,6 @@ import java.util.Map;
  * @since 0.1.0
  */
 public class SessionEchoAgent {
-
     /**
      * Streams a reply while persisting conversation history in session state.
      *

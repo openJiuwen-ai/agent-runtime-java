@@ -45,7 +45,6 @@ import java.util.Map;
  */
 @Tag("system-test")
 class MiddlewareRedisSpringIT {
-
     private static final String LOCAL_REDIS_HOST = "127.0.0.1";
     private static final int LOCAL_REDIS_PORT = 6379;
 
@@ -109,7 +108,6 @@ class MiddlewareRedisSpringIT {
     /** Spring test configuration for Redis middleware integration. */
     @Configuration
     static class TestAgentHandlerConfiguration {
-
         /** Creates the Redis IT agent handler bean. */
         @Bean
         JiuwenCoreAgentHandler springItAgentHandler(MiddlewareAdapterRegistrar registrar) {

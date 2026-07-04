@@ -27,7 +27,6 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnClass(RunnerConfig.class)
 @EnableConfigurationProperties(MiddlewareProperties.class)
 public class MiddlewareAdaptersAutoConfiguration {
-
     /**
      * Registers the middleware adapter registrar bean and applies checkpointer config.
      *

@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
  * @since 2026-07-03
  */
 class RedisJedisClientFactoryTest {
-
     @Test
     void createsJedisWithoutConnectingWhenNoAuth() {
         MiddlewareProperties.RedisEndpoint endpoint = new MiddlewareProperties.RedisEndpoint();

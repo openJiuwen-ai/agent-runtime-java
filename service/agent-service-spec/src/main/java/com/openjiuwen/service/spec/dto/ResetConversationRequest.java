@@ -18,7 +18,6 @@ import lombok.Data;
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class ResetConversationRequest {
-
     @JsonProperty("conversation_id")
     private String conversationId;
 

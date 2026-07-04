@@ -10,7 +10,6 @@ package com.openjiuwen.service.spec.lifecycle;
  * @since 0.1.0
  */
 public interface AgentShutdownHook {
-
     /**
      * Runs during the shutdown phase.
      *

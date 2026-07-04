@@ -34,12 +34,10 @@ import java.util.Map;
  * @since 2026-07-03
  */
 class DefaultAgentReadinessIntegrationTest {
-
     @Nested
     @SpringBootTest(classes = NoHandlerApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
     @AutoConfigureTestRestTemplate
     class WhenNoAgentHandler {
-
         @Autowired
         private TestRestTemplate rest;
 
@@ -61,7 +59,6 @@ class DefaultAgentReadinessIntegrationTest {
     @SpringBootTest(classes = HandlerApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
     @AutoConfigureTestRestTemplate
     class WhenAgentHandlerExists {
-
         @Autowired
         private TestRestTemplate rest;
 
@@ -87,7 +84,6 @@ class DefaultAgentReadinessIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class HandlerApplication {
-
         @Bean
         AgentHandler failingIfQueriedAgentHandler() {
             return new FailingIfQueriedAgentHandler();
@@ -95,7 +91,6 @@ class DefaultAgentReadinessIntegrationTest {
     }
 
     static class FailingIfQueriedAgentHandler implements AgentHandler {
-
         @Override
         public QueryResponse query(ServeRequest request) {
             throw new AssertionError("/health must not call query");

@@ -20,7 +20,6 @@ import java.util.Map;
  * @since 2026-07-03
  */
 class RedisConnectionAssemblerTest {
-
     @Test
     void buildsRedisUrlWithDecryptedPassword() {
         MiddlewareProperties.RedisEndpoint endpoint = new MiddlewareProperties.RedisEndpoint();

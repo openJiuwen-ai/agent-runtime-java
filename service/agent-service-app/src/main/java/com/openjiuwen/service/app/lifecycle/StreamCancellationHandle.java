@@ -12,7 +12,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @since 0.1.0
  */
 public final class StreamCancellationHandle {
-
     private final String conversationId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 

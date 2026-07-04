@@ -25,7 +25,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @since 2026-07-03
  */
 class ShutdownPhaseExecutorTest {
-
     @Test
     void drainTimeoutStillRunsShutdownHooksAndStop() {
         DefaultAgentReadiness readiness = new DefaultAgentReadiness();

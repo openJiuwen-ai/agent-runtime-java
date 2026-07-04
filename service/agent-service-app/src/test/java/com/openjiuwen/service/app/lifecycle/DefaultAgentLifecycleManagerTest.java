@@ -33,7 +33,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 2026-07-03
  */
 class DefaultAgentLifecycleManagerTest {
-
     @Test
     void initMarksAgentLoadedWhenHandlerBeanPresent() {
         DefaultAgentReadiness readiness = new DefaultAgentReadiness();

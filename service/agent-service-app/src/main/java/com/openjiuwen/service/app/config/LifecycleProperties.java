@@ -16,7 +16,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.service.lifecycle")
 public class LifecycleProperties {
-
     private long shutdownTimeoutMs = 30000L;
 
     private boolean initFailFast = true;

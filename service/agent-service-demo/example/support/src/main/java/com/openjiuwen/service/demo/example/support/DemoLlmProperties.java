@@ -22,7 +22,6 @@ import java.util.Map;
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.demo.llm")
 public class DemoLlmProperties {
-
     private String configFile;
     private boolean autoDiscover = true;
     private String provider = "OpenAI";

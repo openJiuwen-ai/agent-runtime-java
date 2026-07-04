@@ -24,7 +24,6 @@ import java.util.List;
  * @since 0.1.0
  */
 public final class ShutdownPhaseExecutor {
-
     private static final Logger log = LoggerFactory.getLogger(ShutdownPhaseExecutor.class);
 
     private final AgentServiceIdentity identity;

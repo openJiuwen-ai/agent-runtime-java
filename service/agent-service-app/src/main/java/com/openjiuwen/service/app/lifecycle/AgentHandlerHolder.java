@@ -16,7 +16,6 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
  * @since 0.1.0
  */
 public final class AgentHandlerHolder implements AgentHandler {
-
     private volatile AgentHandler delegate;
 
     /**

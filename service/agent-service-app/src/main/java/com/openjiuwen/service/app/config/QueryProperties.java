@@ -16,7 +16,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.service.query")
 public class QueryProperties {
-
     private Endpoint webflux = new Endpoint();
     private boolean legacyPathEnabled = true;
 
@@ -27,7 +26,6 @@ public class QueryProperties {
     /** WebFlux query endpoint settings. */
     @Data
     public static class Endpoint {
-
         private boolean enabled = false;
     }
 }

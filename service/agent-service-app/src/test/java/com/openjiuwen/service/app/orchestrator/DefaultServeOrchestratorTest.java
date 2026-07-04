@@ -27,7 +27,6 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 2026-07-03
  */
 class DefaultServeOrchestratorTest {
-
     private final ActiveStreamRegistry streamRegistry = new ActiveStreamRegistry();
 
     @Test

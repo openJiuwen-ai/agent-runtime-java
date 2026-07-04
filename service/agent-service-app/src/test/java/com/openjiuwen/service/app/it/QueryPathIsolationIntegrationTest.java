@@ -33,7 +33,6 @@ import java.util.Map;
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=true")
 @AutoConfigureTestRestTemplate
 class QueryPathIsolationIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 
@@ -58,7 +57,6 @@ class QueryPathIsolationIntegrationTest {
     @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
     @AutoConfigureTestRestTemplate
     class WhenWebFluxDisabled {
-
         @Autowired
         private TestRestTemplate rest;
 
@@ -81,7 +79,6 @@ class QueryPathIsolationIntegrationTest {
     @TestPropertySource(properties = {"openjiuwen.service.query.webflux.enabled=false",
             "openjiuwen.service.query.legacy-path-enabled=false"})
     class WhenLegacyPathDisabled {
-
         @Autowired
         private TestRestTemplate rest;
 

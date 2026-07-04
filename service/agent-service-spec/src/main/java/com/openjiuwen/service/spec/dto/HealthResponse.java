@@ -15,7 +15,6 @@ import lombok.Data;
  */
 @Data
 public class HealthResponse {
-
     private String status;
     private String app;
     private String version;

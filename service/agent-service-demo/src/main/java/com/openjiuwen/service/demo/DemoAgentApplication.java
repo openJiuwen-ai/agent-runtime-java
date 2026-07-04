@@ -58,7 +58,6 @@ import java.util.Map;
 @SpringBootApplication
 @EnableConfigurationProperties(DemoLlmProperties.class)
 public class DemoAgentApplication {
-
     private static final Logger log = LoggerFactory.getLogger(DemoAgentApplication.class);
     private static final String REACT_AGENT_ID = "demo-react-agent";
 

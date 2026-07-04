@@ -80,7 +80,6 @@ import java.util.concurrent.atomic.AtomicReference;
 @ActiveProfiles("mcp")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DemoMcpToolCallEndToEndTest {
-
     private static final String TEST_PROVIDER = "DemoMcpToolCallProvider";
     private static final String MCP_TOOL_NAME = "demo_echo";
     private static final String CONVERSATION_ID = "mcp-tool-c1";
@@ -175,7 +174,6 @@ class DemoMcpToolCallEndToEndTest {
     }
 
     private static final class ToolCallingModelFactory implements Model.ModelClientFactory {
-
         @Override
         public String providerName() {
             return TEST_PROVIDER;
@@ -192,7 +190,6 @@ class DemoMcpToolCallEndToEndTest {
      * that embeds the observed tool result on the next turn.
      */
     private static final class ToolCallingModelClient extends BaseModelClient {
-
         private static final ObjectMapper MAPPER = new ObjectMapper();
 
         private ToolCallingModelClient(ModelRequestConfig modelConfig, ModelClientConfig modelClientConfig) {

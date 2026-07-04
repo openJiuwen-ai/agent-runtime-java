@@ -27,7 +27,6 @@ import java.util.Map;
  * @since 2026-07-03
  */
 class MiddlewareAdaptersAutoConfigurationTest {
-
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class,
                     MiddlewareAdaptersAutoConfiguration.class));
@@ -68,7 +67,6 @@ class MiddlewareAdaptersAutoConfigurationTest {
 
     @Configuration
     static class CustomDecryptorConfiguration {
-
         @Bean
         CredentialDecryptor credentialDecryptor() {
             return ciphertext -> "decrypted";

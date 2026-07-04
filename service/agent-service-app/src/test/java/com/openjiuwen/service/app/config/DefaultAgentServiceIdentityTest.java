@@ -15,7 +15,6 @@ import org.springframework.mock.env.MockEnvironment;
  * @since 2026-07-03
  */
 class DefaultAgentServiceIdentityTest {
-
     @Test
     void readsSpringApplicationName() {
         MockEnvironment environment = new MockEnvironment();

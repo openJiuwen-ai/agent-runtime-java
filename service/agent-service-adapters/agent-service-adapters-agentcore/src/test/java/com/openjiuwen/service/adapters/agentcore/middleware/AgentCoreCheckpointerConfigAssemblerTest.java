@@ -21,7 +21,6 @@ import java.util.Map;
  * @since 2026-07-03
  */
 class AgentCoreCheckpointerConfigAssemblerTest {
-
     @Test
     void buildsInMemoryConfigByDefault() {
         MiddlewareProperties properties = new MiddlewareProperties();

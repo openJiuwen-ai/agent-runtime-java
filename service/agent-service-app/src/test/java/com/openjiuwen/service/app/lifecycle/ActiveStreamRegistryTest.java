@@ -14,7 +14,6 @@ import org.junit.jupiter.api.Test;
  * @since 2026-07-03
  */
 class ActiveStreamRegistryTest {
-
     @Test
     void cancelMarksHandleAndDrainsRegistry() {
         ActiveStreamRegistry registry = new ActiveStreamRegistry();

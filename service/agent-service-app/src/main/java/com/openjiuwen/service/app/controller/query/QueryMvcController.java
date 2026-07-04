@@ -188,7 +188,6 @@ public class QueryMvcController {
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true", matchIfMissing = true)
 class QueryLegacyMvcController {
-
     private final QueryMvcController delegate;
 
     QueryLegacyMvcController(QueryMvcController delegate) {

@@ -14,7 +14,6 @@ import org.springframework.core.env.Environment;
  * @since 2026-07-03
  */
 public final class DefaultAgentServiceIdentity implements AgentServiceIdentity {
-
     private final String appName;
 
     public DefaultAgentServiceIdentity(Environment environment) {

@@ -38,7 +38,6 @@ import java.util.Map;
 @TestPropertySource(properties = {"openjiuwen.service.enabled=false", "openjiuwen.service.query.webflux.enabled=false"})
 @AutoConfigureTestRestTemplate
 class AgentServiceDisabledIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 
@@ -59,7 +58,6 @@ class AgentServiceDisabledIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class MinimalAgentApplication {
-
         @Bean
         AgentHandler customAgentHandler() {
             return new DisabledAgentHandler();
@@ -67,7 +65,6 @@ class AgentServiceDisabledIntegrationTest {
     }
 
     static class DisabledAgentHandler implements AgentHandler {
-
         @Override
         public QueryResponse query(ServeRequest request) {
             return new QueryResponse(Map.of("content", "disabled"), request.getConversationId());

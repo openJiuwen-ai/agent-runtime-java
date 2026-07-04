@@ -33,7 +33,6 @@ import java.util.Map;
 @SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class ResetConversationMvcIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 

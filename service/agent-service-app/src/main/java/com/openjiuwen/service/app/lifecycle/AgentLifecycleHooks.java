@@ -19,7 +19,6 @@ import java.util.List;
  * @since 2026-07-03
  */
 public final class AgentLifecycleHooks {
-
     private final List<AgentInitHook> initHooks;
     private final List<AgentShutdownHook> shutdownHooks;
     private final List<AgentInterruptHandler> interruptHandlers;

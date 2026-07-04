@@ -36,7 +36,6 @@ import java.io.IOException;
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class ResetConversationMvcController {
-
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
     private final ObjectProvider<AgentReadiness> readinessProvider;
     private final ObjectMapper objectMapper;

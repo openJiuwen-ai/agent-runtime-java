@@ -20,7 +20,6 @@ import java.util.List;
  * @since 0.1.0
  */
 public final class ActiveStreamInterruptor {
-
     private static final Logger log = LoggerFactory.getLogger(ActiveStreamInterruptor.class);
 
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;

@@ -10,7 +10,6 @@ package com.openjiuwen.service.spec.paths;
  * @since 0.1.0
  */
 public final class AgentServicePaths {
-
     /** Health probe path. */
     public static final String HEALTH = "/health";
 

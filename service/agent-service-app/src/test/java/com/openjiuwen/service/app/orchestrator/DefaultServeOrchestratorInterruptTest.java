@@ -27,7 +27,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @since 2026-07-03
  */
 class DefaultServeOrchestratorInterruptTest {
-
     @Test
     void cancelActiveStopsStreamingObserver() throws Exception {
         ActiveStreamRegistry registry = new ActiveStreamRegistry();

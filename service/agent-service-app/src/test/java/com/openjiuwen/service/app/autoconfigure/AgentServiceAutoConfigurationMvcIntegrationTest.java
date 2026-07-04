@@ -42,7 +42,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
 @AutoConfigureTestRestTemplate
 class AgentServiceAutoConfigurationMvcIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 
@@ -83,7 +82,6 @@ class AgentServiceAutoConfigurationMvcIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class MinimalAgentApplication {
-
         @Bean
         AgentHandler customAgentHandler() {
             return new CustomAgentHandler();
@@ -91,7 +89,6 @@ class AgentServiceAutoConfigurationMvcIntegrationTest {
     }
 
     static class CustomAgentHandler implements AgentHandler {
-
         private final AtomicInteger calls = new AtomicInteger();
 
         @Override

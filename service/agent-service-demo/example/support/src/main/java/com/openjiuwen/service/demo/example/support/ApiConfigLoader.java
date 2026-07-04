@@ -23,7 +23,6 @@ import java.util.Optional;
  * @since 2026-07-03
  */
 final class ApiConfigLoader {
-
     static final String DEFAULT_FILE_NAME = "apiconfig.json";
     static final String KEY_API_BASE = "API_BASE";
     static final String KEY_API_KEY = "API_KEY";

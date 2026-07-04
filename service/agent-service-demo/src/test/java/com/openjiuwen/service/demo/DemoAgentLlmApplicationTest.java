@@ -53,7 +53,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @AutoConfigureTestRestTemplate
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DemoAgentLlmApplicationTest {
-
     private static final String TEST_PROVIDER = "DemoCoreMemoryProvider";
     private static final AtomicBoolean FACTORY_REGISTERED = new AtomicBoolean(false);
     private static final List<List<Map<String, Object>>> MODEL_MESSAGES = new CopyOnWriteArrayList<>();
@@ -119,7 +118,6 @@ class DemoAgentLlmApplicationTest {
     }
 
     private static final class MemoryModelFactory implements Model.ModelClientFactory {
-
         @Override
         public String providerName() {
             return TEST_PROVIDER;
@@ -132,7 +130,6 @@ class DemoAgentLlmApplicationTest {
     }
 
     private static final class MemoryModelClient extends BaseModelClient {
-
         private MemoryModelClient(ModelRequestConfig modelConfig, ModelClientConfig modelClientConfig) {
             super(modelConfig, modelClientConfig);
         }

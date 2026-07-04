@@ -12,7 +12,6 @@ import com.openjiuwen.service.spec.dto.QueryChunk;
  * @since 0.1.0
  */
 public interface QueryStreamObserver {
-
     /**
      * Receives the next stream chunk.
      *

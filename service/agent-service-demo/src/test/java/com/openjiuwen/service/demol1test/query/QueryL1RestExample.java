@@ -33,7 +33,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @SpringBootApplication
 public class QueryL1RestExample {
-
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(QueryL1RestExample.class);
         application.setDefaultProperties(
@@ -99,7 +98,6 @@ public class QueryL1RestExample {
     }
 
     private static final class EchoAgentHandler implements AgentHandler {
-
         private final int streamChunks;
         private final long streamDelayMs;
         private final Map<String, List<String>> conversationHistory = new ConcurrentHashMap<>();

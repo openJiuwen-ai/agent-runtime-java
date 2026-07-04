@@ -16,7 +16,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.service")
 public class ServiceProperties {
-
     /**
      * Agent id registered in {@code Runner.resourceMgr()} for the default
      * {@code JiuwenCoreAgentHandler}.

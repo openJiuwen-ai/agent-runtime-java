@@ -27,7 +27,6 @@ import java.util.Map;
  */
 @SpringBootApplication
 public class HealthL1ProbeExample {
-
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(HealthL1ProbeExample.class);
         application.setDefaultProperties(Map.of("server.port", "8090", "spring.main.web-application-type", "servlet",

@@ -27,7 +27,6 @@ import java.util.concurrent.CancellationException;
  * @since 2026-07-03
  */
 public class DefaultServeOrchestrator implements ServeOrchestrator {
-
     private static final Logger log = LoggerFactory.getLogger(DefaultServeOrchestrator.class);
 
     private final AgentHandler agentHandler;

@@ -44,7 +44,6 @@ import java.util.Map;
         "openjiuwen.service.query.webflux.enabled=false"})
 @AutoConfigureTestRestTemplate
 class AgentCoreHandlerAutoConfigurationIntegrationTest {
-
     private static final String AGENT_ID = "it-agent";
 
     @Autowired

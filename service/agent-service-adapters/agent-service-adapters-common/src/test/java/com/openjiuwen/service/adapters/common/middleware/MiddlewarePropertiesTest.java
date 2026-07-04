@@ -19,7 +19,6 @@ import java.util.Map;
  * @since 2026-07-03
  */
 class MiddlewarePropertiesTest {
-
     @Test
     void bindsCheckpointerAndPlaceholderCapabilitiesTogether() {
         Map<String, String> source = Map.of("openjiuwen.service.middleware.checkpointer.type", "redis",

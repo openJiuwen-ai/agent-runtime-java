@@ -53,7 +53,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @AutoConfigureTestRestTemplate
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DemoAgentApplicationTest {
-
     private static final String TEST_PROVIDER = "DemoSmokeProvider";
     private static final AtomicBoolean FACTORY_REGISTERED = new AtomicBoolean(false);
 
@@ -135,7 +134,6 @@ class DemoAgentApplicationTest {
     }
 
     private static final class EchoModelFactory implements Model.ModelClientFactory {
-
         @Override
         public String providerName() {
             return TEST_PROVIDER;
@@ -148,7 +146,6 @@ class DemoAgentApplicationTest {
     }
 
     private static final class EchoModelClient extends BaseModelClient {
-
         private EchoModelClient(ModelRequestConfig modelConfig, ModelClientConfig modelClientConfig) {
             super(modelConfig, modelClientConfig);
         }

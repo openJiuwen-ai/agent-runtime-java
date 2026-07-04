@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
  * @since 2026-07-03
  */
 class HealthControllerTest {
-
     @Test
     void blankAppNameFallsBackToAgentServiceAndUsesDefaultVersion() {
         HealthController controller = new HealthController(readiness(true, true), () -> " ", new ServiceProperties());

@@ -38,7 +38,6 @@ import java.util.Map;
  */
 @Tag("system-test")
 class RedisCheckpointerMiddlewareIT {
-
     private static final String LOCAL_REDIS_HOST = "127.0.0.1";
     private static final int LOCAL_REDIS_PORT = 6379;
 

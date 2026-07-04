@@ -13,7 +13,6 @@ import com.openjiuwen.core.runner.RunnerConfig;
  * @since 0.1.0
  */
 public interface MiddlewareAdapterRegistrar {
-
     /**
      * Optional override/extension of Core Factory providers. P0 relies on
      * ServiceLoader defaults.

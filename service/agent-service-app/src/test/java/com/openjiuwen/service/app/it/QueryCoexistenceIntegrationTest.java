@@ -32,7 +32,6 @@ import java.util.Map;
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=true")
 @AutoConfigureTestRestTemplate
 class QueryCoexistenceIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 

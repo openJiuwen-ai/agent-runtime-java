@@ -22,7 +22,6 @@ import java.util.Map;
  * @since 2026-07-03
  */
 class DefaultMiddlewareAdapterRegistrarTest {
-
     @Test
     void appliesInMemoryCheckpointerConfig() {
         MiddlewareProperties properties = new MiddlewareProperties();

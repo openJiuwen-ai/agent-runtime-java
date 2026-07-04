@@ -14,7 +14,6 @@ package com.openjiuwen.service.spec.lifecycle;
  * @since 0.1.0
  */
 public interface AgentInitHook {
-
     /**
      * Runs during the init phase.
      *

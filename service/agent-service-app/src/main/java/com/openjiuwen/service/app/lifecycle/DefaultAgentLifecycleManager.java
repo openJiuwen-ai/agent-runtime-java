@@ -13,7 +13,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @since 2026-07-03
  */
 public class DefaultAgentLifecycleManager implements AgentLifecycleManager {
-
     private final InitPhaseExecutor initPhaseExecutor;
     private final ShutdownPhaseExecutor shutdownPhaseExecutor;
     private final ActiveStreamInterruptor streamInterruptor;

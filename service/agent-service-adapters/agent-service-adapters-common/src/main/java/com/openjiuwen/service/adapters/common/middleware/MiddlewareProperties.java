@@ -17,7 +17,6 @@ import java.util.Map;
  */
 @ConfigurationProperties(prefix = "openjiuwen.service.middleware")
 public class MiddlewareProperties {
-
     private Checkpointer checkpointer = new Checkpointer();
     private CapabilityPlaceholder sessionStore = new CapabilityPlaceholder();
     private CapabilityPlaceholder objectStorage = new CapabilityPlaceholder();
@@ -66,7 +65,6 @@ public class MiddlewareProperties {
 
     /** Checkpointer configuration. */
     public static class Checkpointer {
-
         private String type = "in_memory";
         private String redisRef = "default";
 
@@ -89,7 +87,6 @@ public class MiddlewareProperties {
 
     /** Placeholder for future middleware capabilities. */
     public static class CapabilityPlaceholder {
-
         private String type = "none";
 
         public String getType() {
@@ -103,7 +100,6 @@ public class MiddlewareProperties {
 
     /** Redis endpoint connection settings. */
     public static class RedisEndpoint {
-
         private String host = "localhost";
         private int port = 6379;
         private int database = 0;

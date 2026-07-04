@@ -20,7 +20,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * In-memory stub {@link AgentHandler} for integration tests (no Runner/LLM).
  */
 class MultiTurnEchoHandler implements AgentHandler {
-
     private final Map<String, List<String>> history = new ConcurrentHashMap<>();
 
     @Override

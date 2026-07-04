@@ -11,7 +11,6 @@ package com.openjiuwen.service.spec.lifecycle;
  * @since 0.1.0
  */
 public interface AgentReadiness {
-
     /**
      * JVM / HTTP stack is up and accepting lifecycle-managed traffic.
      *

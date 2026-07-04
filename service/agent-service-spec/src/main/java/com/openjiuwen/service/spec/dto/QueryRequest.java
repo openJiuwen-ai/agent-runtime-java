@@ -22,7 +22,6 @@ import java.util.Map;
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class QueryRequest {
-
     private List<Map<String, Object>> messages = new ArrayList<>();
 
     @JsonProperty("conversation_id")

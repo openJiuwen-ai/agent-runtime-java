@@ -16,7 +16,6 @@ import org.springframework.context.event.EventListener;
  * @since 0.1.0
  */
 public class AgentLifecycleBootstrap {
-
     private static final Logger log = LoggerFactory.getLogger(AgentLifecycleBootstrap.class);
 
     private final AgentLifecycleManager lifecycleManager;

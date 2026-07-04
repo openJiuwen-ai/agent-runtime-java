@@ -19,7 +19,6 @@ import java.util.Map;
  * @since 2026-07-03
  */
 class QueryRequestTest {
-
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test

@@ -18,7 +18,6 @@ import java.util.Map;
  * @since 0.1.0
  */
 public final class ExampleReActAgentFactory {
-
     private ExampleReActAgentFactory() {
     }
 

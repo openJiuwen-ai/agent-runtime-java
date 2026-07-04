@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @ConditionalOnWebApplication
 public class HealthController {
-
     private static final String STATUS_HEALTHY = "healthy";
     private static final String DEFAULT_APP = "agent-service";
 

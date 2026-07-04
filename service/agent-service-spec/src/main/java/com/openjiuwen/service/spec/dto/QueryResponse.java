@@ -18,7 +18,6 @@ import lombok.Data;
  */
 @Data
 public class QueryResponse {
-
     @JsonProperty("result")
     private Object result;
 

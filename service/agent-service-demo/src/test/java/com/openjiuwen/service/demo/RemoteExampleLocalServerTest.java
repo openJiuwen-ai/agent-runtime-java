@@ -28,7 +28,6 @@ import java.util.concurrent.TimeUnit;
  * Validates A2A remote adapter against the in-test mock server.
  */
 class RemoteExampleLocalServerTest {
-
     @Test
     void remoteAdapterExampleCanCallLocalMockA2aServer() throws Exception {
         int port = freePort();

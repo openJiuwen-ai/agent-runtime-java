@@ -17,7 +17,6 @@ import java.util.Map;
  * @since 0.1.0
  */
 public class DefaultMiddlewareAdapterRegistrar implements MiddlewareAdapterRegistrar {
-
     private final MiddlewareProperties middlewareProperties;
     private final CredentialDecryptor credentialDecryptor;
 

@@ -16,7 +16,6 @@ import org.springframework.context.annotation.Bean;
  */
 @AutoConfiguration
 public class CredentialDecryptorAutoConfiguration {
-
     /**
      * Registers the default passthrough credential decryptor.
      *

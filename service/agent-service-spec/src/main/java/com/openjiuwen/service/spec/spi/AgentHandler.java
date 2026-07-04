@@ -13,7 +13,6 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
  * @since 0.1.0
  */
 public interface AgentHandler {
-
     /**
      * Executes a non-streaming query.
      *
