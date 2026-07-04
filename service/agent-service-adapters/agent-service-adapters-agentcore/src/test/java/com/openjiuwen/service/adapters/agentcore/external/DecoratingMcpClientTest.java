@@ -300,13 +300,14 @@ class DecoratingMcpClientTest {
 
         private static void sleepIgnoringInterrupts(long delayMs) {
             long deadline = System.nanoTime() + delayMs * 1_000_000L;
-            while (delayMs > 0) {
+            long remainingTimeMs = delayMs;
+            while (remainingTimeMs > 0) {
                 try {
-                    Thread.sleep(delayMs);
+                    Thread.sleep(remainingTimeMs);
                 } catch (InterruptedException ignored) {
                     // Keep sleeping to prove the decorator owns the timeout.
                 }
-                delayMs = (deadline - System.nanoTime()) / 1_000_000L;
+                remainingTimeMs = (deadline - System.nanoTime()) / 1_000_000L;
             }
         }
     }

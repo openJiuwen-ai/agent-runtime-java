@@ -219,6 +219,7 @@ class JiuwenCoreAgentHandlerTest {
 
         /**
          * Streams a single output chunk and records the inputs.
+         *
          * @param inputs inputs
          * @param session session
          * @param streamModes streamModes
