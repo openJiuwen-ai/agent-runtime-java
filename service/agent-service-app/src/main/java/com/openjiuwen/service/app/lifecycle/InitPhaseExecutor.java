@@ -41,7 +41,9 @@ public final class InitPhaseExecutor {
         this.properties = properties;
     }
 
-    /** Runs the init phase hooks and starts the agent handler. */
+    /**
+     * Runs the init phase hooks and starts the agent handler.
+     */
     public void run() {
         String appName = identity.getAppName();
         log.info("Starting Agent init phase for application '{}', hookCount={}", appName, hooks.initHooks().size());

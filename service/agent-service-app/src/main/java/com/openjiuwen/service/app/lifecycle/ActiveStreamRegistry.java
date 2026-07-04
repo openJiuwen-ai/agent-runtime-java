@@ -60,7 +60,9 @@ public class ActiveStreamRegistry {
         }
     }
 
-    /** Cancels all active streams across all conversations. */
+    /**
+     * Cancels all active streams across all conversations.
+     */
     public void cancelAll() {
         for (String conversationId : active.keySet()) {
             cancel(conversationId);

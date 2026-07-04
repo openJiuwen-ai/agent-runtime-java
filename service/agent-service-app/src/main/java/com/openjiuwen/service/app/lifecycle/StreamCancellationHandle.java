@@ -29,7 +29,9 @@ public final class StreamCancellationHandle {
         return conversationId;
     }
 
-    /** Marks this stream handle as cancelled. */
+    /**
+     * Marks this stream handle as cancelled.
+     */
     public void cancel() {
         cancelled.set(true);
     }

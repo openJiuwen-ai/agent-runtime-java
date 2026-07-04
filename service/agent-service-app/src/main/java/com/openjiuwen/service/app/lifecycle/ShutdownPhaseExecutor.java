@@ -49,7 +49,9 @@ public final class ShutdownPhaseExecutor {
         this.properties = properties;
     }
 
-    /** Runs the shutdown phase hooks and stops the agent handler. */
+    /**
+     * Runs the shutdown phase hooks and stops the agent handler.
+     */
     public void run() {
         String appName = identity.getAppName();
         log.info("Starting Agent shutdown phase for application '{}', activeStreams={}", appName,
