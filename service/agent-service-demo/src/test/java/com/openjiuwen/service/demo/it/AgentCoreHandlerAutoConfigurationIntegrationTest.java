@@ -39,7 +39,8 @@ import java.util.Map;
  * AC1: app + agentcore adapter assembly - pure {@code agent-id} without
  * business {@code @Bean AgentHandler}.
  */
-@SpringBootTest(classes = AgentCoreHandlerAutoConfigurationIntegrationTest.CoreAgentApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = AgentCoreHandlerAutoConfigurationIntegrationTest.CoreAgentApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {"openjiuwen.service.agent-id=it-agent",
         "openjiuwen.service.query.webflux.enabled=false"})
 @AutoConfigureTestRestTemplate

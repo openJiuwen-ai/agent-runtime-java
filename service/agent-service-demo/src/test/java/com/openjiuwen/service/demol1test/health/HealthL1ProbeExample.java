@@ -73,7 +73,8 @@ public class HealthL1ProbeExample {
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "example.health.l1", name = "handler", havingValue = "loaded", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "example.health.l1", name = "handler",
+            havingValue = "loaded", matchIfMissing = true)
     AgentHandler loadedHealthL1AgentHandler() {
         return queryFailingHandler();
     }

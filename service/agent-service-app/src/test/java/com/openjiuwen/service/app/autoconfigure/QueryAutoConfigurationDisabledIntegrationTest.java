@@ -34,7 +34,8 @@ import java.util.Map;
  *
  * @since 2026-07-03
  */
-@SpringBootTest(classes = QueryAutoConfigurationDisabledIntegrationTest.MinimalAgentApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = QueryAutoConfigurationDisabledIntegrationTest.MinimalAgentApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {"openjiuwen.service.query.enabled=false",
         "openjiuwen.service.query.webflux.enabled=false"})
 @AutoConfigureTestRestTemplate

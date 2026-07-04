@@ -45,7 +45,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * @since 2026-07-03
  */
-@SpringBootTest(classes = LifecycleIntegrationTest.LifecycleTestApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = LifecycleIntegrationTest.LifecycleTestApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class LifecycleIntegrationTest {
     @Autowired

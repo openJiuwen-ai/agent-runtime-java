@@ -70,7 +70,8 @@ public class ResetConversationMvcController {
      * @throws IOException IOException
      */
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_LEGACY, produces = MediaType.APPLICATION_JSON_VALUE)
-    @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "openjiuwen.service.query",
+            name = "legacy-path-enabled", havingValue = "true", matchIfMissing = true)
     public ResetConversationResponse resetLegacy(@RequestBody ResetConversationRequest request,
             HttpServletResponse response) throws IOException {
         return handleReset(request, response);

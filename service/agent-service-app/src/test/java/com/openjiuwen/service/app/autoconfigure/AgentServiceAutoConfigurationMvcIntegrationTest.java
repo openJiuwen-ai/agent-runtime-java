@@ -38,7 +38,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * @since 2026-07-03
  */
-@SpringBootTest(classes = AgentServiceAutoConfigurationMvcIntegrationTest.MinimalAgentApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = AgentServiceAutoConfigurationMvcIntegrationTest.MinimalAgentApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
 @AutoConfigureTestRestTemplate
 class AgentServiceAutoConfigurationMvcIntegrationTest {

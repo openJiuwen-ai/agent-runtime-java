@@ -33,7 +33,8 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
-@SpringBootTest(classes = QueryWebFluxUnavailableIntegrationTest.AgentNotLoadedApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = QueryWebFluxUnavailableIntegrationTest.AgentNotLoadedApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
 @TestPropertySource(properties = {"spring.main.web-application-type=reactive",
         "openjiuwen.service.query.webflux.enabled=true"})

@@ -29,7 +29,8 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
-@SpringBootTest(classes = HealthReadinessStateIntegrationTest.MinimalAgentApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = HealthReadinessStateIntegrationTest.MinimalAgentApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class HealthReadinessStateIntegrationTest {
     @Autowired

@@ -42,7 +42,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @RestController
 @ConditionalOnClass(name = "reactor.core.publisher.Flux")
-@ConditionalOnProperty(prefix = "openjiuwen.service.query.webflux", name = "enabled", havingValue = "true", matchIfMissing = false)
+@ConditionalOnProperty(prefix = "openjiuwen.service.query.webflux",
+        name = "enabled", havingValue = "true", matchIfMissing = false)
 public class QueryWebFluxController {
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
     private final ObjectProvider<AgentReadiness> readinessProvider;

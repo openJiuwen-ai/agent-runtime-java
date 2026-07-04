@@ -52,7 +52,8 @@ class RemoteExampleLocalServerTest {
         properties.getRemote().setRetryInvoke(false);
         properties.getRemote().getRetry().setMax(0);
 
-        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient = new AgentCoreExternalProperties.RemoteClientEndpoint();
+        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient =
+                new AgentCoreExternalProperties.RemoteClientEndpoint();
         remoteClient.setId("demo-a2a-remote");
         remoteClient.setName("Demo A2A Remote");
         remoteClient.setProtocol("A2A");

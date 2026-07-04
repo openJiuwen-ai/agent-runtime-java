@@ -90,7 +90,8 @@ class DefaultAgentCoreRemoteClientFactoryTest {
     private AgentCoreExternalProperties properties() {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         properties.getRemote().setTimeoutMs(3000);
-        AgentCoreExternalProperties.RemoteClientEndpoint client = new AgentCoreExternalProperties.RemoteClientEndpoint();
+        AgentCoreExternalProperties.RemoteClientEndpoint client =
+                new AgentCoreExternalProperties.RemoteClientEndpoint();
         client.setId("remote-a2a");
         client.setName("Remote A2A");
         client.setProtocol("A2A");

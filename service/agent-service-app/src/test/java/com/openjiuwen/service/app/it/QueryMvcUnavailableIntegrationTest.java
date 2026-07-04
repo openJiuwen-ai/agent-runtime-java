@@ -36,7 +36,8 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
-@SpringBootTest(classes = QueryMvcUnavailableIntegrationTest.AgentNotLoadedApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = QueryMvcUnavailableIntegrationTest.AgentNotLoadedApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
 class QueryMvcUnavailableIntegrationTest {

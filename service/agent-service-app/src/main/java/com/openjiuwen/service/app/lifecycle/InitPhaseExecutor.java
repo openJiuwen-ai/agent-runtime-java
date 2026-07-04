@@ -51,8 +51,8 @@ public final class InitPhaseExecutor {
             AgentHandler handler = agentHandlerProvider.getIfAvailable();
             if (handler == null) {
                 readiness.markAgentLoaded(false);
-                log.warn("Agent init phase completed for application '{}' without AgentHandler bean, agent_loaded=false",
-                        appName);
+                log.warn("Agent init phase completed for application '{}' without "
+                        + "AgentHandler bean, agent_loaded=false", appName);
                 return;
             }
             for (AgentInitHook hook : hooks.initHooks()) {
