@@ -4,12 +4,16 @@
 
 package com.openjiuwen.service.app.lifecycle;
 
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
-class ActiveStreamRegistryTest {
+import org.junit.jupiter.api.Test;
 
+/**
+ * ActiveStreamRegistryTest
+ *
+ * @since 2026-07-03
+ */
+class ActiveStreamRegistryTest {
     @Test
     void cancelMarksHandleAndDrainsRegistry() {
         ActiveStreamRegistry registry = new ActiveStreamRegistry();

@@ -7,8 +7,7 @@ package com.openjiuwen.service.app.it;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.List;
-import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
@@ -20,6 +19,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
+import java.util.List;
+import java.util.Map;
+
 /**
  * Integration tests for A2A JSON-RPC endpoints and Query REST endpoints.
  */
@@ -28,6 +30,7 @@ import org.springframework.http.ResponseEntity;
 class A2aIntegrationTest {
     @Autowired
     private TestRestTemplate rest;
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     private ResponseEntity<String> postA2a(Map<String, Object> body) {
@@ -42,7 +45,7 @@ class A2aIntegrationTest {
 
     private static Map<String, Object> msgParams(String text, String contextId) {
         return Map.of("message",
-                Map.of("role", "ROLE_USER", "parts", List.of(Map.of("text", text)), "contextId", contextId));
+            Map.of("role", "ROLE_USER", "parts", List.of(Map.of("text", text)), "contextId", contextId));
     }
 
     @SuppressWarnings("unchecked")
@@ -156,7 +159,7 @@ class A2aIntegrationTest {
         HttpHeaders h = new HttpHeaders();
         h.setContentType(MediaType.APPLICATION_JSON);
         var resetResp = rest.postForEntity("/v1/reset_conversation",
-                new HttpEntity<>(Map.of("conversation_id", "c-reset"), h), String.class);
+            new HttpEntity<>(Map.of("conversation_id", "c-reset"), h), String.class);
         assertThat(resetResp.getStatusCode()).isEqualTo(HttpStatus.OK);
 
         var afterResp = postA2a(rpc("SendMessage", 8, msgParams("after-reset", "c-reset")));
@@ -173,7 +176,7 @@ class A2aIntegrationTest {
 
         var body = Map.of("conversation_id", "c-meta", "stream", false, "message", "hello-meta");
         var resp = rest.postForEntity("/v1/query?type=controller&workspace_id=10", new HttpEntity<>(body, h),
-                String.class);
+            String.class);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);

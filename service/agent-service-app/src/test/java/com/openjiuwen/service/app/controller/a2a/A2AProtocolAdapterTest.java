@@ -7,15 +7,18 @@ package com.openjiuwen.service.app.controller.a2a;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.service.spec.dto.ServeRequest;
-import java.util.List;
-import java.util.Map;
+
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Map;
+
 /**
- * Protocol-specific behaviours that are non-trivial and must be verified: role normalisation and JSON-trial-parsing in
+ * Protocol-specific behaviours that are non-trivial and must be verified: role
+ * normalisation and JSON-trial-parsing in
  * part texts.
  */
 class A2AProtocolAdapterTest {
@@ -39,7 +42,7 @@ class A2AProtocolAdapterTest {
         ctx.setContextId("conv-1");
         ctx.setMetadata(Map.of("key", "val"));
         ctx.setA2aMessage(
-                Message.builder().role(Message.Role.ROLE_USER).parts(List.<Part<?>>of(new TextPart("hello"))).build());
+            Message.builder().role(Message.Role.ROLE_USER).parts(List.<Part<?>>of(new TextPart("hello"))).build());
 
         ServeRequest req = adapter.toServeRequest(ctx);
 

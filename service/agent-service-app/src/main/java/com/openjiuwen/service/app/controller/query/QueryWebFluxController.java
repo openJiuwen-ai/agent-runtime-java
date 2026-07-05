@@ -13,10 +13,10 @@ import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.atomic.AtomicBoolean;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -29,8 +29,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * WebFlux stack Query controller ({@code POST /v1/query/reactive}).
@@ -40,22 +43,31 @@ import reactor.core.publisher.Mono;
 @RestController
 @ConditionalOnClass(name = "reactor.core.publisher.Flux")
 @ConditionalOnProperty(prefix = "openjiuwen.service.query.webflux", name = "enabled", havingValue = "true",
-        matchIfMissing = false)
+    matchIfMissing = false)
 public class QueryWebFluxController {
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
+
     private final ObjectProvider<AgentReadiness> readinessProvider;
+
     private final ObjectMapper objectMapper;
 
     public QueryWebFluxController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
-            ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
+        ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
         this.orchestratorProvider = orchestratorProvider;
         this.readinessProvider = readinessProvider;
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Handles reactive query requests on {@code /v1/query/reactive}.
+     *
+     * @param request the query request body
+     * @param headers the HTTP headers
+     * @return the response mono
+     */
     @PostMapping(AgentServicePaths.QUERY_V1_REACTIVE)
     public Mono<ResponseEntity<?>> queryReactive(@RequestBody QueryRequest request,
-            @RequestHeader HttpHeaders headers) {
+        @RequestHeader HttpHeaders headers) {
         return handleQuery(request, headers);
     }
 
@@ -67,19 +79,22 @@ public class QueryWebFluxController {
         buildMetadata(validation.serveRequest(), request, headers);
         if (!isAgentReady()) {
             return Mono.just(
-                    ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(QueryIngressSupport.agentNotReady()));
+                ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(QueryIngressSupport.agentNotReady()));
         }
         ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
         if (orchestrator == null) {
-            return Mono.just(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(QueryIngressSupport.serviceUnavailable()));
+            return Mono.just(
+                ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(QueryIngressSupport.serviceUnavailable()));
         }
         if (request.isStream()) {
-            Flux<ServerSentEvent<String>> flux = Flux
-                    .create(sink -> streamQuery(orchestrator, validation.serveRequest(), sink));
-            return Mono.just(ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM)
-                    .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform")
-                    .header(HttpHeaders.CONNECTION, "keep-alive").header("X-Accel-Buffering", "no").body(flux));
+            Flux<ServerSentEvent<String>> flux = Flux.create(
+                sink -> streamQuery(orchestrator, validation.serveRequest(), sink));
+            return Mono.just(ResponseEntity.ok()
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform")
+                .header(HttpHeaders.CONNECTION, "keep-alive")
+                .header("X-Accel-Buffering", "no")
+                .body(flux));
         }
         QueryResponse response = orchestrator.query(validation.serveRequest());
         return Mono.just(ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(response));
@@ -91,7 +106,7 @@ public class QueryWebFluxController {
     }
 
     private void streamQuery(ServeOrchestrator orchestrator, com.openjiuwen.service.spec.dto.ServeRequest serveRequest,
-            reactor.core.publisher.FluxSink<ServerSentEvent<String>> sink) {
+        reactor.core.publisher.FluxSink<ServerSentEvent<String>> sink) {
         AtomicBoolean cancelled = new AtomicBoolean(false);
         sink.onCancel(() -> cancelled.set(true));
         sink.onDispose(() -> cancelled.set(true));
@@ -138,6 +153,6 @@ public class QueryWebFluxController {
             bodyMap.put("message", request.getMessage());
         }
         sr.setMetadata(
-                QueryIngressSupport.buildMetadata(headers, Map.of(), AgentServicePaths.QUERY_V1_REACTIVE, bodyMap));
+            QueryIngressSupport.buildMetadata(headers, Map.of(), AgentServicePaths.QUERY_V1_REACTIVE, bodyMap));
     }
 }

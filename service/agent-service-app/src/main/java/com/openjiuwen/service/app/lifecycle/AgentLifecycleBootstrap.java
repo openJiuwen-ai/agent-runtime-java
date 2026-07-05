@@ -12,9 +12,10 @@ import org.springframework.context.event.EventListener;
 
 /**
  * Bridges Spring lifecycle events to {@link AgentLifecycleManager}.
+ *
+ * @since 0.1.0
  */
 public class AgentLifecycleBootstrap {
-
     private static final Logger log = LoggerFactory.getLogger(AgentLifecycleBootstrap.class);
 
     private final AgentLifecycleManager lifecycleManager;
@@ -23,11 +24,17 @@ public class AgentLifecycleBootstrap {
         this.lifecycleManager = lifecycleManager;
     }
 
+    /**
+     * Runs the agent init phase after the application is ready.
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
         lifecycleManager.runInitPhase();
     }
 
+    /**
+     * Runs the agent shutdown phase when the Spring context closes.
+     */
     @EventListener(ContextClosedEvent.class)
     public void onContextClosed() {
         log.debug("Context closed, running Agent shutdown phase");

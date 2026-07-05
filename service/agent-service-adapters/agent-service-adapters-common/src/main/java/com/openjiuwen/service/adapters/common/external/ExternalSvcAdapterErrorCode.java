@@ -25,6 +25,7 @@ public enum ExternalSvcAdapterErrorCode {
     SANDBOX_TIMEOUT("EXT_SANDBOX_004", "Sandbox outbound call timed out");
 
     private final String code;
+
     private final String defaultMessage;
 
     ExternalSvcAdapterErrorCode(String code, String defaultMessage) {

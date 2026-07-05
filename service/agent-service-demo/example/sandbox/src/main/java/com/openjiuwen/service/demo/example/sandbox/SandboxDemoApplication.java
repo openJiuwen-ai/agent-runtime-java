@@ -10,6 +10,7 @@ import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegi
 import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -24,7 +25,6 @@ import org.springframework.context.annotation.Bean;
 @SpringBootApplication(scanBasePackages = "com.openjiuwen.service.app")
 @EnableConfigurationProperties(DemoLlmProperties.class)
 public class SandboxDemoApplication {
-
     private static final String AGENT_ID = "demo-sandbox-agent";
 
     public static void main(String[] args) {
@@ -33,12 +33,12 @@ public class SandboxDemoApplication {
 
     @Bean
     AgentHandler agentHandler(DemoLlmProperties llmProperties,
-            ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
+        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
         llmProperties.applyApiConfigIfPresent();
         llmProperties.requireConfigured();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Demo Sandbox Agent",
-                "ReAct agent with external Sandbox client", llmProperties);
+            "ReAct agent with external Sandbox client", llmProperties);
         return new JiuwenCoreAgentHandler(agent,
-                externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
+            externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
     }
 }

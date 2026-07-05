@@ -9,6 +9,7 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,7 +20,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * In-memory stub {@link AgentHandler} for integration tests (no Runner/LLM).
  */
 class MultiTurnEchoHandler implements AgentHandler {
-
     private final Map<String, List<String>> history = new ConcurrentHashMap<>();
 
     @Override

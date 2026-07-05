@@ -21,8 +21,14 @@ public final class RedisConnectionAssembler {
     private RedisConnectionAssembler() {
     }
 
-    public static MiddlewareProperties.RedisEndpoint resolveEndpoint(
-            MiddlewareProperties properties, String redisRef) {
+    /**
+     * Resolves a named Redis endpoint from middleware properties.
+     *
+     * @param properties the middleware properties
+     * @param redisRef the redis endpoint reference name
+     * @return the resolved Redis endpoint
+     */
+    public static MiddlewareProperties.RedisEndpoint resolveEndpoint(MiddlewareProperties properties, String redisRef) {
         String ref = redisRef;
         if (ref == null || ref.isBlank()) {
             ref = "default";
@@ -30,26 +36,47 @@ public final class RedisConnectionAssembler {
         MiddlewareProperties.RedisEndpoint endpoint = properties.getRedis().get(ref);
         if (endpoint == null) {
             throw new IllegalArgumentException(
-                    "openjiuwen.service.middleware.redis." + ref + " is required for redis middleware");
+                "openjiuwen.service.middleware.redis." + ref + " is required for redis middleware");
         }
         return endpoint;
     }
 
+    /**
+     * Builds a connection map from a resolved Redis endpoint.
+     *
+     * @param endpoint the Redis endpoint
+     * @param decryptedPassword the decrypted password
+     * @return the connection map
+     */
     public static Map<String, Object> buildConnectionMap(MiddlewareProperties.RedisEndpoint endpoint,
-                                                         String decryptedPassword) {
+        String decryptedPassword) {
         Map<String, Object> connection = new LinkedHashMap<>();
         connection.put("url", buildRedisUrl(endpoint, decryptedPassword));
         return connection;
     }
 
-    public static Map<String, Object> buildConnectionMap(MiddlewareProperties properties,
-                                                         String redisRef,
-                                                         CredentialDecryptor decryptor) {
+    /**
+     * Builds a connection map from middleware properties and a Redis reference.
+     *
+     * @param properties the middleware properties
+     * @param redisRef the redis endpoint reference name
+     * @param decryptor the credential decryptor
+     * @return the connection map
+     */
+    public static Map<String, Object> buildConnectionMap(MiddlewareProperties properties, String redisRef,
+        CredentialDecryptor decryptor) {
         MiddlewareProperties.RedisEndpoint endpoint = resolveEndpoint(properties, redisRef);
         String password = decryptor.decrypt(endpoint.getEncryptedPassword());
         return buildConnectionMap(endpoint, password);
     }
 
+    /**
+     * Builds a Redis URL from endpoint settings and password.
+     *
+     * @param endpoint the Redis endpoint
+     * @param password the decrypted password, may be blank
+     * @return the Redis URL string
+     */
     public static String buildRedisUrl(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         String host = endpoint.getHost() != null ? endpoint.getHost().trim() : "localhost";
         int port = endpoint.getPort() > 0 ? endpoint.getPort() : 6379;

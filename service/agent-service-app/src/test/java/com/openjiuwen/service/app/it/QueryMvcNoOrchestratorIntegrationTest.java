@@ -10,7 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.autoconfigure.AgentServiceAutoConfiguration;
 import com.openjiuwen.service.app.controller.query.QueryMvcController;
-import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -25,13 +25,16 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
+import java.util.Map;
+
 /**
- * Verifies MVC query returns service unavailable when no orchestrator is configured.
+ * Verifies MVC query returns service unavailable when no orchestrator is
+ * configured.
  *
  * @since 0.1.0
  */
 @SpringBootTest(classes = QueryMvcNoOrchestratorIntegrationTest.QueryOnlyApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class QueryMvcNoOrchestratorIntegrationTest {
     @Autowired
@@ -43,7 +46,7 @@ class QueryMvcNoOrchestratorIntegrationTest {
     @SuppressWarnings("unchecked")
     void queryReturnsServiceUnavailableWhenNoOrchestratorIsConfigured() throws Exception {
         ResponseEntity<String> response = postQuery("/v1/query",
-                Map.of("message", "blocked", "conversation_id", "c-no-orchestrator", "stream", false));
+            Map.of("message", "blocked", "conversation_id", "c-no-orchestrator", "stream", false));
 
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
@@ -60,6 +63,5 @@ class QueryMvcNoOrchestratorIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration(exclude = {AgentServiceAutoConfiguration.class, A2AAutoConfiguration.class})
     @Import(QueryMvcController.class)
-    static class QueryOnlyApplication {
-    }
+    static class QueryOnlyApplication {}
 }

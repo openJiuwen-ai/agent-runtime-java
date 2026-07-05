@@ -4,35 +4,38 @@
 
 package com.openjiuwen.service.app.lifecycle;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
+/**
+ * AgentHandlerHolderTest
+ *
+ * @since 2026-07-03
+ */
 class AgentHandlerHolderTest {
-
     @Test
     void rejectsQueryBeforeAgentLoaded() {
         AgentHandlerHolder holder = new AgentHandlerHolder();
 
         assertThat(holder.isLoaded()).isFalse();
-        assertThatThrownBy(() -> holder.query(new ServeRequest()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Agent not loaded");
+        assertThatThrownBy(() -> holder.query(new ServeRequest())).isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("Agent not loaded");
     }
 
     @Test
     void rejectsStreamQueryBeforeAgentLoaded() {
         AgentHandlerHolder holder = new AgentHandlerHolder();
 
-        assertThatThrownBy(() -> holder.streamQuery(new ServeRequest(), noopObserver()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Agent not loaded");
+        assertThatThrownBy(() -> holder.streamQuery(new ServeRequest(), noopObserver())).isInstanceOf(
+            IllegalStateException.class).hasMessageContaining("Agent not loaded");
     }
 
     @Test
@@ -91,7 +94,7 @@ class AgentHandlerHolderTest {
         private final AtomicBoolean cleared;
 
         private DemoAgentHandler() {
-            this.cleared = null;
+            this(null);
         }
 
         private DemoAgentHandler(AtomicBoolean cleared) {
@@ -100,15 +103,13 @@ class AgentHandlerHolderTest {
 
         @Override
         public com.openjiuwen.service.spec.dto.QueryResponse query(
-                com.openjiuwen.service.spec.dto.ServeRequest request) {
-            return new com.openjiuwen.service.spec.dto.QueryResponse(
-                    "demo:" + request.lastUserQuery(), request.getConversationId());
+            com.openjiuwen.service.spec.dto.ServeRequest request) {
+            return new com.openjiuwen.service.spec.dto.QueryResponse("demo:" + request.lastUserQuery(),
+                request.getConversationId());
         }
 
         @Override
-        public void streamQuery(
-                com.openjiuwen.service.spec.dto.ServeRequest request,
-                QueryStreamObserver observer) {
+        public void streamQuery(com.openjiuwen.service.spec.dto.ServeRequest request, QueryStreamObserver observer) {
         }
 
         @Override

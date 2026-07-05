@@ -4,15 +4,16 @@
 
 package com.openjiuwen.service.adapters.agentcore.external;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.openjiuwen.core.runner.drunner.remoteclient.ProtocolEnum;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests remote client factory mapping and validation behavior.
@@ -27,10 +28,8 @@ class DefaultAgentCoreRemoteClientFactoryTest {
         client.setName("Configured A2A Agent");
         client.setTimeoutMs(1500);
 
-        RemoteClientConfig config = new DefaultAgentCoreRemoteClientFactory(
-                properties,
-                new DefaultAgentCoreRemoteClientDecoratorFactory())
-                .configFor("remote-a2a");
+        RemoteClientConfig config = new DefaultAgentCoreRemoteClientFactory(properties,
+            new DefaultAgentCoreRemoteClientDecoratorFactory()).configFor("remote-a2a");
 
         assertThat(config.getId()).isEqualTo("remote-a2a");
         assertThat(config.getName()).isEqualTo("Configured A2A Agent");
@@ -42,9 +41,8 @@ class DefaultAgentCoreRemoteClientFactoryTest {
     @Test
     void createReturnsDecoratedA2aRemoteClientFromConfiguredClient() {
         try (CoreProviderRegistrySnapshot ignored = CoreProviderRegistrySnapshot.capture()) {
-            AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(
-                    properties(),
-                    new DefaultAgentCoreRemoteClientDecoratorFactory());
+            AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(properties(),
+                new DefaultAgentCoreRemoteClientDecoratorFactory());
 
             RemoteClient client = factory.create("remote-a2a");
 
@@ -54,23 +52,19 @@ class DefaultAgentCoreRemoteClientFactoryTest {
 
     @Test
     void createWithoutClientIdUsesFirstConfiguredRemoteClient() {
-        RemoteClientConfig config = new DefaultAgentCoreRemoteClientFactory(
-                properties(),
-                new DefaultAgentCoreRemoteClientDecoratorFactory())
-                .configFor(null);
+        RemoteClientConfig config = new DefaultAgentCoreRemoteClientFactory(properties(),
+            new DefaultAgentCoreRemoteClientDecoratorFactory()).configFor(null);
 
         assertThat(config.getId()).isEqualTo("remote-a2a");
     }
 
     @Test
     void failsWhenRequestedRemoteClientDoesNotExist() {
-        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(
-                properties(),
-                new DefaultAgentCoreRemoteClientDecoratorFactory());
+        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(properties(),
+            new DefaultAgentCoreRemoteClientDecoratorFactory());
 
-        assertThatThrownBy(() -> factory.configFor("missing"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Unknown remote client");
+        assertThatThrownBy(() -> factory.configFor("missing")).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unknown remote client");
     }
 
     @Test
@@ -78,11 +72,9 @@ class DefaultAgentCoreRemoteClientFactoryTest {
         AgentCoreExternalProperties properties = properties();
         properties.getRemote().getClients().get(0).setUrl("file:///tmp/a2a");
 
-        assertThatThrownBy(() -> new DefaultAgentCoreRemoteClientFactory(
-                properties,
-                new DefaultAgentCoreRemoteClientDecoratorFactory()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("url");
+        assertThatThrownBy(() -> new DefaultAgentCoreRemoteClientFactory(properties,
+            new DefaultAgentCoreRemoteClientDecoratorFactory())).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("url");
     }
 
     @Test
@@ -90,18 +82,16 @@ class DefaultAgentCoreRemoteClientFactoryTest {
         AgentCoreExternalProperties properties = properties();
         properties.getRemote().getClients().get(0).setProtocol("MQ");
 
-        assertThatThrownBy(() -> new DefaultAgentCoreRemoteClientFactory(
-                properties,
-                new DefaultAgentCoreRemoteClientDecoratorFactory()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("protocol");
+        assertThatThrownBy(() -> new DefaultAgentCoreRemoteClientFactory(properties,
+            new DefaultAgentCoreRemoteClientDecoratorFactory())).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("protocol");
     }
 
     private AgentCoreExternalProperties properties() {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         properties.getRemote().setTimeoutMs(3000);
-        AgentCoreExternalProperties.RemoteClientEndpoint client =
-                new AgentCoreExternalProperties.RemoteClientEndpoint();
+        AgentCoreExternalProperties.RemoteClientEndpoint client
+            = new AgentCoreExternalProperties.RemoteClientEndpoint();
         client.setId("remote-a2a");
         client.setName("Remote A2A");
         client.setProtocol("A2A");

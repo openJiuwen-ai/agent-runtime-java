@@ -8,7 +8,8 @@ import com.openjiuwen.core.foundation.tool.mcp.McpClient;
 import com.openjiuwen.core.foundation.tool.mcp.McpServerConfig;
 
 /**
- * Customization point for wrapping Core MCP clients with Service egress behavior.
+ * Customization point for wrapping Core MCP clients with Service egress
+ * behavior.
  *
  * @since 2026-06-24
  */

@@ -12,6 +12,7 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,13 +21,16 @@ import java.util.Map;
 import java.util.concurrent.CancellationException;
 
 /**
- * Default orchestration: delegates to {@link AgentHandler} with unified error surfacing.
+ * Default orchestration: delegates to {@link AgentHandler} with unified error
+ * surfacing.
+ *
+ * @since 2026-07-03
  */
 public class DefaultServeOrchestrator implements ServeOrchestrator {
-
     private static final Logger log = LoggerFactory.getLogger(DefaultServeOrchestrator.class);
 
     private final AgentHandler agentHandler;
+
     private final ActiveStreamRegistry streamRegistry;
 
     public DefaultServeOrchestrator(AgentHandler agentHandler, ActiveStreamRegistry streamRegistry) {

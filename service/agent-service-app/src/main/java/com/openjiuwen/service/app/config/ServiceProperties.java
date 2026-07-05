@@ -5,17 +5,20 @@
 package com.openjiuwen.service.app.config;
 
 import lombok.Data;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Agent Service runtime configuration.
+ *
+ * @since 2026-07-03
  */
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.service")
 public class ServiceProperties {
-
     /**
-     * Agent id registered in {@code Runner.resourceMgr()} for the default {@code JiuwenCoreAgentHandler}.
+     * Agent id registered in {@code Runner.resourceMgr()} for the default
+     * {@code JiuwenCoreAgentHandler}.
      */
     private String agentId;
 

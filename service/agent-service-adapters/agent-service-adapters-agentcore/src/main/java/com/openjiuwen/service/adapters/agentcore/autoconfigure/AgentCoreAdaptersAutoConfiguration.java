@@ -20,8 +20,9 @@ import com.openjiuwen.service.adapters.agentcore.external.DefaultExternalSvcAdap
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.spec.spi.AgentHandler;
-import org.springframework.beans.factory.annotation.Autowired;
+
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
@@ -61,7 +62,8 @@ public class AgentCoreAdaptersAutoConfiguration {
     }
 
     /**
-     * Creates the registrar that wires external service adapters into agent-core providers.
+     * Creates the registrar that wires external service adapters into agent-core
+     * providers.
      *
      * @param properties external adapter properties
      * @param decoratorFactory MCP client decorator factory
@@ -72,22 +74,18 @@ public class AgentCoreAdaptersAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(ExternalSvcAdapterRegistrar.class)
-    public ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar(
-            AgentCoreExternalProperties properties,
-            AgentCoreMcpClientDecoratorFactory decoratorFactory,
-            AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
-            ObjectProvider<McpClientProvider> mcpClientProviders,
-            ObjectProvider<RemoteClientProvider> remoteClientProviders) {
-        return new DefaultExternalSvcAdapterRegistrar(
-                properties,
-                decoratorFactory,
-                remoteDecoratorFactory,
-                mcpClientProviders.orderedStream().toList(),
-                remoteClientProviders.orderedStream().toList());
+    public ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar(AgentCoreExternalProperties properties,
+        AgentCoreMcpClientDecoratorFactory decoratorFactory,
+        AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
+        ObjectProvider<McpClientProvider> mcpClientProviders,
+        ObjectProvider<RemoteClientProvider> remoteClientProviders) {
+        return new DefaultExternalSvcAdapterRegistrar(properties, decoratorFactory, remoteDecoratorFactory,
+            mcpClientProviders.orderedStream().toList(), remoteClientProviders.orderedStream().toList());
     }
 
     /**
-     * Creates the default remote client factory when configured remote clients exist.
+     * Creates the default remote client factory when configured remote clients
+     * exist.
      *
      * @param properties external adapter properties
      * @param remoteDecoratorFactory remote client decorator factory
@@ -97,18 +95,16 @@ public class AgentCoreAdaptersAutoConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "openjiuwen.service.external.remote.clients[0]", name = "id")
     @ConditionalOnMissingBean(AgentCoreRemoteClientFactory.class)
-    public AgentCoreRemoteClientFactory agentCoreRemoteClientFactory(
-            AgentCoreExternalProperties properties,
-            AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
-            ObjectProvider<RemoteClientProvider> remoteClientProviders) {
-        return new DefaultAgentCoreRemoteClientFactory(
-                properties,
-                remoteDecoratorFactory,
-                remoteClientProviders.orderedStream().toList());
+    public AgentCoreRemoteClientFactory agentCoreRemoteClientFactory(AgentCoreExternalProperties properties,
+        AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
+        ObjectProvider<RemoteClientProvider> remoteClientProviders) {
+        return new DefaultAgentCoreRemoteClientFactory(properties, remoteDecoratorFactory,
+            remoteClientProviders.orderedStream().toList());
     }
 
     /**
-     * Creates the default sandbox client factory when sandbox integration is enabled.
+     * Creates the default sandbox client factory when sandbox integration is
+     * enabled.
      *
      * @param properties external adapter properties
      * @return default sandbox client factory bean
@@ -130,12 +126,11 @@ public class AgentCoreAdaptersAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(AgentHandler.class)
-    @ConditionalOnExpression("'${openjiuwen.service.agent-id:}' != '' "
-            + "&& '${openjiuwen.service.handler:agentcore}' == 'agentcore'")
-    public AgentHandler coreAgentHandler(
-            @Value("${openjiuwen.service.agent-id}") String agentId,
-            @Autowired(required = false) MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
-            ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
+    @ConditionalOnExpression(
+        "'${openjiuwen.service.agent-id:}' != '' " + "&& '${openjiuwen.service.handler:agentcore}' == 'agentcore'")
+    public AgentHandler coreAgentHandler(@Value("${openjiuwen.service.agent-id}") String agentId,
+        @Autowired(required = false) MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
+        ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         return new JiuwenCoreAgentHandler(agentId, middlewareAdapterRegistrar, externalSvcAdapterRegistrar);
     }
 }

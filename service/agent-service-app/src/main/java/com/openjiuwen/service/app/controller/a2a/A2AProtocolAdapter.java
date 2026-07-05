@@ -5,19 +5,22 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.openjiuwen.service.spec.dto.ServeRequest;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.stream.Collectors;
+
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 /**
- * A2A Message → ServeRequest inbound adapter. Outbound (QueryChunk → A2A Part) is handled by {@link ChunkMapper} +
+ * A2A Message → ServeRequest inbound adapter. Outbound (QueryChunk → A2A Part)
+ * is handled by {@link ChunkMapper} +
  * AgentEmitter.
  *
  * @since 0.1.0
@@ -26,7 +29,7 @@ public class A2AProtocolAdapter {
     private static final Logger log = LoggerFactory.getLogger(A2AProtocolAdapter.class);
 
     private static final Map<String, String> ROLE_MAP = Map.of("ROLE_USER", "user", "ROLE_AGENT", "assistant",
-            "ROLE_SYSTEM", "system");
+        "ROLE_SYSTEM", "system");
 
     /**
      * Converts an A2A message context into an internal {@link ServeRequest}.
@@ -61,14 +64,16 @@ public class A2AProtocolAdapter {
         req.setMessages(List.of(userMsg));
 
         log.info("A2A toServeRequest taskId={} contextId={} conversationId={} textLen={}", ctx.getTaskId(),
-                ctx.getContextId(), req.getConversationId(), rawText != null ? rawText.length() : 0);
+            ctx.getContextId(), req.getConversationId(), rawText != null ? rawText.length() : 0);
 
         return req;
     }
 
     private String extractText(List<Part<?>> parts) {
-        return parts.stream().filter(p -> p instanceof TextPart).map(p -> ((TextPart) p).text())
-                .collect(Collectors.joining());
+        return parts.stream()
+            .filter(p -> p instanceof TextPart)
+            .map(p -> ((TextPart) p).text())
+            .collect(Collectors.joining());
     }
 
     static String normalizeRole(String raw) {

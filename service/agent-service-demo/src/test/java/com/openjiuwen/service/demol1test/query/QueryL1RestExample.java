@@ -11,6 +11,7 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -27,21 +28,17 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Internal test helper: scenario-switchable Query REST L1 validation app.
+ *
+ * @since 2026-07-03
  */
 @SpringBootApplication
 public class QueryL1RestExample {
-
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(QueryL1RestExample.class);
-        application.setDefaultProperties(Map.of(
-                "server.port", "8090",
-                "spring.main.web-application-type", "servlet",
-                "spring.application.name", "query-l1-example",
-                "openjiuwen.service.version", "0.1.0",
-                "example.query.l1.handler", "echo",
-                "example.query.l1.stream-chunks", "1",
-                "example.query.l1.stream-delay-ms", "0"
-        ));
+        application.setDefaultProperties(
+            Map.of("server.port", "8090", "spring.main.web-application-type", "servlet", "spring.application.name",
+                "query-l1-example", "openjiuwen.service.version", "0.1.0", "example.query.l1.handler", "echo",
+                "example.query.l1.stream-chunks", "1", "example.query.l1.stream-delay-ms", "0"));
         application.run(args);
     }
 
@@ -69,15 +66,12 @@ public class QueryL1RestExample {
     @Configuration
     @ConditionalOnProperty(prefix = "example.query.l1", name = "controller", havingValue = "query-only")
     @Import(QueryMvcController.class)
-    static class QueryOnlyControllerConfiguration {
-    }
+    static class QueryOnlyControllerConfiguration {}
 
     @Bean
-    @ConditionalOnProperty(prefix = "example.query.l1", name = "handler",
-            havingValue = "echo", matchIfMissing = true)
-    AgentHandler queryL1EchoAgentHandler(
-            @Value("${example.query.l1.stream-chunks:1}") int streamChunks,
-            @Value("${example.query.l1.stream-delay-ms:0}") long streamDelayMs) {
+    @ConditionalOnProperty(prefix = "example.query.l1", name = "handler", havingValue = "echo", matchIfMissing = true)
+    AgentHandler queryL1EchoAgentHandler(@Value("${example.query.l1.stream-chunks:1}") int streamChunks,
+        @Value("${example.query.l1.stream-delay-ms:0}") long streamDelayMs) {
         return new EchoAgentHandler(streamChunks, streamDelayMs);
     }
 
@@ -103,9 +97,10 @@ public class QueryL1RestExample {
     }
 
     private static final class EchoAgentHandler implements AgentHandler {
-
         private final int streamChunks;
+
         private final long streamDelayMs;
+
         private final Map<String, List<String>> conversationHistory = new ConcurrentHashMap<>();
 
         private EchoAgentHandler(int streamChunks, long streamDelayMs) {
@@ -134,11 +129,9 @@ public class QueryL1RestExample {
 
         private Map<String, Object> responseBody(ServeRequest request, int chunkIndex) {
             String query = request.lastUserQuery();
-            List<String> history = conversationHistory.computeIfAbsent(
-                    request.getConversationId(), ignored -> new ArrayList<>());
-            String previousQuery = history.isEmpty() ? null : history.get(history.size() - 1);
+            List<String> history = conversationHistory.computeIfAbsent(request.getConversationId(),
+                ignored -> new ArrayList<>());
             history.add(query);
-
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("role", "assistant");
             body.put("content", "query-l1:" + query);
@@ -150,6 +143,7 @@ public class QueryL1RestExample {
             body.put("messages_size", request.getMessages().size());
             body.put("stream", request.isStream());
             body.put("turn", history.size());
+            String previousQuery = history.size() > 1 ? history.get(history.size() - 2) : null;
             body.put("previous_query", previousQuery);
             body.put("chunk_index", chunkIndex);
             return body;
@@ -159,7 +153,7 @@ public class QueryL1RestExample {
             try {
                 Thread.sleep(delayMs);
             } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
+                // donothing
             }
         }
     }

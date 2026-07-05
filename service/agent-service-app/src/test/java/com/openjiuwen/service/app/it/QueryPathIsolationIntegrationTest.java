@@ -4,14 +4,17 @@
 
 package com.openjiuwen.service.app.it;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
+
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -22,17 +25,14 @@ import org.springframework.test.context.TestPropertySource;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
- * Verifies MVC and WebFlux Query endpoints map to distinct paths without shadowing.
+ * Verifies MVC and WebFlux Query endpoints map to distinct paths without
+ * shadowing.
  */
-@SpringBootTest(classes = TestServiceApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=true")
 @AutoConfigureTestRestTemplate
 class QueryPathIsolationIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 
@@ -57,7 +57,6 @@ class QueryPathIsolationIntegrationTest {
     @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
     @AutoConfigureTestRestTemplate
     class WhenWebFluxDisabled {
-
         @Autowired
         private TestRestTemplate rest;
 
@@ -78,11 +77,9 @@ class QueryPathIsolationIntegrationTest {
 
     @Nested
     @TestPropertySource(properties = {
-            "openjiuwen.service.query.webflux.enabled=false",
-            "openjiuwen.service.query.legacy-path-enabled=false"
+        "openjiuwen.service.query.webflux.enabled=false", "openjiuwen.service.query.legacy-path-enabled=false"
     })
     class WhenLegacyPathDisabled {
-
         @Autowired
         private TestRestTemplate rest;
 
@@ -102,10 +99,8 @@ class QueryPathIsolationIntegrationTest {
     }
 
     private static Map<String, Object> body(String content, String conversationId) {
-        return Map.of(
-                "messages", List.of(Map.of("role", "user", "content", content)),
-                "conversation_id", conversationId,
-                "stream", false);
+        return Map.of("messages", List.of(Map.of("role", "user", "content", content)), "conversation_id",
+            conversationId, "stream", false);
     }
 
     private ResponseEntity<String> post(String path, Map<String, Object> body) {
@@ -124,8 +119,7 @@ class QueryPathIsolationIntegrationTest {
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> result(ResponseEntity<String> response, ObjectMapper mapper)
-            throws Exception {
+    private static Map<String, Object> result(ResponseEntity<String> response, ObjectMapper mapper) throws Exception {
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
         return (Map<String, Object>) json.get("result");
     }

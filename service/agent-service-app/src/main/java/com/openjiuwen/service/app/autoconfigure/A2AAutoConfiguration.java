@@ -20,13 +20,12 @@ import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+
+import redis.clients.jedis.JedisPool;
+
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
 import org.a2aproject.sdk.server.config.DefaultValuesConfigProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.a2aproject.sdk.server.events.InMemoryQueueManager;
 import org.a2aproject.sdk.server.events.MainEventBus;
 import org.a2aproject.sdk.server.events.MainEventBusProcessor;
@@ -39,12 +38,16 @@ import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import redis.clients.jedis.JedisPool;
+
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Auto-configuration for A2A Server + Client beans. Activated only when {@code
@@ -77,7 +80,7 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public TaskStore a2aTaskStore(ObjectProvider<MiddlewareProperties> middlewareProvider,
-            ObjectProvider<CredentialDecryptor> decryptorProvider) {
+        ObjectProvider<CredentialDecryptor> decryptorProvider) {
         MiddlewareProperties middlewareProperties = middlewareProvider.getIfAvailable();
         if (middlewareProperties != null && "redis".equals(middlewareProperties.getCheckpointer().getType())) {
             CredentialDecryptor decryptor = decryptorProvider.getIfAvailable();
@@ -145,7 +148,7 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public MainEventBusProcessor a2aMainEventBusProcessor(MainEventBus mainEventBus, TaskStore taskStore,
-            PushNotificationSender pushSender, QueueManager queueManager) {
+        PushNotificationSender pushSender, QueueManager queueManager) {
         return new MainEventBusProcessor(mainEventBus, taskStore, pushSender, queueManager);
     }
 
@@ -234,8 +237,8 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-            A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry,
-            @Value("${spring.application.name:agent}") String agentId) {
+        A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry,
+        @Value("${spring.application.name:agent}") String agentId) {
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry, agentId);
     }
 
@@ -252,14 +255,12 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public RequestHandler a2aRequestHandler(A2AAgentExecutor agentExecutor, TaskStore taskStore,
-            QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
-            MainEventBusProcessor eventBusProcessor) {
+        QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
+        MainEventBusProcessor eventBusProcessor) {
         int cores = Runtime.getRuntime().availableProcessors();
-        var agentPool = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>());
-        var ioPool = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>());
+        var agentPool = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+        var ioPool = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
         return DefaultRequestHandler.create(agentExecutor, taskStore, queueManager, pushConfigStore, eventBusProcessor,
-                agentPool, ioPool);
+            agentPool, ioPool);
     }
 }

@@ -17,16 +17,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * ApiConfigLoader
+ *
+ * @since 2026-07-03
+ */
 final class ApiConfigLoader {
-
     static final String DEFAULT_FILE_NAME = "apiconfig.json";
+
     static final String KEY_API_BASE = "API_BASE";
+
     static final String KEY_API_KEY = "API_KEY";
+
     static final String KEY_PROVIDER = "MODEL_PROVIDER";
+
     static final String KEY_MODEL_NAME = "MODEL_NAME";
+
     static final String KEY_SSL_VERIFY = "LLM_SSL_VERIFY";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private static final int MAX_PARENT_LEVELS = 6;
 
     private ApiConfigLoader() {
@@ -39,8 +49,7 @@ final class ApiConfigLoader {
         }
         Path path = resolved.get();
         try (InputStream in = Files.newInputStream(path)) {
-            Map<String, Object> raw = MAPPER.readValue(in, new TypeReference<>() {
-            });
+            Map<String, Object> raw = MAPPER.readValue(in, new TypeReference<>() {});
             Map<String, String> config = new LinkedHashMap<>();
             raw.forEach((key, value) -> {
                 if (value != null) {

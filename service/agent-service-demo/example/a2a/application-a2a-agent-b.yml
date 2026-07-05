@@ -16,8 +16,8 @@ openjiuwen:
     a2a:
       agent-description: "A2A Agent B — router ReAct LLM agent with local calculator and Agent C food delegation"
       is-streaming: true
-      default-input-modes: [text, text/plain]
-      default-output-modes: [text, text/plain]
+      default-input-modes: [ text, text/plain ]
+      default-output-modes: [ text, text/plain ]
       remote-agents:
         - name: agentc
           url: http://localhost:18092/a2a/
@@ -26,28 +26,28 @@ openjiuwen:
         - id: general_chat
           name: General Chat
           description: Handle general conversation and Q&A using ReAct LLM reasoning
-          tags: [chat, qa, reasoning]
+          tags: [ chat, qa, reasoning ]
           examples:
             - What is the capital of France?
             - Explain how a transformer model works
-          input-modes: [text, text/plain]
-          output-modes: [text, text/plain]
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
         - id: calculation
           name: Math Calculation
           description: Perform ordinary mathematical calculations using the local calc tool
-          tags: [math, calculation, arithmetic]
+          tags: [ math, calculation, arithmetic ]
           examples:
             - What is 1+1?
             - Calculate 15 * 7
             - What is the square root of 144?
-          input-modes: [text, text/plain]
-          output-modes: [text, text/plain]
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
         - id: delegate_to_agentc
           name: Delegate dining request to Agent C
           description: Delegate dining and food recommendation requests to Agent C, which asks for user confirmation before returning a recommendation
-          tags: [delegation, remote, agentc, food, dining, confirmation]
+          tags: [ delegation, remote, agentc, food, dining, confirmation ]
           examples:
             - Recommend a dish for a team lunch
             - What should we eat for dinner today?
-          input-modes: [text, text/plain]
-          output-modes: [text, text/plain]
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]

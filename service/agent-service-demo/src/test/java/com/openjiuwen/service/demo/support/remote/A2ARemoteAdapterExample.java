@@ -11,6 +11,7 @@ import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalPrope
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreRemoteClientFactory;
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientDecoratorFactory;
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientFactory;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +20,8 @@ import java.util.Map;
 
 /**
  * Internal test helper: minimal A2A remote client creation and invoke sample.
+ *
+ * @since 2026-07-03
  */
 public final class A2ARemoteAdapterExample {
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAdapterExample.class);
@@ -27,10 +30,6 @@ public final class A2ARemoteAdapterExample {
     }
 
     public static void main(String[] args) throws Exception {
-        String remoteUrl = option(args, "--url=", "http://localhost:18082/a2a");
-        String clientId = option(args, "--client-id=", "demo-a2a-remote");
-        String operation = option(args, "--operation=", "create");
-
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         properties.getRemote().setTimeoutMs(intOption(args, "--timeout-ms=", 3000));
         properties.getRemote().setRetryInvoke(isOptionEnabled(args, "--retry-invoke=", false));
@@ -40,21 +39,23 @@ public final class A2ARemoteAdapterExample {
         properties.getRemote().getCircuitBreaker().setFailureThreshold(3);
         properties.getRemote().getCircuitBreaker().setResetTimeoutMs(30000);
 
-        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient =
-                new AgentCoreExternalProperties.RemoteClientEndpoint();
+        String clientId = option(args, "--client-id=", "demo-a2a-remote");
+        String remoteUrl = option(args, "--url=", "http://localhost:18082/a2a");
+        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient
+            = new AgentCoreExternalProperties.RemoteClientEndpoint();
         remoteClient.setId(clientId);
         remoteClient.setName(option(args, "--client-name=", "Demo A2A Remote"));
         remoteClient.setProtocol("A2A");
         remoteClient.setUrl(remoteUrl);
         properties.getRemote().setClients(List.of(remoteClient));
 
-        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(
-                properties,
-                new DefaultAgentCoreRemoteClientDecoratorFactory());
+        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(properties,
+            new DefaultAgentCoreRemoteClientDecoratorFactory());
         RemoteClient client = factory.create(clientId);
 
         log.info("A2A Remote URL: {}", remoteUrl);
         log.info("Created client: {}", client.getClass().getName());
+        String operation = option(args, "--operation=", "create");
         runOperation(args, operation, client);
     }
 
@@ -65,9 +66,7 @@ public final class A2ARemoteAdapterExample {
         }
         String message = option(args, "--message=", "hello remote");
         String conversationId = option(args, "--conversation-id=", "demo-session");
-        Object result = client.invoke(Map.of(
-                "message", message,
-                "conversation_id", conversationId), null);
+        Object result = client.invoke(Map.of("message", message, "conversation_id", conversationId), null);
         logAgentResult(result);
     }
 

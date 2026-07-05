@@ -4,15 +4,15 @@
 
 package com.openjiuwen.service.adapters.common.external;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests external call executor timeout and executor lifecycle behavior.
@@ -21,17 +21,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class ExternalCallExecutorTest {
     @Test
-    void executeReusesConfiguredTimeoutExecutorWithoutShuttingItDownPerCall() {
+    void execReusesConfTimeoutWithoutShuttingDownPerCall() {
         RecordingExecutorService timeoutExecutor = new RecordingExecutorService();
-        ExternalCallExecutor executor = new ExternalCallExecutor(
-                "test",
-                "target",
-                new TestPolicy(),
-                ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED,
-                ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN,
-                ExternalSvcAdapterErrorCode.SANDBOX_RETRY_INTERRUPTED,
-                ExternalSvcAdapterErrorCode.SANDBOX_TIMEOUT,
-                timeoutExecutor);
+        ExternalCallExecutor executor = new ExternalCallExecutor("test", "target", new TestPolicy(),
+            ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED, ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN,
+            ExternalSvcAdapterErrorCode.SANDBOX_RETRY_INTERRUPTED, ExternalSvcAdapterErrorCode.SANDBOX_TIMEOUT,
+            timeoutExecutor);
 
         assertThat(executor.execute("fs", "readFile", true, () -> "one")).isEqualTo("one");
         assertThat(executor.execute("fs", "readFile", true, () -> "two")).isEqualTo("two");
@@ -44,33 +39,28 @@ class ExternalCallExecutorTest {
     void retryPolicyRejectsNegativeValues() {
         ExternalRetryPolicy retry = new ExternalRetryPolicy();
 
-        assertThatThrownBy(() -> retry.setMax(-1))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("retry.max");
-        assertThatThrownBy(() -> retry.setBackoffMs(-1))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("retry.backoff-ms");
+        assertThatThrownBy(() -> retry.setMax(-1)).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("retry.max");
+        assertThatThrownBy(() -> retry.setBackoffMs(-1)).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("retry.backoff-ms");
     }
 
     @Test
     void circuitBreakerPolicyRejectsNonPositiveValues() {
         ExternalCircuitBreakerPolicy circuitBreaker = new ExternalCircuitBreakerPolicy();
 
-        assertThatThrownBy(() -> circuitBreaker.setFailureThreshold(0))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("failure-threshold");
-        assertThatThrownBy(() -> circuitBreaker.setResetTimeoutMs(0))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("reset-timeout-ms");
+        assertThatThrownBy(() -> circuitBreaker.setFailureThreshold(0)).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("failure-threshold");
+        assertThatThrownBy(() -> circuitBreaker.setResetTimeoutMs(0)).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("reset-timeout-ms");
     }
 
     @Test
     void executorRejectsNonPositiveTimeoutInsteadOfNormalizingIt() {
         TestPolicy policy = new TestPolicy(0);
 
-        assertThatThrownBy(() -> executor(policy))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("timeout-ms");
+        assertThatThrownBy(() -> executor(policy)).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("timeout-ms");
     }
 
     @Test
@@ -83,20 +73,16 @@ class ExternalCallExecutorTest {
         ExternalCallExecutor executor = executor(policy);
 
         for (int index = 0; index < 5; index++) {
-            assertExternalFailureCode(
-                    () -> executor.execute("mcp", "tools/list", false, () -> {
-                        attempts.incrementAndGet();
-                        throw new IllegalStateException("downstream unavailable");
-                    }),
-                    ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
+            assertExternalFailureCode(() -> executor.execute("mcp", "tools/list", false, () -> {
+                attempts.incrementAndGet();
+                throw new IllegalStateException("downstream unavailable");
+            }), ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
         }
 
-        assertExternalFailureCode(
-                () -> executor.execute("mcp", "tools/list", false, () -> {
-                    attempts.incrementAndGet();
-                    return "unexpected";
-                }),
-                ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
+        assertExternalFailureCode(() -> executor.execute("mcp", "tools/list", false, () -> {
+            attempts.incrementAndGet();
+            return "unexpected";
+        }), ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
         assertThat(attempts.get()).isEqualTo(5);
     }
 
@@ -109,29 +95,23 @@ class ExternalCallExecutorTest {
         AtomicInteger attempts = new AtomicInteger();
         ExternalCallExecutor executor = executor(policy);
 
-        assertExternalFailureCode(
-                () -> executor.execute("mcp", "tools/list", false, () -> {
-                    attempts.incrementAndGet();
-                    throw new IllegalStateException("first failure");
-                }),
-                ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
-        assertExternalFailureCode(
-                () -> executor.execute("mcp", "tools/list", false, () -> "blocked"),
-                ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
+        assertExternalFailureCode(() -> executor.execute("mcp", "tools/list", false, () -> {
+            attempts.incrementAndGet();
+            throw new IllegalStateException("first failure");
+        }), ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
+        assertExternalFailureCode(() -> executor.execute("mcp", "tools/list", false, () -> "blocked"),
+            ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
 
         policy.getCircuitBreaker().setResetTimeoutMs(20);
         Thread.sleep(30L);
 
-        assertExternalFailureCode(
-                () -> executor.execute("mcp", "tools/list", false, () -> {
-                    attempts.incrementAndGet();
-                    throw new IllegalStateException("probe failure");
-                }),
-                ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
+        assertExternalFailureCode(() -> executor.execute("mcp", "tools/list", false, () -> {
+            attempts.incrementAndGet();
+            throw new IllegalStateException("probe failure");
+        }), ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
         policy.getCircuitBreaker().setResetTimeoutMs(60000);
-        assertExternalFailureCode(
-                () -> executor.execute("mcp", "tools/list", false, () -> "blocked again"),
-                ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
+        assertExternalFailureCode(() -> executor.execute("mcp", "tools/list", false, () -> "blocked again"),
+            ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
         assertThat(attempts.get()).isEqualTo(2);
     }
 
@@ -144,15 +124,12 @@ class ExternalCallExecutorTest {
         AtomicInteger attempts = new AtomicInteger();
         ExternalCallExecutor executor = executor(policy);
 
-        assertExternalFailureCode(
-                () -> executor.execute("mcp", "tools/list", false, () -> {
-                    attempts.incrementAndGet();
-                    throw new IllegalStateException("first failure");
-                }),
-                ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
-        assertExternalFailureCode(
-                () -> executor.execute("mcp", "tools/list", false, () -> "blocked"),
-                ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
+        assertExternalFailureCode(() -> executor.execute("mcp", "tools/list", false, () -> {
+            attempts.incrementAndGet();
+            throw new IllegalStateException("first failure");
+        }), ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
+        assertExternalFailureCode(() -> executor.execute("mcp", "tools/list", false, () -> "blocked"),
+            ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
 
         policy.getCircuitBreaker().setResetTimeoutMs(20);
         Thread.sleep(30L);
@@ -169,27 +146,24 @@ class ExternalCallExecutorTest {
     }
 
     private ExternalCallExecutor executor(TestPolicy policy) {
-        return new ExternalCallExecutor(
-                "test",
-                "target",
-                policy,
-                ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED,
-                ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN,
-                ExternalSvcAdapterErrorCode.SANDBOX_RETRY_INTERRUPTED,
-                ExternalSvcAdapterErrorCode.SANDBOX_TIMEOUT);
+        return new ExternalCallExecutor("test", "target", policy,
+            ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED, ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN,
+            ExternalSvcAdapterErrorCode.SANDBOX_RETRY_INTERRUPTED, ExternalSvcAdapterErrorCode.SANDBOX_TIMEOUT);
     }
 
     private static void assertExternalFailureCode(Runnable invocation, ExternalSvcAdapterErrorCode errorCode) {
-        assertThatThrownBy(invocation::run)
-                .isInstanceOf(ExternalSvcAdapterException.class)
-                .extracting("errorCode")
-                .isEqualTo(errorCode);
+        assertThatThrownBy(invocation::run).isInstanceOf(ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(errorCode);
     }
 
     private static final class TestPolicy implements ExternalCallPolicy {
         private final ExternalRetryPolicy retry = new ExternalRetryPolicy();
+
         private final ExternalCircuitBreakerPolicy circuitBreaker = new ExternalCircuitBreakerPolicy();
+
         private final ExternalAuditPolicy audit = new ExternalAuditPolicy();
+
         private final int timeoutMs;
 
         private TestPolicy() {
@@ -223,7 +197,9 @@ class ExternalCallExecutorTest {
 
     private static final class RecordingExecutorService extends AbstractExecutorService {
         private int executeCalls;
+
         private int shutdownNowCalls;
+
         private boolean isShutdown;
 
         @Override

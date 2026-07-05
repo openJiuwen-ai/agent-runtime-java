@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.demo;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.core.foundation.tool.Tool;
@@ -13,6 +15,7 @@ import com.openjiuwen.core.runner.base.TagMatchStrategy;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
@@ -33,20 +36,15 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
  * Tests demo MCP profile behavior against a local MCP server.
  *
  * @since 2026-06-24
  */
 @SpringBootTest(properties = {
-        "openjiuwen.demo.llm.enabled=true",
-        "openjiuwen.demo.llm.provider=DemoExternalMcpProvider",
-        "openjiuwen.demo.llm.api-key=test-key",
-        "openjiuwen.demo.llm.api-base=mirror://demo-external-mcp-server",
-        "openjiuwen.demo.llm.model-name=test-model",
-        "openjiuwen.demo.llm.auto-discover=false"
+    "openjiuwen.demo.llm.enabled=true", "openjiuwen.demo.llm.provider=DemoExternalMcpProvider",
+    "openjiuwen.demo.llm.api-key=test-key", "openjiuwen.demo.llm.api-base=mirror://demo-external-mcp-server",
+    "openjiuwen.demo.llm.model-name=test-model", "openjiuwen.demo.llm.auto-discover=false"
 })
 @ActiveProfiles("mcp")
 class DemoExternalMcpServerApplicationTest {
@@ -77,26 +75,13 @@ class DemoExternalMcpServerApplicationTest {
     @Test
     @Tag("smoke")
     void demoStartsLocalMcpServerAndRegistersItsTools() throws Exception {
-        List<ToolInfo> toolInfos = Runner.resourceMgr().getMcpToolInfos(
-                null,
-                "demo-mcp-server",
-                null,
-                null,
-                TagMatchStrategy.ANY,
-                false,
-                false);
+        List<ToolInfo> toolInfos = Runner.resourceMgr()
+            .getMcpToolInfos(null, "demo-mcp-server", null, null, TagMatchStrategy.ANY, false, false);
 
-        assertThat(toolInfos)
-                .extracting(ToolInfo::getName)
-                .containsExactly("demo_echo");
+        assertThat(toolInfos).extracting(ToolInfo::getName).containsExactly("demo_echo");
 
-        Object tools = Runner.resourceMgr().getMcpTool(
-                "demo_echo",
-                "demo-mcp-server",
-                null,
-                null,
-                TagMatchStrategy.ANY,
-                false);
+        Object tools = Runner.resourceMgr()
+            .getMcpTool("demo_echo", "demo-mcp-server", null, null, TagMatchStrategy.ANY, false);
         assertThat(tools).asList().hasSize(1);
         if (!(tools instanceof List<?> toolList)) {
             throw new AssertionError("Expected registered MCP tools");
@@ -111,10 +96,11 @@ class DemoExternalMcpServerApplicationTest {
 
     private static class LocalMcpServer {
         private static final ObjectMapper MAPPER = new ObjectMapper();
-        private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
-        };
+
+        private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
         private final HttpServer server;
+
         private final ExecutorService executor;
 
         private LocalMcpServer(HttpServer server, ExecutorService executor) {
@@ -137,13 +123,8 @@ class DemoExternalMcpServerApplicationTest {
         }
 
         private static ThreadPoolExecutor newServerExecutor() {
-            return new ThreadPoolExecutor(
-                    1,
-                    1,
-                    0L,
-                    TimeUnit.MILLISECONDS,
-                    new LinkedBlockingQueue<>(100),
-                    new ThreadPoolExecutor.AbortPolicy());
+            return new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(100),
+                new ThreadPoolExecutor.AbortPolicy());
         }
 
         private String endpoint() {
@@ -159,34 +140,27 @@ class DemoExternalMcpServerApplicationTest {
             Map<String, Object> request = MAPPER.readValue(exchange.getRequestBody(), MAP_TYPE);
             Object method = request.get("method");
             if ("initialize".equals(method)) {
-                writeJson(exchange, response(request.get("id"), Map.of(
-                        "protocolVersion", "2024-11-05",
-                        "capabilities", Map.of(),
-                        "serverInfo", Map.of("name", "demo-mcp-server", "version", "1.0.0"))));
+                writeJson(exchange, response(request.get("id"),
+                    Map.of("protocolVersion", "2024-11-05", "capabilities", Map.of(), "serverInfo",
+                        Map.of("name", "demo-mcp-server", "version", "1.0.0"))));
                 return;
             }
             if ("tools/list".equals(method)) {
-                writeJson(exchange, response(request.get("id"), Map.of(
-                        "tools", List.of(Map.of(
-                                "name", "demo_echo",
-                                "description", "Echo from demo MCP server",
-                                "inputSchema", Map.of(
-                                        "type", "object",
-                                        "properties", Map.of("text", Map.of("type", "string"))))))));
+                writeJson(exchange, response(request.get("id"), Map.of("tools", List.of(
+                    Map.of("name", "demo_echo", "description", "Echo from demo MCP server", "inputSchema",
+                        Map.of("type", "object", "properties", Map.of("text", Map.of("type", "string"))))))));
                 return;
             }
             if ("tools/call".equals(method)) {
                 Map<String, Object> params = asMap(request.get("params"));
                 Map<String, Object> arguments = asMap(params.get("arguments"));
                 Object text = arguments.getOrDefault("text", "");
-                writeJson(exchange, response(request.get("id"), Map.of(
-                        "content", List.of(Map.of("type", "text", "text", "demo_echo:" + text)))));
+                writeJson(exchange, response(request.get("id"),
+                    Map.of("content", List.of(Map.of("type", "text", "text", "demo_echo:" + text)))));
                 return;
             }
-            writeJson(exchange, Map.of(
-                    "jsonrpc", "2.0",
-                    "id", request.get("id"),
-                    "error", Map.of("code", -32601, "message", "Method not found")));
+            writeJson(exchange, Map.of("jsonrpc", "2.0", "id", request.get("id"), "error",
+                Map.of("code", -32601, "message", "Method not found")));
         }
 
         private Map<String, Object> response(Object id, Map<String, Object> result) {

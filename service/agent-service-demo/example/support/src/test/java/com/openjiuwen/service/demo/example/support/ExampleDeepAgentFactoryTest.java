@@ -7,6 +7,7 @@ package com.openjiuwen.service.demo.example.support;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.harness.deep_agent.DeepAgent;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -45,7 +46,8 @@ class ExampleDeepAgentFactoryTest {
 
         DeepAgent agent = ExampleDeepAgentFactory.build("agent-d", "Agent D", "DeepAgent demo", props);
 
-        assertThat(agent.getConfig().getWorkspacePath()).endsWith("target/deepagents/agent-d");
+        assertThat(agent.getConfig().getWorkspacePath().replace('\\', '/'))
+            .endsWith("target/deepagents/agent-d");
     }
 
     private static DemoLlmProperties props() {

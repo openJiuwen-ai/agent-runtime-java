@@ -9,6 +9,7 @@ import com.openjiuwen.service.spec.lifecycle.AgentLifecycleContext;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.lifecycle.AgentShutdownHook;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -19,25 +20,27 @@ import java.util.List;
 
 /**
  * Drains active streams and runs {@link AgentShutdownHook}s in reverse order.
+ *
+ * @since 0.1.0
  */
 public final class ShutdownPhaseExecutor {
-
     private static final Logger log = LoggerFactory.getLogger(ShutdownPhaseExecutor.class);
 
     private final AgentServiceIdentity identity;
+
     private final AgentLifecycleHooks hooks;
+
     private final DefaultAgentReadiness readiness;
+
     private final ActiveStreamRegistry streamRegistry;
+
     private final ObjectProvider<AgentHandler> agentHandlerProvider;
+
     private final LifecycleProperties properties;
 
-    public ShutdownPhaseExecutor(
-            AgentServiceIdentity identity,
-            AgentLifecycleHooks hooks,
-            DefaultAgentReadiness readiness,
-            ActiveStreamRegistry streamRegistry,
-            ObjectProvider<AgentHandler> agentHandlerProvider,
-            LifecycleProperties properties) {
+    public ShutdownPhaseExecutor(AgentServiceIdentity identity, AgentLifecycleHooks hooks,
+        DefaultAgentReadiness readiness, ActiveStreamRegistry streamRegistry,
+        ObjectProvider<AgentHandler> agentHandlerProvider, LifecycleProperties properties) {
         this.identity = identity;
         this.hooks = hooks;
         this.readiness = readiness;
@@ -46,10 +49,13 @@ public final class ShutdownPhaseExecutor {
         this.properties = properties;
     }
 
+    /**
+     * Runs the shutdown phase hooks and stops the agent handler.
+     */
     public void run() {
         String appName = identity.getAppName();
-        log.info("Starting Agent shutdown phase for application '{}', activeStreams={}",
-                appName, streamRegistry.activeCount());
+        log.info("Starting Agent shutdown phase for application '{}', activeStreams={}", appName,
+            streamRegistry.activeCount());
         readiness.markShuttingDown();
         drainActiveStreams();
         AgentLifecycleContext context = new AgentLifecycleContext(appName);
@@ -76,7 +82,7 @@ public final class ShutdownPhaseExecutor {
         boolean drained = streamRegistry.awaitDrain(properties.getShutdownTimeoutMs());
         if (!drained) {
             log.warn("Active streams not drained within {} ms, forcing cancel (remaining={})",
-                    properties.getShutdownTimeoutMs(), streamRegistry.activeCount());
+                properties.getShutdownTimeoutMs(), streamRegistry.activeCount());
             streamRegistry.cancelAll();
             streamRegistry.awaitDrain(1000L);
         }

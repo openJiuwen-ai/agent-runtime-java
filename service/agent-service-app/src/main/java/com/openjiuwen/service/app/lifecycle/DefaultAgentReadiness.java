@@ -8,11 +8,14 @@ import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 
 /**
  * Default {@link AgentReadiness} backed by lifecycle state.
+ *
+ * @since 2026-07-03
  */
 public class DefaultAgentReadiness implements AgentReadiness {
-
     private volatile boolean processUp = true;
+
     private volatile boolean agentLoaded = false;
+
     private volatile boolean shuttingDown = false;
 
     @Override

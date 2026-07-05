@@ -25,31 +25,36 @@ import java.util.Map;
  */
 public class FoodRecommendInterruptRail extends BaseInterruptRail {
     private static final Gson GSON = new Gson();
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
-    }.getType();
+
+    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
+
     private static final String TOOL_NAME = "food_recommend";
+
     private static final String DEFAULT_REQUEST = "推荐一道适合团队聚餐的菜";
 
     public FoodRecommendInterruptRail() {
         super(List.of(TOOL_NAME));
-        ToolCard card = ToolCard.builder().id(TOOL_NAME).name(TOOL_NAME)
-                .description("Agent C food recommendation tool that asks the user for confirmation")
-                .inputParams(Map.of("type", "object", "properties",
-                        Map.of("request",
-                                Map.of("type", "string", "description", "The dining or food recommendation request")),
-                        "required", List.of("request")))
-                .build();
+        ToolCard card = ToolCard.builder()
+            .id(TOOL_NAME)
+            .name(TOOL_NAME)
+            .description("Agent C food recommendation tool that asks the user for confirmation")
+            .inputParams(Map.of("type", "object", "properties",
+                Map.of("request", Map.of("type", "string", "description", "The dining or food recommendation request")),
+                "required", List.of("request")))
+            .build();
         getTools().add(card);
     }
 
     @Override
     protected InterruptDecision resolveInterrupt(AgentCallbackContext ctx, ToolCall toolCall, Object resumeInput) {
         if (resumeInput != null) {
-            return reject("Agent C received confirmation: " + resumeInput + "; food recommendation: "
-                    + recommendation(extractRequest(toolCall)));
+            return reject("Agent C received confirmation: " + resumeInput + "; food recommendation: " + recommendation(
+                extractRequest(toolCall)));
         }
-        var request = InterruptRequest.builder().message("Agent C 准备根据“" + extractRequest(toolCall) + "”给出餐饮推荐，请确认是否继续")
-                .context(Map.of("_interrupt_kind", "ask_user")).build();
+        var request = InterruptRequest.builder()
+            .message("Agent C 准备根据“" + extractRequest(toolCall) + "”给出餐饮推荐，请确认是否继续")
+            .context(Map.of("_interrupt_kind", "ask_user"))
+            .build();
         return interrupt(request);
     }
 

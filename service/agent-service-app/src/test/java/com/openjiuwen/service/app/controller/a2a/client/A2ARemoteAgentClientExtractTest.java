@@ -7,10 +7,12 @@ package com.openjiuwen.service.app.controller.a2a.client;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.google.gson.Gson;
-import java.util.LinkedHashMap;
-import java.util.Map;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Unit tests for the answer discrimination and business-text extraction in

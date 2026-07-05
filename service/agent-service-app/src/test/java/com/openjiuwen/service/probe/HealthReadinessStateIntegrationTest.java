@@ -4,9 +4,12 @@
 
 package com.openjiuwen.service.probe;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -20,15 +23,14 @@ import org.springframework.test.annotation.DirtiesContext;
 
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
- * Integration tests for health endpoint readiness flags under shutdown and process-down states.
+ * Integration tests for health endpoint readiness flags under shutdown and
+ * process-down states.
  *
  * @since 0.1.0
  */
 @SpringBootTest(classes = HealthReadinessStateIntegrationTest.MinimalAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class HealthReadinessStateIntegrationTest {
     @Autowired
@@ -73,6 +75,5 @@ class HealthReadinessStateIntegrationTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    static class MinimalAgentApplication {
-    }
+    static class MinimalAgentApplication {}
 }

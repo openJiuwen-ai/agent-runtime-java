@@ -4,13 +4,18 @@
 
 package com.openjiuwen.service.app.controller.reset;
 
-import com.openjiuwen.service.spec.dto.ResetConversationRequest;
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
-class ResetIngressSupportTest {
+import com.openjiuwen.service.spec.dto.ResetConversationRequest;
 
+import org.junit.jupiter.api.Test;
+
+/**
+ * ResetIngressSupportTest
+ *
+ * @since 2026-07-03
+ */
+class ResetIngressSupportTest {
     @Test
     void validConversationId() {
         ResetConversationRequest request = new ResetConversationRequest();

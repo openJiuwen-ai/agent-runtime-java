@@ -24,6 +24,7 @@ import java.util.Map;
  */
 public final class ExampleDeepAgentFactory {
     private static final String LANGUAGE = "zh-CN";
+
     private static final String WORKSPACE_ROOT = "target/deepagents";
 
     private ExampleDeepAgentFactory() {
@@ -62,24 +63,39 @@ public final class ExampleDeepAgentFactory {
      * @return a configured DeepAgent
      */
     public static DeepAgent build(String agentId, String name, String description, DemoLlmProperties props,
-            List<Object> rails) {
+        List<Object> rails) {
         String workspacePath = WORKSPACE_ROOT + "/" + agentId;
+        DeepAgentConfig config = DeepAgentConfig.builder()
+            .systemPrompt(props.getSystemPrompt())
+            .maxIterations(props.getMaxIterations())
+            .language(LANGUAGE)
+            .workspacePath(workspacePath)
+            .rails(rails)
+            .model(buildModel(props))
+            .restrictToWorkDir(true)
+            .enableTaskLoop(true)
+            .enableTaskPlanning(false)
+            .addGeneralPurposeAgent(false)
+            .build();
         AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
         Workspace workspace = Workspace.builder().rootPath(workspacePath).language(LANGUAGE).links(Map.of()).build();
-        DeepAgentConfig config = DeepAgentConfig.builder().systemPrompt(props.getSystemPrompt())
-                .maxIterations(props.getMaxIterations()).language(LANGUAGE).workspacePath(workspacePath).rails(rails)
-                .model(buildModel(props)).restrictToWorkDir(true).enableTaskLoop(true).enableTaskPlanning(false)
-                .addGeneralPurposeAgent(false).build();
         return HarnessFactory.createDeepAgent(card, config, workspace);
     }
 
     private static Model buildModel(DemoLlmProperties props) {
         DefaultModelClientFactories.ensureRegistered();
-        ModelClientConfig clientConfig = ModelClientConfig.builder().clientProvider(props.getProvider())
-                .apiKey(props.getApiKey()).apiBase(props.getApiBase()).timeout(props.getTimeout().toSeconds())
-                .verifySsl(props.isSslVerify()).build();
-        ModelRequestConfig requestConfig = ModelRequestConfig.builder().modelName(props.getModelName())
-                .temperature(props.getTemperature()).topP(props.getTopP()).build();
+        ModelClientConfig clientConfig = ModelClientConfig.builder()
+            .clientProvider(props.getProvider())
+            .apiKey(props.getApiKey())
+            .apiBase(props.getApiBase())
+            .timeout(props.getTimeout().toSeconds())
+            .verifySsl(props.isSslVerify())
+            .build();
+        ModelRequestConfig requestConfig = ModelRequestConfig.builder()
+            .modelName(props.getModelName())
+            .temperature(props.getTemperature())
+            .topP(props.getTopP())
+            .build();
         return new Model(clientConfig, requestConfig);
     }
 }

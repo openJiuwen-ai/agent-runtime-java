@@ -11,6 +11,9 @@ import com.openjiuwen.service.spec.dto.ResetConversationResponse;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
+
+import jakarta.servlet.http.HttpServletResponse;
+
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -21,46 +24,63 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Map;
 
 /**
- * MVC stack reset conversation controller ({@code POST /v1/reset_conversation} and legacy path).
+ * MVC stack reset conversation controller ({@code POST /v1/reset_conversation}
+ * and legacy path).
+ *
+ * @since 0.1.0
  */
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class ResetConversationMvcController {
-
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
+
     private final ObjectProvider<AgentReadiness> readinessProvider;
+
     private final ObjectMapper objectMapper;
 
     public ResetConversationMvcController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
-                                          ObjectProvider<AgentReadiness> readinessProvider,
-                                          ObjectMapper objectMapper) {
+        ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
         this.orchestratorProvider = orchestratorProvider;
         this.readinessProvider = readinessProvider;
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Resets conversation state on the v1 path.
+     *
+     * @param request the reset request body
+     * @param response the servlet response
+     * @return the reset response, or {@code null} when an error body was written
+     * @throws IOException IOException
+     */
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_V1, produces = MediaType.APPLICATION_JSON_VALUE)
     public ResetConversationResponse resetV1(@RequestBody ResetConversationRequest request,
-                                           HttpServletResponse response) throws IOException {
+        HttpServletResponse response) throws IOException {
         return handleReset(request, response);
     }
 
+    /**
+     * Resets conversation state on the legacy path.
+     *
+     * @param request the reset request body
+     * @param response the servlet response
+     * @return the reset response, or {@code null} when an error body was written
+     * @throws IOException IOException
+     */
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_LEGACY, produces = MediaType.APPLICATION_JSON_VALUE)
-    @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled",
-            havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true",
+        matchIfMissing = true)
     public ResetConversationResponse resetLegacy(@RequestBody ResetConversationRequest request,
-                                                 HttpServletResponse response) throws IOException {
+        HttpServletResponse response) throws IOException {
         return handleReset(request, response);
     }
 
-    private ResetConversationResponse handleReset(ResetConversationRequest request,
-                                                  HttpServletResponse response) throws IOException {
+    private ResetConversationResponse handleReset(ResetConversationRequest request, HttpServletResponse response)
+        throws IOException {
         ResetIngressSupport.ValidationResult validation = ResetIngressSupport.validate(request);
         if (!validation.valid()) {
             writeJson(response, validation.errorStatus(), validation.errorBody());

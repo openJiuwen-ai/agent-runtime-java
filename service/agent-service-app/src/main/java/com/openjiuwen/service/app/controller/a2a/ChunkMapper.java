@@ -6,9 +6,11 @@ package com.openjiuwen.service.app.controller.a2a;
 
 import com.google.gson.Gson;
 import com.openjiuwen.service.spec.dto.QueryChunk;
-import java.util.List;
+
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.TextPart;
+
+import java.util.List;
 
 /**
  * Lightweight QueryChunk → List{@code <Part<?>>} mapper. Protocol-layer conversion only — no filtering or business

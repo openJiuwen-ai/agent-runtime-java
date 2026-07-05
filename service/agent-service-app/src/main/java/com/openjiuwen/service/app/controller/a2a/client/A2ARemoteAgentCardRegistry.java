@@ -4,12 +4,13 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import org.a2aproject.sdk.spec.AgentCard;
+import org.springframework.stereotype.Component;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import org.a2aproject.sdk.spec.AgentCard;
-import org.springframework.stereotype.Component;
 
 /**
  * Thread-safe in-memory registry of discovered remote A2A AgentCards.
@@ -75,8 +76,7 @@ public class A2ARemoteAgentCardRegistry {
     /**
      * A registered remote agent entry holding the card and timeout configuration.
      */
-    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds) {
-    }
+    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds) {}
 
     /**
      * Registers a remote agent card with a specific timeout.

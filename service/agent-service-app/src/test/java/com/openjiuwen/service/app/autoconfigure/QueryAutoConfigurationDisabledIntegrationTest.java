@@ -4,18 +4,21 @@
 
 package com.openjiuwen.service.app.autoconfigure;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -26,26 +29,25 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * QueryAutoConfigurationDisabledIntegrationTest
+ *
+ * @since 2026-07-03
+ */
 @SpringBootTest(classes = QueryAutoConfigurationDisabledIntegrationTest.MinimalAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
-        "openjiuwen.service.query.enabled=false",
-        "openjiuwen.service.query.webflux.enabled=false"
+    "openjiuwen.service.query.enabled=false", "openjiuwen.service.query.webflux.enabled=false"
 })
 @AutoConfigureTestRestTemplate
 class QueryAutoConfigurationDisabledIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 
     @Test
     void queryEnabledPropertyDoesNotPreventQueryEndpointAutoRegistration() {
-        ResponseEntity<String> resp = postQuery("/v1/query", Map.of(
-                "message", "hello",
-                "conversation_id", "c-query-disabled",
-                "stream", false));
+        ResponseEntity<String> resp = postQuery("/v1/query",
+            Map.of("message", "hello", "conversation_id", "c-query-disabled", "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
@@ -59,7 +61,6 @@ class QueryAutoConfigurationDisabledIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class MinimalAgentApplication {
-
         @Bean
         AgentHandler customAgentHandler() {
             return new DisabledQueryAgentHandler();
@@ -67,7 +68,6 @@ class QueryAutoConfigurationDisabledIntegrationTest {
     }
 
     static class DisabledQueryAgentHandler implements AgentHandler {
-
         @Override
         public QueryResponse query(ServeRequest request) {
             return new QueryResponse(Map.of("content", "query-disabled"), request.getConversationId());

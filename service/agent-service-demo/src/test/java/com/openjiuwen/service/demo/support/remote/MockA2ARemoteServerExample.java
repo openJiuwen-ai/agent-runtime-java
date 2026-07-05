@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,12 +24,15 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Internal test helper: local A2A JSON-RPC mock server.
+ *
+ * @since 2026-07-03
  */
 public class MockA2ARemoteServerExample {
     private static final Logger log = LoggerFactory.getLogger(MockA2ARemoteServerExample.class);
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
-    };
+
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
     public static void main(String[] args) throws Exception {
         Map<String, String> options = parseArgs(args);
@@ -41,18 +45,12 @@ public class MockA2ARemoteServerExample {
         server.start();
 
         String ready = "http://127.0.0.1:" + port + "/a2a/jsonrpc";
-        System.out.println("Mock A2A remote server started at " + ready);
         log.info("Mock A2A remote server started at {}", ready);
     }
 
     private static ThreadPoolExecutor newServerExecutor() {
-        return new ThreadPoolExecutor(
-                2,
-                2,
-                0L,
-                TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<>(100),
-                new ThreadPoolExecutor.AbortPolicy());
+        return new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(100),
+            new ThreadPoolExecutor.AbortPolicy());
     }
 
     private void handle(HttpExchange exchange) throws IOException {
@@ -74,7 +72,6 @@ public class MockA2ARemoteServerExample {
     private Map<String, Object> sendMessageResponse(Map<String, Object> request) {
         Map<String, Object> params = asMap(request.get("params"));
         Map<String, Object> message = asMap(params.get("message"));
-        String text = firstText(message);
         Object contextId = message.get("contextId");
         Object taskId = message.getOrDefault("taskId", contextId);
 
@@ -87,6 +84,7 @@ public class MockA2ARemoteServerExample {
         if (taskId != null) {
             responseMessage.put("taskId", String.valueOf(taskId));
         }
+        String text = firstText(message);
         responseMessage.put("parts", List.of(Map.of("text", "mock a2a response: " + text)));
 
         Map<String, Object> result = new LinkedHashMap<>();

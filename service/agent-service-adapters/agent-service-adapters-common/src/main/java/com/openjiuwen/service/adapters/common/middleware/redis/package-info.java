@@ -3,6 +3,8 @@
  */
 
 /**
- * Redis connection assembly and client factories for engine-agnostic middleware adapters.
+ * Redis connection assembly and client factories for engine-agnostic middleware
+ * adapters.
  */
+
 package com.openjiuwen.service.adapters.common.middleware.redis;

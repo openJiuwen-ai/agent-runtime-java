@@ -4,6 +4,9 @@
 
 package com.openjiuwen.service.adapters.agentcore.external;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
 import com.openjiuwen.core.sysop.result.ExecuteCmdResult;
 import com.openjiuwen.core.sysop.result.ExecuteCodeResult;
@@ -15,12 +18,11 @@ import com.openjiuwen.core.sysop.sandbox.SandboxFsOperation;
 import com.openjiuwen.core.sysop.sandbox.SandboxShellOperation;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterErrorCode;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterException;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Tests sandbox client decoration behavior for external adapter policies.
@@ -37,8 +39,8 @@ class DecoratingSandboxClientTest {
 
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
-        assertThat(client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of()))
-                .isInstanceOf(ReadFileResult.class);
+        assertThat(client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of())).isInstanceOf(
+            ReadFileResult.class);
         assertThat(delegate.fs.readFileAttempts).isEqualTo(2);
     }
 
@@ -70,11 +72,11 @@ class DecoratingSandboxClientTest {
 
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
-        assertThatThrownBy(() -> client.fs().writeFile(
-                "/tmp/a.txt", "content", "text", false, false, true, null, "UTF-8", Map.of()))
-                .isInstanceOf(ExternalSvcAdapterException.class)
-                .extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(() -> client.fs()
+            .writeFile("/tmp/a.txt", "content", "text", false, false, true, null, "UTF-8", Map.of())).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
         assertThat(delegate.fs.writeFileAttempts).isEqualTo(1);
     }
 
@@ -88,14 +90,15 @@ class DecoratingSandboxClientTest {
 
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
-        assertThatThrownBy(() -> client.shell().executeCmd("echo sandbox", ".", 0, Map.of(), Map.of()))
-                .isInstanceOf(ExternalSvcAdapterException.class)
-                .extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
-        assertThatThrownBy(() -> client.code().executeCode("print('sandbox')", "python", 0, Map.of(), Map.of()))
-                .isInstanceOf(ExternalSvcAdapterException.class)
-                .extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(() -> client.shell().executeCmd("echo sandbox", ".", 0, Map.of(), Map.of())).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(
+            () -> client.code().executeCode("print('sandbox')", "python", 0, Map.of(), Map.of())).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
         assertThat(delegate.shell.executeCmdAttempts).isEqualTo(1);
         assertThat(delegate.code.executeCodeAttempts).isEqualTo(1);
     }
@@ -108,10 +111,10 @@ class DecoratingSandboxClientTest {
 
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
-        assertThat(client.shell().executeCmd("echo sandbox", ".", 0, Map.of(), Map.of()))
-                .isInstanceOf(ExecuteCmdResult.class);
-        assertThat(client.code().executeCode("print('sandbox')", "python", 0, Map.of(), Map.of()))
-                .isInstanceOf(ExecuteCodeResult.class);
+        assertThat(client.shell().executeCmd("echo sandbox", ".", 0, Map.of(), Map.of())).isInstanceOf(
+            ExecuteCmdResult.class);
+        assertThat(client.code().executeCode("print('sandbox')", "python", 0, Map.of(), Map.of())).isInstanceOf(
+            ExecuteCodeResult.class);
         assertThat(delegate.shell.lastExecuteCmdTimeout).isEqualTo(3);
         assertThat(delegate.code.lastExecuteCodeTimeout).isEqualTo(3);
     }
@@ -127,14 +130,16 @@ class DecoratingSandboxClientTest {
 
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
-        assertThatThrownBy(() -> client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of()))
-                .isInstanceOf(ExternalSvcAdapterException.class)
-                .extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
-        assertThatThrownBy(() -> client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of()))
-                .isInstanceOf(ExternalSvcAdapterException.class)
-                .extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
+        assertThatThrownBy(
+            () -> client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of())).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
+        assertThatThrownBy(
+            () -> client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of())).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
         assertThat(delegate.fs.readFileAttempts).isEqualTo(1);
     }
 
@@ -147,10 +152,11 @@ class DecoratingSandboxClientTest {
 
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
-        assertThatThrownBy(() -> client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of()))
-                .isInstanceOf(ExternalSvcAdapterException.class)
-                .extracting("errorCode")
-                .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_TIMEOUT);
+        assertThatThrownBy(
+            () -> client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of())).isInstanceOf(
+                ExternalSvcAdapterException.class)
+            .extracting("errorCode")
+            .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_TIMEOUT);
     }
 
     private AgentCoreExternalProperties.SandboxPolicy policy() {
@@ -162,7 +168,9 @@ class DecoratingSandboxClientTest {
 
     private static final class RecordingSandboxClient extends SandboxClient {
         private final RecordingSandboxFsOperation fs = new RecordingSandboxFsOperation();
+
         private final RecordingSandboxShellOperation shell = new RecordingSandboxShellOperation();
+
         private final RecordingSandboxCodeOperation code = new RecordingSandboxCodeOperation();
 
         private RecordingSandboxClient() {
@@ -186,10 +194,16 @@ class DecoratingSandboxClientTest {
     }
 
     private static final class RecordingSandboxFsOperation extends SandboxFsOperation {
+        private final AtomicBoolean isInterrupted = new AtomicBoolean(false);
+
         private int readFileAttempts;
+
         private int writeFileAttempts;
+
         private int failReadFileAttempts;
+
         private int failWriteFileAttempts;
+
         private long readFileSleepMs;
 
         private RecordingSandboxFsOperation() {
@@ -197,15 +211,8 @@ class DecoratingSandboxClientTest {
         }
 
         @Override
-        public ReadFileResult readFile(
-                String path,
-                String mode,
-                Integer head,
-                Integer tail,
-                int[] lineRange,
-                String encoding,
-                int chunkSize,
-                Map<String, Object> options) {
+        public ReadFileResult readFile(String path, String mode, Integer head, Integer tail, int[] lineRange,
+            String encoding, int chunkSize, Map<String, Object> options) {
             readFileAttempts++;
             sleep(readFileSleepMs);
             if (readFileAttempts <= failReadFileAttempts) {
@@ -215,16 +222,9 @@ class DecoratingSandboxClientTest {
         }
 
         @Override
-        public WriteFileResult writeFile(
-                String path,
-                Object content,
-                String mode,
-                boolean shouldPrependNewline,
-                boolean shouldAppendNewline,
-                boolean shouldCreateIfNotExist,
-                String permissions,
-                String encoding,
-                Map<String, Object> options) {
+        public WriteFileResult writeFile(String path, Object content, String mode, boolean shouldPrependNewline,
+            boolean shouldAppendNewline, boolean shouldCreate, String permissions, String encoding,
+            Map<String, Object> options) {
             writeFileAttempts++;
             if (writeFileAttempts <= failWriteFileAttempts) {
                 throw new IllegalStateException("write boom");
@@ -236,18 +236,22 @@ class DecoratingSandboxClientTest {
             if (millis <= 0) {
                 return;
             }
-            try {
-                Thread.sleep(millis);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Sandbox test sleep interrupted", ex);
+            long startTime = System.currentTimeMillis();
+            while (!isInterrupted.get() && (System.currentTimeMillis() - startTime) < millis) {
+                // 使用更高效的等待机制（如 LockSupport.parkNanos()）
+                java.util.concurrent.locks.LockSupport.parkNanos(1000000); // 等待1ms，避免忙等待
+            }
+            if (isInterrupted.get()) {
+                throw new IllegalStateException("Sandbox test sleep interrupted");
             }
         }
     }
 
     private static final class RecordingSandboxShellOperation extends SandboxShellOperation {
         private int executeCmdAttempts;
+
         private int failExecuteCmdAttempts;
+
         private int lastExecuteCmdTimeout;
 
         private RecordingSandboxShellOperation() {
@@ -255,12 +259,8 @@ class DecoratingSandboxClientTest {
         }
 
         @Override
-        public ExecuteCmdResult executeCmd(
-                String command,
-                String cwd,
-                int timeout,
-                Map<String, String> environment,
-                Map<String, Object> options) {
+        public ExecuteCmdResult executeCmd(String command, String cwd, int timeout, Map<String, String> environment,
+            Map<String, Object> options) {
             executeCmdAttempts++;
             lastExecuteCmdTimeout = timeout;
             if (executeCmdAttempts <= failExecuteCmdAttempts) {
@@ -272,7 +272,9 @@ class DecoratingSandboxClientTest {
 
     private static final class RecordingSandboxCodeOperation extends SandboxCodeOperation {
         private int executeCodeAttempts;
+
         private int failExecuteCodeAttempts;
+
         private int lastExecuteCodeTimeout;
 
         private RecordingSandboxCodeOperation() {
@@ -280,12 +282,8 @@ class DecoratingSandboxClientTest {
         }
 
         @Override
-        public ExecuteCodeResult executeCode(
-                String code,
-                String language,
-                int timeout,
-                Map<String, String> environment,
-                Map<String, Object> options) {
+        public ExecuteCodeResult executeCode(String code, String language, int timeout, Map<String, String> environment,
+            Map<String, Object> options) {
             executeCodeAttempts++;
             lastExecuteCodeTimeout = timeout;
             if (executeCodeAttempts <= failExecuteCodeAttempts) {
