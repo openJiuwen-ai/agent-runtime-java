@@ -9,6 +9,8 @@ import com.openjiuwen.core.foundation.tool.mcp.McpServerConfig;
 import com.openjiuwen.service.adapters.common.external.ExternalCallExecutor;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterErrorCode;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +23,11 @@ import java.util.Optional;
  * @since 2026-06-24
  */
 public class DecoratingMcpClient implements McpClient {
-    private static final float FLOAT_COMPARISON_EPSILON = 0.000001F;
+    private static final BigDecimal FLOAT_COMPARISON_EPSILON = new BigDecimal("0.000001");
+
+    private static final BigDecimal MILLIS_PER_SECOND = BigDecimal.valueOf(1000);
+
+    private static final BigDecimal ZERO = BigDecimal.ZERO;
 
     private final McpServerConfig config;
 
@@ -86,17 +92,21 @@ public class DecoratingMcpClient implements McpClient {
     }
 
     private float resolveTimeout(float requestedTimeout) {
-        if (isDifferentTimeout(requestedTimeout, McpServerConfig.NO_TIMEOUT) && requestedTimeout > 0) {
-            return requestedTimeout;
+        BigDecimal requested = BigDecimal.valueOf(requestedTimeout);
+        if (isDifferentTimeout(requested, BigDecimal.valueOf(McpServerConfig.NO_TIMEOUT))
+            && requested.compareTo(ZERO) > 0) {
+            return requested.floatValue();
         }
         if (policy.getTimeoutMs() <= 0) {
             return McpServerConfig.NO_TIMEOUT;
         }
-        return policy.getTimeoutMs() / 1000.0f;
+        return BigDecimal.valueOf(policy.getTimeoutMs())
+            .divide(MILLIS_PER_SECOND, 6, RoundingMode.HALF_UP)
+            .floatValue();
     }
 
-    private boolean isDifferentTimeout(float left, float right) {
-        return Math.abs(left - right) > FLOAT_COMPARISON_EPSILON;
+    private boolean isDifferentTimeout(BigDecimal left, BigDecimal right) {
+        return left.subtract(right).abs().compareTo(FLOAT_COMPARISON_EPSILON) > 0;
     }
 
     private String serverLabel() {

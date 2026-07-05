@@ -72,7 +72,6 @@ public class MockA2ARemoteServerExample {
     private Map<String, Object> sendMessageResponse(Map<String, Object> request) {
         Map<String, Object> params = asMap(request.get("params"));
         Map<String, Object> message = asMap(params.get("message"));
-        String text = firstText(message);
         Object contextId = message.get("contextId");
         Object taskId = message.getOrDefault("taskId", contextId);
 
@@ -85,6 +84,7 @@ public class MockA2ARemoteServerExample {
         if (taskId != null) {
             responseMessage.put("taskId", String.valueOf(taskId));
         }
+        String text = firstText(message);
         responseMessage.put("parts", List.of(Map.of("text", "mock a2a response: " + text)));
 
         Map<String, Object> result = new LinkedHashMap<>();

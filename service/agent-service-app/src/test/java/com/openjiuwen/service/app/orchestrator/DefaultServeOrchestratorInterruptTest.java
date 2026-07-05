@@ -29,35 +29,31 @@ import java.util.concurrent.atomic.AtomicBoolean;
 class DefaultServeOrchestratorInterruptTest {
     @Test
     void cancelActiveStopsStreamingObserver() throws Exception {
-        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         CountDownLatch started = new CountDownLatch(1);
-        AtomicBoolean completed = new AtomicBoolean(false);
-
         AgentHandler handler = new AgentHandler() {
-            @Override
-            public com.openjiuwen.service.spec.dto.QueryResponse query(
-                com.openjiuwen.service.spec.dto.ServeRequest request) {
-                return null;
-            }
-
             @Override
             public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
                 observer.onNext(new QueryChunk("chunk", Map.of("content", "tick")));
                 started.countDown();
                 while (!observer.isCancelled()) {
                     observer.onNext(new QueryChunk("chunk", Map.of("content", "tick")));
-                    // 使用更高效的等待机制（如 LockSupport.parkNanos()）
-                    java.util.concurrent.locks.LockSupport.parkNanos(1000000); // 等待1ms，避免忙等待
+                    java.util.concurrent.locks.LockSupport.parkNanos(1_000_000);
                 }
                 observer.onComplete();
             }
-        };
 
+            @Override
+            public com.openjiuwen.service.spec.dto.QueryResponse query(
+                com.openjiuwen.service.spec.dto.ServeRequest request) {
+                return null;
+            }
+        };
+        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, registry);
         ServeRequest request = new ServeRequest();
         request.setConversationId("interrupt-me");
         List<QueryChunk> chunks = new ArrayList<>();
-
+        AtomicBoolean completed = new AtomicBoolean(false);
         Thread worker = new Thread(() -> orchestrator.streamQuery(request, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
@@ -89,9 +85,7 @@ class DefaultServeOrchestratorInterruptTest {
 
     @Test
     void syncQueryNotAffectedByInterrupt() throws Exception {
-        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         java.util.concurrent.atomic.AtomicBoolean queryFinished = new java.util.concurrent.atomic.AtomicBoolean(false);
-
         AgentHandler handler = new AgentHandler() {
             @Override
             public com.openjiuwen.service.spec.dto.QueryResponse query(ServeRequest request) {
@@ -108,11 +102,10 @@ class DefaultServeOrchestratorInterruptTest {
             public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
             }
         };
-
+        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, registry);
         ServeRequest request = new ServeRequest();
         request.setConversationId("sync-conv");
-
         Thread worker = new Thread(() -> orchestrator.query(request));
         worker.setUncaughtExceptionHandler((unused, error) -> {
             throw new AssertionError(error);

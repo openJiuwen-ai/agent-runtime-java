@@ -25,7 +25,6 @@ import java.util.Map;
 class DefaultAgentCoreSandboxClientFactoryTest {
     @Test
     void mapsValidSandboxServerConfigToVendorCoreGatewayConfig() {
-        AgentCoreExternalProperties properties = properties();
         AgentCoreExternalProperties.SandboxServer server = new AgentCoreExternalProperties.SandboxServer();
         server.setServerId("default");
         server.setServiceUrl("http://localhost:18090");
@@ -39,6 +38,7 @@ class DefaultAgentCoreSandboxClientFactoryTest {
         server.setExtraParams(Map.of("sandbox_id", "sbx-1"));
         server.setTimeoutMs(4500);
         server.setIdleTtlSeconds(60);
+        AgentCoreExternalProperties properties = properties();
         properties.getSandbox().setServers(java.util.List.of(server));
 
         SandboxGatewayConfig config = new DefaultAgentCoreSandboxClientFactory(properties).configFor("default");

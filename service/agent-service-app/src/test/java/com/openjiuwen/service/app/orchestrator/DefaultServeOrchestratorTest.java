@@ -31,10 +31,7 @@ class DefaultServeOrchestratorTest {
 
     @Test
     void queryDelegatesToHandler() {
-        ServeRequest request = new ServeRequest();
-        request.setConversationId("c1");
         QueryResponse expected = new QueryResponse(Map.of("content", "ok"), "c1");
-
         AgentHandler handler = new AgentHandler() {
             @Override
             public QueryResponse query(ServeRequest req) {
@@ -46,31 +43,30 @@ class DefaultServeOrchestratorTest {
             public void streamQuery(ServeRequest req, QueryStreamObserver observer) {
             }
         };
-
         DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c1");
         assertThat(orchestrator.query(request)).isEqualTo(expected);
     }
 
     @Test
     void streamQueryDelegatesToHandler() {
-        ServeRequest request = new ServeRequest();
-        request.setConversationId("c2");
-        List<QueryChunk> chunks = new ArrayList<>();
-
         AgentHandler handler = new AgentHandler() {
-            @Override
-            public QueryResponse query(ServeRequest req) {
-                return null;
-            }
-
             @Override
             public void streamQuery(ServeRequest req, QueryStreamObserver observer) {
                 observer.onNext(new QueryChunk("chunk", Map.of("content", "ok")));
                 observer.onComplete();
             }
-        };
 
+            @Override
+            public QueryResponse query(ServeRequest req) {
+                return null;
+            }
+        };
+        List<QueryChunk> chunks = new ArrayList<>();
         DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c2");
         orchestrator.streamQuery(request, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
@@ -92,25 +88,23 @@ class DefaultServeOrchestratorTest {
 
     @Test
     void streamQuerySurfacesHandlerExceptionAsErrorEvent() {
-        ServeRequest request = new ServeRequest();
-        request.setConversationId("c-error");
-        List<QueryChunk> chunks = new ArrayList<>();
-        AtomicReference<Throwable> streamError = new AtomicReference<>();
-        AtomicBoolean completed = new AtomicBoolean();
-
         AgentHandler handler = new AgentHandler() {
-            @Override
-            public QueryResponse query(ServeRequest req) {
-                return null;
-            }
-
             @Override
             public void streamQuery(ServeRequest req, QueryStreamObserver observer) {
                 throw new RuntimeException("boom");
             }
-        };
 
+            @Override
+            public QueryResponse query(ServeRequest req) {
+                return null;
+            }
+        };
+        List<QueryChunk> chunks = new ArrayList<>();
         DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
+        ServeRequest request = new ServeRequest();
+        AtomicReference<Throwable> streamError = new AtomicReference<>();
+        request.setConversationId("c-error");
+        AtomicBoolean completed = new AtomicBoolean();
         orchestrator.streamQuery(request, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {

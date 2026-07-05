@@ -131,9 +131,7 @@ public class QueryL1RestExample {
             String query = request.lastUserQuery();
             List<String> history = conversationHistory.computeIfAbsent(request.getConversationId(),
                 ignored -> new ArrayList<>());
-            String previousQuery = history.isEmpty() ? null : history.get(history.size() - 1);
             history.add(query);
-
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("role", "assistant");
             body.put("content", "query-l1:" + query);
@@ -145,6 +143,7 @@ public class QueryL1RestExample {
             body.put("messages_size", request.getMessages().size());
             body.put("stream", request.isStream());
             body.put("turn", history.size());
+            String previousQuery = history.size() > 1 ? history.get(history.size() - 2) : null;
             body.put("previous_query", previousQuery);
             body.put("chunk_index", chunkIndex);
             return body;

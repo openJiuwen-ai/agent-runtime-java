@@ -24,10 +24,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 class DefaultServeOrchestratorResetTest {
     @Test
     void resetConversationCancelsActiveStreamAndClearsSession() {
-        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         AtomicBoolean cleared = new AtomicBoolean(false);
-
         AgentHandler handler = new AgentHandler() {
+            @Override
+            public void clearSession(String conversationId) {
+                cleared.set(true);
+                assertThat(conversationId).isEqualTo("reset-me");
+            }
+
             @Override
             public QueryResponse query(ServeRequest request) {
                 return null;
@@ -36,14 +40,8 @@ class DefaultServeOrchestratorResetTest {
             @Override
             public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
             }
-
-            @Override
-            public void clearSession(String conversationId) {
-                cleared.set(true);
-                assertThat(conversationId).isEqualTo("reset-me");
-            }
         };
-
+        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, registry);
         var handle = registry.register("reset-me");
 
@@ -56,10 +54,13 @@ class DefaultServeOrchestratorResetTest {
 
     @Test
     void resetConversationCancelsBeforeClearSession() {
-        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         java.util.List<String> order = new java.util.ArrayList<>();
-
         AgentHandler handler = new AgentHandler() {
+            @Override
+            public void clearSession(String conversationId) {
+                order.add("clear");
+            }
+
             @Override
             public QueryResponse query(ServeRequest request) {
                 return null;
@@ -68,13 +69,8 @@ class DefaultServeOrchestratorResetTest {
             @Override
             public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
             }
-
-            @Override
-            public void clearSession(String conversationId) {
-                order.add("clear");
-            }
         };
-
+        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, registry);
         var handle = registry.register("order-me");
 
@@ -86,10 +82,13 @@ class DefaultServeOrchestratorResetTest {
 
     @Test
     void resetConversationSkipsBlankConversationId() {
-        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         AtomicBoolean cleared = new AtomicBoolean(false);
-
         AgentHandler handler = new AgentHandler() {
+            @Override
+            public void clearSession(String conversationId) {
+                cleared.set(true);
+            }
+
             @Override
             public QueryResponse query(ServeRequest request) {
                 return null;
@@ -98,13 +97,8 @@ class DefaultServeOrchestratorResetTest {
             @Override
             public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
             }
-
-            @Override
-            public void clearSession(String conversationId) {
-                cleared.set(true);
-            }
         };
-
+        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, registry);
 
         orchestrator.resetConversation("");
@@ -115,10 +109,14 @@ class DefaultServeOrchestratorResetTest {
 
     @Test
     void resetConversationClearsSessionWithoutActiveStream() {
-        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         AtomicBoolean cleared = new AtomicBoolean(false);
-
         AgentHandler handler = new AgentHandler() {
+            @Override
+            public void clearSession(String conversationId) {
+                cleared.set(true);
+                assertThat(conversationId).isEqualTo("idle-me");
+            }
+
             @Override
             public QueryResponse query(ServeRequest request) {
                 return null;
@@ -127,14 +125,8 @@ class DefaultServeOrchestratorResetTest {
             @Override
             public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
             }
-
-            @Override
-            public void clearSession(String conversationId) {
-                cleared.set(true);
-                assertThat(conversationId).isEqualTo("idle-me");
-            }
         };
-
+        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, registry);
 
         orchestrator.resetConversation("idle-me");

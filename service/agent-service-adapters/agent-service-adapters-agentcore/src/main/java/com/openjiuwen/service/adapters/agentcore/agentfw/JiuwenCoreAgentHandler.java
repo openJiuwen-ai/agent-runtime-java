@@ -501,7 +501,6 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (!(payload instanceof Map<?, ?> map)) {
             return;
         }
-        Object type = map.get("type");
         Object rawPayload = map.get("payload");
         Optional<Object> text = firstNonNull(map.get("content"), map.get("delta"), map.get("output"),
             map.get("response"));
@@ -515,6 +514,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (text.isEmpty()) {
             return;
         }
+        Object type = map.get("type");
         String typeText = type == null ? "" : String.valueOf(type);
         if ("answer".equals(typeText) && !content.isEmpty()) {
             return;

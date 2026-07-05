@@ -9,6 +9,8 @@ import com.openjiuwen.core.sysop.config.SandboxIsolationConfig;
 import com.openjiuwen.core.sysop.config.SandboxLauncherConfig;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -85,7 +87,10 @@ public class DefaultAgentCoreSandboxClientFactory implements AgentCoreSandboxCli
     }
 
     private static int toTimeoutSeconds(int timeoutMs) {
-        return Math.max(1, (int) Math.ceil(timeoutMs / 1000.0d));
+        int timeoutSeconds = BigDecimal.valueOf(timeoutMs)
+            .divide(BigDecimal.valueOf(1000), 0, RoundingMode.CEILING)
+            .intValue();
+        return Math.max(1, timeoutSeconds);
     }
 
     private static String defaultText(String value, String fallback) {

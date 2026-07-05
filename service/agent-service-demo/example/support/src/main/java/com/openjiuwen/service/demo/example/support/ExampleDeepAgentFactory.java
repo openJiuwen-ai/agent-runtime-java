@@ -65,8 +65,6 @@ public final class ExampleDeepAgentFactory {
     public static DeepAgent build(String agentId, String name, String description, DemoLlmProperties props,
         List<Object> rails) {
         String workspacePath = WORKSPACE_ROOT + "/" + agentId;
-        AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
-        Workspace workspace = Workspace.builder().rootPath(workspacePath).language(LANGUAGE).links(Map.of()).build();
         DeepAgentConfig config = DeepAgentConfig.builder()
             .systemPrompt(props.getSystemPrompt())
             .maxIterations(props.getMaxIterations())
@@ -79,6 +77,8 @@ public final class ExampleDeepAgentFactory {
             .enableTaskPlanning(false)
             .addGeneralPurposeAgent(false)
             .build();
+        AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
+        Workspace workspace = Workspace.builder().rootPath(workspacePath).language(LANGUAGE).links(Map.of()).build();
         return HarnessFactory.createDeepAgent(card, config, workspace);
     }
 

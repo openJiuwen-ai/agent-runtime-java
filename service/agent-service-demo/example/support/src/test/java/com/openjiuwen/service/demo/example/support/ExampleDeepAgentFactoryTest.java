@@ -46,7 +46,8 @@ class ExampleDeepAgentFactoryTest {
 
         DeepAgent agent = ExampleDeepAgentFactory.build("agent-d", "Agent D", "DeepAgent demo", props);
 
-        assertThat(agent.getConfig().getWorkspacePath()).endsWith("target/deepagents/agent-d");
+        assertThat(agent.getConfig().getWorkspacePath().replace('\\', '/'))
+            .endsWith("target/deepagents/agent-d");
     }
 
     private static DemoLlmProperties props() {

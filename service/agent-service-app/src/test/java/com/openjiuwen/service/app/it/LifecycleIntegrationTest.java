@@ -231,8 +231,13 @@ class LifecycleIntegrationTest {
         public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
             observer.onNext(new QueryChunk("chunk", Map.of("content", "tick")));
             startedLatch.countDown();
-            while (!observer.isCancelled()) {
-                Thread.yield();
+            CountDownLatch cancelPoll = new CountDownLatch(1);
+            try {
+                while (!observer.isCancelled()) {
+                    cancelPoll.await(10, TimeUnit.MILLISECONDS);
+                }
+            } catch (InterruptedException ex) {
+                // Do nothing
             }
             observer.onComplete();
         }

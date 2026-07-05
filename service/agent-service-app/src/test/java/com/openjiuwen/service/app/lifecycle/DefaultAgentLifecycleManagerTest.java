@@ -149,14 +149,19 @@ class DefaultAgentLifecycleManagerTest {
 
     @Test
     void fullInitShutdownWorkflowRunsHooksAndHandlerLifecycle() {
-        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
-        ActiveStreamRegistry registry = new ActiveStreamRegistry();
         AtomicBoolean startCalled = new AtomicBoolean(false);
         AtomicBoolean stopCalled = new AtomicBoolean(false);
-        List<String> initOrder = new ArrayList<>();
-        List<String> shutdownOrder = new ArrayList<>();
-
         AgentHandler handler = new AgentHandler() {
+            @Override
+            public void start() {
+                startCalled.set(true);
+            }
+
+            @Override
+            public void stop() {
+                stopCalled.set(true);
+            }
+
             @Override
             public com.openjiuwen.service.spec.dto.QueryResponse query(
                 com.openjiuwen.service.spec.dto.ServeRequest request) {
@@ -167,18 +172,11 @@ class DefaultAgentLifecycleManagerTest {
             public void streamQuery(com.openjiuwen.service.spec.dto.ServeRequest request,
                 com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
             }
-
-            @Override
-            public void start() {
-                startCalled.set(true);
-            }
-
-            @Override
-            public void stop() {
-                stopCalled.set(true);
-            }
         };
-
+        List<String> initOrder = new ArrayList<>();
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        ActiveStreamRegistry registry = new ActiveStreamRegistry();
+        List<String> shutdownOrder = new ArrayList<>();
         DefaultAgentLifecycleManager manager = newManager(readiness, handler, List.of(context -> initOrder.add("init")),
             List.of(context -> shutdownOrder.add("shutdown")), List.of(), new LifecycleProperties(), registry, null);
 
@@ -199,17 +197,17 @@ class DefaultAgentLifecycleManagerTest {
 
     @Test
     void interruptCancelsActiveStreamAndNotifiesHandlers() {
-        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
         ActiveStreamRegistry registry = new ActiveStreamRegistry();
-        StreamCancellationHandle handle = registry.register("conv-1");
-        AtomicInteger interruptCount = new AtomicInteger();
-        AgentInterruptHandler interruptHandler = (conversationId, reason) -> {
-            interruptCount.incrementAndGet();
-            assertThat(conversationId).isEqualTo("conv-1");
-            assertThat(reason).isEqualTo(InterruptReason.LIFECYCLE_INTERRUPT);
-        };
-
         ServeOrchestrator orchestrator = new ServeOrchestrator() {
+            @Override
+            public void cancelActive(String conversationId) {
+                registry.cancel(conversationId);
+            }
+
+            @Override
+            public void resetConversation(String conversationId) {
+            }
+
             @Override
             public com.openjiuwen.service.spec.dto.QueryResponse query(
                 com.openjiuwen.service.spec.dto.ServeRequest request) {
@@ -220,15 +218,14 @@ class DefaultAgentLifecycleManagerTest {
             public void streamQuery(com.openjiuwen.service.spec.dto.ServeRequest request,
                 com.openjiuwen.service.spec.spi.QueryStreamObserver observer) {
             }
-
-            @Override
-            public void cancelActive(String conversationId) {
-                registry.cancel(conversationId);
-            }
-
-            @Override
-            public void resetConversation(String conversationId) {
-            }
+        };
+        AtomicInteger interruptCount = new AtomicInteger();
+        StreamCancellationHandle handle = registry.register("conv-1");
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        AgentInterruptHandler interruptHandler = (conversationId, reason) -> {
+            interruptCount.incrementAndGet();
+            assertThat(conversationId).isEqualTo("conv-1");
+            assertThat(reason).isEqualTo(InterruptReason.LIFECYCLE_INTERRUPT);
         };
         DefaultAgentLifecycleManager manager = newManager(readiness, stubAgentHandler(), List.of(), List.of(),
             List.of(interruptHandler), new LifecycleProperties(), registry, orchestrator);
@@ -259,13 +256,10 @@ class DefaultAgentLifecycleManagerTest {
         ServeOrchestrator orchestrator) {
         AgentServiceIdentity identity = new DefaultAgentServiceIdentity("test-agent");
         AgentLifecycleHooks hooks = new AgentLifecycleHooks(initHooks, shutdownHooks, interruptHandlers);
-        InitPhaseExecutor initExecutor = new InitPhaseExecutor(identity, hooks, readiness, providerOf(agentHandler),
-            properties);
-        ShutdownPhaseExecutor shutdownExecutor = new ShutdownPhaseExecutor(identity, hooks, readiness, registry,
-            providerOf(agentHandler), properties);
-        ActiveStreamInterruptor interruptor = new ActiveStreamInterruptor(providerOf(orchestrator),
-            hooks.interruptHandlers());
-        return new DefaultAgentLifecycleManager(initExecutor, shutdownExecutor, interruptor);
+        return new DefaultAgentLifecycleManager(
+            new InitPhaseExecutor(identity, hooks, readiness, providerOf(agentHandler), properties),
+            new ShutdownPhaseExecutor(identity, hooks, readiness, registry, providerOf(agentHandler), properties),
+            new ActiveStreamInterruptor(providerOf(orchestrator), hooks.interruptHandlers()));
     }
 
     private static AgentHandler stubAgentHandler() {

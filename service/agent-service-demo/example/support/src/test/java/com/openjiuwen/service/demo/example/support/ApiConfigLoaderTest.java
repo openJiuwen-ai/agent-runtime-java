@@ -27,11 +27,11 @@ class ApiConfigLoaderTest {
         Path configFile = tempDir.resolve("apiconfig.json");
         Files.writeString(configFile, """
             {
-              "API_BASE": "https://api.example.com/v1",
-              "API_KEY": "test-key",
-              "MODEL_PROVIDER": "OpenAI",
-              "MODEL_NAME": "test-model",
-              "LLM_SSL_VERIFY": "false"
+                "API_BASE": "https://api.example.com/v1",
+                "API_KEY": "test-key",
+                "MODEL_PROVIDER": "OpenAI",
+                "MODEL_NAME": "test-model",
+                "LLM_SSL_VERIFY": "false"
             }
             """);
 

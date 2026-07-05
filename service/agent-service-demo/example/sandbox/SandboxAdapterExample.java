@@ -31,10 +31,6 @@ public final class SandboxAdapterExample {
     }
 
     public static void main(String[] args) {
-        String serviceUrl = option(args, "--url=", "http://localhost:18090");
-        String serverId = option(args, "--server-id=", "default");
-        String operation = option(args, "--operation=", "config");
-
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         properties.getSandbox().setEnabled(true);
         properties.getSandbox().setTimeoutMs(intOption(args, "--timeout-ms=", 3000));
@@ -44,6 +40,8 @@ public final class SandboxAdapterExample {
         properties.getSandbox().getCircuitBreaker().setFailureThreshold(3);
         properties.getSandbox().getCircuitBreaker().setResetTimeoutMs(30000);
 
+        String serverId = option(args, "--server-id=", "default");
+        String serviceUrl = option(args, "--url=", "http://localhost:18090");
         AgentCoreExternalProperties.SandboxServer server = new AgentCoreExternalProperties.SandboxServer();
         server.setServerId(serverId);
         server.setServiceUrl(serviceUrl);
@@ -61,6 +59,7 @@ public final class SandboxAdapterExample {
         log.info("Core gateway URL: {}", config.getGatewayUrl());
         log.info("Core sandbox type: {}", config.getLauncherConfig().getSandboxType());
         log.info("Created client: {}", client.getClass().getName());
+        String operation = option(args, "--operation=", "config");
         runOperation(args, operation, client);
     }
 

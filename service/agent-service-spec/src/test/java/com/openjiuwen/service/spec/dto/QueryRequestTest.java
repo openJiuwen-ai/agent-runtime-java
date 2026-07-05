@@ -25,11 +25,11 @@ class QueryRequestTest {
     void deserializesPythonStyleSnakeCaseFields() throws Exception {
         String json = """
             {
-              "conversation_id": "conv-1",
-              "messages": [{"role": "user", "content": "hello"}],
-              "user_id": "u1",
-              "space_id": "s1",
-              "stream": true
+                "conversation_id": "conv-1",
+                "messages": [{"role": "user", "content": "hello"}],
+                "user_id": "u1",
+                "space_id": "s1",
+                "stream": true
             }
             """;
 

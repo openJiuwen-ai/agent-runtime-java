@@ -30,10 +30,6 @@ public final class A2ARemoteAdapterExample {
     }
 
     public static void main(String[] args) throws Exception {
-        String remoteUrl = option(args, "--url=", "http://localhost:18082/a2a");
-        String clientId = option(args, "--client-id=", "demo-a2a-remote");
-        String operation = option(args, "--operation=", "create");
-
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         properties.getRemote().setTimeoutMs(intOption(args, "--timeout-ms=", 3000));
         properties.getRemote().setRetryInvoke(isOptionEnabled(args, "--retry-invoke=", false));
@@ -43,6 +39,8 @@ public final class A2ARemoteAdapterExample {
         properties.getRemote().getCircuitBreaker().setFailureThreshold(3);
         properties.getRemote().getCircuitBreaker().setResetTimeoutMs(30000);
 
+        String clientId = option(args, "--client-id=", "demo-a2a-remote");
+        String remoteUrl = option(args, "--url=", "http://localhost:18082/a2a");
         AgentCoreExternalProperties.RemoteClientEndpoint remoteClient
             = new AgentCoreExternalProperties.RemoteClientEndpoint();
         remoteClient.setId(clientId);
@@ -57,6 +55,7 @@ public final class A2ARemoteAdapterExample {
 
         log.info("A2A Remote URL: {}", remoteUrl);
         log.info("Created client: {}", client.getClass().getName());
+        String operation = option(args, "--operation=", "create");
         runOperation(args, operation, client);
     }
 
