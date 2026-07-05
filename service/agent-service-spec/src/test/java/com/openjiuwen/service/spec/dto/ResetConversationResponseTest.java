@@ -4,16 +4,21 @@
 
 package com.openjiuwen.service.spec.dto;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * ResetConversationResponseTest
+ *
+ * @since 2026-07-03
+ */
 class ResetConversationResponseTest {
-
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test

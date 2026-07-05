@@ -10,17 +10,21 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Binds {@code openjiuwen.service.middleware.*} for checkpointer, Redis endpoints, and P2 placeholders.
+ * Binds {@code openjiuwen.service.middleware.*} for checkpointer, Redis
+ * endpoints, and P2 placeholders.
  *
  * @since 0.1.0
  */
 @ConfigurationProperties(prefix = "openjiuwen.service.middleware")
 public class MiddlewareProperties {
-
     private Checkpointer checkpointer = new Checkpointer();
+
     private CapabilityPlaceholder sessionStore = new CapabilityPlaceholder();
+
     private CapabilityPlaceholder objectStorage = new CapabilityPlaceholder();
+
     private CapabilityPlaceholder vectorStore = new CapabilityPlaceholder();
+
     private Map<String, RedisEndpoint> redis = new HashMap<>();
 
     public Checkpointer getCheckpointer() {
@@ -63,9 +67,10 @@ public class MiddlewareProperties {
         this.redis = redis != null ? redis : new HashMap<>();
     }
 
+    /** Checkpointer configuration. */
     public static class Checkpointer {
-
         private String type = "in_memory";
+
         private String redisRef = "default";
 
         public String getType() {
@@ -85,8 +90,8 @@ public class MiddlewareProperties {
         }
     }
 
+    /** Placeholder for future middleware capabilities. */
     public static class CapabilityPlaceholder {
-
         private String type = "none";
 
         public String getType() {
@@ -98,12 +103,16 @@ public class MiddlewareProperties {
         }
     }
 
+    /** Redis endpoint connection settings. */
     public static class RedisEndpoint {
-
         private String host = "localhost";
+
         private int port = 6379;
+
         private int database = 0;
+
         private int timeoutMs = 3000;
+
         private String encryptedPassword = "";
 
         public String getHost() {

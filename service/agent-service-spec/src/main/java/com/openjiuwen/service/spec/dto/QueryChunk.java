@@ -23,11 +23,21 @@ public class QueryChunk {
     public static final String TYPE_ERROR = "error";
 
     private String type = TYPE_CHUNK;
+
     private Object data;
 
+    /**
+     * Default constructor for JSON deserialization.
+     */
     public QueryChunk() {
     }
 
+    /**
+     * Creates a stream chunk with explicit type and payload.
+     *
+     * @param type the chunk type
+     * @param data the chunk payload
+     */
     public QueryChunk(String type, Object data) {
         this.type = type;
         this.data = data;

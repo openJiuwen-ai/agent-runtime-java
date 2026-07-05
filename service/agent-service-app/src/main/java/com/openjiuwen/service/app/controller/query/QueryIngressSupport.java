@@ -6,25 +6,41 @@ package com.openjiuwen.service.app.controller.query;
 
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+
+import org.springframework.http.HttpHeaders;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
-import org.springframework.http.HttpHeaders;
 
 /**
  * Shared ingress logic for Query controllers (header binding, validation, DTO mapping).
+ *
+ * @since 0.1.0
  */
 public final class QueryIngressSupport {
+    /** Gateway user identifier header. */
     public static final String HEADER_USER_ID = "X-User-ID";
+
+    /** Gateway space identifier header. */
     public static final String HEADER_SPACE_ID = "X-Space-ID";
+
+    /** Gateway tenant identifier header. */
     public static final String HEADER_TENANT_ID = "X-Tenant-ID";
 
     private static final Set<String> EXCLUDED_HEADERS = Set.of("authorization", "cookie", "set-cookie", "x-api-key",
-            "proxy-authorization", "x-csrf-token");
+        "proxy-authorization", "x-csrf-token");
 
     private QueryIngressSupport() {
     }
 
+    /**
+     * Validates the query request and builds a {@link ServeRequest}.
+     *
+     * @param request the query request body
+     * @param headers the HTTP headers
+     * @return the validation result
+     */
     public static ValidationResult validateAndBuild(QueryRequest request, HttpHeaders headers) {
         request.normalizeMessages();
         if (request.getConversationId() == null || request.getConversationId().isBlank()) {
@@ -56,8 +72,7 @@ public final class QueryIngressSupport {
      * Validation result containing the resolved {@link ServeRequest} or error details.
      */
     public record ValidationResult(boolean valid, int errorStatus, Map<String, Object> errorBody,
-            ServeRequest serveRequest) {
-
+                                    ServeRequest serveRequest) {
         static ValidationResult ok(ServeRequest serveRequest) {
             return new ValidationResult(true, 0, null, serveRequest);
         }
@@ -77,7 +92,7 @@ public final class QueryIngressSupport {
      * @return a new metadata map with filtered headers, query params, path, and body
      */
     public static Map<String, Object> buildMetadata(HttpHeaders headers, Map<String, String> queryParams, String path,
-            Map<String, Object> bodyMap) {
+        Map<String, Object> bodyMap) {
         Map<String, Object> metadata = new LinkedHashMap<>();
 
         Map<String, String> headerMap = new LinkedHashMap<>();

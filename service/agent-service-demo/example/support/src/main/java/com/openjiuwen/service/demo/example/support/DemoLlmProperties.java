@@ -5,37 +5,59 @@
 package com.openjiuwen.service.demo.example.support;
 
 import lombok.Data;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
 import java.util.Map;
 
 /**
- * Shared LLM configuration for agent-service-demo and all example feature modules.
- * Bound from {@code openjiuwen.demo.llm} in {@code example/config/application-base.yml}.
+ * Shared LLM configuration for agent-service-demo and all example feature
+ * modules.
+ * Bound from {@code openjiuwen.demo.llm} in
+ * {@code example/config/application-base.yml}.
+ *
+ * @since 0.1.0
  */
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.demo.llm")
 public class DemoLlmProperties {
-
     private String configFile;
+
     private boolean autoDiscover = true;
+
     private String provider = "OpenAI";
+
     private String apiKey = "";
+
     private String apiBase = "";
+
     private String modelName = "";
+
     private boolean sslVerify = true;
+
     private String systemPrompt = "You are a helpful assistant. Answer concisely and accurately.";
+
     private Double temperature = 0.6;
+
     private Double topP = 0.8;
+
     private Duration timeout = Duration.ofSeconds(60);
+
     private int contextWindowLimit = 10;
+
     private int maxIterations = 5;
 
+    /**
+     * Loads optional API config file values into unset properties.
+     */
     public void applyApiConfigIfPresent() {
         ApiConfigLoader.load(configFile, autoDiscover).ifPresent(this::applyFromFile);
     }
 
+    /**
+     * Validates that required LLM properties are configured.
+     */
     public void requireConfigured() {
         requireText(apiKey, "openjiuwen.demo.llm.api-key");
         requireText(apiBase, "openjiuwen.demo.llm.api-base");
@@ -83,8 +105,8 @@ public class DemoLlmProperties {
 
     public void setSystemPrompt(String systemPrompt) {
         this.systemPrompt = hasText(systemPrompt)
-                ? systemPrompt
-                : "You are a helpful assistant. Answer concisely and accurately.";
+            ? systemPrompt
+            : "You are a helpful assistant. Answer concisely and accurately.";
     }
 
     public void setTimeout(Duration timeout) {

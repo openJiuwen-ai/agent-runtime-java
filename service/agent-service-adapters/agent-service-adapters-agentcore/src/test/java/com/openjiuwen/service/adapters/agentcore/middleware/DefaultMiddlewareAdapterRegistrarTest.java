@@ -4,24 +4,29 @@
 
 package com.openjiuwen.service.adapters.agentcore.middleware;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.extensions.checkpointer.redis.RedisCheckpointer;
 import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDecryptor;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * DefaultMiddlewareAdapterRegistrarTest
+ *
+ * @since 2026-07-03
+ */
 class DefaultMiddlewareAdapterRegistrarTest {
-
     @Test
     void appliesInMemoryCheckpointerConfig() {
         MiddlewareProperties properties = new MiddlewareProperties();
-        DefaultMiddlewareAdapterRegistrar registrar =
-                new DefaultMiddlewareAdapterRegistrar(properties, new PassthroughCredentialDecryptor());
+        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
+            new PassthroughCredentialDecryptor());
 
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);
@@ -41,16 +46,15 @@ class DefaultMiddlewareAdapterRegistrarTest {
         endpoint.setEncryptedPassword("");
         properties.getRedis().put("default", endpoint);
 
-        DefaultMiddlewareAdapterRegistrar registrar =
-                new DefaultMiddlewareAdapterRegistrar(properties, new PassthroughCredentialDecryptor());
+        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
+            new PassthroughCredentialDecryptor());
 
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> conf = (Map<String, Object>) runnerConfig.getCheckpointerConfig().get("conf");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
+        @SuppressWarnings("unchecked") Map<String, Object> conf
+            = (Map<String, Object>) runnerConfig.getCheckpointerConfig().get("conf");
+        @SuppressWarnings("unchecked") Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
         assertThat(connection.get("redis_client")).isNotNull();
         var checkpointer = CheckpointerFactory.create("redis", conf);
         assertThat(checkpointer).isInstanceOf(RedisCheckpointer.class);

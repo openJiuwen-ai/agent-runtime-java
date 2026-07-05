@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.demo.it;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.base.TagMatchStrategy;
@@ -12,15 +14,16 @@ import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.app.lifecycle.AgentHandlerHolder;
 import com.openjiuwen.service.demo.it.support.SessionEchoAgent;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -32,20 +35,17 @@ import org.springframework.test.context.TestPropertySource;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
- * AC1: app + agentcore adapter assembly - pure {@code agent-id} without business {@code @Bean AgentHandler}.
+ * AC1: app + agentcore adapter assembly - pure {@code agent-id} without
+ * business {@code @Bean AgentHandler}.
  */
 @SpringBootTest(classes = AgentCoreHandlerAutoConfigurationIntegrationTest.CoreAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
-        "openjiuwen.service.agent-id=it-agent",
-        "openjiuwen.service.query.webflux.enabled=false"
+    "openjiuwen.service.agent-id=it-agent", "openjiuwen.service.query.webflux.enabled=false"
 })
 @AutoConfigureTestRestTemplate
 class AgentCoreHandlerAutoConfigurationIntegrationTest {
-
     private static final String AGENT_ID = "it-agent";
 
     @Autowired
@@ -58,10 +58,8 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
 
     @BeforeAll
     static void registerAgentInResourceMgr() {
-        Runner.resourceMgr().addAgent(
-                AgentCard.builder().id(AGENT_ID).name(AGENT_ID).build(),
-                SessionEchoAgent::new,
-                null);
+        Runner.resourceMgr()
+            .addAgent(AgentCard.builder().id(AGENT_ID).name(AGENT_ID).build(), SessionEchoAgent::new, null);
     }
 
     @AfterAll
@@ -79,9 +77,8 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void queryEndpointWorksWithoutCustomHandlerBean() throws Exception {
-        ResponseEntity<String> resp = postQuery("/v1/query", Map.of(
-                "messages", List.of(Map.of("role", "user", "content", "hello")),
-                "conversation_id", "c-agent-id-it",
+        ResponseEntity<String> resp = postQuery("/v1/query",
+            Map.of("messages", List.of(Map.of("role", "user", "content", "hello")), "conversation_id", "c-agent-id-it",
                 "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -99,6 +96,5 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    static class CoreAgentApplication {
-    }
+    static class CoreAgentApplication {}
 }

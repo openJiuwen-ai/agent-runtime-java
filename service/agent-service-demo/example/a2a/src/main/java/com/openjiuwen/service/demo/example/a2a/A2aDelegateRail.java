@@ -27,27 +27,28 @@ import java.util.Map;
  */
 public class A2aDelegateRail extends BaseInterruptRail {
     private static final Gson GSON = new Gson();
+
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
+
     private static final String TOOL_NAME = "delegate_to_agentb";
+
     private static final String AGENT_NAME = "agentb";
 
     public A2aDelegateRail() {
         super(List.of(TOOL_NAME));
         ToolCard card = ToolCard.builder()
-                .id(TOOL_NAME)
-                .name(TOOL_NAME)
-                .description("Delegate a task to Agent B for processing")
-                .inputParams(Map.of("type", "object", "properties",
-                        Map.of("message", Map.of("type", "string", "description",
-                                "The request to forward to Agent B's LLM")),
-                        "required", List.of("message")))
-                .build();
+            .id(TOOL_NAME)
+            .name(TOOL_NAME)
+            .description("Delegate a task to Agent B for processing")
+            .inputParams(Map.of("type", "object", "properties",
+                Map.of("message", Map.of("type", "string", "description", "The request to forward to Agent B's LLM")),
+                "required", List.of("message")))
+            .build();
         getTools().add(card);
     }
 
     @Override
-    protected InterruptDecision resolveInterrupt(AgentCallbackContext ctx, ToolCall toolCall,
-            Object resumeInput) {
+    protected InterruptDecision resolveInterrupt(AgentCallbackContext ctx, ToolCall toolCall, Object resumeInput) {
         if (resumeInput != null) {
             // Resume: skip the empty tool and return the remote result directly.
             return reject(resumeInput);
@@ -64,10 +65,9 @@ public class A2aDelegateRail extends BaseInterruptRail {
             // arguments parse failed; fall through to AGENT_NAME
         }
         var request = InterruptRequest.builder()
-                .message(userQuery != null ? userQuery : AGENT_NAME)
-                .context(Map.of("agentName", AGENT_NAME, "_interrupt_kind", "a2a_delegate",
-                        "_stream_mode", "sse"))
-                .build();
+            .message(userQuery != null ? userQuery : AGENT_NAME)
+            .context(Map.of("agentName", AGENT_NAME, "_interrupt_kind", "a2a_delegate", "_stream_mode", "sse"))
+            .build();
         return interrupt(request);
     }
 }

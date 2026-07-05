@@ -4,16 +4,19 @@
 
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
-import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -24,10 +27,12 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * JiuwenCoreAgentHandlerTest
+ *
+ * @since 2026-07-03
+ */
 class JiuwenCoreAgentHandlerTest {
-
     @Test
     @SuppressWarnings("unchecked")
     void passesQueryContextToRunnerInputs() {
@@ -101,8 +106,7 @@ class JiuwenCoreAgentHandlerTest {
 
         handler.query(request("c-plain-agent", "hello"));
 
-        assertThat(agent.agentId).isEqualTo(
-                "service-agentcore:" + SessionMetadataAgent.class.getName());
+        assertThat(agent.agentId).isEqualTo("service-agentcore:" + SessionMetadataAgent.class.getName());
     }
 
     @Test
@@ -209,24 +213,42 @@ class JiuwenCoreAgentHandlerTest {
         assertThat((Map<String, Object>) third.getResult()).containsEntry("content", "turn3:c|prev=a,b");
     }
 
+    /** Test agent that captures the last runner inputs. */
     public static class CapturingAgent {
         private Object lastInputs;
 
+        /**
+         * Streams a single output chunk and records the inputs.
+         *
+         * @param inputs inputs
+         * @param session session
+         * @param streamModes streamModes
+         * @return Iterator<Object>
+         */
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             this.lastInputs = inputs;
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "ok"))).iterator();
         }
     }
 
+    /** Test agent that echoes session history across turns. */
     public static class SessionEchoAgent {
+        /**
+         * Streams a reply while persisting conversation history in session state.
+         *
+         * @param inputs the runner inputs
+         * @param session the agent session
+         * @param streamModes the requested stream modes
+         * @return the output iterator
+         */
         @SuppressWarnings("unchecked")
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             Map<String, Object> inputMap = (Map<String, Object>) inputs;
             String query = String.valueOf(inputMap.get("query"));
             Object priorState = session.getState("history");
             List<String> history = priorState instanceof List<?>
-                    ? new ArrayList<>((List<String>) priorState)
-                    : new ArrayList<>();
+                ? new ArrayList<>((List<String>) priorState)
+                : new ArrayList<>();
             String reply = "turn" + (history.size() + 1) + ":" + query;
             if (!history.isEmpty()) {
                 reply += "|prev=" + String.join(",", history);
@@ -237,10 +259,19 @@ class JiuwenCoreAgentHandlerTest {
         }
     }
 
+    /** Test agent that uses invoke instead of streaming. */
     public static class InvokeEchoAgent {
         private final AtomicInteger invokeCount = new AtomicInteger();
+
         private final AtomicInteger streamCount = new AtomicInteger();
 
+        /**
+         * Invokes synchronously while persisting conversation history in session state.
+         *
+         * @param inputs the runner inputs
+         * @param session the agent session
+         * @return the invoke result map
+         */
         @SuppressWarnings("unchecked")
         public Object invoke(Object inputs, Session session) {
             invokeCount.incrementAndGet();
@@ -248,8 +279,8 @@ class JiuwenCoreAgentHandlerTest {
             String query = String.valueOf(inputMap.get("query"));
             Object priorState = session.getState("history");
             List<String> history = priorState instanceof List<?>
-                    ? new ArrayList<>((List<String>) priorState)
-                    : new ArrayList<>();
+                ? new ArrayList<>((List<String>) priorState)
+                : new ArrayList<>();
             String reply = "turn" + (history.size() + 1) + ":" + query;
             if (!history.isEmpty()) {
                 reply += "|prev=" + String.join(",", history);
@@ -259,15 +290,34 @@ class JiuwenCoreAgentHandlerTest {
             return Map.of("output", reply, "result_type", "answer");
         }
 
+        /**
+         * Streams a placeholder chunk and increments the stream counter.
+         *
+         * @param inputs inputs
+         * @param session session
+         * @param streamModes streamModes
+         * @return Iterator<Object>
+         */
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             streamCount.incrementAndGet();
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "stream"))).iterator();
         }
     }
 
+    /**
+     * Test agent that emits a fixed number of stream chunks.
+     */
     public static class CountingAgent {
         private final AtomicInteger nextCount = new AtomicInteger();
 
+        /**
+         * Streams five numbered chunks for cancellation tests.
+         *
+         * @param inputs inputs
+         * @param session session
+         * @param streamModes streamModes
+         * @return Iterator<Object>
+         */
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             return new Iterator<>() {
                 @Override
@@ -286,9 +336,20 @@ class JiuwenCoreAgentHandlerTest {
         }
     }
 
+    /**
+     * Test agent that records session metadata from {@link AgentSessionApi}.
+     */
     public static class SessionMetadataAgent {
         private String agentId;
 
+        /**
+         * Streams a single chunk and captures the resolved agent id.
+         *
+         * @param inputs inputs
+         * @param session session
+         * @param streamModes streamModes
+         * @return Iterator<Object>
+         */
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             if (session instanceof AgentSessionApi agentSession) {
                 this.agentId = agentSession.getAgentId();
@@ -299,6 +360,7 @@ class JiuwenCoreAgentHandlerTest {
 
     private static final class RecordingRegistrar implements ExternalSvcAdapterRegistrar {
         private int registerToCalls;
+
         private int registerToRunnerCalls;
 
         @Override

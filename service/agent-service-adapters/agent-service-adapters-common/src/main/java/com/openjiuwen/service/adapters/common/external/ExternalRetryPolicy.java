@@ -12,7 +12,7 @@ package com.openjiuwen.service.adapters.common.external;
 public class ExternalRetryPolicy {
     private int max = 0;
 
-    private long backoffMs = 0;
+    private long backoffMs = 0L;
 
     public int getMax() {
         return max;

@@ -4,15 +4,18 @@
 
 package com.openjiuwen.service.app.it;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
+
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -22,13 +25,14 @@ import org.springframework.test.annotation.DirtiesContext;
 
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-@SpringBootTest(classes = TestServiceApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+/**
+ * ResetConversationMvcIntegrationTest
+ *
+ * @since 2026-07-03
+ */
+@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class ResetConversationMvcIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 
@@ -51,11 +55,10 @@ class ResetConversationMvcIntegrationTest {
 
         ResponseEntity<String> second = postJson(path, queryBody("again", conversationId));
         Map<String, Object> secondJson = mapper.readValue(second.getBody(), Map.class);
-        assertThat(((Map<?, ?>) secondJson.get("result")).get("content")).asString()
-                .contains("prev=hello");
+        assertThat(((Map<?, ?>) secondJson.get("result")).get("content")).asString().contains("prev=hello");
 
         ResponseEntity<String> reset = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
-                Map.of("conversation_id", conversationId));
+            Map.of("conversation_id", conversationId));
         assertThat(reset.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> resetJson = mapper.readValue(reset.getBody(), Map.class);
         assertThat(resetJson).containsEntry("status", "ok");
@@ -76,7 +79,7 @@ class ResetConversationMvcIntegrationTest {
     @SuppressWarnings("unchecked")
     void blankConversationIdReturns400WithErrorBody() throws Exception {
         ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
-                Map.of("conversation_id", ""));
+            Map.of("conversation_id", ""));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
@@ -88,7 +91,7 @@ class ResetConversationMvcIntegrationTest {
     @SuppressWarnings("unchecked")
     void legacyResetPathReturnsOk() throws Exception {
         ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_LEGACY,
-                Map.of("conversation_id", "legacy-c1"));
+            Map.of("conversation_id", "legacy-c1"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
@@ -102,16 +105,13 @@ class ResetConversationMvcIntegrationTest {
         readiness.markShuttingDown();
 
         ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
-                Map.of("conversation_id", "shutdown-c1"));
+            Map.of("conversation_id", "shutdown-c1"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     private static Map<String, Object> queryBody(String message, String conversationId) {
-        return Map.of(
-                "message", message,
-                "conversation_id", conversationId,
-                "stream", false);
+        return Map.of("message", message, "conversation_id", conversationId, "stream", false);
     }
 
     private ResponseEntity<String> postJson(String path, Map<String, Object> body) {

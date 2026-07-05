@@ -20,16 +20,17 @@ mvn -pl agent-service-demo -am spring-boot:run
 Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> ReActAgent
 ```
 
-必须提供 `openjiuwen.demo.llm` 的 `api-key`、`api-base`、`model-name`（通过 `application-base_local.yml` 或 `apiconfig.json`）。未配置时进程无法启动。
+必须提供 `openjiuwen.demo.llm` 的 `api-key`、`api-base`、`model-name`（通过 `application-base_local.yml` 或
+`apiconfig.json`）。未配置时进程无法启动。
 
 配置方式见 [example/query/README.md](example/query/README.md)。
 
 ## Handler 样例（Issue #10）
 
-| 类 | 用途 |
-| --- | --- |
-| `DemoAgentApplication` | 装配 `ReActAgent` + `JiuwenCoreAgentHandler` |
-| `examples/EchoProxyAgentHandler` | 最小自定义 `AgentHandler` 模板（前缀回显，可复制改为 HTTP 代理等） |
+| 类                                                     | 用途                                              |
+|-------------------------------------------------------|-------------------------------------------------|
+| `DemoAgentApplication`                                | 装配 `ReActAgent` + `JiuwenCoreAgentHandler`      |
+| `examples/EchoProxyAgentHandler`                      | 最小自定义 `AgentHandler` 模板（前缀回显，可复制改为 HTTP 代理等）    |
 | `it/AgentCoreHandlerAutoConfigurationIntegrationTest` | AC1：仅 `agent-id`、无 `@Bean`，验证 agentcore 自动装配全链路 |
 
 详见 [Adapters 与 Handler](../../documents/zh/2.开发指南/Adapters与Handler.md#自定义-handler-模板)。
@@ -38,14 +39,15 @@ Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> ReActAgent
 
 面向开发者的按需演示，索引见 [example/README.md](example/README.md)：
 
-| 目录 | 内容 |
-| --- | --- |
-| `example/query` | HTTP Query、SSE、`/health`（主模块 `agent-service-demo`） |
-| `example/redis` | 独立模块 `agent-service-demo-redis`（ReActAgent，8091 端口） |
-| `example/mcp` | 独立模块 `agent-service-demo-mcp` |
-| `example/sandbox` | 独立模块 `agent-service-demo-sandbox` |
+| 目录                | 内容                                                  |
+|-------------------|-----------------------------------------------------|
+| `example/query`   | HTTP Query、SSE、`/health`（主模块 `agent-service-demo`）  |
+| `example/redis`   | 独立模块 `agent-service-demo-redis`（ReActAgent，8091 端口） |
+| `example/mcp`     | 独立模块 `agent-service-demo-mcp`                       |
+| `example/sandbox` | 独立模块 `agent-service-demo-sandbox`                   |
 
-A2A Remote 出站与 Health L1 矩阵等**内部验收**代码在 `src/test/`（含 `src/test/resources/scripts/`）。`DemoAgentApplicationTest` 在测试内注册确定性 echo 模型，仅用于 JUnit，不影响 live server。
+A2A Remote 出站与 Health L1 矩阵等**内部验收**代码在 `src/test/`（含 `src/test/resources/scripts/`）。
+`DemoAgentApplicationTest` 在测试内注册确定性 echo 模型，仅用于 JUnit，不影响 live server。
 
 ## 接口
 
@@ -119,7 +121,8 @@ data: {"type":"answer","index":1,"payload":{"output":"..."}}
 
 ## 大模型配置
 
-demo 会从 `apiconfig.json` 读取模型配置，字段名和 agent-core 示例保持一致。可以复制 `apiconfig_example.json` 为本地 `apiconfig.json`，并填入自己的配置。`apiconfig.json` 会被 git 忽略。
+demo 会从 `apiconfig.json` 读取模型配置，字段名和 agent-core 示例保持一致。可以复制 `apiconfig_example.json` 为本地
+`apiconfig.json`，并填入自己的配置。`apiconfig.json` 会被 git 忽略。
 
 配置文件查找顺序：
 
@@ -174,7 +177,8 @@ curl -s http://localhost:8090/v1/query \
 
 ## WebFlux 流式测试
 
-WebFlux 端点是 `POST /v1/query/reactive`，它面向 Reactive/WebFlux 应用。Servlet 栈下的 SSE 流式请求应使用 `POST /v1/query`。
+WebFlux 端点是 `POST /v1/query/reactive`，它面向 Reactive/WebFlux 应用。Servlet 栈下的 SSE 流式请求应使用
+`POST /v1/query`。
 
 从仓库根目录运行现有 Flux 集成测试：
 
@@ -240,16 +244,21 @@ MODE=flux bash agent-service-demo/example/query/smoke-query.sh
 
 ## Example
 
-开发者特性演示见 [example/README.md](example/README.md)。redis / mcp / sandbox 为**独立 Maven 子模块**（`ReActAgent` + `JiuwenCoreAgentHandler`，与主 demo 共用 `example/config/application-base.yml` 中 `openjiuwen.demo.llm`）；query 使用主模块 `agent-service-demo`。内部 L1 转测脚本见 `src/test/resources/scripts/`。
+开发者特性演示见 [example/README.md](example/README.md)。redis / mcp / sandbox 为**独立 Maven 子模块**（`ReActAgent` +
+`JiuwenCoreAgentHandler`，与主 demo 共用 `example/config/application-base.yml` 中 `openjiuwen.demo.llm`）；query 使用主模块
+`agent-service-demo`。内部 L1 转测脚本见 `src/test/resources/scripts/`。
 
 ## 外部 MCP 示例
 
-独立模块 `agent-service-demo-mcp`，配置见 `example/mcp/application-mcp.yml`。完整步骤见 [example/mcp/README.md](example/mcp/README.md)。
+独立模块 `agent-service-demo-mcp`，配置见 `example/mcp/application-mcp.yml`
+。完整步骤见 [example/mcp/README.md](example/mcp/README.md)。
 
 ## Redis Checkpointer 示例
 
-独立模块 `agent-service-demo-redis`，需 **JiuwenCoreAgentHandler** + LLM 配置 + Redis。见 [example/redis/README.md](example/redis/README.md)。
+独立模块 `agent-service-demo-redis`，需 **JiuwenCoreAgentHandler** + LLM 配置 +
+Redis。见 [example/redis/README.md](example/redis/README.md)。
 
 ## 配置示例
 
-共用基础配置：`example/config/application-base.yml`（import 进主 demo 与各特性模块）。主 demo 默认 `checkpointer.type=in_memory`。Redis 等特性见对应子模块的 `application-*.yml`。
+共用基础配置：`example/config/application-base.yml`（import 进主 demo 与各特性模块）。主 demo 默认
+`checkpointer.type=in_memory`。Redis 等特性见对应子模块的 `application-*.yml`。

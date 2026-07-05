@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.demo;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
 import com.openjiuwen.core.singleagent.schema.AgentResult;
 import com.openjiuwen.core.singleagent.schema.Artifact;
@@ -11,6 +13,7 @@ import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalPrope
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreRemoteClientFactory;
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientDecoratorFactory;
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientFactory;
+
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -21,24 +24,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
  * Validates A2A remote adapter against the in-test mock server.
  */
 class RemoteExampleLocalServerTest {
-
     @Test
     void remoteAdapterExampleCanCallLocalMockA2aServer() throws Exception {
         int port = freePort();
         Thread serverThread = new Thread(() -> {
             try {
                 com.openjiuwen.service.demo.support.remote.MockA2ARemoteServerExample.main(
-                        new String[]{"--port=" + port});
+                    new String[] {"--port=" + port});
             } catch (Exception ex) {
                 throw new IllegalStateException("mock A2A server failed", ex);
             }
         }, "mock-a2a-remote-server");
+        serverThread.setUncaughtExceptionHandler((unused, error) -> {
+            throw new AssertionError(error);
+        });
         serverThread.setDaemon(true);
         serverThread.start();
 
@@ -49,30 +52,28 @@ class RemoteExampleLocalServerTest {
         properties.getRemote().setRetryInvoke(false);
         properties.getRemote().getRetry().setMax(0);
 
-        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient =
-                new AgentCoreExternalProperties.RemoteClientEndpoint();
+        AgentCoreExternalProperties.RemoteClientEndpoint remoteClient
+            = new AgentCoreExternalProperties.RemoteClientEndpoint();
         remoteClient.setId("demo-a2a-remote");
         remoteClient.setName("Demo A2A Remote");
         remoteClient.setProtocol("A2A");
         remoteClient.setUrl("http://127.0.0.1:" + port + "/a2a/jsonrpc");
         properties.getRemote().setClients(List.of(remoteClient));
 
-        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(
-                properties,
-                new DefaultAgentCoreRemoteClientDecoratorFactory());
+        AgentCoreRemoteClientFactory factory = new DefaultAgentCoreRemoteClientFactory(properties,
+            new DefaultAgentCoreRemoteClientDecoratorFactory());
         RemoteClient client = factory.create("demo-a2a-remote");
 
-        assertThat(client.getClass().getName())
-                .isEqualTo("com.openjiuwen.service.adapters.agentcore.external.DecoratingRemoteClient");
+        assertThat(client.getClass().getName()).isEqualTo(
+            "com.openjiuwen.service.adapters.agentcore.external.DecoratingRemoteClient");
 
-        Object result = client.invoke(Map.of(
-                "message", "hello remote",
-                "conversation_id", "demo-session"), null);
+        Object result = client.invoke(Map.of("message", "hello remote", "conversation_id", "demo-session"), null);
         assertThat(result).isInstanceOf(AgentResult.class);
-        AgentResult agentResult = (AgentResult) result;
-        assertThat(String.valueOf(agentResult.getStatus())).isEqualTo("completed");
-        assertThat(agentResult.getSessionId()).isEqualTo("demo-session");
-        assertThat(firstText(agentResult.getArtifacts())).isEqualTo("mock a2a response: hello remote");
+        if (result instanceof AgentResult agentResult) {
+            assertThat(String.valueOf(agentResult.getStatus())).isEqualTo("completed");
+            assertThat(agentResult.getSessionId()).isEqualTo("demo-session");
+            assertThat(firstText(agentResult.getArtifacts())).isEqualTo("mock a2a response: hello remote");
+        }
     }
 
     private static String firstText(List<Artifact> artifacts) {

@@ -6,13 +6,9 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
+
 import jakarta.annotation.PreDestroy;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+
 import org.a2aproject.sdk.spec.AgentCard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,21 +17,35 @@ import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+
 /**
- * Fetches AgentCards from configured remote A2A servers at startup. Successful fetches are cached permanently; failures
+ * Fetches AgentCards from configured remote A2A servers at startup. Successful
+ * fetches are cached permanently; failures
  * are retried every 30s.
  *
  * @since 0.1.0
  */
 public class A2AAgentCardDiscovery {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentCardDiscovery.class);
+
     private static final long RETRY_INTERVAL_SECONDS = 30L;
+
     private static final long SHUTDOWN_TIMEOUT_SECONDS = 5L;
 
     private final A2AProperties properties;
+
     private final A2ARemoteAgentCardRegistry registry;
+
     private final RestClient restClient;
+
     private final ScheduledExecutorService retryExecutor;
+
     private final Map<String, ScheduledFuture<?>> retryFutures = new ConcurrentHashMap<>();
 
     /**
@@ -51,8 +61,8 @@ public class A2AAgentCardDiscovery {
         this.retryExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "a2a-discovery-retry");
             t.setDaemon(true);
-            t.setUncaughtExceptionHandler((thread, ex) ->
-                    log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
+            t.setUncaughtExceptionHandler(
+                (thread, ex) -> log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
             return t;
         });
     }
@@ -76,7 +86,7 @@ public class A2AAgentCardDiscovery {
             discoverAndRegister(remote);
         } catch (org.springframework.web.client.RestClientException e) {
             log.warn("Failed to discover {}, retry every {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
-                    e.getMessage());
+                e.getMessage());
             ScheduledFuture<?> future = retryExecutor.scheduleWithFixedDelay(() -> {
                 try {
                     discoverAndRegister(remote);
@@ -84,7 +94,7 @@ public class A2AAgentCardDiscovery {
                     cancelRetry(remote.getName());
                 } catch (org.springframework.web.client.RestClientException ex) {
                     log.warn("Retry {} failed, will retry in {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
-                            ex.getMessage());
+                        ex.getMessage());
                 }
             }, RETRY_INTERVAL_SECONDS, RETRY_INTERVAL_SECONDS, TimeUnit.SECONDS);
             retryFutures.put(remote.getName(), future);
@@ -110,7 +120,8 @@ public class A2AAgentCardDiscovery {
     }
 
     /**
-     * Shuts down the retry executor gracefully, cancelling all pending retries and waiting for any in-flight
+     * Shuts down the retry executor gracefully, cancelling all pending retries and
+     * waiting for any in-flight
      * task to complete before forcing termination.
      */
     @PreDestroy

@@ -11,6 +11,7 @@ import com.openjiuwen.service.adapters.common.external.ExternalAuditPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalCallPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalCircuitBreakerPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalRetryPolicy;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.net.URI;
@@ -104,11 +105,8 @@ public class AgentCoreExternalProperties {
         return policy;
     }
 
-    private static void validateCallPolicy(
-            String policyName,
-            int timeoutMs,
-            ExternalRetryPolicy retry,
-            ExternalCircuitBreakerPolicy circuitBreaker) {
+    private static void validateCallPolicy(String policyName, int timeoutMs, ExternalRetryPolicy retry,
+        ExternalCircuitBreakerPolicy circuitBreaker) {
         if (timeoutMs <= 0) {
             throw new IllegalArgumentException(policyName + " timeout-ms must be greater than zero");
         }
@@ -120,11 +118,11 @@ public class AgentCoreExternalProperties {
         }
         if (circuitBreaker.getFailureThreshold() <= 0) {
             throw new IllegalArgumentException(
-                    policyName + " circuit-breaker.failure-threshold must be greater than zero");
+                policyName + " circuit-breaker.failure-threshold must be greater than zero");
         }
         if (circuitBreaker.getResetTimeoutMs() <= 0) {
             throw new IllegalArgumentException(
-                    policyName + " circuit-breaker.reset-timeout-ms must be greater than zero");
+                policyName + " circuit-breaker.reset-timeout-ms must be greater than zero");
         }
     }
 
@@ -464,9 +462,7 @@ public class AgentCoreExternalProperties {
             if (client.getId() == null || client.getId().isBlank()) {
                 throw new IllegalArgumentException("Remote client id must not be blank");
             }
-            String protocol = client.getProtocol() != null
-                    ? client.getProtocol().toUpperCase(Locale.ROOT)
-                    : "";
+            String protocol = client.getProtocol() != null ? client.getProtocol().toUpperCase(Locale.ROOT) : "";
             if (!"A2A".equals(protocol)) {
                 throw new IllegalArgumentException("Remote client protocol must be A2A: " + client.getProtocol());
             }
@@ -485,8 +481,7 @@ public class AgentCoreExternalProperties {
             try {
                 URI uri = new URI(value);
                 String scheme = uri.getScheme();
-                return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
-                        && uri.getHost() != null;
+                return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) && uri.getHost() != null;
             } catch (URISyntaxException ex) {
                 return false;
             }
@@ -680,8 +675,8 @@ public class AgentCoreExternalProperties {
                 throw new IllegalArgumentException("Sandbox service-url must not be blank");
             }
             if (!isHttpUrl(server.getServiceUrl())) {
-                throw new IllegalArgumentException("Sandbox service-url must be an http(s) URL: "
-                        + server.getServiceUrl());
+                throw new IllegalArgumentException(
+                    "Sandbox service-url must be an http(s) URL: " + server.getServiceUrl());
             }
             if (server.getSandboxType() == null || server.getSandboxType().isBlank()) {
                 throw new IllegalArgumentException("Sandbox sandbox-type must not be blank");
@@ -698,8 +693,7 @@ public class AgentCoreExternalProperties {
             try {
                 URI uri = new URI(value);
                 String scheme = uri.getScheme();
-                return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
-                        && uri.getHost() != null;
+                return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) && uri.getHost() != null;
             } catch (URISyntaxException ex) {
                 return false;
             }

@@ -7,7 +7,8 @@ package com.openjiuwen.service.adapters.agentcore.external;
 import com.openjiuwen.core.runner.RunnerConfig;
 
 /**
- * Registers service-side external adapters into agent-core runtime extension points.
+ * Registers service-side external adapters into agent-core runtime extension
+ * points.
  *
  * @since 2026-06-24
  */

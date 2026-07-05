@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.demo.example.support;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -11,10 +13,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * ApiConfigLoaderTest
+ *
+ * @since 2026-07-03
+ */
 class ApiConfigLoaderTest {
-
     @TempDir
     private Path tempDir;
 
@@ -22,14 +26,14 @@ class ApiConfigLoaderTest {
     void loadsApiConfigFromExplicitJsonFile() throws Exception {
         Path configFile = tempDir.resolve("apiconfig.json");
         Files.writeString(configFile, """
-                {
-                  "API_BASE": "https://api.example.com/v1",
-                  "API_KEY": "test-key",
-                  "MODEL_PROVIDER": "OpenAI",
-                  "MODEL_NAME": "test-model",
-                  "LLM_SSL_VERIFY": "false"
-                }
-                """);
+            {
+                "API_BASE": "https://api.example.com/v1",
+                "API_KEY": "test-key",
+                "MODEL_PROVIDER": "OpenAI",
+                "MODEL_NAME": "test-model",
+                "LLM_SSL_VERIFY": "false"
+            }
+            """);
 
         Map<String, String> config = ApiConfigLoader.load(configFile.toString(), false).orElseThrow();
 

@@ -20,11 +20,11 @@ import java.util.Map;
  */
 public final class CoreProviderRegistrySnapshot implements AutoCloseable {
     private final Map<String, McpClientProvider> mcpProviders;
+
     private final Map<String, RemoteClientProvider> remoteProviders;
 
-    private CoreProviderRegistrySnapshot(
-            Map<String, McpClientProvider> mcpProviders,
-            Map<String, RemoteClientProvider> remoteProviders) {
+    private CoreProviderRegistrySnapshot(Map<String, McpClientProvider> mcpProviders,
+        Map<String, RemoteClientProvider> remoteProviders) {
         this.mcpProviders = mcpProviders;
         this.remoteProviders = remoteProviders;
     }
@@ -35,9 +35,7 @@ public final class CoreProviderRegistrySnapshot implements AutoCloseable {
      * @return snapshot of the current provider registries
      */
     public static CoreProviderRegistrySnapshot capture() {
-        return new CoreProviderRegistrySnapshot(
-                new HashMap<>(mcpRegistry()),
-                new HashMap<>(remoteRegistry()));
+        return new CoreProviderRegistrySnapshot(new HashMap<>(mcpRegistry()), new HashMap<>(remoteRegistry()));
     }
 
     @Override

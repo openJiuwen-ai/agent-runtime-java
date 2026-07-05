@@ -5,15 +5,17 @@
 package com.openjiuwen.service.app.config;
 
 import lombok.Data;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * AgentApp lifecycle configuration (Issue #5).
+ *
+ * @since 2026-07-03
  */
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.service.lifecycle")
 public class LifecycleProperties {
-
     private long shutdownTimeoutMs = 30000L;
 
     private boolean initFailFast = true;

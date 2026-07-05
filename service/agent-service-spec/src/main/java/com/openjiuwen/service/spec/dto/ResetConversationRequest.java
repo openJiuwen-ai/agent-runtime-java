@@ -6,15 +6,18 @@ package com.openjiuwen.service.spec.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
 import lombok.Data;
 
 /**
- * Reset conversation API request body (aligned with Python {@code ResetConversationRequest}).
+ * Reset conversation API request body (aligned with Python
+ * {@code ResetConversationRequest}).
+ *
+ * @since 0.1.0
  */
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class ResetConversationRequest {
-
     @JsonProperty("conversation_id")
     private String conversationId;
 

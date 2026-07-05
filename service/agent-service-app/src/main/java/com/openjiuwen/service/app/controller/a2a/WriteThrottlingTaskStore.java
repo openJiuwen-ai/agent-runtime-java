@@ -4,10 +4,6 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.function.LongSupplier;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
@@ -16,10 +12,14 @@ import org.a2aproject.sdk.spec.TaskState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.LongSupplier;
+
 /**
  * Read-through / write-behind cache in front of a slow {@link TaskStore} (e.g.
  * {@link RedisTaskStore}).
- *
  * <p>
  * <b>Why this exists.</b> The A2A SDK's {@code MainEventBusProcessor} persists
  * the task on <em>every</em> event it
@@ -34,7 +34,6 @@ import org.slf4j.LoggerFactory;
  * <em>before</em> the chunk is distributed to the client -- turning smooth
  * streaming into a slow trickle (and the cost is
  * quadratic, because the whole growing task is re-serialized per chunk).
- *
  * <p>
  * <b>Why a plain "skip some writes" throttle is wrong.</b> Because the SDK
  * reads the task back from the store between
@@ -45,7 +44,6 @@ import org.slf4j.LoggerFactory;
  * {@link #get(String)} serves first, so the SDK always sees the freshest state
  * regardless of what has reached Redis.
  * Only the durable backing write is throttled.
- *
  * <p>
  * <b>Policy.</b> Non-terminal streaming saves (WORKING / SUBMITTED) are written
  * to the delegate at most once per
@@ -63,10 +61,13 @@ import org.slf4j.LoggerFactory;
  */
 public class WriteThrottlingTaskStore implements TaskStore {
     private static final Logger log = LoggerFactory.getLogger(WriteThrottlingTaskStore.class);
+
     private static final long DEFAULT_MIN_WRITE_INTERVAL_MS = 200L;
 
     private final TaskStore delegate;
+
     private final long minWriteIntervalMs;
+
     private final LongSupplier clock;
 
     /**

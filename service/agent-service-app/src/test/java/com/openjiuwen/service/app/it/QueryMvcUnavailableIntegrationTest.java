@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.app.it;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleManager;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -11,6 +13,7 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -28,15 +31,13 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
  * Verifies MVC query returns service unavailable when the agent is not loaded.
  *
  * @since 0.1.0
  */
 @SpringBootTest(classes = QueryMvcUnavailableIntegrationTest.AgentNotLoadedApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
 class QueryMvcUnavailableIntegrationTest {
@@ -48,10 +49,8 @@ class QueryMvcUnavailableIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void queryReturnsServiceUnavailableWhenAgentIsNotLoaded() throws Exception {
-        ResponseEntity<String> response = postQuery("/v1/query", Map.of(
-                "message", "blocked",
-                "conversation_id", "c-not-loaded",
-                "stream", false));
+        ResponseEntity<String> response = postQuery("/v1/query",
+            Map.of("message", "blocked", "conversation_id", "c-not-loaded", "stream", false));
 
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
@@ -95,7 +94,6 @@ class QueryMvcUnavailableIntegrationTest {
     }
 
     static class UnusedAgentHandler implements AgentHandler {
-
         @Override
         public QueryResponse query(ServeRequest request) {
             return new QueryResponse(Map.of("content", "should-not-run"), request.getConversationId());

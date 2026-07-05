@@ -4,19 +4,22 @@
 
 package com.openjiuwen.service.app.autoconfigure;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -30,14 +33,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+/**
+ * AgentServiceAutoConfigurationMvcIntegrationTest
+ *
+ * @since 2026-07-03
+ */
 @SpringBootTest(classes = AgentServiceAutoConfigurationMvcIntegrationTest.MinimalAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = "openjiuwen.service.query.webflux.enabled=false")
 @AutoConfigureTestRestTemplate
 class AgentServiceAutoConfigurationMvcIntegrationTest {
-
     @Autowired
     private TestRestTemplate rest;
 
@@ -46,10 +51,8 @@ class AgentServiceAutoConfigurationMvcIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void autoConfigurationExposesQueryEndpointWithoutBusinessController() throws Exception {
-        ResponseEntity<String> resp = postQuery("/v1/query", Map.of(
-                "message", "hello",
-                "conversation_id", "c-auto",
-                "stream", false));
+        ResponseEntity<String> resp = postQuery("/v1/query",
+            Map.of("message", "hello", "conversation_id", "c-auto", "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
@@ -61,9 +64,8 @@ class AgentServiceAutoConfigurationMvcIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void legacyQueryPathUsesSameAutoConfiguredChain() throws Exception {
-        ResponseEntity<String> resp = postQuery("/query", Map.of(
-                "messages", List.of(Map.of("role", "user", "content", "legacy")),
-                "conversation_id", "c-auto-legacy",
+        ResponseEntity<String> resp = postQuery("/query",
+            Map.of("messages", List.of(Map.of("role", "user", "content", "legacy")), "conversation_id", "c-auto-legacy",
                 "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -81,7 +83,6 @@ class AgentServiceAutoConfigurationMvcIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class MinimalAgentApplication {
-
         @Bean
         AgentHandler customAgentHandler() {
             return new CustomAgentHandler();
@@ -89,7 +90,6 @@ class AgentServiceAutoConfigurationMvcIntegrationTest {
     }
 
     static class CustomAgentHandler implements AgentHandler {
-
         private final AtomicInteger calls = new AtomicInteger();
 
         @Override

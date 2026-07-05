@@ -4,8 +4,12 @@
 
 package com.openjiuwen.service.app.lifecycle;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+
 import com.openjiuwen.service.spec.lifecycle.AgentInterruptHandler;
 import com.openjiuwen.service.spec.lifecycle.InterruptReason;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -14,12 +18,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-
+/**
+ * ActiveStreamInterruptorTest
+ *
+ * @since 2026-07-03
+ */
 class ActiveStreamInterruptorTest {
-
     private ActiveStreamRegistry registry;
+
     private AtomicInteger interruptCount;
 
     @BeforeEach
@@ -57,12 +63,9 @@ class ActiveStreamInterruptorTest {
     @Test
     void interruptHandlerFailureDoesNotBlockOthers() {
         AtomicInteger secondCount = new AtomicInteger();
-        List<AgentInterruptHandler> handlers = List.of(
-                (conversationId, reason) -> {
-                    throw new IllegalStateException("first failed");
-                },
-                (conversationId, reason) -> secondCount.incrementAndGet()
-        );
+        List<AgentInterruptHandler> handlers = List.of((conversationId, reason) -> {
+            throw new IllegalStateException("first failed");
+        }, (conversationId, reason) -> secondCount.incrementAndGet());
         ActiveStreamInterruptor interruptor = new ActiveStreamInterruptor(providerOf(null), handlers);
 
         interruptor.interrupt("c1");
@@ -70,8 +73,7 @@ class ActiveStreamInterruptorTest {
         assertThat(secondCount.get()).isEqualTo(1);
     }
 
-    private ActiveStreamInterruptor newInterruptor(
-            com.openjiuwen.service.spec.spi.ServeOrchestrator orchestrator) {
+    private ActiveStreamInterruptor newInterruptor(com.openjiuwen.service.spec.spi.ServeOrchestrator orchestrator) {
         List<AgentInterruptHandler> handlers = new ArrayList<>();
         handlers.add((conversationId, reason) -> {
             interruptCount.incrementAndGet();

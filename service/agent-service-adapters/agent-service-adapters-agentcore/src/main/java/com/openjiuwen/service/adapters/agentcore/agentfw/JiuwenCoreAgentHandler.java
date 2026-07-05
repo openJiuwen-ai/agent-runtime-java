@@ -22,6 +22,10 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -32,56 +36,95 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Default {@link AgentHandler} for OpenJiuwen agent-core-java, delegating to
  * {@code Runner}.
+ *
+ * @since 0.1.0
  */
 public class JiuwenCoreAgentHandler implements AgentHandler {
     private static final Logger log = LoggerFactory.getLogger(JiuwenCoreAgentHandler.class);
+
     private static final AtomicBoolean RUNNER_STARTED = new AtomicBoolean(false);
 
     /** agent-core-java OutputSchema type name for tool-call interrupts. */
     private static final String INTERACTION_TYPE = "__interaction__";
 
     private static final String INPUT_QUERY = "query";
+
     private static final String INPUT_CONVERSATION_ID = "conversation_id";
+
     private static final String INPUT_MESSAGES = "messages";
+
     private static final String INPUT_USER_ID = "user_id";
+
     private static final String INPUT_SPACE_ID = "space_id";
+
     private static final String INPUT_TENANT_ID = "tenant_id";
+
     private static final String DEFAULT_AGENT_SESSION_ID = "default_session";
+
     private static final String SYNTHETIC_AGENT_ID_PREFIX = "service-agentcore:";
 
     private final Object agent;
+
     private final MiddlewareAdapterRegistrar middlewareAdapterRegistrar;
+
     private final ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar;
 
-    protected Object getAgent() {
-        return agent;
-    }
-
+    /**
+     * Creates a handler with the given agent and default middleware/external registrars.
+     *
+     * @param agent the agent instance or agent-id string
+     */
     public JiuwenCoreAgentHandler(Object agent) {
         this(agent, null, ExternalSvcAdapterRegistrar.noop());
     }
 
+    /**
+     * Creates a handler with middleware registration support.
+     *
+     * @param agent the agent instance or agent-id string
+     * @param middlewareAdapterRegistrar the middleware adapter registrar
+     */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar) {
         this(agent, middlewareAdapterRegistrar, ExternalSvcAdapterRegistrar.noop());
     }
 
+    /**
+     * Creates a handler with external service registration support.
+     *
+     * @param agent the agent instance or agent-id string
+     * @param externalSvcAdapterRegistrar the external service adapter registrar
+     */
     public JiuwenCoreAgentHandler(Object agent, ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this(agent, null, externalSvcAdapterRegistrar);
     }
 
+    /**
+     * Creates a handler with middleware and external service registrars.
+     *
+     * @param agent the agent instance or agent-id string
+     * @param middlewareAdapterRegistrar the middleware adapter registrar
+     * @param externalSvcAdapterRegistrar the external service adapter registrar
+     */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
-            ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
+        ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
         this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
-                ? externalSvcAdapterRegistrar
-                : ExternalSvcAdapterRegistrar.noop();
+            ? externalSvcAdapterRegistrar
+            : ExternalSvcAdapterRegistrar.noop();
+    }
+
+    /**
+     * Returns the wrapped agent instance for tests and subclasses.
+     *
+     * @return the agent delegate
+     */
+    protected Object getAgent() {
+        return agent;
     }
 
     @Override
@@ -136,11 +179,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         String convId = request.getConversationId();
         String query = request.lastUserQuery();
         log.info("JiuwenCoreAgentHandler streamQuery convId={} textLen={} msgCount={}", convId,
-                query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
+            query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
         try {
             List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
             Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request),
-                    null, streamModes);
+                null, streamModes);
             while (!observer.isCancelled() && source.hasNext()) {
                 if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
                     break;
@@ -173,7 +216,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Object lastPayload = null;
         List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
         Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request), null,
-                streamModes);
+            streamModes);
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
             lastPayload = payload;
@@ -182,28 +225,21 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return buildQueryResponse(lastPayload, content, request.getConversationId());
     }
 
+    /**
+     * Converts a Core runner result into a {@link QueryResponse}.
+     *
+     * @param rawResult the raw agent output
+     * @param conversationId the conversation identifier
+     * @return the normalized query response
+     */
     protected QueryResponse toQueryResponse(Object rawResult, String conversationId) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
         if (rawResult instanceof Map<?, ?> rawMap) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> map = (Map<String, Object>) rawMap;
-            if ("interrupt".equals(map.get("result_type")) && map.get("state") instanceof List<?> states) {
-                Object lastInterrupt = null;
-                for (Object state : states) {
-                    if (state instanceof OutputSchema outputSchema) {
-                        lastInterrupt = normalizeChunk(outputSchema);
-                    }
-                }
-                if (lastInterrupt instanceof Map<?, ?> interruptMap) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> interruptData = (Map<String, Object>) interruptMap;
-                    if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
-                        result.put("_interrupt", interruptData);
-                        result.put("content", interruptData.getOrDefault("message", ""));
-                        return new QueryResponse(result, conversationId);
-                    }
-                }
+            @SuppressWarnings("unchecked") Map<String, Object> map = (Map<String, Object>) rawMap;
+            QueryResponse result1 = getQueryResponse(conversationId, map, result);
+            if (result1 != null) {
+                return result1;
             }
             Object content = firstNonNull(map.get("output"), map.get("content"), map.get("response")).orElse(null);
             result.put("content", stringify(content));
@@ -216,8 +252,38 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return new QueryResponse(result, conversationId);
     }
 
+    private static QueryResponse getQueryResponse(String conversationId, Map<String, Object> map,
+        Map<String, Object> result) {
+        if ("interrupt".equals(map.get("result_type")) && map.get("state") instanceof List<?> states) {
+            Object lastInterrupt = null;
+            for (Object state : states) {
+                if (state instanceof OutputSchema outputSchema) {
+                    lastInterrupt = normalizeChunk(outputSchema);
+                }
+            }
+            QueryResponse result1 = getQueryResponse(conversationId, lastInterrupt, result);
+            if (result1 != null) {
+                return result1;
+            }
+        }
+        return null;
+    }
+
+    private static QueryResponse getQueryResponse(String conversationId, Object lastInterrupt,
+        Map<String, Object> result) {
+        if (lastInterrupt instanceof Map<?, ?> interruptMap) {
+            @SuppressWarnings("unchecked") Map<String, Object> interruptData = (Map<String, Object>) interruptMap;
+            if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
+                result.put("_interrupt", interruptData);
+                result.put("content", interruptData.getOrDefault("message", ""));
+                return new QueryResponse(result, conversationId);
+            }
+        }
+        return null;
+    }
+
     private static QueryResponse buildQueryResponseFromControllerOutput(ControllerOutput controllerOutput,
-            String conversationId) {
+        String conversationId) {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
         Object data = controllerOutput.getData();
@@ -235,8 +301,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
         if (lastPayload instanceof Map<?, ?> raw && INTERACTION_TYPE.equals(raw.get("type"))) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> interrupt = (Map<String, Object>) raw;
+            @SuppressWarnings("unchecked") Map<String, Object> interrupt = (Map<String, Object>) raw;
             result.put("_interrupt", interrupt);
             result.put("content", interrupt.getOrDefault("message", ""));
         } else {
@@ -259,6 +324,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return false;
     }
 
+    /**
+     * Builds Core runner input map from a serve request.
+     *
+     * @param request the ingress request
+     * @return the runner inputs map
+     */
     protected static Map<String, Object> buildInputs(ServeRequest request) {
         Map<String, Object> inputs = new LinkedHashMap<>();
         inputs.put(INPUT_CONVERSATION_ID, request.getConversationId());
@@ -275,20 +346,29 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return inputs;
     }
 
+    /**
+     * Resolves the Core runner session object for a serve request.
+     *
+     * @param request the ingress request
+     * @return the session id, conversation id, or {@link AgentSessionApi}
+     */
     protected Object runnerSession(ServeRequest request) {
         String conversationId = request.getConversationId();
         if (hasAgentCard(agent)) {
             return conversationId;
         }
         String sessionId = conversationId != null && !conversationId.isBlank()
-                ? conversationId
-                : DEFAULT_AGENT_SESSION_ID;
+            ? conversationId
+            : DEFAULT_AGENT_SESSION_ID;
         String agentId = agent instanceof String stringAgentId
-                ? stringAgentId
-                : SYNTHETIC_AGENT_ID_PREFIX + agent.getClass().getName();
+            ? stringAgentId
+            : SYNTHETIC_AGENT_ID_PREFIX + agent.getClass().getName();
         String agentName = agent instanceof String stringAgentId ? stringAgentId : agent.getClass().getSimpleName();
-        BaseCard card = BaseCard.builder().id(agentId).name(agentName)
-                .description("Synthetic card for AgentCore session").build();
+        BaseCard card = BaseCard.builder()
+            .id(agentId)
+            .name(agentName)
+            .description("Synthetic card for AgentCore session")
+            .build();
         return new AgentSessionApi(sessionId, null, card, List.of(StreamMode.OUTPUT));
     }
 
@@ -311,6 +391,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
     }
 
+    /**
+     * Normalizes a Core stream chunk into a service-layer payload map.
+     *
+     * @param chunk the raw stream chunk
+     * @return the normalized payload
+     */
     protected static Object normalizeChunk(Object chunk) {
         if (chunk instanceof OutputSchema output) {
             // agent-core-java interrupt: map __interaction__ to structured form
@@ -405,17 +491,22 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
     }
 
+    /**
+     * Appends textual content from a normalized chunk into the aggregate buffer.
+     *
+     * @param payload the normalized chunk payload
+     * @param content the aggregate content buffer
+     */
     protected static void appendContent(Object payload, StringBuilder content) {
         if (!(payload instanceof Map<?, ?> map)) {
             return;
         }
-        Object type = map.get("type");
         Object rawPayload = map.get("payload");
         Optional<Object> text = firstNonNull(map.get("content"), map.get("delta"), map.get("output"),
-                map.get("response"));
+            map.get("response"));
         if (rawPayload instanceof Map<?, ?> payloadMap) {
             Optional<Object> payloadText = firstNonNull(payloadMap.get("content"), payloadMap.get("delta"),
-                    payloadMap.get("output"), payloadMap.get("response"));
+                payloadMap.get("output"), payloadMap.get("response"));
             if (payloadText.isPresent()) {
                 text = payloadText;
             }
@@ -423,6 +514,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (text.isEmpty()) {
             return;
         }
+        Object type = map.get("type");
         String typeText = type == null ? "" : String.valueOf(type);
         if ("answer".equals(typeText) && !content.isEmpty()) {
             return;
@@ -430,6 +522,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         content.append(stringify(text.get()));
     }
 
+    /**
+     * Builds a standard error event map for stream observers.
+     *
+     * @param ex the failure exception
+     * @return the error event map
+     */
     protected static Map<String, Object> errorEvent(Exception ex) {
         Map<String, Object> error = new LinkedHashMap<>();
         error.put("type", "error");
@@ -441,6 +539,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return Arrays.stream(values).filter(value -> value != null).findFirst();
     }
 
+    /**
+     * Converts a value to a non-null string representation.
+     *
+     * @param value the value to stringify
+     * @return the string form, or empty string when null
+     */
     protected static String stringify(Object value) {
         return value == null ? "" : String.valueOf(value);
     }

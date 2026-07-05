@@ -27,21 +27,23 @@ import java.util.Map;
  */
 public class BToCDelegateRail extends BaseInterruptRail {
     private static final Gson GSON = new Gson();
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
-    }.getType();
+
+    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
+
     private static final String TOOL_NAME = "delegate_to_agentc";
+
     private static final String AGENT_NAME = "agentc";
 
     public BToCDelegateRail() {
         super(List.of(TOOL_NAME));
-        ToolCard card = ToolCard.builder().id(TOOL_NAME).name(TOOL_NAME)
-                .description("Delegate dining requests to Agent C DeepAgent for final food recommendation")
-                .inputParams(Map.of("type", "object", "properties",
-                        Map.of("message",
-                                Map.of("type", "string", "description",
-                                        "The dining request to forward to Agent C's DeepAgent")),
-                        "required", List.of("message")))
-                .build();
+        ToolCard card = ToolCard.builder()
+            .id(TOOL_NAME)
+            .name(TOOL_NAME)
+            .description("Delegate dining requests to Agent C DeepAgent for final food recommendation")
+            .inputParams(Map.of("type", "object", "properties", Map.of("message",
+                    Map.of("type", "string", "description", "The dining request to forward to Agent C's DeepAgent")),
+                "required", List.of("message")))
+            .build();
         getTools().add(card);
     }
 
@@ -51,9 +53,10 @@ public class BToCDelegateRail extends BaseInterruptRail {
             return reject(resumeInput);
         }
         String userQuery = extractMessage(toolCall);
-        var request = InterruptRequest.builder().message(userQuery)
-                .context(Map.of("agentName", AGENT_NAME, "_interrupt_kind", "a2a_delegate", "_stream_mode", "sse"))
-                .build();
+        var request = InterruptRequest.builder()
+            .message(userQuery)
+            .context(Map.of("agentName", AGENT_NAME, "_interrupt_kind", "a2a_delegate", "_stream_mode", "sse"))
+            .build();
         return interrupt(request);
     }
 

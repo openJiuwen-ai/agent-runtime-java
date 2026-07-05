@@ -50,7 +50,8 @@ curl -s 'http://localhost:18080/mcp' \
 
 ## 启动 Agent Service（MCP 特性模块）
 
-另开一个终端，启动 **MCP 特性模块**（ReActAgent + `JiuwenCoreAgentHandler`）。模型 API 见 `../config/application-base.yml` 中 `openjiuwen.demo.llm`。
+另开一个终端，启动 **MCP 特性模块**（ReActAgent + `JiuwenCoreAgentHandler`）。模型 API 见 `../config/application-base.yml` 中
+`openjiuwen.demo.llm`。
 
 ```bash
 OPENJIUWEN_API_CONFIG=/path/to/apiconfig.json \
@@ -73,7 +74,8 @@ curl -s http://localhost:8092/v1/query \
   -d '{"conversation_id":"mcp-demo-c1","message":"请调用 demo_echo 工具，输入 text=hello","stream":false}'
 ```
 
-是否会自动调用工具取决于当前模型和 prompt 策略；这个示例的重点是展示如何在 demo 服务里挂载外部 MCP，并让 Core Runner 在启动时注册 MCP 工具。
+是否会自动调用工具取决于当前模型和 prompt 策略；这个示例的重点是展示如何在 demo 服务里挂载外部 MCP，并让 Core Runner
+在启动时注册 MCP 工具。
 
 ## 配置项
 
@@ -100,4 +102,5 @@ openjiuwen:
             client-type: streamable-http
 ```
 
-线上接入时通常只需要替换 `server-path`，治理参数按服务稳定性要求调整。`tools/call` 默认不自动重试，只有确认工具调用幂等时才开启 `retry-tool-calls`。
+线上接入时通常只需要替换 `server-path`，治理参数按服务稳定性要求调整。`tools/call` 默认不自动重试，只有确认工具调用幂等时才开启
+`retry-tool-calls`。

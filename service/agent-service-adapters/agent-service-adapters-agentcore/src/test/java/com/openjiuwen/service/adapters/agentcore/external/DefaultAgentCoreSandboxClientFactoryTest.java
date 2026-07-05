@@ -4,17 +4,18 @@
 
 package com.openjiuwen.service.adapters.agentcore.external;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.openjiuwen.core.sysop.config.ContainerScope;
 import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
 import com.openjiuwen.core.sysop.sandbox.SandboxEndpoint;
 import com.openjiuwen.core.sysop.sandbox.SandboxRegistry;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests sandbox client factory mapping and validation behavior.
@@ -24,7 +25,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DefaultAgentCoreSandboxClientFactoryTest {
     @Test
     void mapsValidSandboxServerConfigToVendorCoreGatewayConfig() {
-        AgentCoreExternalProperties properties = properties();
         AgentCoreExternalProperties.SandboxServer server = new AgentCoreExternalProperties.SandboxServer();
         server.setServerId("default");
         server.setServiceUrl("http://localhost:18090");
@@ -38,6 +38,7 @@ class DefaultAgentCoreSandboxClientFactoryTest {
         server.setExtraParams(Map.of("sandbox_id", "sbx-1"));
         server.setTimeoutMs(4500);
         server.setIdleTtlSeconds(60);
+        AgentCoreExternalProperties properties = properties();
         properties.getSandbox().setServers(java.util.List.of(server));
 
         SandboxGatewayConfig config = new DefaultAgentCoreSandboxClientFactory(properties).configFor("default");
@@ -92,9 +93,8 @@ class DefaultAgentCoreSandboxClientFactoryTest {
     void failsWhenRequestedSandboxServerDoesNotExist() {
         DefaultAgentCoreSandboxClientFactory factory = new DefaultAgentCoreSandboxClientFactory(properties());
 
-        assertThatThrownBy(() -> factory.configFor("missing"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Unknown sandbox server");
+        assertThatThrownBy(() -> factory.configFor("missing")).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unknown sandbox server");
     }
 
     @Test
@@ -102,9 +102,8 @@ class DefaultAgentCoreSandboxClientFactoryTest {
         AgentCoreExternalProperties properties = properties();
         properties.getSandbox().getServers().get(0).setServiceUrl("file:///tmp/sandbox");
 
-        assertThatThrownBy(() -> new DefaultAgentCoreSandboxClientFactory(properties))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("service-url");
+        assertThatThrownBy(() -> new DefaultAgentCoreSandboxClientFactory(properties)).isInstanceOf(
+            IllegalArgumentException.class).hasMessageContaining("service-url");
     }
 
     private AgentCoreExternalProperties properties() {

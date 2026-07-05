@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.demo;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.core.foundation.llm.Model;
 import com.openjiuwen.core.foundation.llm.model_clients.BaseModelClient;
@@ -18,6 +20,7 @@ import com.openjiuwen.core.foundation.llm.schema.UserMessage;
 import com.openjiuwen.core.foundation.llm.schema.VideoGenerationResponse;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -39,20 +42,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
- * End-to-end smoke test for the demo service surface: {@code /health}, {@code /v1/query}
- * and {@code /v1/reset_conversation}, all served by the agent-core-java handler. A deterministic
+ * End-to-end smoke test for the demo service surface: {@code /health},
+ * {@code /v1/query}
+ * and {@code /v1/reset_conversation}, all served by the agent-core-java
+ * handler. A deterministic
  * in-memory model stands in for a real LLM so the assertions stay stable.
  */
-@SpringBootTest(classes = DemoAgentApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = DemoAgentApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DemoAgentApplicationTest {
-
     private static final String TEST_PROVIDER = "DemoSmokeProvider";
+
     private static final AtomicBoolean FACTORY_REGISTERED = new AtomicBoolean(false);
 
     @Autowired
@@ -102,10 +104,8 @@ class DemoAgentApplicationTest {
     @Test
     @SuppressWarnings("unchecked")
     void demoApplicationServesQueryApiViaCoreHandler() throws Exception {
-        ResponseEntity<String> resp = postJson("/v1/query", Map.of(
-                "message", "hello",
-                "conversation_id", "demo-c1",
-                "stream", false));
+        ResponseEntity<String> resp = postJson("/v1/query",
+            Map.of("message", "hello", "conversation_id", "demo-c1", "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
@@ -118,13 +118,9 @@ class DemoAgentApplicationTest {
     @Test
     @SuppressWarnings("unchecked")
     void demoApplicationServesResetConversationApi() throws Exception {
-        postJson("/v1/query", Map.of(
-                "message", "hello",
-                "conversation_id", "demo-c1",
-                "stream", false));
+        postJson("/v1/query", Map.of("message", "hello", "conversation_id", "demo-c1", "stream", false));
 
-        ResponseEntity<String> reset = postJson("/v1/reset_conversation",
-                Map.of("conversation_id", "demo-c1"));
+        ResponseEntity<String> reset = postJson("/v1/reset_conversation", Map.of("conversation_id", "demo-c1"));
 
         assertThat(reset.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(reset.getBody(), Map.class);
@@ -139,7 +135,6 @@ class DemoAgentApplicationTest {
     }
 
     private static final class EchoModelFactory implements Model.ModelClientFactory {
-
         @Override
         public String providerName() {
             return TEST_PROVIDER;
@@ -152,49 +147,45 @@ class DemoAgentApplicationTest {
     }
 
     private static final class EchoModelClient extends BaseModelClient {
-
         private EchoModelClient(ModelRequestConfig modelConfig, ModelClientConfig modelClientConfig) {
             super(modelConfig, modelClientConfig);
         }
 
         @Override
         public AssistantMessage invoke(Object messages, Object tools, Float temperature, Float topP, String model,
-                                       Integer maxTokens, String stop, BaseOutputParser outputParser,
-                                       Float timeout, Map<String, Object> kwargs) {
+            Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout, Map<String, Object> kwargs) {
             String lastUser = convertMessagesToDict(messages).stream()
-                    .filter(message -> "user".equals(String.valueOf(message.get("role"))))
-                    .map(message -> String.valueOf(message.get("content")))
-                    .reduce((first, second) -> second)
-                    .orElse("");
+                .filter(message -> "user".equals(String.valueOf(message.get("role"))))
+                .map(message -> String.valueOf(message.get("content")))
+                .reduce((first, second) -> second)
+                .orElse("");
             return new AssistantMessage("echo:" + lastUser);
         }
 
         @Override
         public Iterator<AssistantMessageChunk> stream(Object messages, Object tools, Float temperature, Float topP,
-                                                      String model, Integer maxTokens, String stop,
-                                                      BaseOutputParser outputParser, Float timeout,
-                                                      Map<String, Object> kwargs) {
+            String model, Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
+            Map<String, Object> kwargs) {
             return List.<AssistantMessageChunk>of().iterator();
         }
 
         @Override
         public ImageGenerationResponse generateImage(List<UserMessage> messages, String model, String size,
-                                                     String negativePrompt, int n, boolean promptExtend,
-                                                     boolean watermark, int seed, Map<String, Object> kwargs) {
+            String negativePrompt, int n, boolean promptExtend, boolean watermark, int seed,
+            Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
 
         @Override
         public AudioGenerationResponse generateSpeech(List<UserMessage> messages, String model, String voice,
-                                                      String languageType, Map<String, Object> kwargs) {
+            String languageType, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
 
         @Override
         public VideoGenerationResponse generateVideo(List<UserMessage> messages, String imgUrl, String audioUrl,
-                                                     String model, String size, String resolution, int duration,
-                                                     boolean promptExtend, boolean watermark, String negativePrompt,
-                                                     Integer seed, Map<String, Object> kwargs) {
+            String model, String size, String resolution, int duration, boolean promptExtend, boolean watermark,
+            String negativePrompt, Integer seed, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
     }

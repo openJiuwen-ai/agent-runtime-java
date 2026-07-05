@@ -8,9 +8,9 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
+
 import jakarta.servlet.http.HttpServletRequest;
-import java.util.List;
-import java.util.Map;
+
 import org.a2aproject.sdk.spec.AgentCapabilities;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.AgentInterface;
@@ -19,8 +19,12 @@ import org.a2aproject.sdk.spec.AgentSkill;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+import java.util.Map;
+
 /**
- * Serves the A2A-standard Agent Card on multiple well-known paths. All fields are driven by {@link A2AProperties}
+ * Serves the A2A-standard Agent Card on multiple well-known paths. All fields
+ * are driven by {@link A2AProperties}
  * configuration.
  *
  * @since 0.1.0
@@ -28,7 +32,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class AgentCardController {
     private final A2AProperties a2aProperties;
+
     private final AgentServiceIdentity identity;
+
     private final ServiceProperties serviceProperties;
 
     /**
@@ -39,7 +45,7 @@ public class AgentCardController {
      * @param serviceProperties the service properties
      */
     public AgentCardController(A2AProperties a2aProperties, AgentServiceIdentity identity,
-            ServiceProperties serviceProperties) {
+        ServiceProperties serviceProperties) {
         this.a2aProperties = a2aProperties;
         this.identity = identity;
         this.serviceProperties = serviceProperties;
@@ -80,32 +86,29 @@ public class AgentCardController {
 
     private AgentCard buildCard(HttpServletRequest request) {
         String baseUrl = (a2aProperties.getPublicUrl() != null && !a2aProperties.getPublicUrl().isBlank())
-                ? a2aProperties.getPublicUrl()
-                : request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
+            ? a2aProperties.getPublicUrl()
+            : request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
 
         String jsonRpcUrl = baseUrl.replaceAll("/$", "") + a2aProperties.getJsonRpcPath();
 
-        List<AgentSkill> skills = a2aProperties.getSkills().stream().map(s -> new AgentSkill(s.getId(), s.getName(),
-                s.getDescription(), s.getTags(), s.getExamples(), s.getInputModes(), s.getOutputModes(), List.of()))
-                .toList();
+        List<AgentSkill> skills = a2aProperties.getSkills()
+            .stream()
+            .map(s -> new AgentSkill(s.getId(), s.getName(), s.getDescription(), s.getTags(), s.getExamples(),
+                s.getInputModes(), s.getOutputModes(), List.of()))
+            .toList();
 
         String providerOrg = a2aProperties.getProviderOrganization() != null
-                ? a2aProperties.getProviderOrganization() : "";
-        String providerUrl = a2aProperties.getProviderUrl() != null
-                ? a2aProperties.getProviderUrl() : "";
+            ? a2aProperties.getProviderOrganization()
+            : "";
+        String providerUrl = a2aProperties.getProviderUrl() != null ? a2aProperties.getProviderUrl() : "";
 
         return new AgentCard(identity.getAppName(), a2aProperties.getAgentDescription(),
-                new AgentProvider(providerOrg, providerUrl),
-                serviceProperties.getVersion(), a2aProperties.getDocumentationUrl(),
-                new AgentCapabilities(a2aProperties.isStreaming(), a2aProperties.isPushNotifications(),
-                        a2aProperties.isExtendedAgentCard(), List.of()),
-                a2aProperties.getDefaultInputModes(), a2aProperties.getDefaultOutputModes(), skills, Map.of(),
-                List.of(),
-                a2aProperties.getIconUrl(),
-                List.of(new AgentInterface("JSONRPC", jsonRpcUrl, null, "1.0")),
-                List.of(),
-                jsonRpcUrl,
-                "JSONRPC",
-                List.of());
+            new AgentProvider(providerOrg, providerUrl), serviceProperties.getVersion(),
+            a2aProperties.getDocumentationUrl(),
+            new AgentCapabilities(a2aProperties.isStreaming(), a2aProperties.isPushNotifications(),
+                a2aProperties.isExtendedAgentCard(), List.of()), a2aProperties.getDefaultInputModes(),
+            a2aProperties.getDefaultOutputModes(), skills, Map.of(), List.of(), a2aProperties.getIconUrl(),
+            List.of(new AgentInterface("JSONRPC", jsonRpcUrl, null, "1.0")), List.of(), jsonRpcUrl, "JSONRPC",
+            List.of());
     }
 }
