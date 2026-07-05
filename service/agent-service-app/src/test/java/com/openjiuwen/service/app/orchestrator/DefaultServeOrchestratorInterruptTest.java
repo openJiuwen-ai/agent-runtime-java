@@ -46,7 +46,8 @@ class DefaultServeOrchestratorInterruptTest {
                 started.countDown();
                 while (!observer.isCancelled()) {
                     observer.onNext(new QueryChunk("chunk", Map.of("content", "tick")));
-                    Thread.yield();
+                    // 使用更高效的等待机制（如 LockSupport.parkNanos()）
+                    java.util.concurrent.locks.LockSupport.parkNanos(1000000); // 等待1ms，避免忙等待
                 }
                 observer.onComplete();
             }
@@ -97,7 +98,7 @@ class DefaultServeOrchestratorInterruptTest {
                 try {
                     Thread.sleep(200);
                 } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
+                    queryFinished.set(true);
                 }
                 queryFinished.set(true);
                 return new com.openjiuwen.service.spec.dto.QueryResponse("sync-ok", request.getConversationId());

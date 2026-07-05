@@ -69,10 +69,11 @@ class RemoteExampleLocalServerTest {
 
         Object result = client.invoke(Map.of("message", "hello remote", "conversation_id", "demo-session"), null);
         assertThat(result).isInstanceOf(AgentResult.class);
-        AgentResult agentResult = (AgentResult) result;
-        assertThat(String.valueOf(agentResult.getStatus())).isEqualTo("completed");
-        assertThat(agentResult.getSessionId()).isEqualTo("demo-session");
-        assertThat(firstText(agentResult.getArtifacts())).isEqualTo("mock a2a response: hello remote");
+        if (result instanceof AgentResult agentResult) {
+            assertThat(String.valueOf(agentResult.getStatus())).isEqualTo("completed");
+            assertThat(agentResult.getSessionId()).isEqualTo("demo-session");
+            assertThat(firstText(agentResult.getArtifacts())).isEqualTo("mock a2a response: hello remote");
+        }
     }
 
     private static String firstText(List<Artifact> artifacts) {

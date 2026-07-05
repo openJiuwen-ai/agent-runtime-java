@@ -45,7 +45,6 @@ public class MockA2ARemoteServerExample {
         server.start();
 
         String ready = "http://127.0.0.1:" + port + "/a2a/jsonrpc";
-        System.out.println("Mock A2A remote server started at " + ready);
         log.info("Mock A2A remote server started at {}", ready);
     }
 

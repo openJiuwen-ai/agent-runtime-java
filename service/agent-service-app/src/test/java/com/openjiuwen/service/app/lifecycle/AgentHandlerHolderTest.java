@@ -94,7 +94,7 @@ class AgentHandlerHolderTest {
         private final AtomicBoolean cleared;
 
         private DemoAgentHandler() {
-            this.cleared = null;
+            this(null);
         }
 
         private DemoAgentHandler(AtomicBoolean cleared) {

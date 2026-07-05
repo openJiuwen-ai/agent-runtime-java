@@ -23,7 +23,6 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
-import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -238,17 +237,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         result.put("role", "assistant");
         if (rawResult instanceof Map<?, ?> rawMap) {
             @SuppressWarnings("unchecked") Map<String, Object> map = (Map<String, Object>) rawMap;
-            if ("interrupt".equals(map.get("result_type")) && map.get("state") instanceof List<?> states) {
-                Object lastInterrupt = null;
-                for (Object state : states) {
-                    if (state instanceof OutputSchema outputSchema) {
-                        lastInterrupt = normalizeChunk(outputSchema);
-                    }
-                }
-                QueryResponse result1 = getQueryResponse(conversationId, lastInterrupt, result);
-                if (result1 != null) {
-                    return result1;
-                }
+            QueryResponse result1 = getQueryResponse(conversationId, map, result);
+            if (result1 != null) {
+                return result1;
             }
             Object content = firstNonNull(map.get("output"), map.get("content"), map.get("response")).orElse(null);
             result.put("content", stringify(content));
@@ -261,11 +252,27 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return new QueryResponse(result, conversationId);
     }
 
-    private static @Nullable QueryResponse getQueryResponse(String conversationId, Object lastInterrupt,
+    private static QueryResponse getQueryResponse(String conversationId, Map<String, Object> map,
+        Map<String, Object> result) {
+        if ("interrupt".equals(map.get("result_type")) && map.get("state") instanceof List<?> states) {
+            Object lastInterrupt = null;
+            for (Object state : states) {
+                if (state instanceof OutputSchema outputSchema) {
+                    lastInterrupt = normalizeChunk(outputSchema);
+                }
+            }
+            QueryResponse result1 = getQueryResponse(conversationId, lastInterrupt, result);
+            if (result1 != null) {
+                return result1;
+            }
+        }
+        return null;
+    }
+
+    private static QueryResponse getQueryResponse(String conversationId, Object lastInterrupt,
         Map<String, Object> result) {
         if (lastInterrupt instanceof Map<?, ?> interruptMap) {
-            @SuppressWarnings("unchecked") Map<String, Object> interruptData
-                = (Map<String, Object>) interruptMap;
+            @SuppressWarnings("unchecked") Map<String, Object> interruptData = (Map<String, Object>) interruptMap;
             if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
                 result.put("_interrupt", interruptData);
                 result.put("content", interruptData.getOrDefault("message", ""));

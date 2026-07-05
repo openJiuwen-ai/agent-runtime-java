@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 class ExternalCallExecutorTest {
     @Test
-    void executeReusesConfiguredTimeoutExecutorWithoutShuttingItDownPerCall() {
+    void execReusesConfTimeoutWithoutShuttingDownPerCall() {
         RecordingExecutorService timeoutExecutor = new RecordingExecutorService();
         ExternalCallExecutor executor = new ExternalCallExecutor("test", "target", new TestPolicy(),
             ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED, ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN,

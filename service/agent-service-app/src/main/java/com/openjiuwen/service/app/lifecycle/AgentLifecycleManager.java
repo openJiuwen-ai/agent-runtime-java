@@ -10,10 +10,14 @@ package com.openjiuwen.service.app.lifecycle;
  * @since 0.1.0
  */
 public interface AgentLifecycleManager {
-    /** Runs the agent init phase. */
+    /**
+     * Runs the agent init phase.
+     */
     void runInitPhase();
 
-    /** Runs the agent shutdown phase. */
+    /**
+     * Runs the agent shutdown phase.
+     */
     void runShutdownPhase();
 
     /**

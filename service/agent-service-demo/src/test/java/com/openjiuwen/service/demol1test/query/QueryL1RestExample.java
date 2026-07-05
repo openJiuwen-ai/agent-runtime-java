@@ -154,7 +154,7 @@ public class QueryL1RestExample {
             try {
                 Thread.sleep(delayMs);
             } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
+                // donothing
             }
         }
     }

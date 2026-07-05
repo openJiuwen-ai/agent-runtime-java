@@ -9,6 +9,7 @@ import com.google.gson.Gson;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.params.ScanParams;
+import redis.clients.jedis.resps.ScanResult;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
@@ -97,20 +98,24 @@ public class RedisTaskStore implements TaskStore {
             String cursor = ScanParams.SCAN_POINTER_START;
             do {
                 var scanResult = jedis.scan(cursor, new ScanParams().match(KEY_PREFIX + "*").count(100));
-                for (String key : scanResult.getResult()) {
-                    byte[] data = jedis.get(key.getBytes(StandardCharsets.UTF_8));
-                    if (data == null) {
-                        continue;
-                    }
-                    Task t = GSON.fromJson(new String(data, StandardCharsets.UTF_8), Task.class);
-                    if (t != null && matches(t, params)) {
-                        result.add(t);
-                    }
-                }
+                buildResult(params, scanResult, jedis, result);
                 cursor = scanResult.getCursor();
             } while (!ScanParams.SCAN_POINTER_START.equals(cursor));
         }
         return new ListTasksResult(result, result.size(), result.size(), null);
+    }
+
+    private void buildResult(ListTasksParams params, ScanResult<String> scanResult, Jedis jedis, List<Task> result) {
+        for (String key : scanResult.getResult()) {
+            byte[] data = jedis.get(key.getBytes(StandardCharsets.UTF_8));
+            if (data == null) {
+                continue;
+            }
+            Task t = GSON.fromJson(new String(data, StandardCharsets.UTF_8), Task.class);
+            if (t != null && matches(t, params)) {
+                result.add(t);
+            }
+        }
     }
 
     private boolean matches(Task t, ListTasksParams params) {

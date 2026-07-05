@@ -194,6 +194,8 @@ class DecoratingSandboxClientTest {
     }
 
     private static final class RecordingSandboxFsOperation extends SandboxFsOperation {
+        private final AtomicBoolean isInterrupted = new AtomicBoolean(false);
+
         private int readFileAttempts;
 
         private int writeFileAttempts;
@@ -230,27 +232,18 @@ class DecoratingSandboxClientTest {
             return new WriteFileResult(0, "ok", null);
         }
 
-        private final AtomicBoolean isInterrupted = new AtomicBoolean(false);
-
         private void sleep(long millis) {
             if (millis <= 0) {
                 return;
             }
             long startTime = System.currentTimeMillis();
             while (!isInterrupted.get() && (System.currentTimeMillis() - startTime) < millis) {
-                // 使用忙等待或更高效的等待机制（如 LockSupport.parkNanos()）
-                Thread.yield(); // 避免忙等待消耗过多 CPU
+                // 使用更高效的等待机制（如 LockSupport.parkNanos()）
+                java.util.concurrent.locks.LockSupport.parkNanos(1000000); // 等待1ms，避免忙等待
             }
             if (isInterrupted.get()) {
                 throw new IllegalStateException("Sandbox test sleep interrupted");
             }
-        }
-
-        /**
-         * interrupt
-         */
-        public void interrupt() {
-            isInterrupted.set(true);
         }
     }
 

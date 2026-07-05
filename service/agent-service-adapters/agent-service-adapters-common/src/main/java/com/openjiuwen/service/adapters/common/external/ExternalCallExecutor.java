@@ -240,8 +240,8 @@ public class ExternalCallExecutor {
         String code = ex instanceof ExternalSvcAdapterException adapterException ? adapterException.getErrorCode()
             .getCode() : outboundFailureCode.getCode();
         log.warn("{} adapter={}, success=false, code={}, target={}, method={}.{}, attempt={}, "
-                + "elapsedMs={}, request={}, error={}", AUDIT_MARKER, adapterType, code, targetId, operationType, method,
-            attempt, elapsedMs, summarize(request),
+                + "elapsedMs={}, request={}, error={}", AUDIT_MARKER, adapterType, code, targetId,
+            operationType, method, attempt, elapsedMs, summarize(request),
             ex.getClass().getSimpleName() + ":" + Objects.toString(ex.getMessage(), ""));
     }
 

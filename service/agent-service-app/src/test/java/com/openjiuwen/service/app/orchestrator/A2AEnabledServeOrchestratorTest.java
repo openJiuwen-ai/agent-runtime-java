@@ -259,8 +259,8 @@ class A2AEnabledServeOrchestratorTest {
         orchestrator.query(req("c-query-sse"));
 
         verify(a2aClient).callStreaming(argThat(
-                c -> "test".equals(c.agentName()) && "delegate".equals(c.message()) && "c-query-sse".equals(c.contextId())),
-            any());
+                c -> "test".equals(c.agentName()) && "delegate".equals(c.message())
+                    && "c-query-sse".equals(c.contextId())), any());
         verify(a2aClient, never()).callSync(anyString(), any(), anyString(), any(), any());
     }
 

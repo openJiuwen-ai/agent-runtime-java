@@ -713,18 +713,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         String toolName) {
         log.info("Orchestrator buildResumeRequest convId={} toolName={} toolCallId={} toolContentLen={}",
             original.getConversationId(), toolName, toolCallId, toolContent != null ? toolContent.length() : 0);
-        // AgentCore resumes from its persisted session checkpoint and reads only the
-        // query
-        // (lastUserQuery() → INPUT_QUERY → normalizeResumeInput → InteractiveInput);
-        // the ReAct
-        // invoke path ignores INPUT_MESSAGES. Carrying the original history here was
-        // therefore
-        // dead weight that also forced overwriting the original user question with the
-        // remote
-        // result. Send a single user message holding the remote result so the resume
-        // query is
-        // unambiguous and no stale user/tool/interrupt history leaks back into the
-        // prompt.
         List<Map<String, Object>> messages = new ArrayList<>();
         Map<String, Object> userMsg = new LinkedHashMap<>();
         userMsg.put("role", "user");

@@ -59,6 +59,14 @@ class DemoAgentLlmApplicationTest {
 
     private static final List<List<Map<String, Object>>> MODEL_MESSAGES = new CopyOnWriteArrayList<>();
 
+    @Autowired
+    private TestRestTemplate rest;
+
+    @Autowired
+    private AgentHandler agentHandler;
+
+    private final ObjectMapper mapper = new ObjectMapper();
+
     @DynamicPropertySource
     static void llmProperties(DynamicPropertyRegistry registry) {
         registry.add("openjiuwen.demo.llm.enabled", () -> "true");
@@ -82,14 +90,6 @@ class DemoAgentLlmApplicationTest {
         agentHandler.stop();
         MODEL_MESSAGES.clear();
     }
-
-    @Autowired
-    private TestRestTemplate rest;
-
-    @Autowired
-    private AgentHandler agentHandler;
-
-    private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
     @SuppressWarnings("unchecked")

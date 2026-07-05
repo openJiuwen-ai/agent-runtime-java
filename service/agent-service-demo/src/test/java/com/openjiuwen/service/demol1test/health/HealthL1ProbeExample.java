@@ -42,6 +42,8 @@ public class HealthL1ProbeExample {
             readiness.markShuttingDown();
         } else if ("process-down".equalsIgnoreCase(mode)) {
             readiness.markProcessDown();
+        } else {
+            return readiness;
         }
         return readiness;
     }

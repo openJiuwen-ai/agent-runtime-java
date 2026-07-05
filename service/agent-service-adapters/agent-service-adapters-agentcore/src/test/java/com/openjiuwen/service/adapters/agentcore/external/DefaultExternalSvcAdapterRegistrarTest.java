@@ -34,7 +34,7 @@ import java.util.Optional;
  */
 class DefaultExternalSvcAdapterRegistrarTest {
     @Test
-    void registerToRunnerConfigAddsConfiguredMcpServersAndNormalizesTransportName() {
+    void regToRunConfAddsConfMcpServersAndNorTranName() {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         AgentCoreExternalProperties.McpServer server = new AgentCoreExternalProperties.McpServer();
         server.setServerId("srv-1");
@@ -170,7 +170,7 @@ class DefaultExternalSvcAdapterRegistrarTest {
     }
 
     @Test
-    void customMcpClientProviderOverridesDefaultProviderForSameTransportType() {
+    void customMcpClientProvDefProvForSameTransType() {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(properties,
             new DefaultAgentCoreMcpClientDecoratorFactory(), new DefaultAgentCoreRemoteClientDecoratorFactory(),
@@ -191,7 +191,7 @@ class DefaultExternalSvcAdapterRegistrarTest {
     }
 
     @Test
-    void customRemoteClientProviderOverridesDefaultProviderForSameProtocol() {
+    void customRemoteClientProvDefProvForSameProtocol() {
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         DefaultExternalSvcAdapterRegistrar registrar = new DefaultExternalSvcAdapterRegistrar(properties,
             new DefaultAgentCoreMcpClientDecoratorFactory(), new DefaultAgentCoreRemoteClientDecoratorFactory(),

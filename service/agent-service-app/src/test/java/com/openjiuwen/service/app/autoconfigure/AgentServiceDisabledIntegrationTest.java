@@ -43,7 +43,7 @@ class AgentServiceDisabledIntegrationTest {
     private TestRestTemplate rest;
 
     @Test
-    void serviceEnabledPropertyDoesNotPreventQueryEndpointAutoRegistration() {
+    void servEnabledPropNotPreventQueryEndpointReg() {
         ResponseEntity<String> resp = postQuery("/v1/query",
             Map.of("message", "hello", "conversation_id", "c-disabled", "stream", false));
 
