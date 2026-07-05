@@ -11,13 +11,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
-import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
-
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -120,7 +120,11 @@ class SandboxExampleJiuwenBoxLocalServerTest {
         }
 
         private static LogCapture attach(String loggerName) {
-            return new LogCapture((Logger) LoggerFactory.getLogger(loggerName));
+            org.slf4j.Logger logger = LoggerFactory.getLogger(loggerName);
+            if (logger instanceof Logger) {
+                return new LogCapture((Logger) logger);
+            }
+            throw new IllegalArgumentException("Logger is not an instance of ch.qos.logback.classic.Logger: " + logger);
         }
 
         private String formattedOutput() {
