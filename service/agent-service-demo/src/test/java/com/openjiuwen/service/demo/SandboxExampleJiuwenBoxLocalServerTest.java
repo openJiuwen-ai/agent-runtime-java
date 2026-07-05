@@ -13,11 +13,18 @@ import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
+import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -25,11 +32,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import javax.tools.ToolProvider;
@@ -45,18 +48,16 @@ class SandboxExampleJiuwenBoxLocalServerTest {
 
     @Tag("smoke")
     @Test
-    void sandboxAdapterExampleCanCallLocalJiuwenBoxCompatibleServer()
-        throws IOException, InterruptedException, ExecutionException, TimeoutException {
+    void sandboxAdapterExampleCanCallLocalJiuwenBoxCompatibleServer() throws Exception {
         Path classesDir = compileSandboxExample();
-        String classpath = exampleClasspath(classesDir);
 
         try (JiuwenBoxMockServer server = JiuwenBoxMockServer.start()) {
             String serviceUrl = "http://127.0.0.1:" + server.port();
-            String readFileOutput = runClient(classpath, "--url=" + serviceUrl, "--retry-max=0",
+            String readFileOutput = runExample(classesDir, "--url=" + serviceUrl, "--retry-max=0",
                 "--operation=read-file", "--path=/tmp/demo.txt");
-            String shellOutput = runClient(classpath, "--url=" + serviceUrl, "--retry-max=0", "--operation=shell",
+            String shellOutput = runExample(classesDir, "--url=" + serviceUrl, "--retry-max=0", "--operation=shell",
                 "--command=echo sandbox");
-            String codeOutput = runClient(classpath, "--url=" + serviceUrl, "--retry-max=0", "--operation=code",
+            String codeOutput = runExample(classesDir, "--url=" + serviceUrl, "--retry-max=0", "--operation=code",
                 "--language=python", "--code=print('sandbox')");
 
             assertThat(readFileOutput).contains(DECORATING_SANDBOX_CLIENT)
@@ -94,13 +95,42 @@ class SandboxExampleJiuwenBoxLocalServerTest {
         return classesDir;
     }
 
-    private String exampleClasspath(Path classesDir) {
-        String separator = System.getProperty("path.separator");
-        List<String> classpath = new ArrayList<>();
-        classpath.add(classesDir.toString());
-        addLocalAdapterClasses(classpath);
-        classpath.add(System.getProperty("java.class.path"));
-        return String.join(separator, classpath);
+    private String runExample(Path classesDir, String... args) throws Exception {
+        String exampleClassName = "com.openjiuwen.service.demo.example.sandbox.SandboxAdapterExample";
+        try (LogCapture capture = LogCapture.attach(exampleClassName);
+            URLClassLoader loader = URLClassLoader.newInstance(new URL[] {classesDir.toUri().toURL()},
+                getClass().getClassLoader())) {
+            Class<?> exampleClass = Class.forName(exampleClassName, true, loader);
+            Method main = exampleClass.getMethod("main", String[].class);
+            main.invoke(null, (Object) args);
+            return capture.formattedOutput();
+        }
+    }
+
+    private static final class LogCapture implements AutoCloseable {
+        private final Logger logger;
+
+        private final ListAppender<ILoggingEvent> appender;
+
+        private LogCapture(Logger logger) {
+            this.logger = logger;
+            this.appender = new ListAppender<>();
+            appender.start();
+            logger.addAppender(appender);
+        }
+
+        private static LogCapture attach(String loggerName) {
+            return new LogCapture((Logger) LoggerFactory.getLogger(loggerName));
+        }
+
+        private String formattedOutput() {
+            return appender.list.stream().map(ILoggingEvent::getFormattedMessage).collect(Collectors.joining("\n"));
+        }
+
+        @Override
+        public void close() {
+            logger.detachAppender(appender);
+        }
     }
 
     private String exampleDependencyClasspath() {
@@ -121,42 +151,6 @@ class SandboxExampleJiuwenBoxLocalServerTest {
         if (Files.isDirectory(localClasses)) {
             classpath.add(localClasses.toString());
         }
-    }
-
-    private String runClient(String classpath, String... args)
-        throws IOException, InterruptedException, ExecutionException, TimeoutException {
-        List<String> command = new ArrayList<>();
-        command.add(javaCommand());
-        command.add("-cp");
-        command.add(classpath);
-        command.add("com.openjiuwen.service.demo.example.sandbox.SandboxAdapterExample");
-        command.addAll(List.of(args));
-        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-        CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(() -> readProcessOutput(process));
-        Process completed;
-        try {
-            completed = process.onExit().get(30, TimeUnit.SECONDS);
-        } catch (TimeoutException ex) {
-            process.destroyForcibly();
-            String output = outputFuture.get(5, TimeUnit.SECONDS);
-            assertThat(false).as("process timed out: " + output).isTrue();
-            throw ex;
-        }
-        String output = outputFuture.get(5, TimeUnit.SECONDS);
-        assertThat(completed.exitValue()).as(output).isZero();
-        return output;
-    }
-
-    private String readProcessOutput(Process process) {
-        try {
-            return new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException ex) {
-            throw new UncheckedIOException(ex);
-        }
-    }
-
-    private String javaCommand() {
-        return Path.of(System.getProperty("java.home"), "bin", "java").toString();
     }
 
     private static final class JiuwenBoxMockServer implements AutoCloseable {
