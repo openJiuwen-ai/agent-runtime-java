@@ -27,7 +27,7 @@ import redis.clients.jedis.JedisPooled;
 @EnableConfigurationProperties(MiddlewareProperties.class)
 public class RedisMiddlewareAutoConfiguration {
     /**
-     * Creates the default runtime Redis client when Redis middleware is enabled.
+     * Creates the fallback runtime Redis client when Redis checkpointer is enabled.
      *
      * @param properties middleware properties
      * @param decryptor credential decryptor
