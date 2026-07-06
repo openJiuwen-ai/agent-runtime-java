@@ -33,6 +33,7 @@ public final class AgentCoreCheckpointerConfigAssembler {
      *
      * @param properties the middleware properties
      * @param decryptor the credential decryptor
+     * @param redisClient the runtime Redis client
      * @return the checkpointer configuration map
      */
     public static Map<String, Object> build(MiddlewareProperties properties, CredentialDecryptor decryptor,

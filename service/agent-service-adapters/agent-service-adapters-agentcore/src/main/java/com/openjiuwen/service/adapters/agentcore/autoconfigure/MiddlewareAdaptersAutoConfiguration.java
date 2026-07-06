@@ -35,6 +35,7 @@ public class MiddlewareAdaptersAutoConfiguration {
      *
      * @param middlewareProperties the middleware properties
      * @param credentialDecryptor the credential decryptor
+     * @param redisClientProvider the runtime Redis client provider
      * @return the middleware adapter registrar
      */
     @Bean

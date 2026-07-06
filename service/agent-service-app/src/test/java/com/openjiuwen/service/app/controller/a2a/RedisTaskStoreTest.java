@@ -21,6 +21,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Tests Redis-backed A2A task store behavior through the runtime Redis SPI.
+ *
+ * @since 0.1.0
+ */
 class RedisTaskStoreTest {
     @Test
     void storesTasksThroughRuntimeRedisClient() {

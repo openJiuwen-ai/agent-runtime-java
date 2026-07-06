@@ -17,6 +17,11 @@ import org.springframework.context.annotation.Configuration;
 
 import java.lang.reflect.Proxy;
 
+/**
+ * Tests Redis middleware auto-configuration behavior.
+ *
+ * @since 0.1.0
+ */
 class RedisMiddlewareAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
             AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class, RedisMiddlewareAutoConfiguration.class));
