@@ -7,7 +7,7 @@ package com.openjiuwen.service.adapters.agentcore.middleware;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisConnectionAssembler;
-import com.openjiuwen.service.adapters.common.middleware.redis.RedisJedisClientFactory;
+import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -35,16 +35,17 @@ public final class AgentCoreCheckpointerConfigAssembler {
      * @param decryptor the credential decryptor
      * @return the checkpointer configuration map
      */
-    public static Map<String, Object> build(MiddlewareProperties properties, CredentialDecryptor decryptor) {
+    public static Map<String, Object> build(MiddlewareProperties properties, CredentialDecryptor decryptor,
+            RuntimeRedisClient redisClient) {
         String type = normalizeType(properties.getCheckpointer().getType());
         if (TYPE_IN_MEMORY.equals(type)) {
             return Map.of("type", TYPE_IN_MEMORY, "conf", Map.of());
         }
         if (TYPE_REDIS.equals(type)) {
-            return Map.of("type", TYPE_REDIS, "conf", buildRedisConf(properties, decryptor));
+            return Map.of("type", TYPE_REDIS, "conf", buildRedisConf(properties, decryptor, redisClient));
         }
-        throw new IllegalArgumentException(
-            "Unsupported openjiuwen.service.middleware.checkpointer.type: " + type + " (supported: in_memory, redis)");
+        throw new IllegalArgumentException("Unsupported openjiuwen.service.middleware.checkpointer.type: " + type
+                + " (supported: in_memory, redis)");
     }
 
     private static String normalizeType(String type) {
@@ -54,13 +55,17 @@ public final class AgentCoreCheckpointerConfigAssembler {
         return type.trim();
     }
 
-    private static Map<String, Object> buildRedisConf(MiddlewareProperties properties, CredentialDecryptor decryptor) {
+    private static Map<String, Object> buildRedisConf(MiddlewareProperties properties, CredentialDecryptor decryptor,
+            RuntimeRedisClient redisClient) {
+        if (redisClient == null) {
+            throw new IllegalStateException("RuntimeRedisClient is required for redis checkpointer");
+        }
         String redisRef = properties.getCheckpointer().getRedisRef();
         MiddlewareProperties.RedisEndpoint endpoint = RedisConnectionAssembler.resolveEndpoint(properties, redisRef);
         String password = decryptor.decrypt(endpoint.getEncryptedPassword());
 
         Map<String, Object> connection = new HashMap<>(RedisConnectionAssembler.buildConnectionMap(endpoint, password));
-        connection.put("redis_client", RedisJedisClientFactory.createPooled(endpoint, password));
+        connection.put("redis_client", redisClient);
 
         Map<String, Object> conf = new HashMap<>();
         conf.put("connection", connection);

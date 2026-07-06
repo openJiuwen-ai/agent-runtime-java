@@ -4,10 +4,8 @@
 
 package com.openjiuwen.service.app.autoconfigure;
 
-import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
-import com.openjiuwen.service.adapters.common.middleware.redis.RedisConnectionAssembler;
-import com.openjiuwen.service.adapters.common.middleware.redis.RedisJedisClientFactory;
+import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
@@ -19,9 +17,8 @@ import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.spi.AgentHandler;
+import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
-
-import redis.clients.jedis.JedisPool;
 
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
@@ -55,7 +52,7 @@ import java.util.concurrent.TimeUnit;
  *
  * @since 0.1.0
  */
-@AutoConfiguration(after = AgentServiceAutoConfiguration.class)
+@AutoConfiguration(after = {AgentServiceAutoConfiguration.class, RedisMiddlewareAutoConfiguration.class})
 @ConditionalOnClass(AgentExecutor.class)
 @EnableConfigurationProperties(A2AProperties.class)
 public class A2AAutoConfiguration {
@@ -74,24 +71,23 @@ public class A2AAutoConfiguration {
      * Creates the task store bean, using Redis if configured or in-memory as default.
      *
      * @param middlewareProvider the middleware properties provider
-     * @param decryptorProvider the credential decryptor provider
+     * @param redisClientProvider the runtime Redis client provider
      * @return the task store
      */
     @Bean
     @ConditionalOnMissingBean
     public TaskStore a2aTaskStore(ObjectProvider<MiddlewareProperties> middlewareProvider,
-        ObjectProvider<CredentialDecryptor> decryptorProvider) {
+            ObjectProvider<RuntimeRedisClient> redisClientProvider) {
         MiddlewareProperties middlewareProperties = middlewareProvider.getIfAvailable();
         if (middlewareProperties != null && "redis".equals(middlewareProperties.getCheckpointer().getType())) {
-            CredentialDecryptor decryptor = decryptorProvider.getIfAvailable();
-            String ref = middlewareProperties.getCheckpointer().getRedisRef();
-            var endpoint = RedisConnectionAssembler.resolveEndpoint(middlewareProperties, ref);
-            String pwd = decryptor != null ? decryptor.decrypt(endpoint.getEncryptedPassword()) : "";
-            JedisPool jedisPool = RedisJedisClientFactory.createPool(endpoint, pwd);
+            RuntimeRedisClient redisClient = redisClientProvider.getIfAvailable();
+            if (redisClient == null) {
+                throw new IllegalStateException("RuntimeRedisClient is required for redis A2A task store");
+            }
             // Wrap in a read-through/write-behind cache: the SDK persists the task on every streaming event, so a
             // raw Redis round-trip per LLM chunk would throttle the SSE stream to network speed. See
             // WriteThrottlingTaskStore for the full rationale.
-            return new WriteThrottlingTaskStore(new RedisTaskStore(jedisPool));
+            return new WriteThrottlingTaskStore(new RedisTaskStore(redisClient));
         }
         return new InMemoryTaskStore();
     }
@@ -148,7 +144,7 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public MainEventBusProcessor a2aMainEventBusProcessor(MainEventBus mainEventBus, TaskStore taskStore,
-        PushNotificationSender pushSender, QueueManager queueManager) {
+            PushNotificationSender pushSender, QueueManager queueManager) {
         return new MainEventBusProcessor(mainEventBus, taskStore, pushSender, queueManager);
     }
 
@@ -237,8 +233,8 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-        A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry,
-        @Value("${spring.application.name:agent}") String agentId) {
+            A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry,
+            @Value("${spring.application.name:agent}") String agentId) {
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry, agentId);
     }
 
@@ -255,12 +251,12 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public RequestHandler a2aRequestHandler(A2AAgentExecutor agentExecutor, TaskStore taskStore,
-        QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
-        MainEventBusProcessor eventBusProcessor) {
+            QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
+            MainEventBusProcessor eventBusProcessor) {
         int cores = Runtime.getRuntime().availableProcessors();
         var agentPool = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
         var ioPool = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
         return DefaultRequestHandler.create(agentExecutor, taskStore, queueManager, pushConfigStore, eventBusProcessor,
-            agentPool, ioPool);
+                agentPool, ioPool);
     }
 }

@@ -1,1 +1,2 @@
 com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration
+com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration

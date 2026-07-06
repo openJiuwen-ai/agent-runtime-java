@@ -14,8 +14,11 @@ import com.openjiuwen.service.adapters.agentcore.middleware.DefaultMiddlewareAda
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDecryptor;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+import com.openjiuwen.service.adapters.common.middleware.redis.JedisPooledRuntimeRedisClient;
+import com.openjiuwen.service.adapters.common.middleware.redis.RedisJedisClientFactory;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.params.ScanParams;
@@ -150,8 +153,8 @@ class RedisCheckpointerMiddlewareIT {
     private static SessionRestoreResult runSessionRestoreAcrossHandlerRestarts(RedisSessionItContext ctx,
             boolean verifyRedisKeys) {
         MiddlewareProperties properties = redisProperties(ctx.host(), ctx.port(), ctx.encryptedPassword());
-        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
-                ctx.decryptor());
+        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties, ctx.decryptor(),
+                runtimeRedisClient(properties, ctx.decryptor()));
 
         resetRunnerEnvironment();
         JiuwenCoreAgentHandler firstHandler = new JiuwenCoreAgentHandler(
@@ -176,8 +179,8 @@ class RedisCheckpointerMiddlewareIT {
 
     private static SessionRestoreResult runTwoTurnsSameHandler(RedisSessionItContext ctx) {
         MiddlewareProperties properties = redisProperties(ctx.host(), ctx.port(), ctx.encryptedPassword());
-        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
-                ctx.decryptor());
+        DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties, ctx.decryptor(),
+                runtimeRedisClient(properties, ctx.decryptor()));
 
         resetRunnerEnvironment();
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new JiuwenCoreAgentHandlerTest.SessionEchoAgent(),
@@ -196,6 +199,13 @@ class RedisCheckpointerMiddlewareIT {
         } catch (Exception ex) {
             return false;
         }
+    }
+
+    private static RuntimeRedisClient runtimeRedisClient(MiddlewareProperties properties,
+            CredentialDecryptor decryptor) {
+        MiddlewareProperties.RedisEndpoint endpoint = properties.getRedis().get("default");
+        String password = decryptor.decrypt(endpoint.getEncryptedPassword());
+        return new JedisPooledRuntimeRedisClient(RedisJedisClientFactory.createPooled(endpoint, password));
     }
 
     private static MiddlewareProperties redisProperties(String host, int port, String encryptedPassword) {

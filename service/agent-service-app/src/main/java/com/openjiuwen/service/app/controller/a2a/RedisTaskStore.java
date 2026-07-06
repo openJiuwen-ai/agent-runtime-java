@@ -5,11 +5,7 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.google.gson.Gson;
-
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.params.ScanParams;
-import redis.clients.jedis.resps.ScanResult;
+import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
@@ -28,12 +24,10 @@ import java.util.List;
  * Checkpointer middleware. Task keys carry a
  * 7-day TTL.
  * <p>
- * Backed by a thread-safe {@link JedisPool}: the A2A request handler, the
+ * Backed by a thread-safe {@link RuntimeRedisClient}: the A2A request handler, the
  * event-bus processor and the orchestrator all
- * touch the task store concurrently, so each operation borrows its own
- * connection and returns it (try-with-resources).
- * A single shared {@link Jedis} would interleave commands on one socket and
- * corrupt the RESP protocol stream.
+ * touch the task store concurrently, so the configured runtime Redis implementation
+ * must be safe for singleton use.
  *
  * @since 0.1.0
  */
@@ -51,10 +45,10 @@ public class RedisTaskStore implements TaskStore {
     // opens java.time").
     private static final Gson GSON = JsonUtil.OBJECT_MAPPER;
 
-    private final JedisPool jedisPool;
+    private final RuntimeRedisClient redisClient;
 
-    public RedisTaskStore(JedisPool jedisPool) {
-        this.jedisPool = jedisPool;
+    public RedisTaskStore(RuntimeRedisClient redisClient) {
+        this.redisClient = redisClient;
     }
 
     @Override
@@ -67,47 +61,29 @@ public class RedisTaskStore implements TaskStore {
         // breaks the flow.
         String key = KEY_PREFIX + task.id();
         byte[] data = GSON.toJson(task).getBytes(StandardCharsets.UTF_8);
-        try (Jedis jedis = jedisPool.getResource()) {
-            jedis.setex(key.getBytes(StandardCharsets.UTF_8), TTL_SECONDS, data);
-        }
+        redisClient.setex(key.getBytes(StandardCharsets.UTF_8), TTL_SECONDS, data);
     }
 
     @Override
     public Task get(String taskId) {
         String key = KEY_PREFIX + taskId;
-        try (Jedis jedis = jedisPool.getResource()) {
-            byte[] data = jedis.get(key.getBytes(StandardCharsets.UTF_8));
-            if (data == null) {
-                return null;
-            }
-            return GSON.fromJson(new String(data, StandardCharsets.UTF_8), Task.class);
+        byte[] data = redisClient.get(key.getBytes(StandardCharsets.UTF_8));
+        if (data == null) {
+            return null;
         }
+        return GSON.fromJson(new String(data, StandardCharsets.UTF_8), Task.class);
     }
 
     @Override
     public void delete(String taskId) {
-        try (Jedis jedis = jedisPool.getResource()) {
-            jedis.del(KEY_PREFIX + taskId);
-        }
+        redisClient.del(KEY_PREFIX + taskId);
     }
 
     @Override
     public ListTasksResult list(ListTasksParams params) {
         List<Task> result = new ArrayList<>();
-        try (Jedis jedis = jedisPool.getResource()) {
-            String cursor = ScanParams.SCAN_POINTER_START;
-            do {
-                var scanResult = jedis.scan(cursor, new ScanParams().match(KEY_PREFIX + "*").count(100));
-                buildResult(params, scanResult, jedis, result);
-                cursor = scanResult.getCursor();
-            } while (!ScanParams.SCAN_POINTER_START.equals(cursor));
-        }
-        return new ListTasksResult(result, result.size(), result.size(), null);
-    }
-
-    private void buildResult(ListTasksParams params, ScanResult<String> scanResult, Jedis jedis, List<Task> result) {
-        for (String key : scanResult.getResult()) {
-            byte[] data = jedis.get(key.getBytes(StandardCharsets.UTF_8));
+        for (String key : redisClient.scanIter(KEY_PREFIX + "*")) {
+            byte[] data = redisClient.get(key.getBytes(StandardCharsets.UTF_8));
             if (data == null) {
                 continue;
             }
@@ -116,6 +92,7 @@ public class RedisTaskStore implements TaskStore {
                 result.add(t);
             }
         }
+        return new ListTasksResult(result, result.size(), result.size(), null);
     }
 
     private boolean matches(Task t, ListTasksParams params) {
