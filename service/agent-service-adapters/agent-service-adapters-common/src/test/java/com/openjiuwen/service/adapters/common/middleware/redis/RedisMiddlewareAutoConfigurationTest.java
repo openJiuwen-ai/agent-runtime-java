@@ -15,7 +15,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.util.List;
+import java.lang.reflect.Proxy;
 
 class RedisMiddlewareAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
@@ -39,7 +39,8 @@ class RedisMiddlewareAutoConfigurationTest {
                         "openjiuwen.service.middleware.redis.default.host=redis.local")
                 .run(context -> {
                     assertThat(context).hasSingleBean(RuntimeRedisClient.class);
-                    assertThat(context.getBean(RuntimeRedisClient.class)).isInstanceOf(CustomRuntimeRedisClient.class);
+                    assertThat(context.getBean(RuntimeRedisClient.class))
+                            .isSameAs(CustomRedisClientConfiguration.CUSTOM_CLIENT);
                 });
     }
 
@@ -50,96 +51,26 @@ class RedisMiddlewareAutoConfigurationTest {
 
     @Configuration
     static class CustomRedisClientConfiguration {
+        static final RuntimeRedisClient CUSTOM_CLIENT = runtimeRedisClientProxy();
+
         @Bean
         RuntimeRedisClient runtimeRedisClient() {
-            return new CustomRuntimeRedisClient();
+            return CUSTOM_CLIENT;
         }
     }
 
-    private static final class CustomRuntimeRedisClient implements RuntimeRedisClient {
-        @Override
-        public Object get(String key) {
-            return null;
-        }
-
-        @Override
-        public byte[] get(byte[] key) {
-            return null;
-        }
-
-        @Override
-        public String set(String key, String value) {
-            return "OK";
-        }
-
-        @Override
-        public String set(String key, byte[] value) {
-            return "OK";
-        }
-
-        @Override
-        public String set(byte[] key, byte[] value) {
-            return "OK";
-        }
-
-        @Override
-        public String setex(String key, long seconds, String value) {
-            return "OK";
-        }
-
-        @Override
-        public String setex(byte[] key, long seconds, byte[] value) {
-            return "OK";
-        }
-
-        @Override
-        public long setnx(String key, String value) {
-            return 0;
-        }
-
-        @Override
-        public long setnx(byte[] key, byte[] value) {
-            return 0;
-        }
-
-        @Override
-        public long del(String... keys) {
-            return 0;
-        }
-
-        @Override
-        public long del(byte[]... keys) {
-            return 0;
-        }
-
-        @Override
-        public boolean exists(String key) {
-            return false;
-        }
-
-        @Override
-        public boolean exists(byte[] key) {
-            return false;
-        }
-
-        @Override
-        public long expire(String key, long seconds) {
-            return 0;
-        }
-
-        @Override
-        public long expire(byte[] key, long seconds) {
-            return 0;
-        }
-
-        @Override
-        public List<Object> mget(String... keys) {
-            return List.of();
-        }
-
-        @Override
-        public List<String> scanIter(String pattern) {
-            return List.of();
-        }
+    private static RuntimeRedisClient runtimeRedisClientProxy() {
+        return RuntimeRedisClient.class.cast(Proxy.newProxyInstance(RuntimeRedisClient.class.getClassLoader(),
+                new Class<?>[]{RuntimeRedisClient.class}, (proxy, method, args) -> {
+                    if (method.getDeclaringClass() == Object.class) {
+                        return switch (method.getName()) {
+                            case "toString" -> "CustomRuntimeRedisClient";
+                            case "hashCode" -> System.identityHashCode(proxy);
+                            case "equals" -> proxy == args[0];
+                            default -> null;
+                        };
+                    }
+                    return null;
+                }));
     }
 }

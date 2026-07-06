@@ -15,7 +15,7 @@ import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
+import java.lang.reflect.Proxy;
 import java.util.Map;
 
 /**
@@ -49,7 +49,7 @@ class DefaultMiddlewareAdapterRegistrarTest {
         properties.getRedis().put("default", endpoint);
 
         DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
-                new PassthroughCredentialDecryptor(), new NoopRuntimeRedisClient());
+                new PassthroughCredentialDecryptor(), noopRuntimeRedisClient());
 
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);
@@ -63,90 +63,31 @@ class DefaultMiddlewareAdapterRegistrarTest {
         assertThat(checkpointer).isInstanceOf(RedisCheckpointer.class);
     }
 
-    private static final class NoopRuntimeRedisClient implements RuntimeRedisClient {
-        @Override
-        public Object get(String key) {
-            return null;
-        }
-
-        @Override
-        public byte[] get(byte[] key) {
-            return null;
-        }
-
-        @Override
-        public String set(String key, String value) {
-            return "OK";
-        }
-
-        @Override
-        public String set(String key, byte[] value) {
-            return "OK";
-        }
-
-        @Override
-        public String set(byte[] key, byte[] value) {
-            return "OK";
-        }
-
-        @Override
-        public String setex(String key, long seconds, String value) {
-            return "OK";
-        }
-
-        @Override
-        public String setex(byte[] key, long seconds, byte[] value) {
-            return "OK";
-        }
-
-        @Override
-        public long setnx(String key, String value) {
-            return 0;
-        }
-
-        @Override
-        public long setnx(byte[] key, byte[] value) {
-            return 0;
-        }
-
-        @Override
-        public long del(String... keys) {
-            return 0;
-        }
-
-        @Override
-        public long del(byte[]... keys) {
-            return 0;
-        }
-
-        @Override
-        public boolean exists(String key) {
-            return false;
-        }
-
-        @Override
-        public boolean exists(byte[] key) {
-            return false;
-        }
-
-        @Override
-        public long expire(String key, long seconds) {
-            return 0;
-        }
-
-        @Override
-        public long expire(byte[] key, long seconds) {
-            return 0;
-        }
-
-        @Override
-        public List<Object> mget(String... keys) {
-            return List.of();
-        }
-
-        @Override
-        public List<String> scanIter(String pattern) {
-            return List.of();
-        }
+    private static RuntimeRedisClient noopRuntimeRedisClient() {
+        return RuntimeRedisClient.class.cast(Proxy.newProxyInstance(RuntimeRedisClient.class.getClassLoader(),
+                new Class<?>[]{RuntimeRedisClient.class}, (proxy, method, args) -> {
+                    if (method.getDeclaringClass() == Object.class) {
+                        return switch (method.getName()) {
+                            case "toString" -> "NoopRuntimeRedisClient";
+                            case "hashCode" -> System.identityHashCode(proxy);
+                            case "equals" -> proxy == args[0];
+                            default -> null;
+                        };
+                    }
+                    Class<?> returnType = method.getReturnType();
+                    if (returnType == String.class) {
+                        return "OK";
+                    }
+                    if (returnType == int.class) {
+                        return 0;
+                    }
+                    if (returnType == long.class) {
+                        return 0L;
+                    }
+                    if (returnType == boolean.class) {
+                        return false;
+                    }
+                    return null;
+                }));
     }
 }

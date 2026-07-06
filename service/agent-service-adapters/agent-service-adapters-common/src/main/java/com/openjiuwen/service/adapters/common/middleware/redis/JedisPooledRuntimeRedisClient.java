@@ -35,7 +35,7 @@ public class JedisPooledRuntimeRedisClient implements RuntimeRedisClient {
 
     @Override
     public Object get(String key) {
-        return delegate.get(key.getBytes(StandardCharsets.UTF_8));
+        return delegate.get(toBytes(key));
     }
 
     @Override
@@ -50,32 +50,32 @@ public class JedisPooledRuntimeRedisClient implements RuntimeRedisClient {
 
     @Override
     public String set(String key, byte[] value) {
-        return delegate.set(key.getBytes(StandardCharsets.UTF_8), value);
+        return set(toBytes(key), value);
     }
 
     @Override
     public String set(byte[] key, byte[] value) {
-        return delegate.set(key, value);
+        return writeBytes(key, value);
     }
 
     @Override
     public String setex(String key, long seconds, String value) {
-        return delegate.setex(key, seconds, value);
+        return setex(toBytes(key), seconds, toBytes(value));
     }
 
     @Override
     public String setex(byte[] key, long seconds, byte[] value) {
-        return delegate.setex(key, seconds, value);
+        return writeBytesWithTtl(key, seconds, value);
     }
 
     @Override
     public long setnx(String key, String value) {
-        return delegate.setnx(key, value);
+        return setnx(toBytes(key), toBytes(value));
     }
 
     @Override
     public long setnx(byte[] key, byte[] value) {
-        return delegate.setnx(key, value);
+        return writeBytesIfAbsent(key, value);
     }
 
     @Override
@@ -112,7 +112,7 @@ public class JedisPooledRuntimeRedisClient implements RuntimeRedisClient {
     public List<Object> mget(String... keys) {
         List<byte[]> binaryKeys = new ArrayList<>(keys.length);
         for (String key : keys) {
-            binaryKeys.add(key.getBytes(StandardCharsets.UTF_8));
+            binaryKeys.add(toBytes(key));
         }
         List<Object> values = new ArrayList<>(keys.length);
         values.addAll(delegate.mget(binaryKeys.toArray(byte[][]::new)));
@@ -135,5 +135,21 @@ public class JedisPooledRuntimeRedisClient implements RuntimeRedisClient {
     @Override
     public void close() {
         delegate.close();
+    }
+
+    private byte[] toBytes(String value) {
+        return value.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private String writeBytes(byte[] key, byte[] value) {
+        return delegate.set(key, value);
+    }
+
+    private String writeBytesWithTtl(byte[] key, long seconds, byte[] value) {
+        return delegate.setex(key, seconds, value);
+    }
+
+    private long writeBytesIfAbsent(byte[] key, byte[] value) {
+        return delegate.setnx(key, value);
     }
 }
