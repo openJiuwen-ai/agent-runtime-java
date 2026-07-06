@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
@@ -51,16 +52,16 @@ class MiddlewareRedisSpringIT {
 
     private String localRedisCleanupPrefix;
 
-    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
-            AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class, MiddlewareAdaptersAutoConfiguration.class,
-                AgentCoreAdaptersAutoConfiguration.class))
-        .withUserConfiguration(TestAgentHandlerConfiguration.class)
-        .withPropertyValues("openjiuwen.service.agent-id=spring-it-agent",
-            "openjiuwen.service.middleware.checkpointer.type=redis",
-            "openjiuwen.service.middleware.redis.default.host=" + LOCAL_REDIS_HOST,
-            "openjiuwen.service.middleware.redis.default.port=" + LOCAL_REDIS_PORT,
-            "openjiuwen.service.middleware.redis.default.database=0",
-            "openjiuwen.service.middleware.redis.default.encrypted-password=");
+    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class,
+                    MiddlewareAdaptersAutoConfiguration.class, AgentCoreAdaptersAutoConfiguration.class))
+            .withUserConfiguration(TestAgentHandlerConfiguration.class)
+            .withPropertyValues("openjiuwen.service.agent-id=spring-it-agent",
+                    "openjiuwen.service.middleware.checkpointer.type=redis",
+                    "openjiuwen.service.middleware.redis.default.host=" + LOCAL_REDIS_HOST,
+                    "openjiuwen.service.middleware.redis.default.port=" + LOCAL_REDIS_PORT,
+                    "openjiuwen.service.middleware.redis.default.database=0",
+                    "openjiuwen.service.middleware.redis.default.encrypted-password=");
 
     @AfterEach
     void tearDown() {
@@ -137,8 +138,8 @@ class MiddlewareRedisSpringIT {
             String query = String.valueOf(inputMap.get("query"));
             Object priorState = session.getState("history");
             List<String> history = priorState instanceof List<?>
-                ? new ArrayList<>((List<String>) priorState)
-                : new ArrayList<>();
+                    ? new ArrayList<>((List<String>) priorState)
+                    : new ArrayList<>();
             String reply = "turn" + (history.size() + 1) + ":" + query;
             if (!history.isEmpty()) {
                 reply += "|prev=" + String.join(",", history);
@@ -164,7 +165,11 @@ class MiddlewareRedisSpringIT {
         } catch (Exception ignored) {
             // Runner may not be started
         }
+        // Reset DEFAULT singleton's checkpointerConfig which may have been
+        // mutated by DefaultMiddlewareAdapterRegistrar.applyToRunnerConfig().
+        RunnerConfig.getRunnerConfig().setCheckpointerConfig(null);
         RunnerConfig.setRunnerConfig(null);
+        CheckpointerFactory.setDefaultCheckpointer(null);
     }
 
     private static boolean isLocalRedisReachable() {

@@ -6,7 +6,9 @@ package com.openjiuwen.service.demo.example.sandbox;
 
 import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
+import com.openjiuwen.service.adapters.agentcore.external.AgentCoreSandboxClientFactory;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
+import com.openjiuwen.service.demo.example.support.DecoratedSandboxToolRegistrar;
 import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
@@ -33,11 +35,13 @@ public class SandboxDemoApplication {
 
     @Bean
     AgentHandler agentHandler(DemoLlmProperties llmProperties,
-        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
+        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
+        ObjectProvider<AgentCoreSandboxClientFactory> sandboxClientFactoryProvider) {
         llmProperties.applyApiConfigIfPresent();
         llmProperties.requireConfigured();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Demo Sandbox Agent",
             "ReAct agent with external Sandbox client", llmProperties);
+        sandboxClientFactoryProvider.ifAvailable(factory -> DecoratedSandboxToolRegistrar.register(agent, factory));
         return new JiuwenCoreAgentHandler(agent,
             externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
     }
