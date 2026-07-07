@@ -32,7 +32,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <a2a-sdk.version>1.0.0.Final</a2a-sdk.version>
-        <agent-core.version>0.1.12</agent-core.version>
+        <agent-core.version>0.1.13</agent-core.version>
     </properties>
 
     <dependencyManagement>
