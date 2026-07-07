@@ -54,7 +54,7 @@ mvn -pl agent-service-demo -am spring-boot:run
 
 ## 与 Agent Core 的关系
 
-执行内核为 **agent-core-java**（独立仓库，本仓 Maven 依赖）。Service 层通过 `adapters-agentcore` 调用 `Runner`，不重复实现图执行引擎。
+执行内核为 **agent-core-java**（独立仓库，版本见 [Agent Core 依赖](../../documents/zh/2.开发指南/Agent Core 依赖.md)）。Service 层通过 `adapters-agentcore` 调用 `Runner`，不重复实现图执行引擎。
 
 ## 版本
 
