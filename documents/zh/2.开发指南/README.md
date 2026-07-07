@@ -16,7 +16,7 @@
 | 8 | [逻辑架构](逻辑架构.md) | 全局图景（Gateway、Manager、外部服务映射） |
 | 9 | [API 文档](API文档/README.md) → [spec](API文档/com.openjiuwen.service/spec.README.md) | 下钻 SPI 与 DTO |
 
-**Agent Core**（模型、工作流、Runner、Session 等）请参阅 [agent-core-java 开发指南](https://gitcode.com/openJiuwen/agent-core-java/tree/feature/630/documents/zh/2.开发指南/README.md)（独立仓库，分支 `feature/630`，Maven `0.1.12`）。
+**Agent Core**（模型、工作流、Runner、Session 等）请参阅 [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java) 仓内 `documents/zh/`（版本对齐见 [Agent Core 依赖](Agent Core 依赖.md)）。
 
 ## 章节定位
 
@@ -28,7 +28,7 @@
 
 | 栏目 | 导读 | 核心页面 |
 | --- | --- | --- |
-| 入门 | — | [快速开始](快速开始.md)、[AaaS](AaaS.md) |
+| 入门 | — | [快速开始](快速开始.md)、[Agent Core 依赖](Agent Core 依赖.md)、[AaaS](AaaS.md) |
 | [架构](架构/README.md) | 本仓模块 + 目标全景 | [架构概述](架构概述.md)、[逻辑架构](逻辑架构.md) |
 | HTTP 数据面 | Ingress 契约 | [HTTP 对话面](HTTP对话面.md) |
 | [开发与扩展](开发与扩展/README.md) | 镜像、Handler、生命周期、外部 egress | [开发 Agent Service](开发Agent Service.md)、[Adapters 与 Handler](Adapters与Handler.md)、[生命周期与探针](生命周期与探针.md)、[外部服务](开发与扩展/外部服务.md) |
@@ -37,7 +37,7 @@
 
 ## 文档说明
 
-- Agent Runtime Java 与 Agent Core Java **分仓维护**（本仓 Maven 依赖 `agent-core-java`，版本见根 `pom.xml` 的 `agent-core.version`）。
+- Agent Runtime Java 与 Agent Core Java **分仓维护**（依赖版本见 [Agent Core 依赖](Agent Core 依赖.md)）。
 - 文档索引：[documents/zh/SUMMARY.md](../SUMMARY.md)。
 
 ## Service 模块专篇

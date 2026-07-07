@@ -18,4 +18,4 @@
 
 - 完成 [快速开始](../快速开始.md) 后：**先架构概述，再逻辑架构**。
 - 勿将 **`service/`** 等同于整个 **`agent-runtime-java`**；Manager 等将随版本进入 **同一 Runtime 仓**。
-- 执行内核见 [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java/tree/feature/630/documents/zh/2.开发指南/README.md)（Agent Server 内的 Agent-Core）。
+- 执行内核见 [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java)（[Agent Core 依赖](../Agent Core 依赖.md)）。

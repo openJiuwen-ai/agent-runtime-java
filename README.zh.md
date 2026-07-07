@@ -27,7 +27,7 @@
 - **操作系统**：Windows、Linux、macOS。
 - **Java 版本**：Java 17 或更高。
 - **构建工具**：Maven 3.9+。
-- **agent-core-java**：Maven 依赖 `com.openjiuwen:agent-core-java:0.1.12`（见根 `pom.xml`）。需 clone [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java) 并 checkout 分支 `feature/630`（Maven 版本 `0.1.12`）后执行 `mvn install`，或在制品发布后从 Maven 仓库拉取。
+- **agent-core-java**：Maven 依赖见根 `pom.xml`（`agent-core.version` / `agent-core.git.branch`）。本地构建步骤见 [Agent Core 依赖](documents/zh/2.开发指南/Agent Core 依赖.md)。
 
 ### 从源码构建
 
@@ -211,7 +211,7 @@ agent-runtime-java/                 # Agent Distributed Runtime（Java）
 | 全局理解 | [开发指南总入口](documents/zh/2.开发指南/README.md) · [逻辑架构](documents/zh/2.开发指南/逻辑架构.md) |
 | 模块说明 | [service/README.md](service/README.md) |
 
-**Agent Core**（Agent、工作流、Runner）：[agent-core-java 文档](https://gitcode.com/openJiuwen/agent-core-java/tree/feature/630/documents/zh/SUMMARY.md)。
+**Agent Core**（Agent、工作流、Runner）：[agent-core-java](https://gitcode.com/openJiuwen/agent-core-java)（版本见 [Agent Core 依赖](documents/zh/2.开发指南/Agent Core 依赖.md)）。
 
 详细开发指南目前为中文；README 提供中英双语，英文详细文档规划中。
 
