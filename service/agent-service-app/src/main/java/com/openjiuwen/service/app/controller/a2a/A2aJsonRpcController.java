@@ -102,6 +102,9 @@ public class A2aJsonRpcController {
                 case "GetTask" -> handleGetTask(rawBody, id, ctx);
                 default -> badRequest(new A2AError(-32601, "Method not found: " + method, Map.of()), id);
             };
+        } catch (A2AError e) {
+            log.info("A2A protocol error: method={}, code={}, message={}", method, e.getCode(), e.getMessage());
+            return jsonRpcError(id, e);
         } catch (IllegalStateException | IllegalArgumentException | NullPointerException e) {
             log.error("A2A request failed", e);
             return badRequest(new A2AError(-32603, "Internal error", Map.of()), id);
@@ -139,7 +142,7 @@ public class A2aJsonRpcController {
                     emitter.send(SseEmitter.event().name("jsonrpc").data(data));
                     sub.request(1);
                 } catch (org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException | java.io.IOException
-                         | RuntimeException ex) {
+                        | RuntimeException ex) {
                     sub.cancel();
                     emitter.completeWithError(ex);
                 }
@@ -166,7 +169,7 @@ public class A2aJsonRpcController {
     }
 
     private ResponseEntity<?> handleGetTask(String rawBody, Object id, ServerCallContext ctx)
-        throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException {
+            throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException {
         JsonObject p = JsonParser.parseString(rawBody).getAsJsonObject().getAsJsonObject("params");
         TaskQueryParams tqp = JsonUtil.fromJson(p.toString(), TaskQueryParams.class);
         Task task = requestHandler.onGetTask(tqp, ctx);
@@ -208,26 +211,21 @@ public class A2aJsonRpcController {
 
     private static Message buildMessage(JsonObject m, List<Part<?>> parts) {
         String roleStr = (m.has("role") && !m.get("role").isJsonNull() && !m.get("role").getAsString().isBlank())
-            ? m.get("role").getAsString()
-            : "ROLE_USER";
+                ? m.get("role").getAsString()
+                : "ROLE_USER";
         Message.Role role = Message.Role.valueOf(roleStr);
         String rawMessageId = m.has("messageId") && !m.get("messageId").isJsonNull()
-            ? m.get("messageId").getAsString()
-            : null;
+                ? m.get("messageId").getAsString()
+                : null;
         String rawContextId = m.has("contextId") && !m.get("contextId").isJsonNull()
-            ? m.get("contextId").getAsString()
-            : null;
+                ? m.get("contextId").getAsString()
+                : null;
         String messageId = (rawMessageId != null && !rawMessageId.isBlank()) ? rawMessageId : null;
         String contextId = (rawContextId != null && !rawContextId.isBlank()) ? rawContextId : null;
         String rawTaskId = m.has("taskId") && !m.get("taskId").isJsonNull() ? m.get("taskId").getAsString() : null;
         String taskId = (rawTaskId != null && !rawTaskId.isBlank()) ? rawTaskId : null;
-        return Message.builder()
-            .role(role)
-            .parts(parts)
-            .contextId(contextId)
-            .taskId(taskId)
-            .messageId(messageId)
-            .build();
+        return Message.builder().role(role).parts(parts).contextId(contextId).taskId(taskId).messageId(messageId)
+                .build();
     }
 
     /**
@@ -246,7 +244,7 @@ public class A2aJsonRpcController {
             if (obj.size() == 1) {
                 String key = obj.keySet().iterator().next();
                 if ("task".equals(key) || "message".equals(key) || "statusUpdate".equals(key)
-                    || "artifactUpdate".equals(key)) {
+                        || "artifactUpdate".equals(key)) {
                     resultJson = obj.get(key).toString();
                 }
             }
@@ -261,9 +259,18 @@ public class A2aJsonRpcController {
 
     private ServerCallContext buildCallContext(HttpServletRequest req) {
         var ctx = new ServerCallContext(UnauthenticatedUser.INSTANCE,
-            Map.of("remote-addr", req.getRemoteAddr(), "path", req.getRequestURI()), Set.of());
+                Map.of("remote-addr", req.getRemoteAddr(), "path", req.getRequestURI()), Set.of());
         ctx.getState().put(ServerCallContext.STRICT_CONTEXT_VALIDATION_KEY, false);
         return ctx;
+    }
+
+    private static ResponseEntity<String> jsonRpcError(Object id, A2AError error) {
+        try {
+            return ResponseEntity.ok(JsonUtil.toJson(new A2AErrorResponse(id, error)));
+        } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
+            log.error("Failed to serialize A2A error response", e);
+            return ResponseEntity.internalServerError().body("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603}}");
+        }
     }
 
     private ResponseEntity<String> badRequest(A2AError error, Object id) {
