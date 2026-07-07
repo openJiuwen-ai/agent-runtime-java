@@ -7,12 +7,14 @@
 | 步骤 | 文档 | 目的 |
 | --- | --- | --- |
 | 1 | [快速开始](快速开始.md) | 构建、跑 demo、第一条 Query |
-| 2 | [架构概述](架构概述.md) | 本仓已交付模块（`service/` 等） |
-| 3 | [HTTP 对话面](HTTP对话面.md) | `/query`、`/health`、`/reset_conversation` 契约 |
-| 4 | [开发 Agent Service](开发Agent Service.md) → [Adapters 与 Handler](Adapters与Handler.md) → [生命周期与探针](生命周期与探针.md) | 定制业务镜像 |
-| 5 | [A2A 与平台边界](A2A/平台边界.md) → [A2A 开发指导](A2A/开发指导.md) | 需要 A2A 时 |
-| 6 | [逻辑架构](逻辑架构.md) | 全局图景（Gateway、Manager、外部服务映射） |
-| 7 | [API 文档](API文档/README.md) → [spec](API文档/com.openjiuwen.service/spec.README.md) | 下钻 SPI 与 DTO |
+| 2 | [AaaS](AaaS.md) | Agent Service 概念边界与模块组成（可选，建立全貌） |
+| 3 | [架构概述](架构概述.md) | 本仓已交付模块（`service/` 等） |
+| 4 | [HTTP 对话面](HTTP对话面.md) | `/query`、`/health`、`/reset_conversation` 契约 |
+| 5 | [开发 Agent Service](开发Agent Service.md) → [Adapters 与 Handler](Adapters与Handler.md) → [生命周期与探针](生命周期与探针.md) | 定制业务镜像 |
+| 6 | [外部服务](开发与扩展/外部服务.md) | MCP、A2A Remote、Sandbox 出站（需要时） |
+| 7 | [A2A 与平台边界](A2A/平台边界.md) → [A2A 开发指导](A2A/开发指导.md) | 需要 A2A 时 |
+| 8 | [逻辑架构](逻辑架构.md) | 全局图景（Gateway、Manager、外部服务映射） |
+| 9 | [API 文档](API文档/README.md) → [spec](API文档/com.openjiuwen.service/spec.README.md) | 下钻 SPI 与 DTO |
 
 **Agent Core**（模型、工作流、Runner、Session 等）请参阅 [agent-core-java 开发指南](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/2.开发指南/README.md)（独立仓库，Maven `0.1.12`）。
 
@@ -26,10 +28,10 @@
 
 | 栏目 | 导读 | 核心页面 |
 | --- | --- | --- |
-| 入门 | — | [快速开始](快速开始.md) |
+| 入门 | — | [快速开始](快速开始.md)、[AaaS](AaaS.md) |
 | [架构](架构/README.md) | 本仓模块 + 目标全景 | [架构概述](架构概述.md)、[逻辑架构](逻辑架构.md) |
 | HTTP 数据面 | Ingress 契约 | [HTTP 对话面](HTTP对话面.md) |
-| [开发与扩展](开发与扩展/README.md) | 镜像、Handler、生命周期 | [开发 Agent Service](开发Agent Service.md)、[Adapters 与 Handler](Adapters与Handler.md)、[生命周期与探针](生命周期与探针.md) |
+| [开发与扩展](开发与扩展/README.md) | 镜像、Handler、生命周期、外部 egress | [开发 Agent Service](开发Agent Service.md)、[Adapters 与 Handler](Adapters与Handler.md)、[生命周期与探针](生命周期与探针.md)、[外部服务](开发与扩展/外部服务.md) |
 | [A2A](A2A/README.md) | 进程内 vs 平台 | [A2A 与平台边界](A2A/平台边界.md)、[A2A 开发指导](A2A/开发指导.md) |
 | API | SPI 与 DTO | [API 文档](API文档/README.md) |
 
