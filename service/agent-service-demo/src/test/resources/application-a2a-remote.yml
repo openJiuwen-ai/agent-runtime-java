@@ -1,0 +1,20 @@
+openjiuwen:
+  service:
+    external:
+      remote:
+        clients:
+          - id: ${DEMO_A2A_REMOTE_ID:demo-a2a-remote}
+            name: ${DEMO_A2A_REMOTE_NAME:Demo A2A Remote}
+            protocol: A2A
+            url: ${DEMO_A2A_REMOTE_URL:http://127.0.0.1:18082}
+        timeout-ms: ${DEMO_A2A_REMOTE_TIMEOUT_MS:3000}
+        retry-invoke: ${DEMO_A2A_REMOTE_RETRY_INVOKE:false}
+        retry:
+          max: ${DEMO_A2A_REMOTE_RETRY_MAX:1}
+          backoff-ms: ${DEMO_A2A_REMOTE_RETRY_BACKOFF_MS:200}
+        circuit-breaker:
+          enabled: ${DEMO_A2A_REMOTE_CIRCUIT_ENABLED:true}
+          failure-threshold: ${DEMO_A2A_REMOTE_CIRCUIT_FAILURE_THRESHOLD:3}
+          reset-timeout-ms: ${DEMO_A2A_REMOTE_CIRCUIT_RESET_TIMEOUT_MS:30000}
+        audit:
+          enabled: ${DEMO_A2A_REMOTE_AUDIT_ENABLED:true}

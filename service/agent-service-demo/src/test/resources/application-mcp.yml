@@ -1,0 +1,18 @@
+openjiuwen:
+  service:
+    external:
+      mcp:
+        timeout-ms: ${DEMO_MCP_TIMEOUT_MS:30000}
+        retry-tool-calls: ${DEMO_MCP_RETRY_TOOL_CALLS:false}
+        retry:
+          max: ${DEMO_MCP_RETRY_MAX:1}
+          backoff-ms: ${DEMO_MCP_RETRY_BACKOFF_MS:200}
+        circuit-breaker:
+          enabled: ${DEMO_MCP_CIRCUIT_BREAKER_ENABLED:true}
+          failure-threshold: ${DEMO_MCP_CIRCUIT_BREAKER_FAILURE_THRESHOLD:3}
+          reset-timeout-ms: ${DEMO_MCP_CIRCUIT_BREAKER_RESET_TIMEOUT_MS:30000}
+        servers:
+          - server-id: ${DEMO_MCP_SERVER_ID:demo-mcp}
+            server-name: ${DEMO_MCP_SERVER_NAME:demo-mcp-tools}
+            server-path: ${DEMO_MCP_SERVER_PATH:http://localhost:18080/mcp}
+            client-type: ${DEMO_MCP_CLIENT_TYPE:streamable-http}

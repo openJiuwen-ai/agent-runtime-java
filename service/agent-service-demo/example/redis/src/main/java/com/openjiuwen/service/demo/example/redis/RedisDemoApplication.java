@@ -1,0 +1,44 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+ */
+
+package com.openjiuwen.service.demo.example.redis;
+
+import com.openjiuwen.core.singleagent.agents.ReActAgent;
+import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
+import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
+import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
+import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
+import com.openjiuwen.service.spec.spi.AgentHandler;
+
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+
+/**
+ * Redis Checkpointer feature demo — independent runnable module.
+ *
+ * @since 0.1.0
+ */
+@SpringBootApplication(scanBasePackages = "com.openjiuwen.service.app")
+@EnableConfigurationProperties(DemoLlmProperties.class)
+public class RedisDemoApplication {
+    private static final String AGENT_ID = "demo-redis-agent";
+
+    public static void main(String[] args) {
+        SpringApplication.run(RedisDemoApplication.class, args);
+    }
+
+    @Bean
+    AgentHandler agentHandler(DemoLlmProperties llmProperties,
+        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
+        llmProperties.applyApiConfigIfPresent();
+        llmProperties.requireConfigured();
+        ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Demo Redis Agent",
+            "ReAct agent for Redis Checkpointer demo", llmProperties);
+        return new JiuwenCoreAgentHandler(agent,
+            externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
+    }
+}

@@ -1,0 +1,12 @@
+# Copy to application-base_local.yml (gitignored) and fill your credentials.
+# spring.config.import loads this after application-base.yml.
+
+openjiuwen:
+  demo:
+    llm:
+      auto-discover: false
+      provider: OpenAI
+      api-key: your-api-key
+      api-base: http://your-host/v1
+      model-name: your-model
+      ssl-verify: false

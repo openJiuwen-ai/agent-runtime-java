@@ -1,0 +1,36 @@
+target/
+**/target/
+
+# flatten-maven-plugin output (regenerated each build; removed on `mvn clean`)
+**/.flattened-pom.xml
+.flattened-pom.xml
+
+logs/
+*.log
+*.log.*
+
+.env
+.env.*
+!.env.example
+apiconfig.json
+**/application-base_local.yml
+# Local copies of *.example.yml templates used for local verification (never commit)
+**/*.local.yml
+config/deploy.properties
+runtime/
+
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.sts4-cache/
+
+.DS_Store
+Thumbs.db
