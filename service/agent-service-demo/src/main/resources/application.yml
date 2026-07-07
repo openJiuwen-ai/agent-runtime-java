@@ -1,0 +1,8 @@
+# Main demo (out-of-box AaaS). Feature-specific settings live under example/<feature>/.
+spring:
+  application:
+    name: demo-agent-service
+  config:
+    import:
+      - optional:classpath:application-base.yml
+      - optional:classpath:application-base_local.yml

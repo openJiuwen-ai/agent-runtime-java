@@ -1,0 +1,46 @@
+# Shared configuration for agent-service-demo and all example feature modules.
+
+# Default HTTP port for main agent-service-demo (query). Feature modules override in their application.yml.
+server:
+  port: 8090
+
+openjiuwen:
+  demo:
+    llm:
+      auto-discover: true
+      provider: OpenAI
+      api-key: ${OPENJIUWEN_DEMO_LLM_API_KEY:}
+      api-base: ${OPENJIUWEN_DEMO_LLM_API_BASE:}
+      model-name: ${OPENJIUWEN_DEMO_LLM_MODEL_NAME:}
+      ssl-verify: true
+      system-prompt: "You are a helpful assistant. Answer concisely and accurately."
+      temperature: 0.6
+      top-p: 0.8
+      timeout: 60s
+      context-window-limit: 10
+      max-iterations: 5
+  service:
+    version: 0.1.0
+    query:
+      mvc:
+        enabled: true
+      webflux:
+        enabled: true
+      legacy-path-enabled: true
+    middleware:
+      checkpointer:
+        type: in_memory
+        redis-ref: default
+      session-store:
+        type: none
+      object-storage:
+        type: none
+      vector-store:
+        type: none
+      redis:
+        default:
+          host: 127.0.0.1
+          port: 6379
+          database: 0
+          timeout-ms: 3000
+          encrypted-password: ""

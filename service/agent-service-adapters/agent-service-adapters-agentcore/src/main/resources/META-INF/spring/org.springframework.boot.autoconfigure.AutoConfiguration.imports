@@ -1,0 +1,2 @@
+com.openjiuwen.service.adapters.agentcore.autoconfigure.MiddlewareAdaptersAutoConfiguration
+com.openjiuwen.service.adapters.agentcore.autoconfigure.AgentCoreAdaptersAutoConfiguration

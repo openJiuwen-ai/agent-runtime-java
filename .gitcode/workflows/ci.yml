@@ -1,0 +1,48 @@
+name: agent-runtime-java-ci
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  build:
+    name: Check Compile Package
+    runs-on: euleros-2.10.1
+    steps:
+      # 官方标准 checkout-action 拉代码步骤，补齐必填参数
+      - name: checkout_task_1
+        uses: checkout-action@0.0.1
+        with:
+          # 固定拉取当前触发流水线的commit，无需手动写分支名
+          ref: $CI_COMMIT_SHA
+          # 当前仓库内置环境变量，自动填充仓库地址
+          repository: $CI_REPO_FULL_NAME
+          # 流水线内置授权token，无需手动填写
+          token: $CI_TOKEN
+          # GitCode平台域名，固定为官方地址
+          gitcode-server-url: https://gitcode.com
+
+      # 递归同步更新子模块（插件with不支持submodules参数，单独执行shell）
+      - name: Sync Recursive Submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      # Java17环境配置（保持三段式版本规范，去v前缀）
+      - name: Set up Java 17
+        uses: setup-java@0.0.1
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: Unit Test
+        run: mvn -B -ntp test
+
+      # 移除非法符号 &，符合平台名称校验规则
+      - name: Compile And Package
+        run: mvn -B -ntp -DskipTests compile package
