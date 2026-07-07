@@ -22,4 +22,4 @@ agent-service-adapters-agentcore
 ## 延伸阅读
 
 - [Adapters 与 Handler](../../Adapters与Handler.md)
-- [外部服务](../../特性/外部服务.md)
+- [外部服务](../../开发与扩展/外部服务.md)

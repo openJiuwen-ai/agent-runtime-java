@@ -18,10 +18,10 @@
 
 ## 与教程的关系
 
-- 概念和上手路径见 [AaaS](../特性/AaaS.md)。
+- 概念和上手路径见 [AaaS](../AaaS.md)。
 - HTTP 字段和调用示例见 [HTTP 对话面](../HTTP对话面.md)。
 - Handler 选型见 [Adapters 与 Handler](../Adapters与Handler.md)。
-- MCP、A2A Remote、Sandbox 出站能力见 [外部服务](../特性/外部服务.md)。
+- MCP、A2A Remote、Sandbox 出站能力见 [外部服务](../开发与扩展/外部服务.md)。
 
 ## 源码路径
 
