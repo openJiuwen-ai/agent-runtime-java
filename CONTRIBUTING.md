@@ -10,12 +10,12 @@ Thank you for your interest in contributing. This repository packages **Agent Co
 ## Development Setup
 
 1. Install **Java 17+** and **Maven 3.9+**.
-2. Build and install matching **agent-core-java** (`0.1.12` — see root `pom.xml`):
+2. Build and install matching **agent-core-java** (Maven `0.1.12`, branch `feature/630` — see root `pom.xml`):
 
    ```bash
    git clone https://gitcode.com/openJiuwen/agent-core-java.git
    cd agent-core-java
-   git checkout 0.1.12
+   git checkout feature/630
    mvn install -DskipTests
    ```
 

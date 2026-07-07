@@ -27,7 +27,7 @@ See [Scope & roadmap](#scope--roadmap) and [Logical Architecture](documents/zh/2
 - **OS**: Windows, Linux, macOS.
 - **Java**: 17+.
 - **Build**: Maven 3.9+.
-- **agent-core-java**: `com.openjiuwen:agent-core-java:0.1.12` (see root `pom.xml`). Clone [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java), checkout tag `0.1.12`, run `mvn install`, or resolve from your Maven repository when published.
+- **agent-core-java**: `com.openjiuwen:agent-core-java:0.1.12` (see root `pom.xml`). Clone [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java), checkout branch `feature/630` (Maven version `0.1.12`), run `mvn install`, or resolve from your Maven repository when published.
 
 ### Build from Source
 
@@ -211,7 +211,7 @@ Index: [documents/zh/SUMMARY.md](documents/zh/SUMMARY.md) (Chinese).
 | Big picture | [Development Guide](documents/zh/2.开发指南/README.md) · [Logical Architecture](documents/zh/2.开发指南/逻辑架构.md) |
 | Module layout | [service/README.md](service/README.md) |
 
-**Agent Core** (agents, workflows, Runner): [agent-core-java docs](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/SUMMARY.md).
+**Agent Core** (agents, workflows, Runner): [agent-core-java docs](https://gitcode.com/openJiuwen/agent-core-java/tree/feature/630/documents/zh/SUMMARY.md).
 
 English documentation is planned; README is bilingual; detailed guides are currently Chinese-only.
 

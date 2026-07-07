@@ -16,7 +16,7 @@
 | 8 | [逻辑架构](逻辑架构.md) | 全局图景（Gateway、Manager、外部服务映射） |
 | 9 | [API 文档](API文档/README.md) → [spec](API文档/com.openjiuwen.service/spec.README.md) | 下钻 SPI 与 DTO |
 
-**Agent Core**（模型、工作流、Runner、Session 等）请参阅 [agent-core-java 开发指南](https://gitcode.com/openJiuwen/agent-core-java/tree/0.1.12/documents/zh/2.开发指南/README.md)（独立仓库，Maven `0.1.12`）。
+**Agent Core**（模型、工作流、Runner、Session 等）请参阅 [agent-core-java 开发指南](https://gitcode.com/openJiuwen/agent-core-java/tree/feature/630/documents/zh/2.开发指南/README.md)（独立仓库，分支 `feature/630`，Maven `0.1.12`）。
 
 ## 章节定位
 
