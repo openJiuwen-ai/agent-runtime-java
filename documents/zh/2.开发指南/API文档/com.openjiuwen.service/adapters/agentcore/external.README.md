@@ -45,4 +45,4 @@ runtime 不再提供 sandbox HTTP provider。`service-url`、`sandbox-type`、`p
 
 ## 相关文档
 
-- [外部服务](../../../../特性/外部服务.md)
+- [外部服务](../../../../开发与扩展/外部服务.md)
