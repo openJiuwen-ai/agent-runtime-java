@@ -86,14 +86,14 @@ Controller 不直接调用 Runner；Runner、远端 HTTP 或其他执行引擎�
 | --- | --- |
 | Java | 17+ |
 | Maven | 3.9+ |
-| agent-core-java | `com.openjiuwen:agent-core-java:0.1.12` |
+| agent-core-java | `com.openjiuwen:agent-core-java:0.1.12`（源码分支 `feature/630`） |
 
 如果本地 Maven 仓库还没有 `agent-core-java`，先安装 Core：
 
 ```bash
 git clone https://gitcode.com/openJiuwen/agent-core-java.git
 cd agent-core-java
-git checkout 0.1.12
+git checkout feature/630
 mvn clean install -DskipTests
 ```
 
