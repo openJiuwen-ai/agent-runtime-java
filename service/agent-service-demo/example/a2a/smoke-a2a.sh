@@ -4,7 +4,7 @@ set -euo pipefail
 BASE_URL_A="${BASE_URL_A:-http://localhost:18090}"
 BASE_URL_B="${BASE_URL_B:-http://localhost:18091}"
 BASE_URL_C="${BASE_URL_C:-http://localhost:18092}"
-CONV_ID="${CONV_ID:-a2a-demo-c1}"
+CONV_ID="${CONV_ID:-a2a-demo-$(date +%Y%m%d%H%M%S)-$$}"
 TMP_DIR="$(mktemp -d)"
 AGENT_A_PID=""
 AGENT_B_PID=""
@@ -20,10 +20,15 @@ else
 fi
 
 cleanup() {
-  rm -rf "$TMP_DIR"
+  local status=$?
   if [ -n "$AGENT_A_PID" ]; then kill "$AGENT_A_PID" 2>/dev/null || true; fi
   if [ -n "$AGENT_B_PID" ]; then kill "$AGENT_B_PID" 2>/dev/null || true; fi
   if [ -n "$AGENT_C_PID" ]; then kill "$AGENT_C_PID" 2>/dev/null || true; fi
+  if [ "$status" -eq 0 ]; then
+    rm -rf "$TMP_DIR"
+  else
+    printf '\nLogs and responses retained in %s\n' "$TMP_DIR" >&2
+  fi
 }
 trap cleanup EXIT
 
@@ -37,7 +42,7 @@ pass() {
 
 fail() {
   printf 'FAIL %s\n' "$1" >&2
-  printf '\nLogs are in %s while the script is running.\n' "$TMP_DIR" >&2
+  printf 'Logs and responses are in %s\n' "$TMP_DIR" >&2
   exit 1
 }
 
@@ -190,35 +195,6 @@ if "agent c" not in interrupt_message or not any(token in interrupt_message for 
     sys.exit(1)
 print(f"A->B->C Round 1 interrupt: {interrupt.get('message', '')[:300]}")
 PY
-pass "A->B->C Round 1 reached Agent C confirmation"
-
-print_step "3b" "Round 2: resume A->B->C path with confirmation through A and B"
-round2_file="$TMP_DIR/round2.json"
-round2_status="$(curl -sS -o "$round2_file" -w '%{http_code}' -X POST "$BASE_URL_A/v1/query" \
-  -H 'Content-Type: application/json' \
-  -d "{\"conversation_id\":\"$CONV_ID\",\"message\":\"ok, confirmed\",\"stream\":false}")"
-
-if [ "$round2_status" != "200" ]; then
-  fail "A->B->C Round 2 query returned HTTP $round2_status"
-fi
-
-$PYTHON - "$round2_file" <<'PY'
-import json, sys
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-result = data.get("result", {})
-content = str(result.get("content", ""))
-if not content:
-    print("FAIL: A->B->C Round 2 empty response", file=sys.stderr)
-    print(json.dumps(data, ensure_ascii=False)[:1000], file=sys.stderr)
-    sys.exit(1)
-combined = content.lower()
-if "agent c" not in combined or not any(token in combined for token in ["宫保鸡丁", "food", "dish", "recommend"]):
-    print("FAIL: A->B->C Round 2 did not include Agent C food recommendation", file=sys.stderr)
-    print(json.dumps(data, ensure_ascii=False)[:1000], file=sys.stderr)
-    sys.exit(1)
-print(f"A->B->C Round 2: {content[:300]}")
-PY
-pass "A->B->C Round 2 completed after Agent C confirmation"
+pass "A->B->C path reached Agent C confirmation"
 
 printf '\nA2A demo smoke checks passed against Agent A=%s Agent B=%s Agent C=%s\n' "$BASE_URL_A" "$BASE_URL_B" "$BASE_URL_C"

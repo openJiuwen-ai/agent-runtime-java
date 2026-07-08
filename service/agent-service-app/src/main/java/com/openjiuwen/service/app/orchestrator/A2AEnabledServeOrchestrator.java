@@ -720,7 +720,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         messages.add(userMsg);
         ServeRequest resumeReq = new ServeRequest();
         resumeReq.setConversationId(original.getConversationId());
-        resumeReq.setStream(true);
+        resumeReq.setStream(original.isStream());
         resumeReq.setMessages(messages);
         resumeReq.setUserId(original.getUserId());
         resumeReq.setSpaceId(original.getSpaceId());

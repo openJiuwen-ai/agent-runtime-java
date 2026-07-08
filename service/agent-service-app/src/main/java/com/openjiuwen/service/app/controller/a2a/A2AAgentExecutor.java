@@ -166,9 +166,9 @@ public class A2AAgentExecutor implements AgentExecutor {
             if (content != null) {
                 emitter.addArtifact(List.of(new TextPart(String.valueOf(content))));
             }
-            emitter.complete();
+            completeAndDrain(emitter, msgCtx.getTaskId());
         } else {
-            emitter.complete();
+            completeAndDrain(emitter, msgCtx.getTaskId());
         }
     }
 
@@ -208,10 +208,9 @@ public class A2AAgentExecutor implements AgentExecutor {
      */
     private static void closeEventQueue(AgentEmitter emitter, String taskId) {
         try {
-            var f = emitter.getClass().getDeclaredField("eventQueue");
-            f.setAccessible(true);
-            Object queueObj = f.get(emitter);
-            if (queueObj instanceof org.a2aproject.sdk.server.events.EventQueue q) {
+            Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
+            if (queue.isPresent()) {
+                org.a2aproject.sdk.server.events.EventQueue q = queue.get();
                 awaitInFlightDrained(q, taskId);
                 q.close(false, false);
             }
@@ -220,6 +219,28 @@ public class A2AAgentExecutor implements AgentExecutor {
             log.warn("A2A closeEventQueue failed, falling back to complete() taskId={}", taskId, e);
             emitter.complete();
         }
+    }
+
+    private static void completeAndDrain(AgentEmitter emitter, String taskId) {
+        emitter.complete();
+        try {
+            Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
+            queue.ifPresent(q -> awaitInFlightDrained(q, taskId));
+            log.info("A2A eventQueue drained after COMPLETED taskId={}", taskId);
+        } catch (ReflectiveOperationException | SecurityException e) {
+            log.debug("A2A completeAndDrain: eventQueue unavailable taskId={}", taskId, e);
+        }
+    }
+
+    private static Optional<org.a2aproject.sdk.server.events.EventQueue> emitterEventQueue(AgentEmitter emitter)
+        throws ReflectiveOperationException {
+        var f = AgentEmitter.class.getDeclaredField("eventQueue");
+        f.setAccessible(true);
+        Object queueObj = f.get(emitter);
+        if (queueObj instanceof org.a2aproject.sdk.server.events.EventQueue q) {
+            return Optional.of(q);
+        }
+        return Optional.empty();
     }
 
     /**
