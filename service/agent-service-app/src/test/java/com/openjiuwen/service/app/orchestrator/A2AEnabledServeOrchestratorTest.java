@@ -447,6 +447,28 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
+    void queryPendingResumePreservesOriginalStreamFlag() {
+        String shadowId = "shadow:test-agent:c-query-sync-resume";
+        Task pending = Task.builder()
+            .id(shadowId)
+            .contextId("c-query-sync-resume")
+            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
+            .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1"))
+            .build();
+        when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
+        when(a2aClient.callSync(anyString(), any(), anyString(), any(), any())).thenReturn("remote result");
+        when(agentHandler.query(any())).thenReturn(
+            new com.openjiuwen.service.spec.dto.QueryResponse(Map.of("role", "assistant", "content", "final answer"),
+                "c-query-sync-resume"));
+        ServeRequest request = req("c-query-sync-resume");
+        request.setStream(false);
+
+        orchestrator.query(request);
+
+        verify(agentHandler).query(argThat(resume -> !resume.isStream()));
+    }
+
+    @Test
     void noPendingTaskDelegatesToAgent() {
         when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of()));
 
