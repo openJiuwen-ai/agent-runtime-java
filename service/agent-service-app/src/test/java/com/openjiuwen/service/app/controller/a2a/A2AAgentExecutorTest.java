@@ -48,13 +48,13 @@ class A2AAgentExecutorTest {
         assertThat(queue.sizeCalls.get()).isPositive();
     }
 
-    private static RequestContext requestContext(String taskId, String contextId, boolean stream) {
+    private static RequestContext requestContext(String taskId, String contextId, boolean isStream) {
         RequestContext context = mock(RequestContext.class);
         when(context.getTaskId()).thenReturn(taskId);
         when(context.getContextId()).thenReturn(contextId);
         when(context.getMetadata()).thenReturn(Map.of());
         ServerCallContext callContext = mock(ServerCallContext.class);
-        when(callContext.getState()).thenReturn(new java.util.HashMap<>(Map.of("_a2a_stream", stream)));
+        when(callContext.getState()).thenReturn(new java.util.HashMap<>(Map.of("_a2a_stream", isStream)));
         when(context.getCallContext()).thenReturn(callContext);
         return context;
     }
@@ -95,11 +95,11 @@ class A2AAgentExecutorTest {
         }
 
         @Override
-        public void close(boolean immediate) {
+        public void close(boolean isImmediate) {
         }
 
         @Override
-        public void close(boolean immediate, boolean notifyParent) {
+        public void close(boolean isImmediate, boolean shouldNotifyParent) {
         }
     }
 }
