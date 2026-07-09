@@ -237,12 +237,14 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         result.put("role", "assistant");
         if (rawResult instanceof Map<?, ?> rawMap) {
             @SuppressWarnings("unchecked") Map<String, Object> map = (Map<String, Object>) rawMap;
-            QueryResponse result1 = getQueryResponse(conversationId, map, result);
-            if (result1 != null) {
-                return result1;
+            Optional<QueryResponse> result1 = getQueryResponse(conversationId, map, result);
+            if (result1.isPresent()) {
+                return result1.get();
             }
-            Object content = firstNonNull(map.get("output"), map.get("content"), map.get("response")).orElse(null);
-            result.put("content", stringify(content));
+            String content = firstNonNull(map.get("output"), map.get("content"), map.get("response"))
+                .map(JiuwenCoreAgentHandler::stringify)
+                .orElse("");
+            result.put("content", content);
             return new QueryResponse(result, conversationId);
         }
         if (rawResult instanceof ControllerOutput controllerOutput) {
@@ -252,7 +254,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return new QueryResponse(result, conversationId);
     }
 
-    private static QueryResponse getQueryResponse(String conversationId, Map<String, Object> map,
+    private static Optional<QueryResponse> getQueryResponse(String conversationId, Map<String, Object> map,
         Map<String, Object> result) {
         if ("interrupt".equals(map.get("result_type")) && map.get("state") instanceof List<?> states) {
             Object lastInterrupt = null;
@@ -261,25 +263,25 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                     lastInterrupt = normalizeChunk(outputSchema);
                 }
             }
-            QueryResponse result1 = getQueryResponse(conversationId, lastInterrupt, result);
-            if (result1 != null) {
+            Optional<QueryResponse> result1 = getQueryResponse(conversationId, lastInterrupt, result);
+            if (result1.isPresent()) {
                 return result1;
             }
         }
-        return null;
+        return Optional.empty();
     }
 
-    private static QueryResponse getQueryResponse(String conversationId, Object lastInterrupt,
+    private static Optional<QueryResponse> getQueryResponse(String conversationId, Object lastInterrupt,
         Map<String, Object> result) {
         if (lastInterrupt instanceof Map<?, ?> interruptMap) {
             @SuppressWarnings("unchecked") Map<String, Object> interruptData = (Map<String, Object>) interruptMap;
             if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
                 result.put("_interrupt", interruptData);
                 result.put("content", interruptData.getOrDefault("message", ""));
-                return new QueryResponse(result, conversationId);
+                return Optional.of(new QueryResponse(result, conversationId));
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     private static QueryResponse buildQueryResponseFromControllerOutput(ControllerOutput controllerOutput,
@@ -390,9 +392,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private Object resolveSessionCard() {
-        Object card = readAgentCard(agent);
-        if (card != null) {
-            return card;
+        Optional<Object> card = readAgentCard(agent);
+        if (card.isPresent()) {
+            return card.get();
         }
         String agentId = agent instanceof String stringAgentId
             ? stringAgentId
@@ -421,9 +423,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private static Map<String, Object> readAgentConfigEnvs(Object target) {
-        Object config = readProperty(target, "getConfig", "config");
-        Object envs = readProperty(config, "getEnvs", "envs");
-        if (!(envs instanceof Map<?, ?> map)) {
+        Optional<Object> config = readProperty(target, "getConfig", "config");
+        Optional<Object> envs = config.flatMap(value -> readProperty(value, "getEnvs", "envs"));
+        Object envsValue = envs.orElseGet(Map::of);
+        if (!(envsValue instanceof Map<?, ?> map)) {
             return Map.of();
         }
         Map<String, Object> result = new LinkedHashMap<>();
@@ -443,28 +446,28 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return agent != null ? agent.getClass().getSimpleName() : "unknown";
     }
 
-    private static Object readAgentCard(Object target) {
+    private static Optional<Object> readAgentCard(Object target) {
         return readProperty(target, "getCard", "card");
     }
 
     private static boolean hasAgentCard(Object target) {
-        return readAgentCard(target) != null;
+        return readAgentCard(target).isPresent();
     }
 
-    private static Object readProperty(Object target, String getterName, String fieldName) {
+    private static Optional<Object> readProperty(Object target, String getterName, String fieldName) {
         if (target == null) {
             return Optional.empty();
         }
         try {
             Method getter = target.getClass().getMethod(getterName);
-            return getter.invoke(target);
+            return Optional.ofNullable(getter.invoke(target));
         } catch (ReflectiveOperationException ignored) {
             // Fall through to field access.
         }
         try {
             Field field = target.getClass().getDeclaredField(fieldName);
             field.setAccessible(true);
-            return field.get(target);
+            return Optional.ofNullable(field.get(target));
         } catch (ReflectiveOperationException ignored) {
             return Optional.empty();
         }
