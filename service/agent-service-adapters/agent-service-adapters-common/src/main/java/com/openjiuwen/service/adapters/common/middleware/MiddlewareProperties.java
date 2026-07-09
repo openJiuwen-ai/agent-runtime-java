@@ -219,7 +219,7 @@ public class MiddlewareProperties {
      * Agents call search/add/get/delete is the consumer's responsibility.
      */
     public static class Memory implements ExternalCallPolicy {
-        private boolean enabled = false;
+        private boolean isEnabled = false;
 
         private String provider = "mem0";
 
@@ -229,9 +229,9 @@ public class MiddlewareProperties {
 
         private String userId = "";
 
-        private boolean requestScopedSession = false;
+        private boolean shouldUseRequestScopedSession = false;
 
-        private boolean rerank = false;
+        private boolean shouldRerank = false;
 
         private int timeoutMs = 3000;
 
@@ -242,11 +242,11 @@ public class MiddlewareProperties {
         private ExternalAuditPolicy audit = new ExternalAuditPolicy();
 
         public boolean isEnabled() {
-            return enabled;
+            return isEnabled;
         }
 
         public void setEnabled(boolean isEnabled) {
-            this.enabled = isEnabled;
+            this.isEnabled = isEnabled;
         }
 
         public String getProvider() {
@@ -282,19 +282,19 @@ public class MiddlewareProperties {
         }
 
         public boolean isRequestScopedSession() {
-            return requestScopedSession;
+            return shouldUseRequestScopedSession;
         }
 
         public void setRequestScopedSession(boolean shouldUseRequestScopedSession) {
-            this.requestScopedSession = shouldUseRequestScopedSession;
+            this.shouldUseRequestScopedSession = shouldUseRequestScopedSession;
         }
 
         public boolean isRerank() {
-            return rerank;
+            return shouldRerank;
         }
 
         public void setRerank(boolean shouldRerank) {
-            this.rerank = shouldRerank;
+            this.shouldRerank = shouldRerank;
         }
 
         @Override

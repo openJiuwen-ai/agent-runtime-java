@@ -46,6 +46,32 @@ public class GovernedMem0Api {
     private final boolean shouldRetry;
 
     /**
+     * Creates a governed mem0 transport.
+     *
+     * @param targetId audit/circuit target label (for example the endpoint)
+     * @param policy external call policy (timeout/retry/circuit/audit)
+     */
+    public GovernedMem0Api(String targetId, ExternalCallPolicy policy) {
+        this.executor = new ExternalCallExecutor("Memory", targetId, policy,
+            ExternalSvcAdapterErrorCode.MEMORY_OUTBOUND_CALL_FAILED,
+            ExternalSvcAdapterErrorCode.MEMORY_CIRCUIT_OPEN,
+            ExternalSvcAdapterErrorCode.MEMORY_RETRY_INTERRUPTED,
+            ExternalSvcAdapterErrorCode.MEMORY_TIMEOUT);
+        int timeoutMs = policy != null ? policy.getTimeoutMs() : 30000;
+        this.requestTimeout = Duration.ofMillis(Math.max(1, timeoutMs));
+        this.shouldRetry = policy != null && policy.getRetry() != null && policy.getRetry().getMax() > 0;
+        this.httpClient = HttpClient.newBuilder().connectTimeout(requestTimeout).build();
+    }
+
+    GovernedMem0Api(ExternalCallExecutor executor,
+        HttpClient httpClient, Duration requestTimeout, boolean shouldRetry) {
+        this.executor = executor;
+        this.httpClient = httpClient;
+        this.requestTimeout = requestTimeout;
+        this.shouldRetry = shouldRetry;
+    }
+
+    /**
      * Search options for mem0 search requests.
      *
      * @since 0.1.0
@@ -74,32 +100,6 @@ public class GovernedMem0Api {
         public static SearchMemoriesOptions of(Map<String, Object> filters, boolean shouldRerank, int topK) {
             return new SearchMemoriesOptions(filters, shouldRerank, topK);
         }
-    }
-
-    /**
-     * Creates a governed mem0 transport.
-     *
-     * @param targetId audit/circuit target label (for example the endpoint)
-     * @param policy external call policy (timeout/retry/circuit/audit)
-     */
-    public GovernedMem0Api(String targetId, ExternalCallPolicy policy) {
-        this.executor = new ExternalCallExecutor("Memory", targetId, policy,
-            ExternalSvcAdapterErrorCode.MEMORY_OUTBOUND_CALL_FAILED,
-            ExternalSvcAdapterErrorCode.MEMORY_CIRCUIT_OPEN,
-            ExternalSvcAdapterErrorCode.MEMORY_RETRY_INTERRUPTED,
-            ExternalSvcAdapterErrorCode.MEMORY_TIMEOUT);
-        int timeoutMs = policy != null ? policy.getTimeoutMs() : 30000;
-        this.requestTimeout = Duration.ofMillis(Math.max(1, timeoutMs));
-        this.shouldRetry = policy != null && policy.getRetry() != null && policy.getRetry().getMax() > 0;
-        this.httpClient = HttpClient.newBuilder().connectTimeout(requestTimeout).build();
-    }
-
-    GovernedMem0Api(ExternalCallExecutor executor,
-        HttpClient httpClient, Duration requestTimeout, boolean shouldRetry) {
-        this.executor = executor;
-        this.httpClient = httpClient;
-        this.requestTimeout = requestTimeout;
-        this.shouldRetry = shouldRetry;
     }
 
     /**
