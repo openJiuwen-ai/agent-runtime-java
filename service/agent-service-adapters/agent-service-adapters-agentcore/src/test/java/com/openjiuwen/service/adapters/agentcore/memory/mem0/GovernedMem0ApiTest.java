@@ -80,7 +80,7 @@ class GovernedMem0ApiTest {
             try {
                 Thread.sleep(sleepMillis);
             } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
+                throw new IOException("Mock mem0 response delay interrupted", ex);
             }
         }
         byte[] out = responseBody.getBytes(StandardCharsets.UTF_8);
@@ -114,7 +114,7 @@ class GovernedMem0ApiTest {
 
         responseBody = "{\"results\": [{\"id\":\"m-1\",\"memory\":\"likes coffee\",\"score\":0.9}]}";
         List<Map<String, Object>> results = api.searchMemories(baseUrl, API_KEY, "coffee",
-            Map.of("user_id", "u1"), true, 5);
+            GovernedMem0Api.SearchMemoriesOptions.of(Map.of("user_id", "u1"), true, 5));
         RecordedRequest search = requests.get(1);
         assertThat(search.method).isEqualTo("POST");
         assertThat(search.path).isEqualTo("/v3/memories/search/");
@@ -198,7 +198,10 @@ class GovernedMem0ApiTest {
 
     @Test
     void auditLogNeverContainsPlaintextApiKey() throws Exception {
-        Logger auditLogger = (Logger) LoggerFactory.getLogger(ExternalCallExecutor.class);
+        org.slf4j.Logger slf4jLogger = LoggerFactory.getLogger(ExternalCallExecutor.class);
+        if (!(slf4jLogger instanceof Logger auditLogger)) {
+            throw new IllegalStateException("Expected Logback logger for ExternalCallExecutor");
+        }
         auditLogger.setLevel(Level.INFO);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();

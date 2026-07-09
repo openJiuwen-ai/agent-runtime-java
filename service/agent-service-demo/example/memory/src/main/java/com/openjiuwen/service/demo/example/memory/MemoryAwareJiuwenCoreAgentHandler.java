@@ -14,16 +14,16 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
  * @since 0.1.0
  */
 final class MemoryAwareJiuwenCoreAgentHandler extends JiuwenCoreAgentHandler {
-    private final boolean requestScopedSession;
+    private final boolean shouldUseRequestScopedSession;
 
     MemoryAwareJiuwenCoreAgentHandler(Object agent, ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar,
-        boolean requestScopedSession) {
+        boolean shouldUseRequestScopedSession) {
         super(agent, externalSvcAdapterRegistrar);
-        this.requestScopedSession = requestScopedSession;
+        this.shouldUseRequestScopedSession = shouldUseRequestScopedSession;
     }
 
     @Override
     protected boolean useRequestScopedSession(ServeRequest request) {
-        return requestScopedSession;
+        return shouldUseRequestScopedSession;
     }
 }

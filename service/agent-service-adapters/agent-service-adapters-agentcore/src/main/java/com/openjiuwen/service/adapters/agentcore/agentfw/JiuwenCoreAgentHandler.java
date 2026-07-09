@@ -386,7 +386,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Map<String, Object> envs = new LinkedHashMap<>();
         envs.putAll(readAgentConfigEnvs(agent));
         envs.putAll(requestEnvs(request));
-        return envs.isEmpty() ? null : envs;
+        return envs;
     }
 
     private Object resolveSessionCard() {
@@ -453,7 +453,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static Object readProperty(Object target, String getterName, String fieldName) {
         if (target == null) {
-            return null;
+            return Optional.empty();
         }
         try {
             Method getter = target.getClass().getMethod(getterName);
@@ -466,7 +466,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             field.setAccessible(true);
             return field.get(target);
         } catch (ReflectiveOperationException ignored) {
-            return null;
+            return Optional.empty();
         }
     }
 

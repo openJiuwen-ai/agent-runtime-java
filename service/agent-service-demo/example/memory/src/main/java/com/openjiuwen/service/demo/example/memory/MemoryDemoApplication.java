@@ -7,6 +7,7 @@ package com.openjiuwen.service.demo.example.memory;
 import com.openjiuwen.core.memory.external.MemoryProvider;
 import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
+import com.openjiuwen.service.adapters.agentcore.memory.MemoryStoreMemoryProvider;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
@@ -48,7 +49,7 @@ public class MemoryDemoApplication {
         llmProperties.requireConfigured();
         augmentSystemPromptWithMemory(llmProperties, memoryStoreProvider);
         appendManagementToolPromptIfMemoryEnabled(memoryStoreProvider, llmProperties);
-        boolean requestScopedSession = middlewarePropertiesProvider
+        boolean shouldUseRequestScopedSession = middlewarePropertiesProvider
             .getIfAvailable(MiddlewareProperties::new)
             .getMemory()
             .isRequestScopedSession();
@@ -58,10 +59,10 @@ public class MemoryDemoApplication {
         memoryStoreProvider.ifAvailable(memoryStore -> MemoryToolRegistrar.register(agent, memoryStore, true));
         AgentHandler coreHandler = new MemoryAwareJiuwenCoreAgentHandler(agent,
             externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop),
-            requestScopedSession);
+            shouldUseRequestScopedSession);
         MemoryProvider memoryProvider = memoryProviderProvider.getIfAvailable();
-        return memoryProvider != null
-            ? new MemoryLifecycleAgentHandler(coreHandler, memoryProvider)
+        return memoryProvider instanceof MemoryStoreMemoryProvider runtimeMemoryProvider
+            ? new MemoryLifecycleAgentHandler(coreHandler, runtimeMemoryProvider)
             : coreHandler;
     }
 

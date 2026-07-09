@@ -11,6 +11,7 @@ import com.openjiuwen.core.runner.base.Result;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.singleagent.agents.ReActAgent;
+import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterException;
 import com.openjiuwen.service.adapters.common.memory.MemoryAddRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryDeleteRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryGetRequest;
@@ -30,7 +31,7 @@ import java.util.Map;
  * Registers provider-agnostic memory tools on a demo {@link ReActAgent}.
  *
  * <p>Tool names and parameters are generic ({@code memory_search}, {@code memory_add}, etc.) while
- * calls route through the runtime {@link MemoryStore} SPI. Pass {@code includeManagementTools=true}
+ * calls route through the runtime {@link MemoryStore} SPI. Pass {@code shouldIncludeManagementTools=true}
  * to also expose {@code memory_get} / {@code memory_delete}.
  *
  * @since 0.1.0
@@ -108,12 +109,12 @@ public final class MemoryToolRegistrar {
      *
      * @param agent memory demo agent
      * @param memoryStore governed runtime memory store
-     * @param includeManagementTools when {@code true}, also register {@code memory_get} and
+     * @param shouldIncludeManagementTools when {@code true}, also register {@code memory_get} and
      *        {@code memory_delete}
      * @return registered tool cards
      */
     public static List<ToolCard> register(ReActAgent agent, MemoryStore memoryStore,
-        boolean includeManagementTools) {
+        boolean shouldIncludeManagementTools) {
         if (agent == null) {
             throw new IllegalArgumentException("agent must not be null");
         }
@@ -124,7 +125,7 @@ public final class MemoryToolRegistrar {
         List<ToolCard> cards = new ArrayList<>();
         registerSchemaTool(agent, memoryStore, SEARCH_SCHEMA, cards);
         registerSchemaTool(agent, memoryStore, ADD_SCHEMA, cards);
-        if (includeManagementTools) {
+        if (shouldIncludeManagementTools) {
             registerSchemaTool(agent, memoryStore, GET_SCHEMA, cards);
             registerSchemaTool(agent, memoryStore, DELETE_SCHEMA, cards);
         }
@@ -179,7 +180,8 @@ public final class MemoryToolRegistrar {
                 return invokeDelete(memoryStore, inputs, scope);
             }
             return Map.of("error", "Unknown tool: " + toolName);
-        } catch (Exception ex) {
+        } catch (ExternalSvcAdapterException | IllegalArgumentException | IllegalStateException
+                 | UnsupportedOperationException ex) {
             return Map.of("error", ex.getMessage());
         }
     }
@@ -188,11 +190,11 @@ public final class MemoryToolRegistrar {
         MemoryScope scope) {
         String query = requiredString(inputs, "query");
         int topK = intValue(inputs != null ? inputs.get("top_k") : null, 10);
-        Boolean rerank = inputs != null && inputs.get("rerank") != null
+        Boolean shouldRerank = inputs != null && inputs.get("rerank") != null
             ? Boolean.parseBoolean(String.valueOf(inputs.get("rerank")))
             : null;
         List<MemoryRecord> records = memoryStore.search(new MemorySearchRequest(
-            scope, query, topK, rerank, Map.of()));
+            scope, query, topK, shouldRerank, Map.of()));
         return Map.of("results", records.stream().map(MemoryToolRegistrar::toToolRecord).toList(),
             "count", records.size());
     }
@@ -235,6 +237,8 @@ public final class MemoryToolRegistrar {
             scopeId = stringValue(session.getEnv("space_id", ""));
         } else if (rawSession instanceof Session session) {
             sessionId = stringValue(session.getSessionId());
+        } else {
+            sessionId = "";
         }
         return new MemoryScope(userId, agentId, sessionId, scopeId);
     }

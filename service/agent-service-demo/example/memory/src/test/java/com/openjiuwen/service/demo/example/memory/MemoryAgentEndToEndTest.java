@@ -155,17 +155,27 @@ class MemoryAgentEndToEndTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void lifecyclePrefetchSyncTurnAndFourMemoryToolsReachMockMem0() throws IOException {
         assertThat(memoryStore.getProvider()).isEqualTo("mem0");
 
+        verifyLifecyclePrefetchAndSyncTurn();
+        verifyMemorySearchTool();
+        verifyMemoryGetTool();
+        verifyMemoryDeleteTool();
+        verifyMemoryAddTool();
+    }
+
+    private void verifyLifecyclePrefetchAndSyncTurn() throws IOException {
         ResponseEntity<String> lifecycleResponse = postQuery("memory-e2e-lifecycle",
             "请直接回答：我喜欢喝什么咖啡？");
 
+        verifyLifecyclePrefetch(lifecycleResponse);
+        verifyLifecycleSyncTurn();
+    }
+
+    private void verifyLifecyclePrefetch(ResponseEntity<String> lifecycleResponse) throws IOException {
         assertThat(lifecycleResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
-        Map<String, Object> lifecycleJson = mapper.readValue(lifecycleResponse.getBody(), Map.class);
-        Map<String, Object> lifecycleResult = (Map<String, Object>) lifecycleJson.get("result");
-        assertThat(lifecycleResult.get("content")).asString().contains("拿铁咖啡");
+        assertThat(resultMap(lifecycleResponse).get("content")).asString().contains("拿铁咖啡");
         assertThat(MEM0_SERVER.searchRequests())
             .as("request lifecycle should prefetch through MemoryProvider -> MemoryStore.search")
             .isEqualTo(1);
@@ -180,6 +190,9 @@ class MemoryAgentEndToEndTest {
                 .contains(SEED_MEMORY)
                 .contains("<user-message>")
                 .contains("请直接回答：我喜欢喝什么咖啡？"));
+    }
+
+    private void verifyLifecycleSyncTurn() {
         assertThat(MEM0_SERVER.addBodies())
             .as("request lifecycle should sync user/assistant turn through MemoryProvider -> MemoryStore.add")
             .anySatisfy(body -> {
@@ -192,7 +205,9 @@ class MemoryAgentEndToEndTest {
                     .containsEntry("role", "assistant")
                     .containsEntry("content", "根据长期记忆，用户喜欢拿铁咖啡。"));
             });
+    }
 
+    private void verifyMemorySearchTool() throws IOException {
         ResponseEntity<String> searchResponse = postQuery("memory-e2e-search", "请用 memory_search 查找咖啡偏好");
         assertThat(searchResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resultContent(searchResponse)).contains("拿铁咖啡");
@@ -200,21 +215,27 @@ class MemoryAgentEndToEndTest {
         assertThat(MEM0_SERVER.searchBodies())
             .as("prefetch search plus memory_search tool call should both reach mem0")
             .anySatisfy(body -> assertThat(body).containsEntry("query", SEARCH_QUERY));
+    }
 
+    private void verifyMemoryGetTool() throws IOException {
         ResponseEntity<String> getResponse = postQuery("memory-e2e-get",
             "请用 memory_get 查看 memory_id 为 m-1 的记录");
         assertThat(getResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resultContent(getResponse)).contains(SEED_MEMORY);
         assertThat(TOOL_LISTS_SEEN_BY_MODEL).anyMatch(tools -> tools.contains(GET_TOOL_NAME));
         assertThat(MEM0_SERVER.getRequests()).isEqualTo(1);
+    }
 
+    private void verifyMemoryDeleteTool() {
         ResponseEntity<String> deleteResponse = postQuery("memory-e2e-delete",
             "请用 memory_delete 删除 memory_id 为 m-1 的记录");
         assertThat(deleteResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(TOOL_LISTS_SEEN_BY_MODEL).anyMatch(tools -> tools.contains(DELETE_TOOL_NAME));
         assertThat(MEM0_SERVER.deleteRequests()).isEqualTo(1);
         assertThat(MEM0_SERVER.containsMemory(MEMORY_ID)).isFalse();
+    }
 
+    private void verifyMemoryAddTool() throws IOException {
         ResponseEntity<String> addResponse = postQuery("memory-e2e-add", "请用 memory_add 记录我的长期偏好");
         assertThat(addResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resultContent(addResponse)).contains("Fact stored");
@@ -235,11 +256,14 @@ class MemoryAgentEndToEndTest {
             "stream", false), headers), String.class);
     }
 
-    @SuppressWarnings("unchecked")
     private String resultContent(ResponseEntity<String> response) throws IOException {
+        return String.valueOf(resultMap(response).get("content"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> resultMap(ResponseEntity<String> response) throws IOException {
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
-        Map<String, Object> result = (Map<String, Object>) json.get("result");
-        return String.valueOf(result.get("content"));
+        return (Map<String, Object>) json.get("result");
     }
 
     @SuppressWarnings("unchecked")

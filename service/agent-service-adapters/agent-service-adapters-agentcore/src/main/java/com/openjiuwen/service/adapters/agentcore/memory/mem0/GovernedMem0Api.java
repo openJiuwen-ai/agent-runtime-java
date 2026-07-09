@@ -46,6 +46,37 @@ public class GovernedMem0Api {
     private final boolean shouldRetry;
 
     /**
+     * Search options for mem0 search requests.
+     *
+     * @since 0.1.0
+     */
+    public static final class SearchMemoriesOptions {
+        private final Map<String, Object> filters;
+
+        private final boolean shouldRerank;
+
+        private final int topK;
+
+        private SearchMemoriesOptions(Map<String, Object> filters, boolean shouldRerank, int topK) {
+            this.filters = filters != null ? new LinkedHashMap<>(filters) : Map.of();
+            this.shouldRerank = shouldRerank;
+            this.topK = topK;
+        }
+
+        /**
+         * Creates mem0 search options.
+         *
+         * @param filters mem0 filter fields
+         * @param shouldRerank whether mem0 reranking is enabled
+         * @param topK maximum number of records
+         * @return mem0 search options
+         */
+        public static SearchMemoriesOptions of(Map<String, Object> filters, boolean shouldRerank, int topK) {
+            return new SearchMemoriesOptions(filters, shouldRerank, topK);
+        }
+    }
+
+    /**
      * Creates a governed mem0 transport.
      *
      * @param targetId audit/circuit target label (for example the endpoint)
@@ -63,13 +94,22 @@ public class GovernedMem0Api {
         this.httpClient = HttpClient.newBuilder().connectTimeout(requestTimeout).build();
     }
 
-    GovernedMem0Api(ExternalCallExecutor executor, HttpClient httpClient, Duration requestTimeout, boolean shouldRetry) {
+    GovernedMem0Api(ExternalCallExecutor executor,
+        HttpClient httpClient, Duration requestTimeout, boolean shouldRetry) {
         this.executor = executor;
         this.httpClient = httpClient;
         this.requestTimeout = requestTimeout;
         this.shouldRetry = shouldRetry;
     }
 
+    /**
+     * Gets all memories that match the supplied mem0 filters.
+     *
+     * @param baseUrl mem0 base url
+     * @param apiKey mem0 API key
+     * @param filters mem0 filter fields
+     * @return memory records returned by mem0
+     */
     public List<Map<String, Object>> getAllMemories(String baseUrl, String apiKey, Map<String, Object> filters) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("filters", filters);
@@ -78,18 +118,39 @@ public class GovernedMem0Api {
         return extractResults(response);
     }
 
+    /**
+     * Searches memories by semantic query and mem0 filters.
+     *
+     * @param baseUrl mem0 base url
+     * @param apiKey mem0 API key
+     * @param query semantic search query
+     * @param options mem0 search options
+     * @return memory records returned by mem0
+     */
     public List<Map<String, Object>> searchMemories(String baseUrl, String apiKey, String query,
-        Map<String, Object> filters, boolean isRerankEnabled, int topK) {
+        SearchMemoriesOptions options) {
+        SearchMemoriesOptions effectiveOptions = options != null
+            ? options
+            : SearchMemoriesOptions.of(Map.of(), false, 0);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("query", query);
-        body.put("filters", filters);
-        body.put("rerank", isRerankEnabled);
-        body.put("top_k", topK);
+        body.put("filters", effectiveOptions.filters);
+        body.put("rerank", effectiveOptions.shouldRerank);
+        body.put("top_k", effectiveOptions.topK);
         Map<String, Object> response = executor.execute(OP, "search", shouldRetry,
             () -> send(baseUrl, "/v3/memories/search/", apiKey, "POST", body));
         return extractResults(response);
     }
 
+    /**
+     * Adds memories to mem0 without returning the created records.
+     *
+     * @param baseUrl mem0 base url
+     * @param apiKey mem0 API key
+     * @param messages messages to store
+     * @param scope mem0 scope fields
+     * @param shouldInfer whether mem0 should infer facts from the supplied messages
+     */
     public void addMemories(String baseUrl, String apiKey, List<Map<String, Object>> messages,
         Map<String, Object> scope, boolean shouldInfer) {
         addMemoryRecords(baseUrl, apiKey, messages, scope, shouldInfer);
@@ -115,11 +176,26 @@ public class GovernedMem0Api {
         return extractResults(response);
     }
 
+    /**
+     * Gets one memory record by mem0 memory id.
+     *
+     * @param baseUrl mem0 base url
+     * @param apiKey mem0 API key
+     * @param memoryId mem0 memory id
+     * @return memory record returned by mem0
+     */
     public Map<String, Object> getMemory(String baseUrl, String apiKey, String memoryId) {
         return executor.execute(OP, "get", shouldRetry,
             () -> send(baseUrl, "/v1/memories/" + encodeSegment(memoryId) + "/", apiKey, "GET", null));
     }
 
+    /**
+     * Deletes one memory record by mem0 memory id.
+     *
+     * @param baseUrl mem0 base url
+     * @param apiKey mem0 API key
+     * @param memoryId mem0 memory id
+     */
     public void deleteMemory(String baseUrl, String apiKey, String memoryId) {
         executor.execute(OP, "delete", shouldRetry,
             () -> send(baseUrl, "/v1/memories/" + encodeSegment(memoryId) + "/", apiKey, "DELETE", null));

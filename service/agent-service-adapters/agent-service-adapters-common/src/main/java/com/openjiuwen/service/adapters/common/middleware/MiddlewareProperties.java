@@ -245,8 +245,8 @@ public class MiddlewareProperties {
             return enabled;
         }
 
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
+        public void setEnabled(boolean isEnabled) {
+            this.enabled = isEnabled;
         }
 
         public String getProvider() {
@@ -285,16 +285,16 @@ public class MiddlewareProperties {
             return requestScopedSession;
         }
 
-        public void setRequestScopedSession(boolean requestScopedSession) {
-            this.requestScopedSession = requestScopedSession;
+        public void setRequestScopedSession(boolean shouldUseRequestScopedSession) {
+            this.requestScopedSession = shouldUseRequestScopedSession;
         }
 
         public boolean isRerank() {
             return rerank;
         }
 
-        public void setRerank(boolean rerank) {
-            this.rerank = rerank;
+        public void setRerank(boolean shouldRerank) {
+            this.rerank = shouldRerank;
         }
 
         @Override

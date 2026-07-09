@@ -5,6 +5,8 @@
 package com.openjiuwen.service.demo.example.memory;
 
 import com.openjiuwen.core.memory.external.MemoryProvider;
+import com.openjiuwen.service.adapters.agentcore.memory.MemoryStoreMemoryProvider;
+import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterException;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -43,11 +45,11 @@ final class MemoryLifecycleAgentHandler implements AgentHandler {
 
     private final AgentHandler delegate;
 
-    private final MemoryProvider memoryProvider;
+    private final MemoryStoreMemoryProvider memoryProvider;
 
     private final AtomicBoolean initialized = new AtomicBoolean(false);
 
-    MemoryLifecycleAgentHandler(AgentHandler delegate, MemoryProvider memoryProvider) {
+    MemoryLifecycleAgentHandler(AgentHandler delegate, MemoryStoreMemoryProvider memoryProvider) {
         this.delegate = delegate;
         this.memoryProvider = memoryProvider;
     }
@@ -126,7 +128,8 @@ final class MemoryLifecycleAgentHandler implements AgentHandler {
             initializeProvider(scope);
             String memoryContext = memoryProvider.prefetch(query, scope);
             return memoryContext != null ? memoryContext.trim() : "";
-        } catch (Exception ex) {
+        } catch (ExternalSvcAdapterException | IllegalArgumentException | IllegalStateException
+                 | UnsupportedOperationException ex) {
             log.warn("Memory prefetch failed and will be skipped: {}", ex.getMessage());
             return "";
         }
@@ -142,18 +145,20 @@ final class MemoryLifecycleAgentHandler implements AgentHandler {
         try {
             initializeProvider(scope);
             memoryProvider.syncTurn(userQuery, assistantText, scope);
-        } catch (Exception ex) {
+        } catch (ExternalSvcAdapterException | IllegalArgumentException | IllegalStateException
+                 | UnsupportedOperationException ex) {
             log.warn("Memory syncTurn failed and will be skipped: {}", ex.getMessage());
         }
     }
 
-    private void initializeProvider(Map<String, Object> scope) throws Exception {
+    private void initializeProvider(Map<String, Object> scope) {
         if (memoryProvider.isInitialized() || !initialized.compareAndSet(false, true)) {
             return;
         }
         try {
             memoryProvider.initialize(scope);
-        } catch (Exception ex) {
+        } catch (ExternalSvcAdapterException | IllegalArgumentException | IllegalStateException
+                 | UnsupportedOperationException ex) {
             initialized.set(false);
             throw ex;
         }

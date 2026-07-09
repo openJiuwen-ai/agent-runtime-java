@@ -10,7 +10,6 @@ import com.openjiuwen.service.adapters.common.memory.MemoryAddRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryDeleteRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryGetRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryRecord;
-import com.openjiuwen.service.adapters.common.memory.MemoryScope;
 import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.memory.MemoryWriteResult;
@@ -52,7 +51,7 @@ class MemoryStoreMemoryProviderTest {
         assertThat(store.searchRequests).singleElement().satisfies(request -> {
             assertThat(request.query()).isEqualTo("饮品偏好");
             assertThat(request.topK()).isEqualTo(5);
-            assertThat(request.rerank()).isTrue();
+            assertThat(request.shouldRerank()).isTrue();
             assertThat(request.scope().userId()).isEqualTo("request-user");
             assertThat(request.scope().agentId()).isBlank();
             assertThat(request.scope().scopeId()).isEqualTo("space-1");

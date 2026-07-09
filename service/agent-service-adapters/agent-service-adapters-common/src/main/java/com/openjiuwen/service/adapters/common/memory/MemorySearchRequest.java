@@ -14,11 +14,11 @@ import java.util.Map;
  * @param scope memory scope
  * @param query semantic search query
  * @param topK maximum number of records
- * @param rerank optional rerank override
+ * @param shouldRerank optional rerank override
  * @param options provider-specific options
  * @since 0.1.0
  */
-public record MemorySearchRequest(MemoryScope scope, String query, int topK, Boolean rerank,
+public record MemorySearchRequest(MemoryScope scope, String query, int topK, Boolean shouldRerank,
     Map<String, Object> options) {
     /**
      * Creates a normalized search request.

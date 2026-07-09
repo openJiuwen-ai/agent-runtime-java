@@ -34,7 +34,7 @@ public class MemoryStoreMemoryProvider implements MemoryProvider {
 
     private final MiddlewareProperties.Memory memory;
 
-    private boolean initialized;
+    private boolean hasInitialized;
 
     /**
      * Creates a memory provider bridge.
@@ -62,7 +62,7 @@ public class MemoryStoreMemoryProvider implements MemoryProvider {
 
     @Override
     public void initialize(Map<String, Object> kwargs) {
-        initialized = true;
+        hasInitialized = true;
     }
 
     @Override
@@ -104,7 +104,7 @@ public class MemoryStoreMemoryProvider implements MemoryProvider {
 
     @Override
     public boolean isInitialized() {
-        return initialized;
+        return hasInitialized;
     }
 
     private String formatPrefetch(List<MemoryRecord> records) {

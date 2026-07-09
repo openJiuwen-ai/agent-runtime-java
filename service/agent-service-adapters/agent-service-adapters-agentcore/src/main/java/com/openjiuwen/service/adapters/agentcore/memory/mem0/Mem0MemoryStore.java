@@ -42,7 +42,7 @@ public class Mem0MemoryStore implements MemoryStore {
 
     private final MemoryScope defaultScope;
 
-    private final boolean defaultRerank;
+    private final boolean shouldRerankByDefault;
 
     private final GovernedMem0Api api;
 
@@ -58,7 +58,7 @@ public class Mem0MemoryStore implements MemoryStore {
         this.apiKey = apiKey != null ? apiKey : "";
         this.baseUrl = config.getEndpoint();
         this.defaultScope = new MemoryScope(config.getUserId(), "", "", "");
-        this.defaultRerank = config.isRerank();
+        this.shouldRerankByDefault = config.isRerank();
         this.api = api != null ? api : new GovernedMem0Api(config.getEndpoint(), config);
     }
 
@@ -82,9 +82,10 @@ public class Mem0MemoryStore implements MemoryStore {
         if (messages.isEmpty()) {
             throw new IllegalArgumentException("memory add messages must not be empty");
         }
-        boolean infer = booleanOption(normalized.options().get("infer"), false);
+        Object inferOption = normalized.options().get("infer");
+        boolean shouldInfer = inferOption != null && Boolean.parseBoolean(String.valueOf(inferOption));
         List<Map<String, Object>> records =
-            api.addMemoryRecords(baseUrl, apiKey, messages, toMem0Scope(normalized.scope()), infer);
+            api.addMemoryRecords(baseUrl, apiKey, messages, toMem0Scope(normalized.scope()), shouldInfer);
         return new MemoryWriteResult(toRecords(records), Map.of("results", records));
     }
 
@@ -98,9 +99,10 @@ public class Mem0MemoryStore implements MemoryStore {
             return List.of();
         }
         int topK = normalizeTopK(normalized.topK());
-        boolean rerank = normalized.rerank() != null ? normalized.rerank() : defaultRerank;
-        List<Map<String, Object>> records = api.searchMemories(baseUrl, apiKey, normalized.query(),
-            toMem0Scope(normalized.scope()), rerank, topK);
+        boolean shouldRerank = normalized.shouldRerank() != null ? normalized.shouldRerank() : shouldRerankByDefault;
+        GovernedMem0Api.SearchMemoriesOptions options =
+            GovernedMem0Api.SearchMemoriesOptions.of(toMem0Scope(normalized.scope()), shouldRerank, topK);
+        List<Map<String, Object>> records = api.searchMemories(baseUrl, apiKey, normalized.query(), options);
         return toRecords(records);
     }
 
@@ -176,10 +178,6 @@ public class Mem0MemoryStore implements MemoryStore {
             return DEFAULT_TOP_K;
         }
         return Math.min(topK, MAX_TOP_K);
-    }
-
-    private boolean booleanOption(Object value, boolean defaultValue) {
-        return value != null ? Boolean.parseBoolean(String.valueOf(value)) : defaultValue;
     }
 
     private List<MemoryRecord> toRecords(List<Map<String, Object>> records) {
