@@ -54,7 +54,6 @@ class Mem0MemoryStoreTest {
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
         memory.setEndpoint(server.endpoint());
         memory.setUserId("configured-user");
-        memory.setAgentId("configured-agent");
         memory.setRerank(false);
 
         Mem0MemoryStore store = new Mem0MemoryStore("plainkey", memory,
@@ -106,7 +105,6 @@ class Mem0MemoryStoreTest {
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
         memory.setEndpoint(server.endpoint());
         memory.setUserId("configured-user");
-        memory.setAgentId("configured-agent");
 
         Mem0MemoryStore store = new Mem0MemoryStore("plainkey", memory,
             new GovernedMem0Api(server.endpoint(), memory));

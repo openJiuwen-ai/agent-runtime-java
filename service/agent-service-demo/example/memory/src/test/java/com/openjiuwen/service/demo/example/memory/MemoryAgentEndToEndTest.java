@@ -47,6 +47,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,8 +72,6 @@ class MemoryAgentEndToEndTest {
     private static final String TEST_PROVIDER = "MemoryAgentEndToEndProvider";
 
     private static final String USER_ID = "memory-request-user";
-
-    private static final String AGENT_ID = "memory-e2e-agent";
 
     private static final String MEMORY_ID = "m-1";
 
@@ -122,7 +121,7 @@ class MemoryAgentEndToEndTest {
         registry.add("openjiuwen.service.middleware.memory.endpoint", MEM0_SERVER::endpoint);
         registry.add("openjiuwen.service.middleware.memory.encrypted-api-key", () -> "mock-key");
         registry.add("openjiuwen.service.middleware.memory.user-id", () -> "memory-e2e-user");
-        registry.add("openjiuwen.service.middleware.memory.agent-id", () -> AGENT_ID);
+        registry.add("openjiuwen.service.middleware.memory.request-scoped-session", () -> "true");
         registry.add("openjiuwen.service.middleware.memory.timeout-ms", () -> "3000");
         registry.add("openjiuwen.service.middleware.memory.retry.max", () -> "0");
         registry.add("openjiuwen.service.middleware.memory.circuit-breaker.enabled", () -> "false");
@@ -447,8 +446,7 @@ class MemoryAgentEndToEndTest {
             memories.put(id, Map.of(
                 "id", id,
                 "memory", text,
-                "user_id", USER_ID,
-                "agent_id", AGENT_ID));
+                "user_id", USER_ID));
         }
 
         private boolean containsMemory(String id) {
@@ -546,11 +544,14 @@ class MemoryAgentEndToEndTest {
                 return Map.of();
             }
             String memoryId = "m-" + idSequence.getAndIncrement();
-            Map<String, Object> record = Map.of(
-                "id", memoryId,
-                "memory", text,
-                "user_id", stringValue(body.get("user_id"), USER_ID),
-                "agent_id", stringValue(body.get("agent_id"), AGENT_ID));
+            Map<String, Object> record = new LinkedHashMap<>();
+            record.put("id", memoryId);
+            record.put("memory", text);
+            record.put("user_id", stringValue(body.get("user_id"), USER_ID));
+            Object agentId = body.get("agent_id");
+            if (agentId != null && !String.valueOf(agentId).isBlank()) {
+                record.put("agent_id", String.valueOf(agentId));
+            }
             memories.put(memoryId, record);
             return record;
         }

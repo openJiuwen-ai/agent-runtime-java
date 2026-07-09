@@ -28,7 +28,7 @@ ReActAgent
 example/memory/
   application.yml
   application-memory.yml
-  mem0/application-mem0.yml
+  application-mem0.yml
   src/main/java/.../MemoryDemoApplication.java
   src/main/java/.../MemoryLifecycleAgentHandler.java
   src/test/java/.../MemoryAgentEndToEndTest.java
@@ -36,16 +36,18 @@ example/memory/
 
 ## 配置
 
+以下命令默认在 `agent-runtime-java` 仓库根目录执行。
+
 ### 1. 配置真实 LLM
 
 方式一：复制本地配置文件。
 
 ```bash
-cp agent-service-demo/example/config/application-base_local.example.yml \
-   agent-service-demo/example/config/application-base_local.yml
+cp service/agent-service-demo/example/config/application-base_local.example.yml \
+   service/agent-service-demo/example/config/application-base_local.yml
 ```
 
-编辑 `agent-service-demo/example/config/application-base_local.yml`：
+编辑 `service/agent-service-demo/example/config/application-base_local.yml`：
 
 ```yaml
 openjiuwen:
@@ -71,7 +73,7 @@ export OPENJIUWEN_DEMO_LLM_MODEL_NAME=your-model
 
 ### 2. 配置 mem0
 
-`mem0/application-mem0.yml` 默认读取下面的环境变量：
+`application-mem0.yml` 默认读取下面的环境变量：
 
 ```bash
 export MEM0_ENDPOINT=https://api.mem0.ai
@@ -81,15 +83,25 @@ export MEM0_USER_ID=demo-user
 
 如果你使用本地或自建 mem0 兼容服务，把 `MEM0_ENDPOINT` 改成对应地址即可。
 
+`application-memory.yml` 默认打开 request-scoped Core session：
+
+```yaml
+openjiuwen:
+  service:
+    middleware:
+      memory:
+        request-scoped-session: true
+```
+
+打开后，demo 会给 ReActAgent 传入携带 `user_id` / `space_id` / `tenant_id` 的 `AgentSessionApi`，让 `memory_search` 等工具按请求用户访问长期记忆。关闭时，card-backed agent 保持旧的 String session 行为。
+
 ## 启动
 
 ```bash
-cd ./agent-runtime-java/service
-
 MEM0_ENDPOINT=https://api.mem0.ai \
 MEM0_API_KEY=your-mem0-api-key \
 MEM0_USER_ID=demo-user \
-mvn -pl agent-service-demo/example/memory -am spring-boot:run
+mvn -pl service/agent-service-demo/example/memory -am spring-boot:run
 ```
 
 服务默认监听：
@@ -101,7 +113,7 @@ http://localhost:8094
 ## 手工请求
 
 建议所有请求都显式传 `user_id`。同一个 `user_id` 会共享长期记忆；`conversation_id` 只表示本次会话。
-mem0 Cloud 的用户记忆建议先按 `user_id` 维度检索，demo 默认不会把配置里的 `agent-id` 加到 search filter，避免把 dashboard 中可见的 user memory 过滤掉。
+mem0 Cloud 的用户记忆建议先按 `user_id` 维度检索；这个 demo 不提供默认 `agent_id` 配置，因此不会把 agent filter 加到 mem0 search 请求里。
 
 ### 1. 请求后自动写入记忆
 
@@ -202,8 +214,7 @@ curl -s http://localhost:8094/v1/query \
 E2E 测试使用 mock LLM 和 mock mem0，不依赖真实外部服务：
 
 ```bash
-cd /Users/jiangna/code/openjiuwen/agent-runtime-java/service
-mvn -pl agent-service-demo/example/memory -am \
+mvn -pl service/agent-service-demo/example/memory -am \
   -Dsurefire.failIfNoSpecifiedTests=false \
   -Dtest=MemoryAgentEndToEndTest \
   test

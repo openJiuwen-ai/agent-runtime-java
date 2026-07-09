@@ -37,8 +37,7 @@ class MemoryAdaptersAutoConfigurationTest {
             "openjiuwen.service.middleware.memory.enabled=true",
             "openjiuwen.service.middleware.memory.provider=mem0",
             "openjiuwen.service.middleware.memory.endpoint=https://mem0.example",
-            "openjiuwen.service.middleware.memory.encrypted-api-key=plainkey",
-            "openjiuwen.service.middleware.memory.agent-id=a1")
+            "openjiuwen.service.middleware.memory.encrypted-api-key=plainkey")
             .run(context -> {
                 assertThat(context).hasSingleBean(MemoryStore.class);
                 assertThat(context).hasSingleBean(MemoryProvider.class);

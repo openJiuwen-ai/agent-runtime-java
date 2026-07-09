@@ -6,7 +6,6 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
-import com.openjiuwen.core.memory.external.MemoryProvider;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
@@ -80,7 +79,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param agent the agent instance or agent-id string
      */
     public JiuwenCoreAgentHandler(Object agent) {
-        this(agent, null, ExternalSvcAdapterRegistrar.noop(), null);
+        this(agent, null, ExternalSvcAdapterRegistrar.noop());
     }
 
     /**
@@ -90,7 +89,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param middlewareAdapterRegistrar the middleware adapter registrar
      */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar) {
-        this(agent, middlewareAdapterRegistrar, ExternalSvcAdapterRegistrar.noop(), null);
+        this(agent, middlewareAdapterRegistrar, ExternalSvcAdapterRegistrar.noop());
     }
 
     /**
@@ -100,7 +99,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param externalSvcAdapterRegistrar the external service adapter registrar
      */
     public JiuwenCoreAgentHandler(Object agent, ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
-        this(agent, null, externalSvcAdapterRegistrar, null);
+        this(agent, null, externalSvcAdapterRegistrar);
     }
 
     /**
@@ -112,22 +111,6 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
         ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
-        this(agent, middlewareAdapterRegistrar, externalSvcAdapterRegistrar, null);
-    }
-
-    /**
-     * Creates a handler with middleware and external service support.
-     *
-     * <p>The {@code memoryProvider} parameter is retained for source compatibility. Runtime exposes
-     * the provider bridge as a bean, but Core/Agent configuration owns whether a memory rail is used.
-     *
-     * @param agent the agent instance or agent-id string
-     * @param middlewareAdapterRegistrar the middleware adapter registrar
-     * @param externalSvcAdapterRegistrar the external service adapter registrar
-     * @param memoryProvider optional core memory provider bridge, not auto-attached by runtime
-     */
-    public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
-        ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar, MemoryProvider memoryProvider) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
         this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
@@ -370,12 +353,40 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @return the session id, conversation id, or {@link AgentSessionApi}
      */
     protected Object runnerSession(ServeRequest request) {
+        String sessionId = resolveSessionId(request);
+        if (hasAgentCard(agent) && !useRequestScopedSession(request)) {
+            return sessionId;
+        }
+        Object card = resolveSessionCard();
+        return AgentSessionApi.create(sessionId, sessionEnvs(request), card, List.of(StreamMode.OUTPUT));
+    }
+
+    /**
+     * Whether this handler should build an {@link AgentSessionApi} even for card-backed agents.
+     *
+     * <p>The default keeps legacy Core behavior: card-backed agents receive a string session id and
+     * let Runner create its own {@link AgentSessionApi}. Subclasses may opt in when request-scoped
+     * envs must be visible to Core tools.
+     *
+     * @param request the serve request
+     * @return {@code true} to force an explicit request-scoped session
+     */
+    protected boolean useRequestScopedSession(ServeRequest request) {
+        return false;
+    }
+
+    private static String resolveSessionId(ServeRequest request) {
         String conversationId = request.getConversationId();
-        String sessionId = conversationId != null && !conversationId.isBlank()
+        return conversationId != null && !conversationId.isBlank()
             ? conversationId
             : DEFAULT_AGENT_SESSION_ID;
-        Object card = resolveSessionCard();
-        return AgentSessionApi.create(sessionId, requestEnvs(request), card, List.of(StreamMode.OUTPUT));
+    }
+
+    private Map<String, Object> sessionEnvs(ServeRequest request) {
+        Map<String, Object> envs = new LinkedHashMap<>();
+        envs.putAll(readAgentConfigEnvs(agent));
+        envs.putAll(requestEnvs(request));
+        return envs.isEmpty() ? null : envs;
     }
 
     private Object resolveSessionCard() {
@@ -409,6 +420,21 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
     }
 
+    private static Map<String, Object> readAgentConfigEnvs(Object target) {
+        Object config = readProperty(target, "getConfig", "config");
+        Object envs = readProperty(config, "getEnvs", "envs");
+        if (!(envs instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        map.forEach((key, value) -> {
+            if (key != null) {
+                result.put(String.valueOf(key), value);
+            }
+        });
+        return result;
+    }
+
     private String syntheticAgentClassName() {
         return agent != null ? agent.getClass().getName() : "unknown";
     }
@@ -418,17 +444,25 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private static Object readAgentCard(Object target) {
+        return readProperty(target, "getCard", "card");
+    }
+
+    private static boolean hasAgentCard(Object target) {
+        return readAgentCard(target) != null;
+    }
+
+    private static Object readProperty(Object target, String getterName, String fieldName) {
         if (target == null) {
             return null;
         }
         try {
-            Method getter = target.getClass().getMethod("getCard");
+            Method getter = target.getClass().getMethod(getterName);
             return getter.invoke(target);
         } catch (ReflectiveOperationException ignored) {
             // Fall through to field access.
         }
         try {
-            Field field = target.getClass().getDeclaredField("card");
+            Field field = target.getClass().getDeclaredField(fieldName);
             field.setAccessible(true);
             return field.get(target);
         } catch (ReflectiveOperationException ignored) {

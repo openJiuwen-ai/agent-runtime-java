@@ -36,7 +36,6 @@ class MemoryStoreMemoryProviderTest {
             new MemoryRecord("m-2", "", Map.of(), Map.of())));
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
         memory.setUserId("configured-user");
-        memory.setAgentId("configured-agent");
         memory.setRerank(true);
 
         MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, memory);
@@ -66,7 +65,6 @@ class MemoryStoreMemoryProviderTest {
         RecordingMemoryStore store = new RecordingMemoryStore(List.of());
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
         memory.setUserId("configured-user");
-        memory.setAgentId("configured-agent");
         MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, memory);
 
         provider.syncTurn("请记住我喜欢拿铁", "已记住", Map.of("user_id", "request-user"));
@@ -85,7 +83,6 @@ class MemoryStoreMemoryProviderTest {
         RecordingMemoryStore store = new RecordingMemoryStore(List.of());
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
         memory.setUserId("configured-user");
-        memory.setAgentId("configured-agent");
         MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, memory);
 
         provider.prefetch("饮品偏好", Map.of("user_id", "request-user", "agent_id", "request-agent"));

@@ -94,7 +94,7 @@ class MiddlewarePropertiesTest {
         assertThat(properties.getMemory().getEndpoint()).isEqualTo("https://api.mem0.ai");
         assertThat(properties.getMemory().getEncryptedApiKey()).isEmpty();
         assertThat(properties.getMemory().getUserId()).isEmpty();
-        assertThat(properties.getMemory().getAgentId()).isEmpty();
+        assertThat(properties.getMemory().isRequestScopedSession()).isFalse();
         assertThat(properties.getMemory().isRerank()).isFalse();
         assertThat(properties.getMemory().getTimeoutMs()).isEqualTo(3000);
         assertThat(properties.getMemory().getRetry().getMax()).isZero();
@@ -110,7 +110,7 @@ class MiddlewarePropertiesTest {
         source.put("openjiuwen.service.middleware.memory.endpoint", "https://mem0.example");
         source.put("openjiuwen.service.middleware.memory.encrypted-api-key", "enc:key");
         source.put("openjiuwen.service.middleware.memory.user-id", "u1");
-        source.put("openjiuwen.service.middleware.memory.agent-id", "a1");
+        source.put("openjiuwen.service.middleware.memory.request-scoped-session", "true");
         source.put("openjiuwen.service.middleware.memory.rerank", "true");
         source.put("openjiuwen.service.middleware.memory.timeout-ms", "3000");
         source.put("openjiuwen.service.middleware.memory.retry.max", "2");
@@ -129,7 +129,7 @@ class MiddlewarePropertiesTest {
         assertThat(memory.getEndpoint()).isEqualTo("https://mem0.example");
         assertThat(memory.getEncryptedApiKey()).isEqualTo("enc:key");
         assertThat(memory.getUserId()).isEqualTo("u1");
-        assertThat(memory.getAgentId()).isEqualTo("a1");
+        assertThat(memory.isRequestScopedSession()).isTrue();
         assertThat(memory.isRerank()).isTrue();
         assertThat(memory.getTimeoutMs()).isEqualTo(3000);
         assertThat(memory.getRetry().getMax()).isEqualTo(2);

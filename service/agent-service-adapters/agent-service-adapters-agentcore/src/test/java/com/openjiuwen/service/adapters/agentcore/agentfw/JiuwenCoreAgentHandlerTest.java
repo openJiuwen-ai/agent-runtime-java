@@ -7,18 +7,12 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.core.common.schema.BaseCard;
-import com.openjiuwen.core.memory.external.MemoryProvider;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.singleagent.schema.AgentCard;
-import com.openjiuwen.harness.deep_agent.DeepAgent;
-import com.openjiuwen.harness.factory.HarnessFactory;
-import com.openjiuwen.harness.rails.ExternalMemoryRail;
-import com.openjiuwen.harness.schema.config.DeepAgentConfig;
-import com.openjiuwen.harness.workspace.Workspace;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -139,8 +133,21 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     @Test
-    void cardBackedAgentSessionCarriesRequestScopeEnvs() {
+    void cardBackedAgentKeepsLegacyStringSessionByDefault() {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new CardBackedAgent());
+        ServeRequest request = request("c-card-agent", "hello");
+        request.setUserId("card-user");
+        request.setSpaceId("card-space");
+        request.setTenantId("card-tenant");
+
+        Object session = handler.runnerSession(request);
+
+        assertThat(session).isEqualTo("c-card-agent");
+    }
+
+    @Test
+    void requestScopedCardBackedAgentSessionCarriesMergedEnvs() {
+        RequestScopedHandler handler = new RequestScopedHandler(new ConfigEnvCardBackedAgent());
         ServeRequest request = request("c-card-agent", "hello");
         request.setUserId("card-user");
         request.setSpaceId("card-space");
@@ -154,6 +161,7 @@ class JiuwenCoreAgentHandlerTest {
         }
         assertThat(agentSession.getSessionId()).isEqualTo("c-card-agent");
         assertThat(agentSession.getAgentId()).isEqualTo("card-agent");
+        assertThat(agentSession.getEnv("feature_flag")).isEqualTo("on");
         assertThat(agentSession.getEnv("user_id")).isEqualTo("card-user");
         assertThat(agentSession.getEnv("space_id")).isEqualTo("card-space");
         assertThat(agentSession.getEnv("tenant_id")).isEqualTo("card-tenant");
@@ -174,18 +182,6 @@ class JiuwenCoreAgentHandlerTest {
         assertThat((Map<String, Object>) second.getResult()).containsEntry("content", "turn2:b|prev=a");
     }
 
-    @Test
-    void doesNotAttachMemoryProviderRailToDeepAgent() {
-        DeepAgent deepAgent = HarnessFactory.createDeepAgent(
-            AgentCard.builder().name("memory-agent").description("memory agent").build(),
-            DeepAgentConfig.builder().rails(new ArrayList<>()).build(),
-            Workspace.builder().rootPath(".").language("en").build());
-
-        new JiuwenCoreAgentHandler(deepAgent, null, ExternalSvcAdapterRegistrar.noop(), new AvailableMemoryProvider());
-
-        assertThat(deepAgent.getConfig().getRails()).noneMatch(ExternalMemoryRail.class::isInstance);
-    }
-
     private static ServeRequest request(String conversationId, String content) {
         ServeRequest request = new ServeRequest();
         request.setConversationId(conversationId);
@@ -193,41 +189,6 @@ class JiuwenCoreAgentHandlerTest {
         request.setUserId("anonymous");
         request.setSpaceId("default");
         return request;
-    }
-
-    private static final class AvailableMemoryProvider implements MemoryProvider {
-        @Override
-        public String getName() {
-            return "test";
-        }
-
-        @Override
-        public boolean isAvailable() {
-            return true;
-        }
-
-        @Override
-        public void initialize(Map<String, Object> kwargs) {
-        }
-
-        @Override
-        public List<Map<String, Object>> getToolSchemas() {
-            return List.of();
-        }
-
-        @Override
-        public String handleToolCall(String toolName, Map<String, Object> args) {
-            return "{}";
-        }
-
-        @Override
-        public String prefetch(String query, Map<String, Object> kwargs) {
-            return "";
-        }
-
-        @Override
-        public void syncTurn(String userMsg, String assistantMsg, Map<String, Object> kwargs) {
-        }
     }
 
     @Test
@@ -330,6 +291,42 @@ class JiuwenCoreAgentHandlerTest {
          */
         public BaseCard getCard() {
             return card;
+        }
+    }
+
+    /** Test handler that opts into request-scoped AgentSessionApi. */
+    private static final class RequestScopedHandler extends JiuwenCoreAgentHandler {
+        private RequestScopedHandler(Object agent) {
+            super(agent);
+        }
+
+        @Override
+        protected boolean useRequestScopedSession(ServeRequest request) {
+            return true;
+        }
+    }
+
+    /** Card-backed agent with config envs, mirroring Runner's String-session extraction path. */
+    public static class ConfigEnvCardBackedAgent extends CardBackedAgent {
+        /**
+         * Returns config envs that should be merged into the explicit AgentSessionApi path.
+         *
+         * @return config
+         */
+        public ConfigWithEnvs getConfig() {
+            return new ConfigWithEnvs();
+        }
+    }
+
+    /** Test config object exposing envs through getEnvs(). */
+    public static class ConfigWithEnvs {
+        /**
+         * Returns static envs for tests.
+         *
+         * @return envs
+         */
+        public Map<String, Object> getEnvs() {
+            return Map.of("feature_flag", "on", "user_id", "default-user");
         }
     }
 

@@ -229,7 +229,7 @@ public class MiddlewareProperties {
 
         private String userId = "";
 
-        private String agentId = "";
+        private boolean requestScopedSession = false;
 
         private boolean rerank = false;
 
@@ -281,12 +281,12 @@ public class MiddlewareProperties {
             this.userId = userId != null ? userId : "";
         }
 
-        public String getAgentId() {
-            return agentId;
+        public boolean isRequestScopedSession() {
+            return requestScopedSession;
         }
 
-        public void setAgentId(String agentId) {
-            this.agentId = agentId != null ? agentId : "";
+        public void setRequestScopedSession(boolean requestScopedSession) {
+            this.requestScopedSession = requestScopedSession;
         }
 
         public boolean isRerank() {
