@@ -6,11 +6,19 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.openjiuwen.core.common.schema.BaseCard;
+import com.openjiuwen.core.memory.external.MemoryProvider;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
+import com.openjiuwen.core.singleagent.schema.AgentCard;
+import com.openjiuwen.harness.deep_agent.DeepAgent;
+import com.openjiuwen.harness.factory.HarnessFactory;
+import com.openjiuwen.harness.rails.ExternalMemoryRail;
+import com.openjiuwen.harness.schema.config.DeepAgentConfig;
+import com.openjiuwen.harness.workspace.Workspace;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -113,13 +121,42 @@ class JiuwenCoreAgentHandlerTest {
     void stringAgentIdProvidesStableAgentIdForCoreSession() {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("it-agent");
 
-        Object session = handler.runnerSession(request("c-string-agent", "hello"));
+        ServeRequest request = request("c-string-agent", "hello");
+        request.setUserId("user-42");
+        request.setSpaceId("space-42");
+        request.setTenantId("tenant-42");
+
+        Object session = handler.runnerSession(request);
 
         assertThat(session).isInstanceOf(AgentSessionApi.class);
         if (!(session instanceof AgentSessionApi agentSession)) {
             throw new AssertionError("Expected AgentSessionApi session");
         }
         assertThat(agentSession.getAgentId()).isEqualTo("it-agent");
+        assertThat(agentSession.getEnv("user_id")).isEqualTo("user-42");
+        assertThat(agentSession.getEnv("space_id")).isEqualTo("space-42");
+        assertThat(agentSession.getEnv("tenant_id")).isEqualTo("tenant-42");
+    }
+
+    @Test
+    void cardBackedAgentSessionCarriesRequestScopeEnvs() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new CardBackedAgent());
+        ServeRequest request = request("c-card-agent", "hello");
+        request.setUserId("card-user");
+        request.setSpaceId("card-space");
+        request.setTenantId("card-tenant");
+
+        Object session = handler.runnerSession(request);
+
+        assertThat(session).isInstanceOf(AgentSessionApi.class);
+        if (!(session instanceof AgentSessionApi agentSession)) {
+            throw new AssertionError("Expected AgentSessionApi session");
+        }
+        assertThat(agentSession.getSessionId()).isEqualTo("c-card-agent");
+        assertThat(agentSession.getAgentId()).isEqualTo("card-agent");
+        assertThat(agentSession.getEnv("user_id")).isEqualTo("card-user");
+        assertThat(agentSession.getEnv("space_id")).isEqualTo("card-space");
+        assertThat(agentSession.getEnv("tenant_id")).isEqualTo("card-tenant");
     }
 
     @Test
@@ -137,6 +174,18 @@ class JiuwenCoreAgentHandlerTest {
         assertThat((Map<String, Object>) second.getResult()).containsEntry("content", "turn2:b|prev=a");
     }
 
+    @Test
+    void doesNotAttachMemoryProviderRailToDeepAgent() {
+        DeepAgent deepAgent = HarnessFactory.createDeepAgent(
+            AgentCard.builder().name("memory-agent").description("memory agent").build(),
+            DeepAgentConfig.builder().rails(new ArrayList<>()).build(),
+            Workspace.builder().rootPath(".").language("en").build());
+
+        new JiuwenCoreAgentHandler(deepAgent, null, ExternalSvcAdapterRegistrar.noop(), new AvailableMemoryProvider());
+
+        assertThat(deepAgent.getConfig().getRails()).noneMatch(ExternalMemoryRail.class::isInstance);
+    }
+
     private static ServeRequest request(String conversationId, String content) {
         ServeRequest request = new ServeRequest();
         request.setConversationId(conversationId);
@@ -144,6 +193,41 @@ class JiuwenCoreAgentHandlerTest {
         request.setUserId("anonymous");
         request.setSpaceId("default");
         return request;
+    }
+
+    private static final class AvailableMemoryProvider implements MemoryProvider {
+        @Override
+        public String getName() {
+            return "test";
+        }
+
+        @Override
+        public boolean isAvailable() {
+            return true;
+        }
+
+        @Override
+        public void initialize(Map<String, Object> kwargs) {
+        }
+
+        @Override
+        public List<Map<String, Object>> getToolSchemas() {
+            return List.of();
+        }
+
+        @Override
+        public String handleToolCall(String toolName, Map<String, Object> args) {
+            return "{}";
+        }
+
+        @Override
+        public String prefetch(String query, Map<String, Object> kwargs) {
+            return "";
+        }
+
+        @Override
+        public void syncTurn(String userMsg, String assistantMsg, Map<String, Object> kwargs) {
+        }
     }
 
     @Test
@@ -228,6 +312,24 @@ class JiuwenCoreAgentHandlerTest {
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             this.lastInputs = inputs;
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "ok"))).iterator();
+        }
+    }
+
+    /** Test agent that exposes a card like regular ReAct agents. */
+    public static class CardBackedAgent {
+        private final BaseCard card = BaseCard.builder()
+            .id("card-agent")
+            .name("Card Agent")
+            .description("card backed")
+            .build();
+
+        /**
+         * Returns the test agent card.
+         *
+         * @return card
+         */
+        public BaseCard getCard() {
+            return card;
         }
     }
 

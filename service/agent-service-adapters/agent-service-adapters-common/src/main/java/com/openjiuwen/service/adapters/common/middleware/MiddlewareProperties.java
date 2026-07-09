@@ -4,6 +4,11 @@
 
 package com.openjiuwen.service.adapters.common.middleware;
 
+import com.openjiuwen.service.adapters.common.external.ExternalAuditPolicy;
+import com.openjiuwen.service.adapters.common.external.ExternalCallPolicy;
+import com.openjiuwen.service.adapters.common.external.ExternalCircuitBreakerPolicy;
+import com.openjiuwen.service.adapters.common.external.ExternalRetryPolicy;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.ArrayList;
@@ -26,6 +31,8 @@ public class MiddlewareProperties {
     private CapabilityPlaceholder objectStorage = new CapabilityPlaceholder();
 
     private CapabilityPlaceholder vectorStore = new CapabilityPlaceholder();
+
+    private Memory memory = new Memory();
 
     private Map<String, RedisEndpoint> redis = new HashMap<>();
 
@@ -59,6 +66,14 @@ public class MiddlewareProperties {
 
     public void setVectorStore(CapabilityPlaceholder vectorStore) {
         this.vectorStore = vectorStore != null ? vectorStore : new CapabilityPlaceholder();
+    }
+
+    public Memory getMemory() {
+        return memory;
+    }
+
+    public void setMemory(Memory memory) {
+        this.memory = memory != null ? memory : new Memory();
     }
 
     public Map<String, RedisEndpoint> getRedis() {
@@ -192,6 +207,133 @@ public class MiddlewareProperties {
 
         public void setEncryptedPassword(String encryptedPassword) {
             this.encryptedPassword = encryptedPassword != null ? encryptedPassword : "";
+        }
+    }
+
+    /**
+     * Long-term memory (mem0) configuration.
+     *
+     * <p>Implements {@link ExternalCallPolicy} so the governance timeout/retry/circuit/audit
+     * settings map directly into the runtime {@code ExternalCallExecutor}.
+     * {@code enabled=true} exposes a governed runtime {@code MemoryStore} bean; when and how
+     * Agents call search/add/get/delete is the consumer's responsibility.
+     */
+    public static class Memory implements ExternalCallPolicy {
+        private boolean enabled = false;
+
+        private String provider = "mem0";
+
+        private String endpoint = "https://api.mem0.ai";
+
+        private String encryptedApiKey = "";
+
+        private String userId = "";
+
+        private String agentId = "";
+
+        private boolean rerank = false;
+
+        private int timeoutMs = 3000;
+
+        private ExternalRetryPolicy retry = new ExternalRetryPolicy();
+
+        private ExternalCircuitBreakerPolicy circuitBreaker = new ExternalCircuitBreakerPolicy();
+
+        private ExternalAuditPolicy audit = new ExternalAuditPolicy();
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getProvider() {
+            return provider;
+        }
+
+        public void setProvider(String provider) {
+            this.provider = provider != null && !provider.isBlank() ? provider : "mem0";
+        }
+
+        public String getEndpoint() {
+            return endpoint;
+        }
+
+        public void setEndpoint(String endpoint) {
+            this.endpoint = endpoint != null && !endpoint.isBlank() ? endpoint : "https://api.mem0.ai";
+        }
+
+        public String getEncryptedApiKey() {
+            return encryptedApiKey;
+        }
+
+        public void setEncryptedApiKey(String encryptedApiKey) {
+            this.encryptedApiKey = encryptedApiKey != null ? encryptedApiKey : "";
+        }
+
+        public String getUserId() {
+            return userId;
+        }
+
+        public void setUserId(String userId) {
+            this.userId = userId != null ? userId : "";
+        }
+
+        public String getAgentId() {
+            return agentId;
+        }
+
+        public void setAgentId(String agentId) {
+            this.agentId = agentId != null ? agentId : "";
+        }
+
+        public boolean isRerank() {
+            return rerank;
+        }
+
+        public void setRerank(boolean rerank) {
+            this.rerank = rerank;
+        }
+
+        @Override
+        public int getTimeoutMs() {
+            return timeoutMs;
+        }
+
+        public void setTimeoutMs(int timeoutMs) {
+            if (timeoutMs <= 0) {
+                throw new IllegalArgumentException("memory.timeout-ms must be greater than zero");
+            }
+            this.timeoutMs = timeoutMs;
+        }
+
+        @Override
+        public ExternalRetryPolicy getRetry() {
+            return retry;
+        }
+
+        public void setRetry(ExternalRetryPolicy retry) {
+            this.retry = retry != null ? retry : new ExternalRetryPolicy();
+        }
+
+        @Override
+        public ExternalCircuitBreakerPolicy getCircuitBreaker() {
+            return circuitBreaker;
+        }
+
+        public void setCircuitBreaker(ExternalCircuitBreakerPolicy circuitBreaker) {
+            this.circuitBreaker = circuitBreaker != null ? circuitBreaker : new ExternalCircuitBreakerPolicy();
+        }
+
+        @Override
+        public ExternalAuditPolicy getAudit() {
+            return audit;
+        }
+
+        public void setAudit(ExternalAuditPolicy audit) {
+            this.audit = audit != null ? audit : new ExternalAuditPolicy();
         }
     }
 }

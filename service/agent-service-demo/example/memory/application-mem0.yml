@@ -1,0 +1,11 @@
+# mem0 provider profile — import via application.yml alongside application-memory.yml.
+openjiuwen:
+  service:
+    middleware:
+      memory:
+        provider: mem0
+        endpoint: ${MEM0_ENDPOINT:https://api.mem0.ai}
+        encrypted-api-key: ${MEM0_API_KEY:}
+        user-id: ${MEM0_USER_ID:demo-user}
+        agent-id: ${MEM0_AGENT_ID:}
+        rerank: false

@@ -6,6 +6,7 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
+import com.openjiuwen.core.memory.external.MemoryProvider;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
@@ -79,7 +80,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param agent the agent instance or agent-id string
      */
     public JiuwenCoreAgentHandler(Object agent) {
-        this(agent, null, ExternalSvcAdapterRegistrar.noop());
+        this(agent, null, ExternalSvcAdapterRegistrar.noop(), null);
     }
 
     /**
@@ -89,7 +90,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param middlewareAdapterRegistrar the middleware adapter registrar
      */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar) {
-        this(agent, middlewareAdapterRegistrar, ExternalSvcAdapterRegistrar.noop());
+        this(agent, middlewareAdapterRegistrar, ExternalSvcAdapterRegistrar.noop(), null);
     }
 
     /**
@@ -99,7 +100,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param externalSvcAdapterRegistrar the external service adapter registrar
      */
     public JiuwenCoreAgentHandler(Object agent, ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
-        this(agent, null, externalSvcAdapterRegistrar);
+        this(agent, null, externalSvcAdapterRegistrar, null);
     }
 
     /**
@@ -111,6 +112,22 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
         ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
+        this(agent, middlewareAdapterRegistrar, externalSvcAdapterRegistrar, null);
+    }
+
+    /**
+     * Creates a handler with middleware and external service support.
+     *
+     * <p>The {@code memoryProvider} parameter is retained for source compatibility. Runtime exposes
+     * the provider bridge as a bean, but Core/Agent configuration owns whether a memory rail is used.
+     *
+     * @param agent the agent instance or agent-id string
+     * @param middlewareAdapterRegistrar the middleware adapter registrar
+     * @param externalSvcAdapterRegistrar the external service adapter registrar
+     * @param memoryProvider optional core memory provider bridge, not auto-attached by runtime
+     */
+    public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
+        ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar, MemoryProvider memoryProvider) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
         this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
@@ -354,40 +371,68 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      */
     protected Object runnerSession(ServeRequest request) {
         String conversationId = request.getConversationId();
-        if (hasAgentCard(agent)) {
-            return conversationId;
-        }
         String sessionId = conversationId != null && !conversationId.isBlank()
             ? conversationId
             : DEFAULT_AGENT_SESSION_ID;
+        Object card = resolveSessionCard();
+        return AgentSessionApi.create(sessionId, requestEnvs(request), card, List.of(StreamMode.OUTPUT));
+    }
+
+    private Object resolveSessionCard() {
+        Object card = readAgentCard(agent);
+        if (card != null) {
+            return card;
+        }
         String agentId = agent instanceof String stringAgentId
             ? stringAgentId
-            : SYNTHETIC_AGENT_ID_PREFIX + agent.getClass().getName();
-        String agentName = agent instanceof String stringAgentId ? stringAgentId : agent.getClass().getSimpleName();
-        BaseCard card = BaseCard.builder()
+            : SYNTHETIC_AGENT_ID_PREFIX + syntheticAgentClassName();
+        String agentName = agent instanceof String stringAgentId ? stringAgentId : syntheticAgentDisplayName();
+        return BaseCard.builder()
             .id(agentId)
             .name(agentName)
             .description("Synthetic card for AgentCore session")
             .build();
-        return new AgentSessionApi(sessionId, null, card, List.of(StreamMode.OUTPUT));
     }
 
-    private static boolean hasAgentCard(Object target) {
+    private static Map<String, Object> requestEnvs(ServeRequest request) {
+        Map<String, Object> envs = new LinkedHashMap<>();
+        putIfNotBlank(envs, INPUT_CONVERSATION_ID, request.getConversationId());
+        putIfNotBlank(envs, INPUT_USER_ID, request.getUserId());
+        putIfNotBlank(envs, INPUT_SPACE_ID, request.getSpaceId());
+        putIfNotBlank(envs, INPUT_TENANT_ID, request.getTenantId());
+        return envs;
+    }
+
+    private static void putIfNotBlank(Map<String, Object> target, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            target.put(key, value);
+        }
+    }
+
+    private String syntheticAgentClassName() {
+        return agent != null ? agent.getClass().getName() : "unknown";
+    }
+
+    private String syntheticAgentDisplayName() {
+        return agent != null ? agent.getClass().getSimpleName() : "unknown";
+    }
+
+    private static Object readAgentCard(Object target) {
         if (target == null) {
-            return false;
+            return null;
         }
         try {
             Method getter = target.getClass().getMethod("getCard");
-            return getter.invoke(target) != null;
+            return getter.invoke(target);
         } catch (ReflectiveOperationException ignored) {
             // Fall through to field access.
         }
         try {
             Field field = target.getClass().getDeclaredField("card");
             field.setAccessible(true);
-            return field.get(target) != null;
+            return field.get(target);
         } catch (ReflectiveOperationException ignored) {
-            return false;
+            return null;
         }
     }
 
