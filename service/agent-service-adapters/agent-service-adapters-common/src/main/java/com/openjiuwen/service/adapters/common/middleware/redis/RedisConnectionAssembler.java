@@ -101,12 +101,12 @@ public final class RedisConnectionAssembler {
     public static String safeSummary(String redisRef, MiddlewareProperties.RedisEndpoint endpoint) {
         String ref = redisRef == null || redisRef.isBlank() ? "default" : redisRef.trim();
         String type = resolveEndpointType(endpoint);
-        boolean passwordConfigured = endpoint.getEncryptedPassword() != null
+        boolean isPasswordConfigured = endpoint.getEncryptedPassword() != null
                 && !endpoint.getEncryptedPassword().isBlank();
         if (TYPE_CLUSTER.equals(type)) {
             StringBuilder summary = new StringBuilder().append("ref=").append(ref).append(", type=").append(type)
                     .append(", nodes=").append(clusterNodes(endpoint).size()).append(", timeoutMs=")
-                    .append(timeoutMs(endpoint)).append(", passwordConfigured=").append(passwordConfigured);
+                    .append(timeoutMs(endpoint)).append(", passwordConfigured=").append(isPasswordConfigured);
             if (endpoint.getDatabase() != 0) {
                 summary.append(", databaseIgnored=").append(endpoint.getDatabase());
             }
@@ -114,7 +114,7 @@ public final class RedisConnectionAssembler {
         }
         return "ref=" + ref + ", type=" + type + ", host=" + host(endpoint) + ", port=" + port(endpoint) + ", database="
                 + database(endpoint) + ", timeoutMs=" + timeoutMs(endpoint) + ", passwordConfigured="
-                + passwordConfigured;
+                + isPasswordConfigured;
     }
 
     /**
