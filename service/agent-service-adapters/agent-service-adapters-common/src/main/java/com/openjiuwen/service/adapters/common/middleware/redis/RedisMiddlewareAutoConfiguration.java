@@ -13,8 +13,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 
+import redis.clients.jedis.JedisCluster;
 import redis.clients.jedis.JedisPooled;
 
 /**
@@ -23,7 +25,7 @@ import redis.clients.jedis.JedisPooled;
  * @since 0.1.0
  */
 @AutoConfiguration
-@ConditionalOnClass(JedisPooled.class)
+@ConditionalOnClass({JedisPooled.class, JedisCluster.class})
 @EnableConfigurationProperties(MiddlewareProperties.class)
 public class RedisMiddlewareAutoConfiguration {
     /**
@@ -40,6 +42,23 @@ public class RedisMiddlewareAutoConfiguration {
         String redisRef = properties.getCheckpointer().getRedisRef();
         MiddlewareProperties.RedisEndpoint endpoint = RedisConnectionAssembler.resolveEndpoint(properties, redisRef);
         String password = decryptor.decrypt(endpoint.getEncryptedPassword());
+        if (RedisConnectionAssembler.TYPE_CLUSTER.equals(RedisConnectionAssembler.resolveEndpointType(endpoint))) {
+            return new JedisClusterRuntimeRedisClient(RedisJedisClientFactory.createCluster(endpoint, password));
+        }
         return new JedisPooledRuntimeRedisClient(RedisJedisClientFactory.createPooled(endpoint, password));
+    }
+
+    /**
+     * Emits non-sensitive Redis data source diagnostics after the effective runtime Redis client is available.
+     *
+     * @param properties middleware properties
+     * @param redisClientProvider runtime Redis client provider
+     * @return Redis datasource diagnostics
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "openjiuwen.service.middleware.checkpointer", name = "type", havingValue = "redis")
+    public RedisDatasourceDiagnostics redisDatasourceDiagnostics(MiddlewareProperties properties,
+            ObjectProvider<RuntimeRedisClient> redisClientProvider) {
+        return new RedisDatasourceDiagnostics(properties, redisClientProvider);
     }
 }

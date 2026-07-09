@@ -38,15 +38,61 @@ class RedisMiddlewareAutoConfigurationTest {
     }
 
     @Test
+    void createsStandaloneClientWhenTypeIsOmitted() {
+        contextRunner
+                .withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
+                        "openjiuwen.service.middleware.redis.default.host=redis.local")
+                .run(context -> assertThat(context.getBean(RuntimeRedisClient.class))
+                        .isInstanceOf(JedisPooledRuntimeRedisClient.class));
+    }
+
+    @Test
+    void createsClusterRuntimeRedisClientAndIgnoresDatabase() {
+        contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
+                "openjiuwen.service.middleware.checkpointer.redis-ref=cluster",
+                "openjiuwen.service.middleware.redis.cluster.type=cluster",
+                "openjiuwen.service.middleware.redis.cluster.nodes[0]=10.10.1.11:6379",
+                "openjiuwen.service.middleware.redis.cluster.nodes[1]=10.10.1.12:6379",
+                "openjiuwen.service.middleware.redis.cluster.database=2",
+                "openjiuwen.service.middleware.redis.cluster.encrypted-password=ENC(secret)").run(context -> {
+                    assertThat(context).hasSingleBean(RuntimeRedisClient.class);
+                    assertThat(context.getBean(RuntimeRedisClient.class))
+                            .isInstanceOf(JedisClusterRuntimeRedisClient.class);
+                    assertThat(RedisDatasourceDiagnostics.diagnosticMessage(
+                            context.getBean(
+                                    com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties.class),
+                            context.getBean(RuntimeRedisClient.class)))
+                            .contains("redis-ref=cluster", "endpoint-type=cluster",
+                                    "RuntimeRedisClient=JedisClusterRuntimeRedisClient", "databaseIgnored=2")
+                            .doesNotContain("ENC(secret)", "secret");
+                });
+    }
+
+    @Test
     void backsOffWhenCustomRuntimeRedisClientIsProvided() {
         contextRunner.withUserConfiguration(CustomRedisClientConfiguration.class)
                 .withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
-                        "openjiuwen.service.middleware.redis.default.host=redis.local")
+                        "openjiuwen.service.middleware.redis.default.host=redis.local",
+                        "openjiuwen.service.middleware.redis.default.encrypted-password=ENC(custom-secret)")
                 .run(context -> {
                     assertThat(context).hasSingleBean(RuntimeRedisClient.class);
                     assertThat(context.getBean(RuntimeRedisClient.class))
                             .isSameAs(CustomRedisClientConfiguration.CUSTOM_CLIENT);
+                    assertThat(RedisDatasourceDiagnostics.diagnosticMessage(
+                            context.getBean(
+                                    com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties.class),
+                            context.getBean(RuntimeRedisClient.class)))
+                            .contains("RuntimeRedisClient=$Proxy", "endpoint-type=standalone")
+                            .doesNotContain("ENC(custom-secret)", "custom-secret");
                 });
+    }
+
+    @Test
+    void failsFastWhenClusterNodesAreMissing() {
+        contextRunner
+                .withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
+                        "openjiuwen.service.middleware.redis.default.type=cluster")
+                .run(context -> assertThat(context.getStartupFailure()).hasMessageContaining("nodes"));
     }
 
     @Test
