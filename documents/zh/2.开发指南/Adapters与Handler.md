@@ -67,6 +67,7 @@ openjiuwen:
 | `checkpointer.redis-ref` | 引用 `middleware.redis.<name>` 中的端点名 |
 
 `type=redis` 时，`DefaultMiddlewareAdapterRegistrar` 将 Redis 连接写入 Core `RunnerConfig` 的 Checkpointer 配置。
+Redis endpoint 的 `type` 支持 `standalone` 和 `cluster`；未配置时按 `standalone` 处理，以兼容既有 host/port/database 配置。
 
 示例（内存）：
 
@@ -89,12 +90,36 @@ openjiuwen:
         redis-ref: default
       redis:
         default:
+          type: standalone
           host: 127.0.0.1
           port: 6379
           database: 0
           timeout-ms: 3000
           encrypted-password: ""   # 经 CredentialDecryptor 解密；空表示无密码
 ```
+
+示例（Redis Cluster）：
+
+```yaml
+openjiuwen:
+  service:
+    middleware:
+      checkpointer:
+        type: redis
+        redis-ref: cluster
+      redis:
+        cluster:
+          type: cluster
+          nodes:
+            - 10.10.1.11:6379
+            - 10.10.1.12:6379
+          database: 0              # cluster 模式忽略该字段；非 0 也不会导致启动失败
+          timeout-ms: 3000
+          encrypted-password: ""   # 经 CredentialDecryptor 解密；空表示无密码
+```
+
+`standalone` 使用 `host`、`port`、`database`；`cluster` 使用 `nodes`，不会从 `host` / `port` 推导集群节点。
+`database` 是单机兼容配置，cluster 模式下会被忽略，并在非 0 时输出脱敏诊断日志。
 
 Demo：`example/redis/application-redis-checkpointer.yml`，独立模块 `agent-service-demo-redis`。
 

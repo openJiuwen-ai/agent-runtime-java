@@ -330,7 +330,7 @@ cp agent-service-demo/example/a2a/application-a2a-redis.example.yml \
    agent-service-demo/example/a2a/application-a2a-redis.local.yml
 ```
 
-编辑 `application-a2a-redis.local.yml`，填写 Redis 地址、端口和密码。该文件为本地配置，不会提交。
+编辑 `application-a2a-redis.local.yml`，按单机 Redis 填写 `host` / `port` / 密码，或按 Redis Cluster 填写 `type: cluster` 和 `nodes`。该文件为本地配置，不会提交。
 
 启动后可用以下命令观察任务 key：
 
