@@ -71,7 +71,7 @@ openjiuwen:
 
 ### 方式 C：Demo 模式（直接注入 `LlmAgent`）
 
-参考 `agent-service-demo`：在 `@Bean` 中构造 `JiuwenCoreAgentHandler(LlmAgent, ExternalSvcAdapterRegistrar)`，适合本地 LLM 联调。可通过 `openjiuwen.demo.llm.enabled=false` 切回 mock。
+参考 `agent-service-demo`：通过 `LlmConfigResolver` 解析 `openjiuwen.service.llm`，并在 `@Bean` 中构造 `JiuwenCoreAgentHandler`，适合本地 LLM 联调。
 
 ## 配置分层
 
@@ -152,7 +152,7 @@ InitHook 支持 `@Order`。
 | 项 | demo | 生产镜像 |
 | --- | --- | --- |
 | Handler | `DemoAgentHandler` 或 `JiuwenCoreAgentHandler(LlmAgent)` | `@Bean` 或 `agent-id` |
-| LLM | `apiconfig.json` / `openjiuwen.demo.llm` | 环境变量 / 配置中心 |
+| LLM | `apiconfig.json` / `openjiuwen.service.llm` | 环境变量 / 配置中心 |
 | 中间件 / 外部 | profile + `example/*` | `middleware` / `external` 配置 |
 | Maven 模块 | `agent-service-demo` | 业务 `*-service` 模块 |
 

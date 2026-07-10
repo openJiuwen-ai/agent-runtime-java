@@ -129,7 +129,9 @@ Demo：`example/redis/application-redis-checkpointer.yml`，独立模块 `agent-
 
 ### 凭证
 
-Redis 密码等敏感字段使用 `encrypted-password`；默认 `PassthroughCredentialDecryptor`（明文透传）。生产环境可 `@Bean CredentialDecryptor` 覆盖。
+Redis 密码和 LLM API Key 等敏感字段通过 `CredentialDecryptor` 解密；调用方分别传入
+`CredentialSceneType.REDIS_PASSWORD` 和 `CredentialSceneType.LLM_API_KEY`。默认
+`PassthroughCredentialDecryptor` 明文透传，生产环境可注册自定义 `@Bean CredentialDecryptor` 覆盖。
 
 ## 外部服务 egress（`openjiuwen.service.external`）
 

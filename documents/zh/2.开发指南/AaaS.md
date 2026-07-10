@@ -113,14 +113,7 @@ mvn clean test
 mvn -pl agent-service-demo -am spring-boot:run
 ```
 
-默认端口是 `8090`。没有真实大模型配置时，demo 使用 mock handler，返回稳定的 `demo:<message>`。
-
-强制使用 mock：
-
-```bash
-mvn -pl agent-service-demo -am spring-boot:run \
-  "-Dspring-boot.run.arguments=--openjiuwen.demo.llm.enabled=false"
-```
+默认端口是 `8090`。demo 固定使用真实 Core 链路，启动前必须配置 LLM。
 
 ### 4.4 检查健康状态
 
@@ -297,15 +290,15 @@ class MyAgentConfig {
 
 ## 6. 接入真实大模型
 
-demo 默认会尝试发现 `apiconfig.json`。找到配置后，链路会从 mock 切换为真实 Core 链路：
+demo 默认会尝试发现 `apiconfig.json`，并使用真实 Core 链路：
 
 ```text
-Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> LlmAgent
+Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> ReActAgent
 ```
 
 配置文件查找顺序：
 
-1. `openjiuwen.demo.llm.config-file`
+1. `openjiuwen.service.llm.config-file`
 2. `OPENJIUWEN_API_CONFIG`
 3. 从当前工作目录向上查找 `apiconfig.json`
 
