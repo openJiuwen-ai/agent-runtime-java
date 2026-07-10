@@ -2,7 +2,7 @@
 # spring.config.import loads this after application-base.yml.
 
 openjiuwen:
-  demo:
+  service:
     llm:
       auto-discover: false
       provider: OpenAI

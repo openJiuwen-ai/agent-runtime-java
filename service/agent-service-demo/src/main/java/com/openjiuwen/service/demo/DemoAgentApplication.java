@@ -4,15 +4,14 @@
 
 package com.openjiuwen.service.demo;
 
-import com.openjiuwen.core.foundation.llm.schema.ModelRequestConfig;
 import com.openjiuwen.core.foundation.tool.mcp.McpServerConfig;
-import com.openjiuwen.core.singleagent.ReActAgent;
-import com.openjiuwen.core.singleagent.agents.ReActAgentConfig;
-import com.openjiuwen.core.singleagent.schema.AgentCard;
+import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalProperties;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
-import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
+import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
+import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
+import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.slf4j.Logger;
@@ -20,11 +19,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Minimal end-to-end Agent Service example.
@@ -56,7 +53,6 @@ import java.util.Map;
  * @since 2026-07-03
  */
 @SpringBootApplication
-@EnableConfigurationProperties(DemoLlmProperties.class)
 public class DemoAgentApplication {
     private static final Logger log = LoggerFactory.getLogger(DemoAgentApplication.class);
 
@@ -67,11 +63,12 @@ public class DemoAgentApplication {
     }
 
     @Bean
-    AgentHandler demoAgentHandler(DemoLlmProperties llmProperties,
+    AgentHandler demoAgentHandler(LlmConfigResolver llmConfigResolver,
         ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
         ObjectProvider<AgentCoreExternalProperties> externalPropertiesProvider) {
-        llmProperties.applyApiConfigIfPresent();
-        ReActAgent agent = buildReActAgent(llmProperties);
+        ResolvedLlmConfig llmConfig = llmConfigResolver.resolveRequired();
+        ReActAgent agent = ExampleReActAgentFactory.build(REACT_AGENT_ID, REACT_AGENT_ID,
+            "Demo ReAct agent for Agent Service", llmConfig);
         bindMcpServers(agent, externalPropertiesProvider.getIfAvailable());
         return new JiuwenCoreAgentHandler(agent,
             externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
@@ -112,25 +109,4 @@ public class DemoAgentApplication {
         }
     }
 
-    private static ReActAgent buildReActAgent(DemoLlmProperties llmProperties) {
-        llmProperties.requireConfigured();
-        AgentCard card = AgentCard.builder()
-            .id(REACT_AGENT_ID)
-            .name(REACT_AGENT_ID)
-            .description("Demo ReAct agent for Agent Service")
-            .build();
-        ReActAgent agent = new ReActAgent(card);
-        ReActAgentConfig config = ReActAgentConfig.builder()
-            .promptTemplate(List.of(Map.of("role", "system", "content", llmProperties.getSystemPrompt())))
-            .maxIterations(llmProperties.getMaxIterations())
-            .build()
-            .configureModelClient(llmProperties.getProvider(), llmProperties.getApiKey(), llmProperties.getApiBase(),
-                llmProperties.getModelName(), llmProperties.isSslVerify())
-            .configureContextEngine(null, llmProperties.getContextWindowLimit(), false);
-        ModelRequestConfig requestConfig = config.getModelConfigObj();
-        requestConfig.setTemperature(llmProperties.getTemperature());
-        requestConfig.setTopP(llmProperties.getTopP());
-        agent.configure(config);
-        return agent;
-    }
 }

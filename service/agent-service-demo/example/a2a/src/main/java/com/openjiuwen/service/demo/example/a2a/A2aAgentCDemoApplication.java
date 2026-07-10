@@ -6,13 +6,13 @@ package com.openjiuwen.service.demo.example.a2a;
 
 import com.openjiuwen.harness.deep_agent.DeepAgent;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
-import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
+import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
+import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
 import com.openjiuwen.service.demo.example.support.ExampleDeepAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
 import java.util.List;
@@ -27,7 +27,6 @@ import java.util.List;
  * @since 0.1.0
  */
 @SpringBootApplication(scanBasePackages = "com.openjiuwen.service.app")
-@EnableConfigurationProperties(DemoLlmProperties.class)
 public class A2aAgentCDemoApplication {
     private static final String AGENT_ID = "demo-a2a-agent-c";
 
@@ -39,11 +38,10 @@ public class A2aAgentCDemoApplication {
     }
 
     @Bean
-    AgentHandler agentCHandler(DemoLlmProperties llmProperties) {
-        llmProperties.applyApiConfigIfPresent();
-        llmProperties.requireConfigured();
+    AgentHandler agentCHandler(LlmConfigResolver llmConfigResolver) {
+        ResolvedLlmConfig llmConfig = llmConfigResolver.resolveRequired();
         DeepAgent agent = ExampleDeepAgentFactory.build(AGENT_ID, "Agent C (A2A Food Demo)",
-            "DeepAgent with food recommendation confirmation tool for A2A demo", llmProperties,
+            "DeepAgent with food recommendation confirmation tool for A2A demo", llmConfig,
             List.of(new FoodRecommendInterruptRail()));
         return new JiuwenCoreAgentHandler(agent);
     }

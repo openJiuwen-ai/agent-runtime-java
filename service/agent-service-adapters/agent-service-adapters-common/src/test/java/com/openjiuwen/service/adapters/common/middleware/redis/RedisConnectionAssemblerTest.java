@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
+import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
 import org.junit.jupiter.api.Test;
@@ -40,11 +41,24 @@ class RedisConnectionAssemblerTest {
         endpoint.setEncryptedPassword("ENC");
         properties.getRedis().put("default", endpoint);
 
-        CredentialDecryptor decryptor = ciphertext -> "secret";
+        int[] scene = new int[] {CredentialSceneType.UNKNOWN};
+        CredentialDecryptor decryptor = new CredentialDecryptor() {
+            @Override
+            public String decrypt(String ciphertext) {
+                return "secret";
+            }
+
+            @Override
+            public String decrypt(String ciphertext, int sceneType) {
+                scene[0] = sceneType;
+                return "secret";
+            }
+        };
 
         Map<String, Object> connection = RedisConnectionAssembler.buildConnectionMap(properties, "default", decryptor);
         assertThat(connection.get("url")).asString().contains("redis.local");
         assertThat(connection.get("url")).asString().contains("secret");
+        assertThat(scene[0]).isEqualTo(CredentialSceneType.REDIS_PASSWORD);
     }
 
     @Test

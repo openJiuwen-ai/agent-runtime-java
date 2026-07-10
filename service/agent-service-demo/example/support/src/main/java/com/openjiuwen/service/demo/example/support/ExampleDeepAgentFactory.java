@@ -13,12 +13,13 @@ import com.openjiuwen.harness.deep_agent.DeepAgent;
 import com.openjiuwen.harness.factory.HarnessFactory;
 import com.openjiuwen.harness.schema.config.DeepAgentConfig;
 import com.openjiuwen.harness.workspace.Workspace;
+import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
 
 import java.util.List;
 import java.util.Map;
 
 /**
- * Builds a {@link DeepAgent} from {@link DemoLlmProperties}.
+ * Builds a {@link DeepAgent} from reusable service LLM configuration.
  *
  * @since 0.1.0
  */
@@ -39,12 +40,12 @@ public final class ExampleDeepAgentFactory {
      *            the agent display name
      * @param description
      *            the agent description
-     * @param props
-     *            the LLM and prompt properties
+     * @param config
+     *            the resolved LLM and prompt configuration
      * @return a configured DeepAgent
      */
-    public static DeepAgent build(String agentId, String name, String description, DemoLlmProperties props) {
-        return build(agentId, name, description, props, List.of());
+    public static DeepAgent build(String agentId, String name, String description, ResolvedLlmConfig config) {
+        return build(agentId, name, description, config, List.of());
     }
 
     /**
@@ -56,22 +57,22 @@ public final class ExampleDeepAgentFactory {
      *            the agent display name
      * @param description
      *            the agent description
-     * @param props
-     *            the LLM and prompt properties
+     * @param config
+     *            the resolved LLM and prompt configuration
      * @param rails
      *            the rails to register on the agent
      * @return a configured DeepAgent
      */
-    public static DeepAgent build(String agentId, String name, String description, DemoLlmProperties props,
+    public static DeepAgent build(String agentId, String name, String description, ResolvedLlmConfig config,
         List<Object> rails) {
         String workspacePath = WORKSPACE_ROOT + "/" + agentId;
-        DeepAgentConfig config = DeepAgentConfig.builder()
-            .systemPrompt(props.getSystemPrompt())
-            .maxIterations(props.getMaxIterations())
+        DeepAgentConfig agentConfig = DeepAgentConfig.builder()
+            .systemPrompt(config.getSystemPrompt())
+            .maxIterations(config.getMaxIterations())
             .language(LANGUAGE)
             .workspacePath(workspacePath)
             .rails(rails)
-            .model(buildModel(props))
+            .model(buildModel(config))
             .restrictToWorkDir(true)
             .enableTaskLoop(true)
             .enableTaskPlanning(false)
@@ -79,22 +80,22 @@ public final class ExampleDeepAgentFactory {
             .build();
         AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
         Workspace workspace = Workspace.builder().rootPath(workspacePath).language(LANGUAGE).links(Map.of()).build();
-        return HarnessFactory.createDeepAgent(card, config, workspace);
+        return HarnessFactory.createDeepAgent(card, agentConfig, workspace);
     }
 
-    private static Model buildModel(DemoLlmProperties props) {
+    private static Model buildModel(ResolvedLlmConfig config) {
         DefaultModelClientFactories.ensureRegistered();
         ModelClientConfig clientConfig = ModelClientConfig.builder()
-            .clientProvider(props.getProvider())
-            .apiKey(props.getApiKey())
-            .apiBase(props.getApiBase())
-            .timeout(props.getTimeout().toSeconds())
-            .verifySsl(props.isSslVerify())
+            .clientProvider(config.getProvider())
+            .apiKey(config.getApiKey())
+            .apiBase(config.getApiBase())
+            .timeout(config.getTimeout().toMillis() / 1000.0D)
+            .verifySsl(config.isSslVerify())
             .build();
         ModelRequestConfig requestConfig = ModelRequestConfig.builder()
-            .modelName(props.getModelName())
-            .temperature(props.getTemperature())
-            .topP(props.getTopP())
+            .modelName(config.getModelName())
+            .temperature(config.getTemperature())
+            .topP(config.getTopP())
             .build();
         return new Model(clientConfig, requestConfig);
     }

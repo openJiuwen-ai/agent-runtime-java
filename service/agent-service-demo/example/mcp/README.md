@@ -51,7 +51,7 @@ curl -s 'http://localhost:18080/mcp' \
 ## 启动 Agent Service（MCP 特性模块）
 
 另开一个终端，启动 **MCP 特性模块**（ReActAgent + `JiuwenCoreAgentHandler`）。模型 API 见 `../config/application-base.yml` 中
-`openjiuwen.demo.llm`。
+`openjiuwen.service.llm`。
 
 ```bash
 OPENJIUWEN_API_CONFIG=/path/to/apiconfig.json \

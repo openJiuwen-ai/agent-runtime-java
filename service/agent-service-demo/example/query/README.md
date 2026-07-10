@@ -2,7 +2,7 @@
 
 演示如何通过 **HTTP Query** 调用 Agent Service（基于主工程 `DemoAgentApplication`）。
 
-主 demo 固定走 **Core 链路**：`JiuwenCoreAgentHandler` + `ReActAgent`，启动前必须配置大模型（`openjiuwen.demo.llm`）。
+主 demo 固定走 **Core 链路**：`JiuwenCoreAgentHandler` + `ReActAgent`，启动前必须配置大模型（`openjiuwen.service.llm`）。
 
 ## 启动服务
 
@@ -13,7 +13,7 @@
 ```bash
 cp agent-service-demo/example/config/application-base_local.example.yml \
    agent-service-demo/example/config/application-base_local.yml
-# 编辑 application-base_local.yml，填写 openjiuwen.demo.llm 下的 api-key / api-base / model-name
+# 编辑 application-base_local.yml，填写 openjiuwen.service.llm 下的 api-key / api-base / model-name
 # 建议设置 auto-discover: false
 ```
 

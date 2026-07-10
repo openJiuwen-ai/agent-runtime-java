@@ -20,7 +20,7 @@ mvn -pl agent-service-demo -am spring-boot:run
 Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> ReActAgent
 ```
 
-必须提供 `openjiuwen.demo.llm` 的 `api-key`、`api-base`、`model-name`（通过 `application-base_local.yml` 或
+必须提供 `openjiuwen.service.llm` 的 `api-key`、`api-base`、`model-name`（通过 `application-base_local.yml` 或
 `apiconfig.json`）。未配置时进程无法启动。
 
 配置方式见 [example/query/README.md](example/query/README.md)。
@@ -126,7 +126,7 @@ demo 会从 `apiconfig.json` 读取模型配置，字段名和 agent-core 示例
 
 配置文件查找顺序：
 
-1. `openjiuwen.demo.llm.config-file`
+1. `openjiuwen.service.llm.config-file`
 2. `OPENJIUWEN_API_CONFIG`
 3. 从当前工作目录向上查找 `apiconfig.json`
 
@@ -151,10 +151,10 @@ mvn -pl agent-service-demo -am spring-boot:run
 
 也可以通过 Spring 配置覆盖模型参数，例如：
 
-- `openjiuwen.demo.llm.api-base`
-- `openjiuwen.demo.llm.api-key`
-- `openjiuwen.demo.llm.model-name`
-- `openjiuwen.demo.llm.provider`
+- `openjiuwen.service.llm.api-base`
+- `openjiuwen.service.llm.api-key`
+- `openjiuwen.service.llm.model-name`
+- `openjiuwen.service.llm.provider`
 
 行为说明：
 
@@ -245,7 +245,7 @@ MODE=flux bash agent-service-demo/example/query/smoke-query.sh
 ## Example
 
 开发者特性演示见 [example/README.md](example/README.md)。redis / mcp / sandbox 为**独立 Maven 子模块**（`ReActAgent` +
-`JiuwenCoreAgentHandler`，与主 demo 共用 `example/config/application-base.yml` 中 `openjiuwen.demo.llm`）；query 使用主模块
+`JiuwenCoreAgentHandler`，与主 demo 共用 `example/config/application-base.yml` 中 `openjiuwen.service.llm`）；query 使用主模块
 `agent-service-demo`。内部 L1 转测脚本见 `src/test/resources/scripts/`。
 
 ## 外部 MCP 示例
