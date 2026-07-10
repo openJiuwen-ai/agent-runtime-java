@@ -90,7 +90,7 @@ public final class ExampleDeepAgentFactory {
             .apiKey(config.getApiKey())
             .apiBase(config.getApiBase())
             .timeout(config.getTimeout().toMillis() / 1000.0D)
-            .verifySsl(config.isSslVerify())
+            .verifySsl(config.isVerifySsl())
             .build();
         ModelRequestConfig requestConfig = ModelRequestConfig.builder()
             .modelName(config.getModelName())

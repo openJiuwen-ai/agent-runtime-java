@@ -25,7 +25,7 @@ class ExampleReActAgentFactoryTest {
             .apiKey("test-key")
             .apiBase("https://localhost/v1")
             .modelName("test-model")
-            .sslVerify(false)
+            .verifySsl(false)
             .systemPrompt("Test prompt")
             .temperature(0.2D)
             .topP(0.7D)
@@ -35,7 +35,10 @@ class ExampleReActAgentFactoryTest {
             .build();
 
         ReActAgent agent = ExampleReActAgentFactory.build("agent", "Agent", "description", config);
-        ReActAgentConfig agentConfig = (ReActAgentConfig) agent.getConfig();
+        Object rawConfig = agent.getConfig();
+        if (!(rawConfig instanceof ReActAgentConfig agentConfig)) {
+            throw new AssertionError("ReActAgent must expose a ReActAgentConfig");
+        }
 
         assertThat(agentConfig.getModelClientConfig().getTimeout()).isEqualTo(1.5D);
         assertThat(agentConfig.getModelConfigObj().getTemperature()).isEqualTo(0.2D);

@@ -30,11 +30,26 @@ class ApiConfigLoaderTest {
 
         ApiConfigLoader.ApiConfigValues values = loader.load(file.toString(), false).orElseThrow();
 
-        assertThat(values.provider()).isEqualTo("OpenAI");
-        assertThat(values.apiKey()).isEqualTo("ENC:key");
-        assertThat(values.apiBase()).isEqualTo("https://llm.internal/v1");
-        assertThat(values.modelName()).isEqualTo("model-x");
-        assertThat(values.sslVerify()).isFalse();
+        assertThat(values.provider()).hasValue("OpenAI");
+        assertThat(values.apiKey()).hasValue("ENC:key");
+        assertThat(values.apiBase()).hasValue("https://llm.internal/v1");
+        assertThat(values.modelName()).hasValue("model-x");
+        assertThat(values.shouldVerifySsl()).hasValue(false);
+    }
+
+    @Test
+    void load_representsMissingValuesWithEmptyOptionals() throws Exception {
+        Path file = tempDir.resolve("partial.json");
+        Files.writeString(file, "{\"API_BASE\":\"https://llm.internal/v1\"}");
+        ApiConfigLoader loader = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(), () -> tempDir);
+
+        ApiConfigLoader.ApiConfigValues values = loader.load(file.toString(), false).orElseThrow();
+
+        assertThat(values.apiBase()).hasValue("https://llm.internal/v1");
+        assertThat(values.provider()).isEmpty();
+        assertThat(values.apiKey()).isEmpty();
+        assertThat(values.modelName()).isEmpty();
+        assertThat(values.shouldVerifySsl()).isEmpty();
     }
 
     @Test

@@ -57,7 +57,7 @@ class ExampleDeepAgentFactoryTest {
             .apiKey("test-key")
             .apiBase("http://localhost/v1")
             .modelName("test-model")
-            .sslVerify(true)
+            .verifySsl(true)
             .systemPrompt("Use deep_calc before answering.")
             .temperature(0.6D)
             .topP(0.8D)

@@ -55,7 +55,7 @@ class LlmConfigResolverTest {
         assertThat(first.getApiKey()).isEqualTo("plain:file-key");
         assertThat(first.getApiBase()).isEqualTo("https://file.example/v1");
         assertThat(first.getModelName()).isEqualTo("file-model");
-        assertThat(first.isSslVerify()).isFalse();
+        assertThat(first.isVerifySsl()).isFalse();
         assertThat(scene.get()).isEqualTo(CredentialSceneType.LLM_API_KEY);
         assertThat(invocationCount.get()).isOne();
     }
@@ -85,7 +85,7 @@ class LlmConfigResolverTest {
         assertThat(config.getApiKey()).isEqualTo("spring-key");
         assertThat(config.getApiBase()).isEqualTo("https://spring.example/v1");
         assertThat(config.getModelName()).isEqualTo("spring-model");
-        assertThat(config.isSslVerify()).isTrue();
+        assertThat(config.isVerifySsl()).isTrue();
     }
 
     @Test
@@ -96,7 +96,7 @@ class LlmConfigResolverTest {
         ResolvedLlmConfig config = resolver.resolve();
 
         assertThat(config.getProvider()).isEqualTo("OpenAI");
-        assertThat(config.isSslVerify()).isTrue();
+        assertThat(config.isVerifySsl()).isTrue();
         assertThat(config.getTemperature()).isEqualTo(0.6D);
         assertThat(config.getTopP()).isEqualTo(0.8D);
         assertThat(config.getTimeout()).isEqualTo(Duration.ofSeconds(60));

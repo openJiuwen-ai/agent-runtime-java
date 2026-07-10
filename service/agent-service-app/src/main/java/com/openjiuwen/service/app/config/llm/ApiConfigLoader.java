@@ -57,15 +57,15 @@ final class ApiConfigLoader {
         this.workingDirectorySupplier = workingDirectorySupplier;
     }
 
-    Optional<ApiConfigValues> load(String explicitPath, boolean autoDiscover) {
-        Optional<Path> path = resolvePath(explicitPath, autoDiscover);
+    Optional<ApiConfigValues> load(String explicitPath, boolean shouldAutoDiscover) {
+        Optional<Path> path = resolvePath(explicitPath, shouldAutoDiscover);
         if (path.isEmpty()) {
             return Optional.empty();
         }
         return Optional.of(read(path.get()));
     }
 
-    private Optional<Path> resolvePath(String explicitPath, boolean autoDiscover) {
+    private Optional<Path> resolvePath(String explicitPath, boolean shouldAutoDiscover) {
         if (hasText(explicitPath)) {
             return Optional.of(requireConfigFile(explicitPath, "openjiuwen.service.llm.config-file"));
         }
@@ -75,7 +75,7 @@ final class ApiConfigLoader {
             return Optional.of(requireConfigFile(environmentPath, API_CONFIG_ENV));
         }
 
-        if (!autoDiscover) {
+        if (!shouldAutoDiscover) {
             return Optional.empty();
         }
 
@@ -117,31 +117,31 @@ final class ApiConfigLoader {
         }
     }
 
-    private static String readText(Map<String, Object> raw, String key) {
+    private static Optional<String> readText(Map<String, Object> raw, String key) {
         Object value = raw.get(key);
         if (value == null) {
-            return null;
+            return Optional.empty();
         }
         if (value instanceof String text) {
-            return text;
+            return Optional.of(text);
         }
         throw new IllegalStateException(key + " in LLM API configuration file must be a string");
     }
 
-    private static Boolean readBoolean(Map<String, Object> raw, String key) {
+    private static Optional<Boolean> readBoolean(Map<String, Object> raw, String key) {
         Object value = raw.get(key);
         if (value == null) {
-            return null;
+            return Optional.empty();
         }
-        if (value instanceof Boolean booleanValue) {
-            return booleanValue;
+        if (value instanceof Boolean parsedBoolean) {
+            return Optional.of(parsedBoolean);
         }
         if (value instanceof String text) {
             if ("true".equalsIgnoreCase(text.trim())) {
-                return Boolean.TRUE;
+                return Optional.of(Boolean.TRUE);
             }
             if ("false".equalsIgnoreCase(text.trim())) {
-                return Boolean.FALSE;
+                return Optional.of(Boolean.FALSE);
             }
         }
         throw new IllegalStateException(key + " in LLM API configuration file must be true or false");
@@ -152,42 +152,48 @@ final class ApiConfigLoader {
     }
 
     static final class ApiConfigValues {
-        private final String provider;
+        private final Optional<String> provider;
 
-        private final String apiKey;
+        private final Optional<String> apiKey;
 
-        private final String apiBase;
+        private final Optional<String> apiBase;
 
-        private final String modelName;
+        private final Optional<String> modelName;
 
-        private final Boolean sslVerify;
+        private final Optional<Boolean> shouldVerifySsl;
 
-        ApiConfigValues(String provider, String apiKey, String apiBase, String modelName, Boolean sslVerify) {
+        ApiConfigValues(Optional<String> provider, Optional<String> apiKey, Optional<String> apiBase,
+            Optional<String> modelName, Optional<Boolean> shouldVerifySsl) {
             this.provider = provider;
             this.apiKey = apiKey;
             this.apiBase = apiBase;
             this.modelName = modelName;
-            this.sslVerify = sslVerify;
+            this.shouldVerifySsl = shouldVerifySsl;
         }
 
-        String provider() {
+        static ApiConfigValues empty() {
+            return new ApiConfigValues(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty());
+        }
+
+        Optional<String> provider() {
             return provider;
         }
 
-        String apiKey() {
+        Optional<String> apiKey() {
             return apiKey;
         }
 
-        String apiBase() {
+        Optional<String> apiBase() {
             return apiBase;
         }
 
-        String modelName() {
+        Optional<String> modelName() {
             return modelName;
         }
 
-        Boolean sslVerify() {
-            return sslVerify;
+        Optional<Boolean> shouldVerifySsl() {
+            return shouldVerifySsl;
         }
     }
 }

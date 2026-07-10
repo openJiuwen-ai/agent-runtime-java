@@ -11,6 +11,7 @@ import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import org.springframework.core.env.Environment;
 
 import java.time.Duration;
+import java.util.Optional;
 
 /**
  * Resolves raw Spring and optional file values into an immutable LLM runtime
@@ -87,10 +88,10 @@ public final class LlmConfigResolver {
     }
 
     private ResolvedLlmConfig doResolve() {
-        boolean autoDiscover = Boolean.TRUE.equals(properties.getAutoDiscover());
+        boolean shouldAutoDiscover = Boolean.TRUE.equals(properties.getAutoDiscover());
         ApiConfigLoader.ApiConfigValues fileValues = apiConfigLoader
-            .load(properties.getConfigFile(), autoDiscover)
-            .orElseGet(() -> new ApiConfigLoader.ApiConfigValues(null, null, null, null, null));
+            .load(properties.getConfigFile(), shouldAutoDiscover)
+            .orElseGet(ApiConfigLoader.ApiConfigValues::empty);
 
         String encryptedApiKey = firstSecret(properties.getApiKey(), fileValues.apiKey());
         String apiKey = decryptApiKey(encryptedApiKey);
@@ -107,7 +108,7 @@ public final class LlmConfigResolver {
             .apiKey(apiKey)
             .apiBase(firstText(properties.getApiBase(), fileValues.apiBase(), ""))
             .modelName(firstText(properties.getModelName(), fileValues.modelName(), ""))
-            .sslVerify(firstBoolean(properties.getSslVerify(), fileValues.sslVerify(), true))
+            .verifySsl(firstBoolean(Optional.ofNullable(properties.getSslVerify()), fileValues.shouldVerifySsl()))
             .systemPrompt(properties.getSystemPrompt() != null ? properties.getSystemPrompt() : "")
             .temperature(temperature)
             .topP(topP)
@@ -150,42 +151,36 @@ public final class LlmConfigResolver {
         }
     }
 
-    private static String firstText(String primary, String secondary, String fallback) {
+    private static String firstText(String primary, Optional<String> secondary, String fallback) {
         if (hasText(primary)) {
             return primary.trim();
         }
-        if (hasText(secondary)) {
-            return secondary.trim();
-        }
-        return fallback;
+        return secondary.filter(LlmConfigResolver::hasText).map(String::trim).orElse(fallback);
     }
 
-    private static String firstSecret(String primary, String secondary) {
+    private static String firstSecret(String primary, Optional<String> secondary) {
         if (hasText(primary)) {
             return primary;
         }
-        if (hasText(secondary)) {
-            return secondary;
-        }
-        return "";
+        return secondary.filter(LlmConfigResolver::hasText).orElse("");
     }
 
-    private static boolean firstBoolean(Boolean primary, Boolean secondary, boolean fallback) {
-        if (primary != null) {
-            return primary;
-        }
-        if (secondary != null) {
-            return secondary;
+    private static boolean firstBoolean(Optional<Boolean> configuredOption, Optional<Boolean> fileOption) {
+        return configuredOption.or(() -> fileOption).orElse(Boolean.TRUE);
+    }
+
+    private static double valueOrDefault(Double value, double fallback) {
+        if (value != null) {
+            return value.doubleValue();
         }
         return fallback;
     }
 
-    private static double valueOrDefault(Double value, double fallback) {
-        return value != null ? value : fallback;
-    }
-
     private static int valueOrDefault(Integer value, int fallback) {
-        return value != null ? value : fallback;
+        if (value != null) {
+            return value.intValue();
+        }
+        return fallback;
     }
 
     private static boolean hasText(String value) {
