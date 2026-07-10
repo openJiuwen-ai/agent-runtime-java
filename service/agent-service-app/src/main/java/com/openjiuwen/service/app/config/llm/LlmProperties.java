@@ -25,29 +25,16 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "openjiuwen.service.llm")
 public class LlmProperties {
     private String configFile;
-
     private Boolean autoDiscover;
-
     private String provider;
-
     private String apiKey;
-
     private String apiBase;
-
     private String modelName;
-
     private Boolean sslVerify;
-
     private String systemPrompt;
-
     private Double temperature;
-
     private Double topP;
-
     private Duration timeout;
-
     private Integer contextWindowLimit;
-
     private Integer maxIterations;
-
 }
