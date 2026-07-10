@@ -1,0 +1,44 @@
+# Agent A (port 18090) — ReAct LLM agent that delegates tasks to Agent B via A2A.
+# Loaded last by A2aAgentADemoApplication so its values override application-base.yml.
+
+spring:
+  application:
+    name: demo-a2a-agent-a
+
+server:
+  port: 18090
+
+openjiuwen:
+  demo:
+    llm:
+      system-prompt: "You are Agent A in an A2A demo. Your job is to receive user questions and delegate every user request to Agent B using the delegate_to_agentb tool. Do not answer directly. Agent B is responsible for deciding whether to use its local calculator or forward the request to Agent C."
+  service:
+    a2a:
+      agent-description: "A2A Agent A — entry ReAct LLM agent that delegates user requests to remote Agent B"
+      is-streaming: true
+      default-input-modes: [ text, text/plain ]
+      default-output-modes: [ text, text/plain ]
+      remote-agents:
+        - name: agentb
+          url: http://localhost:18091/a2a/
+          timeout-seconds: 300
+      skills:
+        - id: general_chat
+          name: General Chat
+          description: Handle general conversation and Q&A using ReAct LLM reasoning
+          tags: [ chat, qa, reasoning ]
+          examples:
+            - What is the capital of France?
+            - Explain how a transformer model works
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
+        - id: delegate_to_agentb
+          name: Delegate to Agent B
+          description: Delegate user questions to remote Agent B; Agent B routes math requests locally and dining requests to Agent C
+          tags: [ delegation, remote, agentb, routing ]
+          examples:
+            - What is 1+1?
+            - Calculate 15 * 7
+            - Recommend a dish for a team lunch
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
