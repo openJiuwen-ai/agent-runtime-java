@@ -26,7 +26,7 @@ import java.time.Duration;
 public class LlmProperties {
     private String configFile;
 
-    private Boolean shouldAutoDiscover;
+    private Boolean autoDiscover;
 
     private String provider;
 
@@ -36,7 +36,7 @@ public class LlmProperties {
 
     private String modelName;
 
-    private Boolean shouldVerifySsl;
+    private Boolean sslVerify;
 
     private String systemPrompt;
 
@@ -50,39 +50,4 @@ public class LlmProperties {
 
     private Integer maxIterations;
 
-    /**
-     * Returns the auto-discovery setting using the external configuration name.
-     *
-     * @return whether API configuration auto-discovery is enabled
-     */
-    public Boolean getAutoDiscover() {
-        return shouldAutoDiscover;
-    }
-
-    /**
-     * Sets the auto-discovery setting using the external configuration name.
-     *
-     * @param shouldAutoDiscoverValue whether API configuration auto-discovery is enabled
-     */
-    public void setAutoDiscover(Boolean shouldAutoDiscoverValue) {
-        shouldAutoDiscover = shouldAutoDiscoverValue;
-    }
-
-    /**
-     * Returns the TLS verification setting using the external configuration name.
-     *
-     * @return whether TLS certificates should be verified
-     */
-    public Boolean getSslVerify() {
-        return shouldVerifySsl;
-    }
-
-    /**
-     * Sets the TLS verification setting using the external configuration name.
-     *
-     * @param shouldVerifySslValue whether TLS certificates should be verified
-     */
-    public void setSslVerify(Boolean shouldVerifySslValue) {
-        shouldVerifySsl = shouldVerifySslValue;
-    }
 }

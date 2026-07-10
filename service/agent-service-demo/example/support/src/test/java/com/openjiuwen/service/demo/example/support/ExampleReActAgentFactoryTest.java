@@ -25,7 +25,7 @@ class ExampleReActAgentFactoryTest {
             .apiKey("test-key")
             .apiBase("https://localhost/v1")
             .modelName("test-model")
-            .verifySsl(false)
+            .sslVerify(false)
             .systemPrompt("Test prompt")
             .temperature(0.2D)
             .topP(0.7D)

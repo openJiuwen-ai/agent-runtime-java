@@ -37,7 +37,7 @@ class LlmAutoConfigurationTest {
                 assertThat(context).hasSingleBean(LlmConfigResolver.class);
                 var config = context.getBean(LlmConfigResolver.class).resolveRequired();
                 assertThat(config.getProvider()).isEqualTo("TestProvider");
-                assertThat(config.isVerifySsl()).isFalse();
+                assertThat(config.isSslVerify()).isFalse();
                 assertThat(config.getSystemPrompt()).isEqualTo("Test prompt");
                 assertThat(config.getTemperature()).isEqualTo(0.3D);
                 assertThat(config.getTopP()).isEqualTo(0.7D);

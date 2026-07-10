@@ -108,7 +108,8 @@ public final class LlmConfigResolver {
             .apiKey(apiKey)
             .apiBase(firstText(properties.getApiBase(), fileValues.apiBase(), ""))
             .modelName(firstText(properties.getModelName(), fileValues.modelName(), ""))
-            .verifySsl(firstBoolean(Optional.ofNullable(properties.getSslVerify()), fileValues.shouldVerifySsl()))
+            .sslVerify(resolveSslVerify(Optional.ofNullable(properties.getSslVerify()),
+                fileValues.shouldVerifySsl(), true))
             .systemPrompt(properties.getSystemPrompt() != null ? properties.getSystemPrompt() : "")
             .temperature(temperature)
             .topP(topP)
@@ -165,8 +166,9 @@ public final class LlmConfigResolver {
         return secondary.filter(LlmConfigResolver::hasText).orElse("");
     }
 
-    private static boolean firstBoolean(Optional<Boolean> configuredOption, Optional<Boolean> fileOption) {
-        return configuredOption.or(() -> fileOption).orElse(Boolean.TRUE);
+    private static boolean resolveSslVerify(Optional<Boolean> configuredOption, Optional<Boolean> fileOption,
+        boolean shouldVerifyByDefault) {
+        return configuredOption.or(() -> fileOption).orElse(shouldVerifyByDefault);
     }
 
     private static double valueOrDefault(Double value, double fallback) {

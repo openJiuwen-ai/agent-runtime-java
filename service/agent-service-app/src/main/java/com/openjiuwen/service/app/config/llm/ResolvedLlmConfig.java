@@ -26,7 +26,7 @@ public final class ResolvedLlmConfig {
 
     private final String modelName;
 
-    private final boolean verifySsl;
+    private final boolean sslVerify;
 
     private final String systemPrompt;
 

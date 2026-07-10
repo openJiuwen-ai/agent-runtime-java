@@ -39,7 +39,7 @@ public final class ExampleReActAgentFactory {
             .maxIterations(config.getMaxIterations())
             .build()
             .configureModelClient(config.getProvider(), config.getApiKey(), config.getApiBase(), config.getModelName(),
-                config.isVerifySsl())
+                config.isSslVerify())
             .configureContextEngine(null, config.getContextWindowLimit(), false);
         ModelClientConfig currentClientConfig = agentConfig.getModelClientConfig();
         agentConfig.setModelClientConfig(ModelClientConfig.builder()
