@@ -133,8 +133,8 @@ final class ApiConfigLoader {
         if (value == null) {
             return Optional.empty();
         }
-        if (value instanceof Boolean parsedBoolean) {
-            return Optional.of(parsedBoolean);
+        if (value instanceof Boolean) {
+            return Optional.of((Boolean) value);
         }
         if (value instanceof String text) {
             if ("true".equalsIgnoreCase(text.trim())) {
