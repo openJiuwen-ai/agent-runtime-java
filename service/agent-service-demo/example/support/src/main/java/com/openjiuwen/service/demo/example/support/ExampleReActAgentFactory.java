@@ -33,7 +33,6 @@ public final class ExampleReActAgentFactory {
      * @return the configured ReAct agent
      */
     public static ReActAgent build(String agentId, String name, String description, ResolvedLlmConfig config) {
-        AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
         ReActAgentConfig agentConfig = ReActAgentConfig.builder()
             .promptTemplate(List.of(Map.of("role", "system", "content", config.getSystemPrompt())))
             .maxIterations(config.getMaxIterations())
@@ -56,6 +55,7 @@ public final class ExampleReActAgentFactory {
         ModelRequestConfig requestConfig = agentConfig.getModelConfigObj();
         requestConfig.setTemperature(config.getTemperature());
         requestConfig.setTopP(config.getTopP());
+        AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
         ReActAgent agent = new ReActAgent(card);
         agent.configure(agentConfig);
         return agent;
