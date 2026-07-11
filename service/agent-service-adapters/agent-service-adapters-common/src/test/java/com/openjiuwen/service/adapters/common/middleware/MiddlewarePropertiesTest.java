@@ -67,4 +67,20 @@ class MiddlewarePropertiesTest {
         assertThat(endpoint.getType()).isEqualTo("standalone");
         assertThat(endpoint.getNodes()).isEqualTo(List.of());
     }
+
+    @Test
+    void defaultsCheckpointerTtlToSevenDays() {
+        assertThat(new MiddlewareProperties().getCheckpointer().getTtlSeconds()).isEqualTo(604800L);
+    }
+
+    @Test
+    void bindsCheckpointerTtlSeconds() {
+        Map<String, String> source = Map.of("openjiuwen.service.middleware.checkpointer.ttl-seconds", "3600");
+
+        MiddlewareProperties properties = new Binder(new MapConfigurationPropertySource(source))
+                .bind("openjiuwen.service.middleware", Bindable.of(MiddlewareProperties.class))
+                .orElseGet(MiddlewareProperties::new);
+
+        assertThat(properties.getCheckpointer().getTtlSeconds()).isEqualTo(3600L);
+    }
 }

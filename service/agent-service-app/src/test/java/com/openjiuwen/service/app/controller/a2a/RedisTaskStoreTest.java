@@ -30,19 +30,19 @@ class RedisTaskStoreTest {
     @Test
     void storesTasksThroughRuntimeRedisClient() {
         InMemoryRuntimeRedisClient redisClient = new InMemoryRuntimeRedisClient();
-        RedisTaskStore store = new RedisTaskStore(redisClient);
+        RedisTaskStore store = new RedisTaskStore(redisClient, 3600L);
         Task task = task("task-1", "ctx-1", TaskState.TASK_STATE_WORKING);
 
         store.save(task, false);
 
         assertThat(store.get("task-1")).isEqualTo(task);
-        assertThat(redisClient.ttlByKey()).containsEntry("a2a:task:task-1", 604800L);
+        assertThat(redisClient.ttlByKey()).containsEntry("a2a:task:task-1", 3600L);
     }
 
     @Test
     void listsAndDeletesTasksThroughRuntimeRedisClient() {
         InMemoryRuntimeRedisClient redisClient = new InMemoryRuntimeRedisClient();
-        RedisTaskStore store = new RedisTaskStore(redisClient);
+        RedisTaskStore store = new RedisTaskStore(redisClient, 604800L);
         store.save(task("task-1", "ctx-1", TaskState.TASK_STATE_WORKING), false);
         store.save(task("task-2", "ctx-2", TaskState.TASK_STATE_COMPLETED), false);
 

@@ -49,6 +49,22 @@ class AgentCoreCheckpointerConfigAssemblerTest {
         Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
         assertThat(connection.get("url")).asString().contains("127.0.0.1:6379");
         assertThat(connection.get("redis_client")).isSameAs(redisClient);
+        assertThat(conf.get("ttl")).isEqualTo(Map.of("default_ttl", 10080.0d, "refresh_on_read", false));
+    }
+
+    @Test
+    void convertsCheckpointerTtlSecondsToAgentCoreMinutes() {
+        MiddlewareProperties properties = new MiddlewareProperties();
+        properties.getCheckpointer().setType("redis");
+        properties.getCheckpointer().setTtlSeconds(30L);
+        properties.getRedis().put("default", new MiddlewareProperties.RedisEndpoint());
+
+        Map<String, Object> config = AgentCoreCheckpointerConfigAssembler.build(properties, value -> value,
+                new NoopRuntimeRedisClient());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> conf = (Map<String, Object>) config.get("conf");
+
+        assertThat(conf.get("ttl")).isEqualTo(Map.of("default_ttl", 0.5d, "refresh_on_read", false));
     }
 
     @Test

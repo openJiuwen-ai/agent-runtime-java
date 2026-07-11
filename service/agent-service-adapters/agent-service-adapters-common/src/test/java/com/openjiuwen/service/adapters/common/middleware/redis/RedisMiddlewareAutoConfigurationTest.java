@@ -63,7 +63,8 @@ class RedisMiddlewareAutoConfigurationTest {
                                     com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties.class),
                             context.getBean(RuntimeRedisClient.class)))
                             .contains("redis-ref=cluster", "endpoint-type=cluster",
-                                    "RuntimeRedisClient=JedisClusterRuntimeRedisClient", "databaseIgnored=2")
+                                    "RuntimeRedisClient=JedisClusterRuntimeRedisClient", "ttl-seconds=604800",
+                                    "databaseIgnored=2")
                             .doesNotContain("ENC(secret)", "secret");
                 });
     }
@@ -93,6 +94,16 @@ class RedisMiddlewareAutoConfigurationTest {
                 .withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
                         "openjiuwen.service.middleware.redis.default.type=cluster")
                 .run(context -> assertThat(context.getStartupFailure()).hasMessageContaining("nodes"));
+    }
+
+    @Test
+    void failsFastWhenCheckpointerTtlIsNotPositive() {
+        contextRunner
+                .withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
+                        "openjiuwen.service.middleware.checkpointer.ttl-seconds=0",
+                        "openjiuwen.service.middleware.redis.default.host=redis.local")
+                .run(context -> assertThat(context.getStartupFailure()).hasRootCauseMessage(
+                        "openjiuwen.service.middleware.checkpointer.ttl-seconds must be greater than 0"));
     }
 
     @Test

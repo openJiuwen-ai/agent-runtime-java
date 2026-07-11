@@ -70,6 +70,8 @@ public final class AgentCoreCheckpointerConfigAssembler {
 
         Map<String, Object> conf = new HashMap<>();
         conf.put("connection", connection);
+        conf.put("ttl",
+                Map.of("default_ttl", properties.getCheckpointer().getTtlSeconds() / 60.0d, "refresh_on_read", false));
         return conf;
     }
 }

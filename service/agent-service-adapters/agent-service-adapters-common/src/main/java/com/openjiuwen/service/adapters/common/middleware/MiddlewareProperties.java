@@ -71,9 +71,14 @@ public class MiddlewareProperties {
 
     /** Checkpointer configuration. */
     public static class Checkpointer {
+        /** Default state cache TTL: seven days. */
+        public static final long DEFAULT_TTL_SECONDS = 604800L;
+
         private String type = "in_memory";
 
         private String redisRef = "default";
+
+        private long ttlSeconds = DEFAULT_TTL_SECONDS;
 
         public String getType() {
             return type;
@@ -89,6 +94,18 @@ public class MiddlewareProperties {
 
         public void setRedisRef(String redisRef) {
             this.redisRef = redisRef;
+        }
+
+        public long getTtlSeconds() {
+            return ttlSeconds;
+        }
+
+        public void setTtlSeconds(long ttlSeconds) {
+            if (ttlSeconds <= 0) {
+                throw new IllegalArgumentException(
+                        "openjiuwen.service.middleware.checkpointer.ttl-seconds must be " + "greater than 0");
+            }
+            this.ttlSeconds = ttlSeconds;
         }
     }
 

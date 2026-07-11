@@ -21,8 +21,7 @@ import java.util.List;
 
 /**
  * Redis-backed {@link TaskStore} using the same Redis connection as the
- * Checkpointer middleware. Task keys carry a
- * 7-day TTL.
+ * Checkpointer middleware. Task keys carry the configured state-cache TTL.
  * <p>
  * Backed by a thread-safe {@link RuntimeRedisClient}: the A2A request handler, the
  * event-bus processor and the orchestrator all
@@ -36,8 +35,6 @@ public class RedisTaskStore implements TaskStore {
 
     private static final String KEY_PREFIX = "a2a:task:";
 
-    private static final int TTL_SECONDS = 604800; // 7 days
-
     // Reuse the SDK's configured Gson: it carries the TypeAdapters for Task's
     // polymorphic Part,
     // reflects into
@@ -47,8 +44,14 @@ public class RedisTaskStore implements TaskStore {
 
     private final RuntimeRedisClient redisClient;
 
-    public RedisTaskStore(RuntimeRedisClient redisClient) {
+    private final long ttlSeconds;
+
+    public RedisTaskStore(RuntimeRedisClient redisClient, long ttlSeconds) {
         this.redisClient = redisClient;
+        if (ttlSeconds <= 0) {
+            throw new IllegalArgumentException("ttlSeconds must be greater than 0");
+        }
+        this.ttlSeconds = ttlSeconds;
     }
 
     @Override
@@ -61,7 +64,7 @@ public class RedisTaskStore implements TaskStore {
         // breaks the flow.
         String key = KEY_PREFIX + task.id();
         byte[] data = GSON.toJson(task).getBytes(StandardCharsets.UTF_8);
-        redisClient.setex(key.getBytes(StandardCharsets.UTF_8), TTL_SECONDS, data);
+        redisClient.setex(key.getBytes(StandardCharsets.UTF_8), ttlSeconds, data);
     }
 
     @Override

@@ -87,7 +87,8 @@ public class A2AAutoConfiguration {
             // Wrap in a read-through/write-behind cache: the SDK persists the task on every streaming event, so a
             // raw Redis round-trip per LLM chunk would throttle the SSE stream to network speed. See
             // WriteThrottlingTaskStore for the full rationale.
-            return new WriteThrottlingTaskStore(new RedisTaskStore(redisClient));
+            return new WriteThrottlingTaskStore(
+                    new RedisTaskStore(redisClient, middlewareProperties.getCheckpointer().getTtlSeconds()));
         }
         return new InMemoryTaskStore();
     }
