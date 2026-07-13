@@ -6,7 +6,9 @@ package com.openjiuwen.service.adapters.common.middleware;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -69,9 +71,14 @@ public class MiddlewareProperties {
 
     /** Checkpointer configuration. */
     public static class Checkpointer {
+        /** Default state cache TTL: seven days. */
+        public static final long DEFAULT_TTL_SECONDS = 604800L;
+
         private String type = "in_memory";
 
         private String redisRef = "default";
+
+        private long ttlSeconds = DEFAULT_TTL_SECONDS;
 
         public String getType() {
             return type;
@@ -87,6 +94,18 @@ public class MiddlewareProperties {
 
         public void setRedisRef(String redisRef) {
             this.redisRef = redisRef;
+        }
+
+        public long getTtlSeconds() {
+            return ttlSeconds;
+        }
+
+        public void setTtlSeconds(long ttlSeconds) {
+            if (ttlSeconds <= 0) {
+                throw new IllegalArgumentException(
+                        "openjiuwen.service.middleware.checkpointer.ttl-seconds must be " + "greater than 0");
+            }
+            this.ttlSeconds = ttlSeconds;
         }
     }
 
@@ -105,15 +124,27 @@ public class MiddlewareProperties {
 
     /** Redis endpoint connection settings. */
     public static class RedisEndpoint {
+        private String type = "standalone";
+
         private String host = "localhost";
 
         private int port = 6379;
+
+        private List<String> nodes = new ArrayList<>();
 
         private int database = 0;
 
         private int timeoutMs = 3000;
 
         private String encryptedPassword = "";
+
+        public String getType() {
+            return type;
+        }
+
+        public void setType(String type) {
+            this.type = type != null ? type : "standalone";
+        }
 
         public String getHost() {
             return host;
@@ -129,6 +160,14 @@ public class MiddlewareProperties {
 
         public void setPort(int port) {
             this.port = port;
+        }
+
+        public List<String> getNodes() {
+            return nodes;
+        }
+
+        public void setNodes(List<String> nodes) {
+            this.nodes = nodes != null ? new ArrayList<>(nodes) : new ArrayList<>();
         }
 
         public int getDatabase() {

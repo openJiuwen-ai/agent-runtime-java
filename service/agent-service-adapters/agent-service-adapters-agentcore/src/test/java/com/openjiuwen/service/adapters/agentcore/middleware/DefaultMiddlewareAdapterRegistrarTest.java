@@ -11,9 +11,11 @@ import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.extensions.checkpointer.redis.RedisCheckpointer;
 import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDecryptor;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Proxy;
 import java.util.Map;
 
 /**
@@ -26,7 +28,7 @@ class DefaultMiddlewareAdapterRegistrarTest {
     void appliesInMemoryCheckpointerConfig() {
         MiddlewareProperties properties = new MiddlewareProperties();
         DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
-            new PassthroughCredentialDecryptor());
+                new PassthroughCredentialDecryptor(), null);
 
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);
@@ -47,16 +49,45 @@ class DefaultMiddlewareAdapterRegistrarTest {
         properties.getRedis().put("default", endpoint);
 
         DefaultMiddlewareAdapterRegistrar registrar = new DefaultMiddlewareAdapterRegistrar(properties,
-            new PassthroughCredentialDecryptor());
+                new PassthroughCredentialDecryptor(), noopRuntimeRedisClient());
 
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);
 
-        @SuppressWarnings("unchecked") Map<String, Object> conf
-            = (Map<String, Object>) runnerConfig.getCheckpointerConfig().get("conf");
-        @SuppressWarnings("unchecked") Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> conf = (Map<String, Object>) runnerConfig.getCheckpointerConfig().get("conf");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
         assertThat(connection.get("redis_client")).isNotNull();
         var checkpointer = CheckpointerFactory.create("redis", conf);
         assertThat(checkpointer).isInstanceOf(RedisCheckpointer.class);
+    }
+
+    private static RuntimeRedisClient noopRuntimeRedisClient() {
+        return RuntimeRedisClient.class.cast(Proxy.newProxyInstance(RuntimeRedisClient.class.getClassLoader(),
+                new Class<?>[]{RuntimeRedisClient.class}, (proxy, method, args) -> {
+                    if (method.getDeclaringClass() == Object.class) {
+                        return switch (method.getName()) {
+                            case "toString" -> "NoopRuntimeRedisClient";
+                            case "hashCode" -> System.identityHashCode(proxy);
+                            case "equals" -> proxy == args[0];
+                            default -> null;
+                        };
+                    }
+                    Class<?> returnType = method.getReturnType();
+                    if (returnType == String.class) {
+                        return "OK";
+                    }
+                    if (returnType == int.class) {
+                        return 0;
+                    }
+                    if (returnType == long.class) {
+                        return 0L;
+                    }
+                    if (returnType == boolean.class) {
+                        return false;
+                    }
+                    return null;
+                }));
     }
 }

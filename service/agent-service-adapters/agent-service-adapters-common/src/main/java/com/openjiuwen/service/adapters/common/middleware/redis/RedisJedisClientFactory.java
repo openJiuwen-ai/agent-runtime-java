@@ -11,12 +11,15 @@ import redis.clients.jedis.DefaultJedisClientConfig;
 import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisClientConfig;
+import redis.clients.jedis.JedisCluster;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPooled;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 
+import java.util.LinkedHashSet;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Creates Jedis clients for middleware Redis connections (adapter-side Redis
@@ -43,7 +46,7 @@ public final class RedisJedisClientFactory {
     public static Jedis createClient(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         HostAndPort hostAndPort = hostAndPort(endpoint);
         return clientConfig(endpoint, password).map(cfg -> new Jedis(hostAndPort, cfg))
-            .orElseGet(() -> new Jedis(hostAndPort));
+                .orElseGet(() -> new Jedis(hostAndPort));
     }
 
     /**
@@ -59,9 +62,34 @@ public final class RedisJedisClientFactory {
      */
     public static JedisPooled createPooled(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         HostAndPort hostAndPort = hostAndPort(endpoint);
-        JedisClientConfig clientConfig = clientConfig(endpoint, password).orElseGet(
-            () -> DefaultJedisClientConfig.builder().build());
+        JedisClientConfig clientConfig = clientConfig(endpoint, password)
+                .orElseGet(() -> DefaultJedisClientConfig.builder().build());
         return new JedisPooled(hostAndPort, clientConfig, pooledConnectionConfig());
+    }
+
+    /**
+     * Build a thread-safe {@link JedisCluster} client from middleware redis endpoint settings.
+     *
+     * @param endpoint redis cluster nodes/timeout from properties
+     * @param password decrypted password (blank = no auth)
+     * @return a Jedis cluster client
+     */
+    public static JedisCluster createCluster(MiddlewareProperties.RedisEndpoint endpoint, String password) {
+        Set<HostAndPort> nodes = new LinkedHashSet<>();
+        for (String node : RedisConnectionAssembler.clusterNodes(endpoint)) {
+            nodes.add(HostAndPort.from(node));
+        }
+        String previousInitNoError = System.getProperty(JedisCluster.INIT_NO_ERROR_PROPERTY);
+        System.setProperty(JedisCluster.INIT_NO_ERROR_PROPERTY, "true");
+        try {
+            return new JedisCluster(nodes, clusterClientConfig(endpoint, password), 5, pooledConnectionConfig());
+        } finally {
+            if (previousInitNoError == null) {
+                System.clearProperty(JedisCluster.INIT_NO_ERROR_PROPERTY);
+            } else {
+                System.setProperty(JedisCluster.INIT_NO_ERROR_PROPERTY, previousInitNoError);
+            }
+        }
     }
 
     /**
@@ -76,8 +104,8 @@ public final class RedisJedisClientFactory {
      */
     public static JedisPool createPool(MiddlewareProperties.RedisEndpoint endpoint, String password) {
         HostAndPort hostAndPort = hostAndPort(endpoint);
-        JedisClientConfig clientConfig = clientConfig(endpoint, password).orElseGet(
-            () -> DefaultJedisClientConfig.builder().build());
+        JedisClientConfig clientConfig = clientConfig(endpoint, password)
+                .orElseGet(() -> DefaultJedisClientConfig.builder().build());
         return new JedisPool(poolConfig(), hostAndPort, clientConfig);
     }
 
@@ -98,16 +126,15 @@ public final class RedisJedisClientFactory {
      * @return Optional<JedisClientConfig>
      */
     private static Optional<JedisClientConfig> clientConfig(MiddlewareProperties.RedisEndpoint endpoint,
-        String password) {
+            String password) {
         int timeoutMs = endpoint.getTimeoutMs() > 0 ? endpoint.getTimeoutMs() : 3000;
         boolean hasPassword = password != null && !password.isBlank();
         int database = endpoint.getDatabase();
         if (!hasPassword && database <= 0) {
             return Optional.empty();
         }
-        DefaultJedisClientConfig.Builder builder = DefaultJedisClientConfig.builder()
-            .connectionTimeoutMillis(timeoutMs)
-            .socketTimeoutMillis(timeoutMs);
+        DefaultJedisClientConfig.Builder builder = DefaultJedisClientConfig.builder().connectionTimeoutMillis(timeoutMs)
+                .socketTimeoutMillis(timeoutMs);
         if (hasPassword) {
             builder.password(password);
         }
@@ -115,6 +142,16 @@ public final class RedisJedisClientFactory {
             builder.database(database);
         }
         return Optional.of(builder.build());
+    }
+
+    private static JedisClientConfig clusterClientConfig(MiddlewareProperties.RedisEndpoint endpoint, String password) {
+        int timeoutMs = endpoint.getTimeoutMs() > 0 ? endpoint.getTimeoutMs() : 3000;
+        DefaultJedisClientConfig.Builder builder = DefaultJedisClientConfig.builder().connectionTimeoutMillis(timeoutMs)
+                .socketTimeoutMillis(timeoutMs);
+        if (password != null && !password.isBlank()) {
+            builder.password(password);
+        }
+        return builder.build();
     }
 
     private static GenericObjectPoolConfig<Jedis> poolConfig() {

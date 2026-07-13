@@ -10,8 +10,8 @@ import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
-
-import redis.clients.jedis.JedisPooled;
+import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
+import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -27,8 +27,9 @@ import java.util.Map;
  * @since 2026-07-03
  */
 class MiddlewareAdaptersAutoConfigurationTest {
-    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
-        AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class, MiddlewareAdaptersAutoConfiguration.class));
+    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class,
+                    RedisMiddlewareAutoConfiguration.class, MiddlewareAdaptersAutoConfiguration.class));
 
     @Test
     void registersMiddlewareAdapterRegistrarAndAppliesRunnerConfig() {
@@ -42,17 +43,18 @@ class MiddlewareAdaptersAutoConfigurationTest {
     @Test
     void bindsRedisCheckpointerFromProperties() {
         contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
-            "openjiuwen.service.middleware.redis.default.host=redis.local",
-            "openjiuwen.service.middleware.redis.default.port=6380",
-            "openjiuwen.service.middleware.redis.default.database=0",
-            "openjiuwen.service.middleware.redis.default.encrypted-password=").run(context -> {
-            @SuppressWarnings("unchecked") Map<String, Object> conf
-                = (Map<String, Object>) RunnerConfig.getRunnerConfig().getCheckpointerConfig().get("conf");
-            @SuppressWarnings("unchecked") Map<String, Object> connection = (Map<String, Object>) conf.get(
-                "connection");
-            assertThat(connection.get("url")).asString().contains("redis.local:6380");
-            assertThat(connection.get("redis_client")).isInstanceOf(JedisPooled.class);
-        });
+                "openjiuwen.service.middleware.redis.default.host=redis.local",
+                "openjiuwen.service.middleware.redis.default.port=6380",
+                "openjiuwen.service.middleware.redis.default.database=0",
+                "openjiuwen.service.middleware.redis.default.encrypted-password=").run(context -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> conf = (Map<String, Object>) RunnerConfig.getRunnerConfig()
+                            .getCheckpointerConfig().get("conf");
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
+                    assertThat(connection.get("url")).asString().contains("redis.local:6380");
+                    assertThat(connection.get("redis_client")).isSameAs(context.getBean(RuntimeRedisClient.class));
+                });
     }
 
     @Test

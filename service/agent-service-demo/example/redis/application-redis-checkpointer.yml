@@ -9,3 +9,4 @@ openjiuwen:
       checkpointer:
         type: redis
         redis-ref: default
+        ttl-seconds: 604800
