@@ -1,0 +1,25 @@
+server:
+  port: 8094
+
+# Shared long-term memory profile for agent-service-demo.
+#
+# memory.enabled=true exposes a governed MemoryStore bean.
+# Provider-specific settings live under application-mem0.yml (or future provider profiles).
+# This demo uses MemoryProvider.prefetch before each request and MemoryProvider.syncTurn after it.
+# ReActAgent memory tools still call MemoryStore.search/add/get/delete directly.
+openjiuwen:
+  service:
+    middleware:
+      memory:
+        enabled: true
+        request-scoped-session: true
+        timeout-ms: 3000
+        retry:
+          max: 1
+          backoff-ms: 200
+        circuit-breaker:
+          enabled: true
+          failure-threshold: 5
+          reset-timeout-ms: 120000
+        audit:
+          enabled: true

@@ -6,6 +6,7 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.Session;
@@ -113,13 +114,56 @@ class JiuwenCoreAgentHandlerTest {
     void stringAgentIdProvidesStableAgentIdForCoreSession() {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("it-agent");
 
-        Object session = handler.runnerSession(request("c-string-agent", "hello"));
+        ServeRequest request = request("c-string-agent", "hello");
+        request.setUserId("user-42");
+        request.setSpaceId("space-42");
+        request.setTenantId("tenant-42");
+
+        Object session = handler.runnerSession(request);
 
         assertThat(session).isInstanceOf(AgentSessionApi.class);
         if (!(session instanceof AgentSessionApi agentSession)) {
             throw new AssertionError("Expected AgentSessionApi session");
         }
         assertThat(agentSession.getAgentId()).isEqualTo("it-agent");
+        assertThat(agentSession.getEnv("user_id")).isEqualTo("user-42");
+        assertThat(agentSession.getEnv("space_id")).isEqualTo("space-42");
+        assertThat(agentSession.getEnv("tenant_id")).isEqualTo("tenant-42");
+    }
+
+    @Test
+    void cardBackedAgentKeepsLegacyStringSessionByDefault() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new CardBackedAgent());
+        ServeRequest request = request("c-card-agent", "hello");
+        request.setUserId("card-user");
+        request.setSpaceId("card-space");
+        request.setTenantId("card-tenant");
+
+        Object session = handler.runnerSession(request);
+
+        assertThat(session).isEqualTo("c-card-agent");
+    }
+
+    @Test
+    void requestScopedCardBackedAgentSessionCarriesMergedEnvs() {
+        RequestScopedHandler handler = new RequestScopedHandler(new ConfigEnvCardBackedAgent());
+        ServeRequest request = request("c-card-agent", "hello");
+        request.setUserId("card-user");
+        request.setSpaceId("card-space");
+        request.setTenantId("card-tenant");
+
+        Object session = handler.runnerSession(request);
+
+        assertThat(session).isInstanceOf(AgentSessionApi.class);
+        if (!(session instanceof AgentSessionApi agentSession)) {
+            throw new AssertionError("Expected AgentSessionApi session");
+        }
+        assertThat(agentSession.getSessionId()).isEqualTo("c-card-agent");
+        assertThat(agentSession.getAgentId()).isEqualTo("card-agent");
+        assertThat(agentSession.getEnv("feature_flag")).isEqualTo("on");
+        assertThat(agentSession.getEnv("user_id")).isEqualTo("card-user");
+        assertThat(agentSession.getEnv("space_id")).isEqualTo("card-space");
+        assertThat(agentSession.getEnv("tenant_id")).isEqualTo("card-tenant");
     }
 
     @Test
@@ -228,6 +272,60 @@ class JiuwenCoreAgentHandlerTest {
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             this.lastInputs = inputs;
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "ok"))).iterator();
+        }
+    }
+
+    /** Test agent that exposes a card like regular ReAct agents. */
+    public static class CardBackedAgent {
+        private final BaseCard card = BaseCard.builder()
+            .id("card-agent")
+            .name("Card Agent")
+            .description("card backed")
+            .build();
+
+        /**
+         * Returns the test agent card.
+         *
+         * @return card
+         */
+        public BaseCard getCard() {
+            return card;
+        }
+    }
+
+    /** Test handler that opts into request-scoped AgentSessionApi. */
+    private static final class RequestScopedHandler extends JiuwenCoreAgentHandler {
+        private RequestScopedHandler(Object agent) {
+            super(agent);
+        }
+
+        @Override
+        protected boolean useRequestScopedSession(ServeRequest request) {
+            return true;
+        }
+    }
+
+    /** Card-backed agent with config envs, mirroring Runner's String-session extraction path. */
+    public static class ConfigEnvCardBackedAgent extends CardBackedAgent {
+        /**
+         * Returns config envs that should be merged into the explicit AgentSessionApi path.
+         *
+         * @return config
+         */
+        public ConfigWithEnvs getConfig() {
+            return new ConfigWithEnvs();
+        }
+    }
+
+    /** Test config object exposing envs through getEnvs(). */
+    public static class ConfigWithEnvs {
+        /**
+         * Returns static envs for tests.
+         *
+         * @return envs
+         */
+        public Map<String, Object> getEnvs() {
+            return Map.of("feature_flag", "on", "user_id", "default-user");
         }
     }
 

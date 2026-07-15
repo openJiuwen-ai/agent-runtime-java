@@ -237,12 +237,14 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         result.put("role", "assistant");
         if (rawResult instanceof Map<?, ?> rawMap) {
             @SuppressWarnings("unchecked") Map<String, Object> map = (Map<String, Object>) rawMap;
-            QueryResponse result1 = getQueryResponse(conversationId, map, result);
-            if (result1 != null) {
-                return result1;
+            Optional<QueryResponse> result1 = getQueryResponse(conversationId, map, result);
+            if (result1.isPresent()) {
+                return result1.get();
             }
-            Object content = firstNonNull(map.get("output"), map.get("content"), map.get("response")).orElse(null);
-            result.put("content", stringify(content));
+            String content = firstNonNull(map.get("output"), map.get("content"), map.get("response"))
+                .map(JiuwenCoreAgentHandler::stringify)
+                .orElse("");
+            result.put("content", content);
             return new QueryResponse(result, conversationId);
         }
         if (rawResult instanceof ControllerOutput controllerOutput) {
@@ -252,7 +254,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return new QueryResponse(result, conversationId);
     }
 
-    private static QueryResponse getQueryResponse(String conversationId, Map<String, Object> map,
+    private static Optional<QueryResponse> getQueryResponse(String conversationId, Map<String, Object> map,
         Map<String, Object> result) {
         if ("interrupt".equals(map.get("result_type")) && map.get("state") instanceof List<?> states) {
             Object lastInterrupt = null;
@@ -261,25 +263,25 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                     lastInterrupt = normalizeChunk(outputSchema);
                 }
             }
-            QueryResponse result1 = getQueryResponse(conversationId, lastInterrupt, result);
-            if (result1 != null) {
+            Optional<QueryResponse> result1 = getQueryResponse(conversationId, lastInterrupt, result);
+            if (result1.isPresent()) {
                 return result1;
             }
         }
-        return null;
+        return Optional.empty();
     }
 
-    private static QueryResponse getQueryResponse(String conversationId, Object lastInterrupt,
+    private static Optional<QueryResponse> getQueryResponse(String conversationId, Object lastInterrupt,
         Map<String, Object> result) {
         if (lastInterrupt instanceof Map<?, ?> interruptMap) {
             @SuppressWarnings("unchecked") Map<String, Object> interruptData = (Map<String, Object>) interruptMap;
             if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
                 result.put("_interrupt", interruptData);
                 result.put("content", interruptData.getOrDefault("message", ""));
-                return new QueryResponse(result, conversationId);
+                return Optional.of(new QueryResponse(result, conversationId));
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     private static QueryResponse buildQueryResponseFromControllerOutput(ControllerOutput controllerOutput,
@@ -353,41 +355,121 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @return the session id, conversation id, or {@link AgentSessionApi}
      */
     protected Object runnerSession(ServeRequest request) {
-        String conversationId = request.getConversationId();
-        if (hasAgentCard(agent)) {
-            return conversationId;
+        String sessionId = resolveSessionId(request);
+        if (hasAgentCard(agent) && !useRequestScopedSession(request)) {
+            return sessionId;
         }
-        String sessionId = conversationId != null && !conversationId.isBlank()
+        Object card = resolveSessionCard();
+        return AgentSessionApi.create(sessionId, sessionEnvs(request), card, List.of(StreamMode.OUTPUT));
+    }
+
+    /**
+     * Whether this handler should build an {@link AgentSessionApi} even for card-backed agents.
+     *
+     * <p>The default keeps legacy Core behavior: card-backed agents receive a string session id and
+     * let Runner create its own {@link AgentSessionApi}. Subclasses may opt in when request-scoped
+     * envs must be visible to Core tools.
+     *
+     * @param request the serve request
+     * @return {@code true} to force an explicit request-scoped session
+     */
+    protected boolean useRequestScopedSession(ServeRequest request) {
+        return false;
+    }
+
+    private static String resolveSessionId(ServeRequest request) {
+        String conversationId = request.getConversationId();
+        return conversationId != null && !conversationId.isBlank()
             ? conversationId
             : DEFAULT_AGENT_SESSION_ID;
+    }
+
+    private Map<String, Object> sessionEnvs(ServeRequest request) {
+        Map<String, Object> envs = new LinkedHashMap<>();
+        envs.putAll(readAgentConfigEnvs(agent));
+        envs.putAll(requestEnvs(request));
+        return envs;
+    }
+
+    private Object resolveSessionCard() {
+        Optional<Object> card = readAgentCard(agent);
+        if (card.isPresent()) {
+            return card.get();
+        }
         String agentId = agent instanceof String stringAgentId
             ? stringAgentId
-            : SYNTHETIC_AGENT_ID_PREFIX + agent.getClass().getName();
-        String agentName = agent instanceof String stringAgentId ? stringAgentId : agent.getClass().getSimpleName();
-        BaseCard card = BaseCard.builder()
+            : SYNTHETIC_AGENT_ID_PREFIX + syntheticAgentClassName();
+        String agentName = agent instanceof String stringAgentId ? stringAgentId : syntheticAgentDisplayName();
+        return BaseCard.builder()
             .id(agentId)
             .name(agentName)
             .description("Synthetic card for AgentCore session")
             .build();
-        return new AgentSessionApi(sessionId, null, card, List.of(StreamMode.OUTPUT));
+    }
+
+    private static Map<String, Object> requestEnvs(ServeRequest request) {
+        Map<String, Object> envs = new LinkedHashMap<>();
+        putIfNotBlank(envs, INPUT_CONVERSATION_ID, request.getConversationId());
+        putIfNotBlank(envs, INPUT_USER_ID, request.getUserId());
+        putIfNotBlank(envs, INPUT_SPACE_ID, request.getSpaceId());
+        putIfNotBlank(envs, INPUT_TENANT_ID, request.getTenantId());
+        return envs;
+    }
+
+    private static void putIfNotBlank(Map<String, Object> target, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            target.put(key, value);
+        }
+    }
+
+    private static Map<String, Object> readAgentConfigEnvs(Object target) {
+        Optional<Object> config = readProperty(target, "getConfig", "config");
+        Optional<Object> envs = config.flatMap(value -> readProperty(value, "getEnvs", "envs"));
+        Object envsValue = envs.orElseGet(Map::of);
+        if (!(envsValue instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        map.forEach((key, value) -> {
+            if (key != null) {
+                result.put(String.valueOf(key), value);
+            }
+        });
+        return result;
+    }
+
+    private String syntheticAgentClassName() {
+        return agent != null ? agent.getClass().getName() : "unknown";
+    }
+
+    private String syntheticAgentDisplayName() {
+        return agent != null ? agent.getClass().getSimpleName() : "unknown";
+    }
+
+    private static Optional<Object> readAgentCard(Object target) {
+        return readProperty(target, "getCard", "card");
     }
 
     private static boolean hasAgentCard(Object target) {
+        return readAgentCard(target).isPresent();
+    }
+
+    private static Optional<Object> readProperty(Object target, String getterName, String fieldName) {
         if (target == null) {
-            return false;
+            return Optional.empty();
         }
         try {
-            Method getter = target.getClass().getMethod("getCard");
-            return getter.invoke(target) != null;
+            Method getter = target.getClass().getMethod(getterName);
+            return Optional.ofNullable(getter.invoke(target));
         } catch (ReflectiveOperationException ignored) {
             // Fall through to field access.
         }
         try {
-            Field field = target.getClass().getDeclaredField("card");
+            Field field = target.getClass().getDeclaredField(fieldName);
             field.setAccessible(true);
-            return field.get(target) != null;
+            return Optional.ofNullable(field.get(target));
         } catch (ReflectiveOperationException ignored) {
-            return false;
+            return Optional.empty();
         }
     }
 

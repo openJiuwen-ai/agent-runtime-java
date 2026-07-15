@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: demo-memory-agent-service
+  config:
+    import:
+      - optional:classpath:application-base.yml
+      - optional:classpath:application-base_local.yml
+      - optional:classpath:application-memory.yml
+      - optional:classpath:application-mem0.yml
