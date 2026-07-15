@@ -7,12 +7,16 @@ package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.core.memory.external.MemoryProvider;
+import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
+import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Tests Spring auto-configuration for the governed runtime memory store.
@@ -47,6 +51,22 @@ class MemoryAdaptersAutoConfigurationTest {
     }
 
     @Test
+    void enabledMemoryDecryptsApiKeyWithMemoryScene() {
+        AtomicInteger scene = new AtomicInteger(CredentialSceneType.UNKNOWN);
+        contextRunner.withBean(CredentialDecryptor.class, () -> sceneAwareDecryptor(scene))
+            .withPropertyValues(
+                "openjiuwen.service.middleware.memory.enabled=true",
+                "openjiuwen.service.middleware.memory.provider=mem0",
+                "openjiuwen.service.middleware.memory.endpoint=https://mem0.example",
+                "openjiuwen.service.middleware.memory.encrypted-api-key=ENC(memory-key)")
+            .run(context -> {
+                assertThat(context).hasSingleBean(MemoryStore.class);
+                assertThat(context.getBean(MemoryStore.class).isAvailable()).isTrue();
+                assertThat(scene).hasValue(CredentialSceneType.MEMORY_API_KEY);
+            });
+    }
+
+    @Test
     void enabledMemoryFailsWhenApiKeyIsMissing() {
         contextRunner.withPropertyValues(
             "openjiuwen.service.middleware.memory.enabled=true",
@@ -77,5 +97,20 @@ class MemoryAdaptersAutoConfigurationTest {
                 assertThat(context.getStartupFailure()).hasRootCauseMessage(
                     "memory.timeout-ms must be greater than zero");
             });
+    }
+
+    private static CredentialDecryptor sceneAwareDecryptor(AtomicInteger scene) {
+        return new CredentialDecryptor() {
+            @Override
+            public String decrypt(String ciphertext) {
+                return "memory-key";
+            }
+
+            @Override
+            public String decrypt(String ciphertext, int sceneType) {
+                scene.set(sceneType);
+                return "memory-key";
+            }
+        };
     }
 }

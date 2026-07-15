@@ -19,6 +19,9 @@ public final class CredentialSceneType {
     /** LLM API key credential. */
     public static final int LLM_API_KEY = 2;
 
+    /** Long-term memory provider API key credential. */
+    public static final int MEMORY_API_KEY = 3;
+
     private CredentialSceneType() {
     }
 }
