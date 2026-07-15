@@ -7,6 +7,7 @@ package com.openjiuwen.service.demo.example.support;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.harness.deep_agent.DeepAgent;
+import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
 
 import org.junit.jupiter.api.Test;
 
@@ -18,9 +19,9 @@ import java.util.List;
 class ExampleDeepAgentFactoryTest {
     @Test
     void buildCreatesDeepAgentWithConfiguredCardAndPrompt() {
-        DemoLlmProperties props = props();
+        ResolvedLlmConfig config = config();
 
-        DeepAgent agent = ExampleDeepAgentFactory.build("agent-c", "Agent C", "DeepAgent demo", props);
+        DeepAgent agent = ExampleDeepAgentFactory.build("agent-c", "Agent C", "DeepAgent demo", config);
 
         assertThat(agent.getCard().getId()).isEqualTo("agent-c");
         assertThat(agent.getCard().getName()).isEqualTo("Agent C");
@@ -32,31 +33,37 @@ class ExampleDeepAgentFactoryTest {
 
     @Test
     void buildCanRegisterRailsInDeepAgentConfig() {
-        DemoLlmProperties props = props();
+        ResolvedLlmConfig config = config();
         Object rail = new Object();
 
-        DeepAgent agent = ExampleDeepAgentFactory.build("agent-c", "Agent C", "DeepAgent demo", props, List.of(rail));
+        DeepAgent agent = ExampleDeepAgentFactory.build("agent-c", "Agent C", "DeepAgent demo", config, List.of(rail));
 
         assertThat(agent.getConfig().getRails()).contains(rail);
     }
 
     @Test
     void buildDerivesWorkspacePathFromAgentId() {
-        DemoLlmProperties props = props();
+        ResolvedLlmConfig config = config();
 
-        DeepAgent agent = ExampleDeepAgentFactory.build("agent-d", "Agent D", "DeepAgent demo", props);
+        DeepAgent agent = ExampleDeepAgentFactory.build("agent-d", "Agent D", "DeepAgent demo", config);
 
         assertThat(agent.getConfig().getWorkspacePath().replace('\\', '/'))
             .endsWith("target/deepagents/agent-d");
     }
 
-    private static DemoLlmProperties props() {
-        DemoLlmProperties props = new DemoLlmProperties();
-        props.setApiKey("test-key");
-        props.setApiBase("http://localhost/v1");
-        props.setModelName("test-model");
-        props.setSystemPrompt("Use deep_calc before answering.");
-        props.setMaxIterations(3);
-        return props;
+    private static ResolvedLlmConfig config() {
+        return ResolvedLlmConfig.builder()
+            .provider("OpenAI")
+            .apiKey("test-key")
+            .apiBase("http://localhost/v1")
+            .modelName("test-model")
+            .sslVerify(true)
+            .systemPrompt("Use deep_calc before answering.")
+            .temperature(0.6D)
+            .topP(0.8D)
+            .timeout(java.time.Duration.ofSeconds(60))
+            .contextWindowLimit(10)
+            .maxIterations(3)
+            .build();
     }
 }

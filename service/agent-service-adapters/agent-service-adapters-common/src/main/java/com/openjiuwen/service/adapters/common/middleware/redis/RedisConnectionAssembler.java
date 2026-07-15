@@ -5,6 +5,7 @@
 package com.openjiuwen.service.adapters.common.middleware.redis;
 
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
+import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
 import java.net.URLEncoder;
@@ -142,7 +143,7 @@ public final class RedisConnectionAssembler {
     public static Map<String, Object> buildConnectionMap(MiddlewareProperties properties, String redisRef,
             CredentialDecryptor decryptor) {
         MiddlewareProperties.RedisEndpoint endpoint = resolveEndpoint(properties, redisRef);
-        String password = decryptor.decrypt(endpoint.getEncryptedPassword());
+        String password = decryptor.decrypt(endpoint.getEncryptedPassword(), CredentialSceneType.REDIS_PASSWORD);
         return buildConnectionMap(endpoint, password);
     }
 

@@ -10,6 +10,9 @@
 | `QueryProperties` | `openjiuwen.service.query` | Query MVC / WebFlux / legacy path 配置。 |
 | `LifecycleProperties` | `openjiuwen.service.lifecycle` | shutdown drain 和 init fail-fast 配置。 |
 | `A2AProperties` | `openjiuwen.service.a2a` | Agent Card、A2A endpoint、skills、remote agents 配置。 |
+| `LlmProperties` | `openjiuwen.service.llm` | 原始 LLM 配置，`api-key` 可保存密文。 |
+| `LlmConfigResolver` | LLM 配置解析 | 合并 `apiconfig.json`、应用默认值并按场景解密 API Key。 |
+| `ResolvedLlmConfig` | LLM 运行配置 | 不可变的已解析配置，供 Agent 工厂消费。 |
 | `DefaultAgentServiceIdentity` | `AgentServiceIdentity` 默认实现 | 从环境读取应用名。 |
 
 ## ServiceProperties
@@ -48,6 +51,24 @@
 | `public-url` | `null` | Agent Card 中对外 URL。 |
 | `skills` | `[]` | Agent Card skills。 |
 | `remote-agents` | `[]` | 远端 A2A Agent 配置。 |
+
+## LlmProperties
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `config-file` | `null` | 显式 `apiconfig.json` 路径。 |
+| `auto-discover` | `false` | 是否从当前目录向上发现 `apiconfig.json`。 |
+| `provider` | `OpenAI` | 模型客户端 provider。 |
+| `api-key` | `""` | API Key；自定义 `CredentialDecryptor` 可将其作为密文解密。 |
+| `api-base` | `""` | 模型服务地址。 |
+| `model-name` | `""` | 模型名称。 |
+| `ssl-verify` | `true` | 是否校验服务端 TLS 证书。 |
+| `system-prompt` | `""` | 系统提示词。 |
+| `temperature` | `0.6` | 模型 temperature。 |
+| `top-p` | `0.8` | 模型 top-p。 |
+| `timeout` | `60s` | 模型客户端超时。 |
+| `context-window-limit` | `10` | 上下文窗口轮数。 |
+| `max-iterations` | `5` | Agent 最大迭代次数。 |
 
 ## 源码路径
 

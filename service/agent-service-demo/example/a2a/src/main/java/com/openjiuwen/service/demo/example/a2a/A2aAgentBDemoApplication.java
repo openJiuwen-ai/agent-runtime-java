@@ -6,13 +6,13 @@ package com.openjiuwen.service.demo.example.a2a;
 
 import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
-import com.openjiuwen.service.demo.example.support.DemoLlmProperties;
+import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
+import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -26,7 +26,6 @@ import org.springframework.context.annotation.Bean;
  * @since 0.1.0
  */
 @SpringBootApplication(scanBasePackages = "com.openjiuwen.service.app")
-@EnableConfigurationProperties(DemoLlmProperties.class)
 public class A2aAgentBDemoApplication {
     private static final String AGENT_ID = "demo-a2a-agent-b";
 
@@ -38,11 +37,10 @@ public class A2aAgentBDemoApplication {
     }
 
     @Bean
-    AgentHandler agentBHandler(DemoLlmProperties llmProperties) {
-        llmProperties.applyApiConfigIfPresent();
-        llmProperties.requireConfigured();
+    AgentHandler agentBHandler(LlmConfigResolver llmConfigResolver) {
+        ResolvedLlmConfig llmConfig = llmConfigResolver.resolveRequired();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Agent B (A2A Demo)",
-            "ReAct agent with local calc and Agent C delegation tools for A2A demo", llmProperties);
+            "ReAct agent with local calc and Agent C delegation tools for A2A demo", llmConfig);
         agent.registerRail(new CalcInterruptRail());
         agent.registerRail(new BToCDelegateRail());
         return new JiuwenCoreAgentHandler(agent);
