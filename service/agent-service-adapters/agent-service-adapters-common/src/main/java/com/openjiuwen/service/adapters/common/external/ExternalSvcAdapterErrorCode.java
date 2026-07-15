@@ -22,7 +22,11 @@ public enum ExternalSvcAdapterErrorCode {
     SANDBOX_OUTBOUND_CALL_FAILED("EXT_SANDBOX_001", "Sandbox outbound call failed"),
     SANDBOX_CIRCUIT_OPEN("EXT_SANDBOX_002", "Sandbox circuit breaker is open"),
     SANDBOX_RETRY_INTERRUPTED("EXT_SANDBOX_003", "Sandbox retry was interrupted"),
-    SANDBOX_TIMEOUT("EXT_SANDBOX_004", "Sandbox outbound call timed out");
+    SANDBOX_TIMEOUT("EXT_SANDBOX_004", "Sandbox outbound call timed out"),
+    MEMORY_OUTBOUND_CALL_FAILED("EXT_MEMORY_001", "Memory outbound call failed"),
+    MEMORY_CIRCUIT_OPEN("EXT_MEMORY_002", "Memory circuit breaker is open"),
+    MEMORY_RETRY_INTERRUPTED("EXT_MEMORY_003", "Memory retry was interrupted"),
+    MEMORY_TIMEOUT("EXT_MEMORY_004", "Memory outbound call timed out");
 
     private final String code;
 
