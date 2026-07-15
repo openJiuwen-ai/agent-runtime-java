@@ -9,6 +9,7 @@ import com.openjiuwen.core.memory.external.MemoryProvider;
 import com.openjiuwen.service.adapters.agentcore.memory.MemoryStoreMemoryProvider;
 import com.openjiuwen.service.adapters.agentcore.memory.MemoryStoreFactory;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
+import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
@@ -42,7 +43,7 @@ public class MemoryAdaptersAutoConfiguration {
     @ConditionalOnProperty(prefix = "openjiuwen.service.middleware.memory", name = "enabled", havingValue = "true")
     public MemoryStore memoryStore(MiddlewareProperties middlewareProperties, CredentialDecryptor credentialDecryptor) {
         MiddlewareProperties.Memory memory = middlewareProperties.getMemory();
-        String apiKey = decrypt(memory.getEncryptedApiKey(), credentialDecryptor);
+        String apiKey = credentialDecryptor.decrypt(memory.getEncryptedApiKey(), CredentialSceneType.MEMORY_API_KEY);
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException(
                 "openjiuwen.service.middleware.memory.enabled=true but encrypted-api-key resolves to empty");
@@ -62,12 +63,5 @@ public class MemoryAdaptersAutoConfiguration {
     @ConditionalOnProperty(prefix = "openjiuwen.service.middleware.memory", name = "enabled", havingValue = "true")
     public MemoryProvider runtimeMemoryProvider(MemoryStore memoryStore, MiddlewareProperties middlewareProperties) {
         return new MemoryStoreMemoryProvider(memoryStore, middlewareProperties.getMemory());
-    }
-
-    private String decrypt(String ciphertext, CredentialDecryptor credentialDecryptor) {
-        if (credentialDecryptor == null) {
-            return ciphertext;
-        }
-        return credentialDecryptor.decrypt(ciphertext);
     }
 }

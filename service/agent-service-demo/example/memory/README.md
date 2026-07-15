@@ -51,7 +51,7 @@ cp service/agent-service-demo/example/config/application-base_local.example.yml 
 
 ```yaml
 openjiuwen:
-  demo:
+  service:
     llm:
       auto-discover: false
       provider: OpenAI
@@ -64,11 +64,11 @@ openjiuwen:
 方式二：用环境变量覆盖。
 
 ```bash
-export OPENJIUWEN_DEMO_LLM_AUTO_DISCOVER=false
-export OPENJIUWEN_DEMO_LLM_PROVIDER=OpenAI
-export OPENJIUWEN_DEMO_LLM_API_KEY=your-api-key
-export OPENJIUWEN_DEMO_LLM_API_BASE=https://your-llm-endpoint/v1
-export OPENJIUWEN_DEMO_LLM_MODEL_NAME=your-model
+export OPENJIUWEN_SERVICE_LLM_AUTO_DISCOVER=false
+export OPENJIUWEN_SERVICE_LLM_PROVIDER=OpenAI
+export OPENJIUWEN_SERVICE_LLM_API_KEY=your-api-key
+export OPENJIUWEN_SERVICE_LLM_API_BASE=https://your-llm-endpoint/v1
+export OPENJIUWEN_SERVICE_LLM_MODEL_NAME=your-model
 ```
 
 ### 2. 配置 mem0
