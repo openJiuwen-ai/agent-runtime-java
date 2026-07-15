@@ -52,9 +52,9 @@ POST /v1/query
 从 `agent-runtime-java/service` 目录启动：
 
 ```bash
-OPENJIUWEN_DEMO_LLM_API_KEY=xxx \
-OPENJIUWEN_DEMO_LLM_API_BASE=https://your-llm-endpoint.example.com \
-OPENJIUWEN_DEMO_LLM_MODEL_NAME=your-model-name \
+OPENJIUWEN_SERVICE_LLM_API_KEY=xxx \
+OPENJIUWEN_SERVICE_LLM_API_BASE=https://your-llm-endpoint.example.com \
+OPENJIUWEN_SERVICE_LLM_MODEL_NAME=your-model-name \
 OPENJIUWEN_SANDBOX_SERVICE_URL=http://localhost:18090 \
 mvn -pl agent-service-demo/example/sandbox -am spring-boot:run
 ```

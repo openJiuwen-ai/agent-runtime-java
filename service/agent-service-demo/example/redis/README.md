@@ -50,7 +50,7 @@ redis-cli -h 127.0.0.1 -p 6379 ping
 
 ```bash
 cp ../config/application-base_local.example.yml ../config/application-base_local.yml
-# 编辑 application-base_local.yml，填写 openjiuwen.demo.llm 下的 api-key / api-base / model-name
+# 编辑 application-base_local.yml，填写 openjiuwen.service.llm 下的 api-key / api-base / model-name
 # 建议设置 auto-discover: false
 ```
 
@@ -64,8 +64,8 @@ $env:OPENJIUWEN_API_CONFIG="C:\path\to\apiconfig.json"  # PowerShell
 
 **方式 C — 环境变量**
 
-`application-base.yml` 支持占位符：`OPENJIUWEN_DEMO_LLM_API_KEY`、`OPENJIUWEN_DEMO_LLM_API_BASE`、
-`OPENJIUWEN_DEMO_LLM_MODEL_NAME`。
+`application-base.yml` 支持占位符：`OPENJIUWEN_SERVICE_LLM_API_KEY`、`OPENJIUWEN_SERVICE_LLM_API_BASE`、
+`OPENJIUWEN_SERVICE_LLM_MODEL_NAME`。
 
 ### 3. 启动服务
 
@@ -159,7 +159,7 @@ spring:
 
 | 文件                                     | 作用                                                                |
 |----------------------------------------|-------------------------------------------------------------------|
-| `../config/application-base.yml`       | `openjiuwen.demo.llm`、Redis 连接、`checkpointer.type: in_memory`（默认） |
+| `../config/application-base.yml`       | `openjiuwen.service.llm`、Redis 连接、`checkpointer.type: in_memory`（默认） |
 | `../config/application-base_local.yml` | 本地 API 覆盖（勿提交）                                                    |
 | `application-redis-checkpointer.yml`   | **`server.port: 8091`**、`checkpointer.type: redis`                |
 

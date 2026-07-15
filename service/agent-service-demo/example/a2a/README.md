@@ -87,7 +87,7 @@ sequenceDiagram
 ```bash
 cp agent-service-demo/example/config/application-base_local.example.yml \
    agent-service-demo/example/config/application-base_local.yml
-# 编辑 application-base_local.yml，填写 openjiuwen.demo.llm 下的 api-key / api-base / model-name
+# 编辑 application-base_local.yml，填写 openjiuwen.service.llm 下的 api-key / api-base / model-name
 ```
 
 **方式 B：apiconfig.json**
@@ -105,9 +105,9 @@ $env:OPENJIUWEN_API_CONFIG="C:\path\to\apiconfig.json"
 **方式 C：环境变量**
 
 ```bash
-export OPENJIUWEN_DEMO_LLM_API_KEY=...
-export OPENJIUWEN_DEMO_LLM_API_BASE=...
-export OPENJIUWEN_DEMO_LLM_MODEL_NAME=...
+export OPENJIUWEN_SERVICE_LLM_API_KEY=...
+export OPENJIUWEN_SERVICE_LLM_API_BASE=...
+export OPENJIUWEN_SERVICE_LLM_MODEL_NAME=...
 ```
 
 ### 2. 启动三个 Agent

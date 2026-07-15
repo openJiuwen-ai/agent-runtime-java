@@ -5,6 +5,7 @@
 package com.openjiuwen.service.adapters.agentcore.middleware;
 
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
+import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisConnectionAssembler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
@@ -63,7 +64,7 @@ public final class AgentCoreCheckpointerConfigAssembler {
         }
         String redisRef = properties.getCheckpointer().getRedisRef();
         MiddlewareProperties.RedisEndpoint endpoint = RedisConnectionAssembler.resolveEndpoint(properties, redisRef);
-        String password = decryptor.decrypt(endpoint.getEncryptedPassword());
+        String password = decryptor.decrypt(endpoint.getEncryptedPassword(), CredentialSceneType.REDIS_PASSWORD);
 
         Map<String, Object> connection = new HashMap<>(RedisConnectionAssembler.buildConnectionMap(endpoint, password));
         connection.put("redis_client", redisClient);

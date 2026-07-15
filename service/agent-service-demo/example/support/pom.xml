@@ -16,7 +16,7 @@
     <packaging>jar</packaging>
 
     <name>agent-service-demo-example-support</name>
-    <description>Shared DemoLlmProperties and ReActAgent factory for demo and example modules</description>
+    <description>Shared ReActAgent and DeepAgent factories for demo and example modules</description>
 
     <dependencies>
         <dependency>
@@ -27,6 +27,10 @@
         <dependency>
             <groupId>com.openjiuwen</groupId>
             <artifactId>agent-service-adapters-agentcore</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.openjiuwen</groupId>
+            <artifactId>agent-service-app</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

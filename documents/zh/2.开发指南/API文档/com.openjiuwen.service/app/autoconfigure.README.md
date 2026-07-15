@@ -7,6 +7,7 @@
 | Type | Description |
 | --- | --- |
 | `AgentServiceAutoConfiguration` | 注册基础 Service Bean、Lifecycle、Readiness、Controller component scan。 |
+| `LlmAutoConfiguration` | 注册 `LlmProperties` 和 `LlmConfigResolver`。 |
 | `A2AAutoConfiguration` | 注册 A2A SDK 组件、AgentCard、JSON-RPC、TaskStore、远端 Agent 发现和增强 Orchestrator。 |
 
 ## AgentServiceAutoConfiguration
