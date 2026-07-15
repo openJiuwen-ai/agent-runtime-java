@@ -110,11 +110,11 @@ class MemoryAgentEndToEndTest {
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {
-        registry.add("openjiuwen.demo.llm.provider", () -> TEST_PROVIDER);
-        registry.add("openjiuwen.demo.llm.api-key", () -> "test-key");
-        registry.add("openjiuwen.demo.llm.api-base", () -> "mirror://memory-agent-e2e");
-        registry.add("openjiuwen.demo.llm.model-name", () -> "test-model");
-        registry.add("openjiuwen.demo.llm.auto-discover", () -> "false");
+        registry.add("openjiuwen.service.llm.provider", () -> TEST_PROVIDER);
+        registry.add("openjiuwen.service.llm.api-key", () -> "test-key");
+        registry.add("openjiuwen.service.llm.api-base", () -> "mirror://memory-agent-e2e");
+        registry.add("openjiuwen.service.llm.model-name", () -> "test-model");
+        registry.add("openjiuwen.service.llm.auto-discover", () -> "false");
 
         registry.add("openjiuwen.service.middleware.memory.enabled", () -> "true");
         registry.add("openjiuwen.service.middleware.memory.provider", () -> "mem0");

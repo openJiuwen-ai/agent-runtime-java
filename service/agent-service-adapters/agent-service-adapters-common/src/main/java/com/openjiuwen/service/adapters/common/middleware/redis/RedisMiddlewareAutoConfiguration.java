@@ -5,6 +5,7 @@
 package com.openjiuwen.service.adapters.common.middleware.redis;
 
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
+import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
@@ -41,7 +42,7 @@ public class RedisMiddlewareAutoConfiguration {
     public RuntimeRedisClient runtimeRedisClient(MiddlewareProperties properties, CredentialDecryptor decryptor) {
         String redisRef = properties.getCheckpointer().getRedisRef();
         MiddlewareProperties.RedisEndpoint endpoint = RedisConnectionAssembler.resolveEndpoint(properties, redisRef);
-        String password = decryptor.decrypt(endpoint.getEncryptedPassword());
+        String password = decryptor.decrypt(endpoint.getEncryptedPassword(), CredentialSceneType.REDIS_PASSWORD);
         if (RedisConnectionAssembler.TYPE_CLUSTER.equals(RedisConnectionAssembler.resolveEndpointType(endpoint))) {
             return new JedisClusterRuntimeRedisClient(RedisJedisClientFactory.createCluster(endpoint, password));
         }

@@ -6,7 +6,9 @@ package com.openjiuwen.service.adapters.common.middleware.redis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
+import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.lang.reflect.Proxy;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Tests Redis middleware auto-configuration behavior.
@@ -44,6 +47,19 @@ class RedisMiddlewareAutoConfigurationTest {
                         "openjiuwen.service.middleware.redis.default.host=redis.local")
                 .run(context -> assertThat(context.getBean(RuntimeRedisClient.class))
                         .isInstanceOf(JedisPooledRuntimeRedisClient.class));
+    }
+
+    @Test
+    void decryptsPasswordWithRedisScene() {
+        AtomicInteger scene = new AtomicInteger(CredentialSceneType.UNKNOWN);
+        contextRunner.withBean(CredentialDecryptor.class, () -> sceneAwareDecryptor(scene))
+                .withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
+                        "openjiuwen.service.middleware.redis.default.host=redis.local",
+                        "openjiuwen.service.middleware.redis.default.encrypted-password=ENC(redis-password)")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(RuntimeRedisClient.class);
+                    assertThat(scene).hasValue(CredentialSceneType.REDIS_PASSWORD);
+                });
     }
 
     @Test
@@ -134,5 +150,20 @@ class RedisMiddlewareAutoConfigurationTest {
                     }
                     return null;
                 }));
+    }
+
+    private static CredentialDecryptor sceneAwareDecryptor(AtomicInteger scene) {
+        return new CredentialDecryptor() {
+            @Override
+            public String decrypt(String ciphertext) {
+                return "redis-password";
+            }
+
+            @Override
+            public String decrypt(String ciphertext, int sceneType) {
+                scene.set(sceneType);
+                return "redis-password";
+            }
+        };
     }
 }
