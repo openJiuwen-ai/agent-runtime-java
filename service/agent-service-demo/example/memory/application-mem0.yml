@@ -1,4 +1,8 @@
 # mem0 provider profile — import via application.yml alongside application-memory.yml.
+#
+# Default: Mem0 Platform Cloud API (https://api.mem0.ai).
+# To switch to self-hosted Mem0 OSS, uncomment the self-hosted section below
+# and comment out the cloud defaults.
 openjiuwen:
   service:
     middleware:
@@ -8,3 +12,9 @@ openjiuwen:
         encrypted-api-key: ${MEM0_API_KEY:}
         user-id: ${MEM0_USER_ID:demo-user}
         rerank: false
+
+        # --- Self-hosted Mem0 OSS example ---
+        # endpoint: ${MEM0_ENDPOINT:http://localhost:8888}
+        # encrypted-api-key: ${MEM0_API_KEY:your-oss-api-key}
+        # auth-header-mode: x_api_key
+        # path-style: open

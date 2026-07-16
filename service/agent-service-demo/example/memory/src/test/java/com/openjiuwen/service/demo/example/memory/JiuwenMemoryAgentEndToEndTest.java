@@ -58,8 +58,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * End-to-end test for the single memory demo:
- * request lifecycle memory plus model-driven memory tools.
+ * End-to-end test for Jiuwen Memory Engine provider.
+ * Uses a local mock server simulating Jiuwen API paths.
+ *
+ * <p>Note: Jiuwen does not support delete-by-memory-id, so delete is not tested.
  *
  * @since 0.1.0
  */
@@ -68,20 +70,18 @@ import java.util.concurrent.atomic.AtomicInteger;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class MemoryAgentEndToEndTest {
-    private static final String TEST_PROVIDER = "MemoryAgentEndToEndProvider";
+class JiuwenMemoryAgentEndToEndTest {
+    private static final String TEST_PROVIDER = "JiuwenMemoryE2eProvider";
 
-    private static final String USER_ID = "memory-request-user";
+    private static final String USER_ID = "jiuwen-e2e-user";
 
-    private static final String MEMORY_ID = "m-1";
+    private static final String MEMORY_ID = "mem-1";
 
     private static final String SEARCH_TOOL_NAME = "memory_search";
 
     private static final String ADD_TOOL_NAME = "memory_add";
 
     private static final String GET_TOOL_NAME = "memory_get";
-
-    private static final String DELETE_TOOL_NAME = "memory_delete";
 
     private static final String SEARCH_QUERY = "咖啡偏好";
 
@@ -95,7 +95,7 @@ class MemoryAgentEndToEndTest {
 
     private static final List<String> USER_MESSAGES_SEEN_BY_MODEL = new CopyOnWriteArrayList<>();
 
-    private static final LocalMem0Server MEM0_SERVER = LocalMem0Server.start();
+    private static final LocalJiuwenServer JIUWEN_SERVER = LocalJiuwenServer.start();
 
     @Autowired
     private TestRestTemplate rest;
@@ -112,17 +112,15 @@ class MemoryAgentEndToEndTest {
     static void configure(DynamicPropertyRegistry registry) {
         registry.add("openjiuwen.service.llm.provider", () -> TEST_PROVIDER);
         registry.add("openjiuwen.service.llm.api-key", () -> "test-key");
-        registry.add("openjiuwen.service.llm.api-base", () -> "mirror://memory-agent-e2e");
+        registry.add("openjiuwen.service.llm.api-base", () -> "mirror://jiuwen-memory-e2e");
         registry.add("openjiuwen.service.llm.model-name", () -> "test-model");
         registry.add("openjiuwen.service.llm.auto-discover", () -> "false");
 
         registry.add("openjiuwen.service.middleware.memory.enabled", () -> "true");
-        registry.add("openjiuwen.service.middleware.memory.provider", () -> "mem0");
-        registry.add("openjiuwen.service.middleware.memory.endpoint", MEM0_SERVER::endpoint);
-        registry.add("openjiuwen.service.middleware.memory.encrypted-api-key", () -> "mock-key");
-        registry.add("openjiuwen.service.middleware.memory.auth-header-mode", () -> "token");
-        registry.add("openjiuwen.service.middleware.memory.path-style", () -> "v3");
-        registry.add("openjiuwen.service.middleware.memory.user-id", () -> "memory-e2e-user");
+        registry.add("openjiuwen.service.middleware.memory.provider", () -> "jiuwen");
+        registry.add("openjiuwen.service.middleware.memory.endpoint", JIUWEN_SERVER::endpoint);
+        registry.add("openjiuwen.service.middleware.memory.encrypted-api-key", () -> "jiuwen-test-key");
+        registry.add("openjiuwen.service.middleware.memory.user-id", () -> USER_ID);
         registry.add("openjiuwen.service.middleware.memory.request-scoped-session", () -> "true");
         registry.add("openjiuwen.service.middleware.memory.timeout-ms", () -> "3000");
         registry.add("openjiuwen.service.middleware.memory.retry.max", () -> "0");
@@ -132,43 +130,41 @@ class MemoryAgentEndToEndTest {
     @BeforeAll
     static void registerModelFactory() {
         if (FACTORY_REGISTERED.compareAndSet(false, true)) {
-            Model.registerFactory(new MemoryE2eModelFactory());
+            Model.registerFactory(new JiuwenE2eModelFactory());
         }
     }
 
     @BeforeEach
     void reset() {
-        MEM0_SERVER.reset();
+        JIUWEN_SERVER.reset();
         TOOL_LISTS_SEEN_BY_MODEL.clear();
         USER_MESSAGES_SEEN_BY_MODEL.clear();
-        Runner.release("memory-e2e-lifecycle");
-        Runner.release("memory-e2e-search");
-        Runner.release("memory-e2e-get");
-        Runner.release("memory-e2e-delete");
-        Runner.release("memory-e2e-add");
+        Runner.release("jiuwen-e2e-lifecycle");
+        Runner.release("jiuwen-e2e-search");
+        Runner.release("jiuwen-e2e-get");
+        Runner.release("jiuwen-e2e-add");
     }
 
     @AfterAll
     void cleanup() {
         agentHandler.stop();
-        MEM0_SERVER.stop();
+        JIUWEN_SERVER.stop();
         TOOL_LISTS_SEEN_BY_MODEL.clear();
         USER_MESSAGES_SEEN_BY_MODEL.clear();
     }
 
     @Test
-    void lifecyclePrefetchSyncTurnAndFourMemoryToolsReachMockMem0() throws IOException {
-        assertThat(memoryStore.getProvider()).isEqualTo("mem0");
+    void lifecyclePrefetchSyncTurnAndMemoryToolsReachMockJiuwen() throws IOException {
+        assertThat(memoryStore.getProvider()).isEqualTo("jiuwen");
 
         verifyLifecyclePrefetchAndSyncTurn();
         verifyMemorySearchTool();
         verifyMemoryGetTool();
-        verifyMemoryDeleteTool();
         verifyMemoryAddTool();
     }
 
     private void verifyLifecyclePrefetchAndSyncTurn() throws IOException {
-        ResponseEntity<String> lifecycleResponse = postQuery("memory-e2e-lifecycle",
+        ResponseEntity<String> lifecycleResponse = postQuery("jiuwen-e2e-lifecycle",
             "请直接回答：我喜欢喝什么咖啡？");
 
         verifyLifecyclePrefetch(lifecycleResponse);
@@ -178,14 +174,13 @@ class MemoryAgentEndToEndTest {
     private void verifyLifecyclePrefetch(ResponseEntity<String> lifecycleResponse) throws IOException {
         assertThat(lifecycleResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resultMap(lifecycleResponse).get("content")).asString().contains("拿铁咖啡");
-        assertThat(MEM0_SERVER.searchRequests())
+        assertThat(JIUWEN_SERVER.searchRequests())
             .as("request lifecycle should prefetch through MemoryProvider -> MemoryStore.search")
             .isEqualTo(1);
-        assertThat(MEM0_SERVER.searchBodies().get(0))
+        assertThat(JIUWEN_SERVER.searchBodies().get(0))
             .containsEntry("query", "请直接回答：我喜欢喝什么咖啡？");
-        assertThat(filters(MEM0_SERVER.searchBodies().get(0)))
+        assertThat(JIUWEN_SERVER.searchBodies().get(0))
             .containsEntry("user_id", USER_ID);
-        assertThat(filters(MEM0_SERVER.searchBodies().get(0))).doesNotContainKey("agent_id");
         assertThat(USER_MESSAGES_SEEN_BY_MODEL)
             .anySatisfy(message -> assertThat(message)
                 .contains("<memory-context>")
@@ -195,11 +190,10 @@ class MemoryAgentEndToEndTest {
     }
 
     private void verifyLifecycleSyncTurn() {
-        assertThat(MEM0_SERVER.addBodies())
+        assertThat(JIUWEN_SERVER.addBodies())
             .as("request lifecycle should sync user/assistant turn through MemoryProvider -> MemoryStore.add")
             .anySatisfy(body -> {
                 assertThat(body).containsEntry("user_id", USER_ID);
-                assertThat(body).doesNotContainKey("agent_id");
                 assertThat(messages(body)).anySatisfy(message -> assertThat(message)
                     .containsEntry("role", "user")
                     .containsEntry("content", "请直接回答：我喜欢喝什么咖啡？"));
@@ -210,42 +204,33 @@ class MemoryAgentEndToEndTest {
     }
 
     private void verifyMemorySearchTool() throws IOException {
-        ResponseEntity<String> searchResponse = postQuery("memory-e2e-search", "请用 memory_search 查找咖啡偏好");
+        ResponseEntity<String> searchResponse = postQuery("jiuwen-e2e-search", "请用 memory_search 查找咖啡偏好");
         assertThat(searchResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resultContent(searchResponse)).contains("拿铁咖啡");
         assertThat(TOOL_LISTS_SEEN_BY_MODEL).anyMatch(tools -> tools.contains(SEARCH_TOOL_NAME));
-        assertThat(MEM0_SERVER.searchBodies())
-            .as("prefetch search plus memory_search tool call should both reach mem0")
+        assertThat(JIUWEN_SERVER.searchBodies())
+            .as("prefetch search plus memory_search tool call should both reach jiuwen")
             .anySatisfy(body -> assertThat(body).containsEntry("query", SEARCH_QUERY));
     }
 
     private void verifyMemoryGetTool() throws IOException {
-        ResponseEntity<String> getResponse = postQuery("memory-e2e-get",
-            "请用 memory_get 查看 memory_id 为 m-1 的记录");
+        ResponseEntity<String> getResponse = postQuery("jiuwen-e2e-get",
+            "请用 memory_get 查看 memory_id 为 mem-1 的记录");
         assertThat(getResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resultContent(getResponse)).contains(SEED_MEMORY);
         assertThat(TOOL_LISTS_SEEN_BY_MODEL).anyMatch(tools -> tools.contains(GET_TOOL_NAME));
-        assertThat(MEM0_SERVER.getRequests()).isEqualTo(1);
-    }
-
-    private void verifyMemoryDeleteTool() {
-        ResponseEntity<String> deleteResponse = postQuery("memory-e2e-delete",
-            "请用 memory_delete 删除 memory_id 为 m-1 的记录");
-        assertThat(deleteResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(TOOL_LISTS_SEEN_BY_MODEL).anyMatch(tools -> tools.contains(DELETE_TOOL_NAME));
-        assertThat(MEM0_SERVER.deleteRequests()).isEqualTo(1);
-        assertThat(MEM0_SERVER.containsMemory(MEMORY_ID)).isFalse();
+        assertThat(JIUWEN_SERVER.getPageRequests()).isEqualTo(1);
     }
 
     private void verifyMemoryAddTool() throws IOException {
-        ResponseEntity<String> addResponse = postQuery("memory-e2e-add", "请用 memory_add 记录我的长期偏好");
+        ResponseEntity<String> addResponse = postQuery("jiuwen-e2e-add", "请用 memory_add 记录我的长期偏好");
         assertThat(addResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resultContent(addResponse)).contains("Fact stored");
         assertThat(TOOL_LISTS_SEEN_BY_MODEL).anyMatch(tools -> tools.contains(ADD_TOOL_NAME));
-        assertThat(MEM0_SERVER.addBodies())
+        assertThat(JIUWEN_SERVER.addBodies())
             .anySatisfy(body -> assertThat(messages(body))
                 .anySatisfy(message -> assertThat(message).containsEntry("content", STORED_CONTENT)));
-        assertThat(MEM0_SERVER.containsMemoryText(STORED_CONTENT)).isTrue();
+        assertThat(JIUWEN_SERVER.containsMemoryText(STORED_CONTENT)).isTrue();
     }
 
     private ResponseEntity<String> postQuery(String conversationId, String message) {
@@ -269,12 +254,6 @@ class MemoryAgentEndToEndTest {
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> filters(Map<String, Object> body) {
-        Object filters = body.get("filters");
-        return filters instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
-    }
-
-    @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> messages(Map<String, Object> body) {
         Object messages = body.get("messages");
         if (!(messages instanceof List<?> items)) {
@@ -289,7 +268,7 @@ class MemoryAgentEndToEndTest {
         return result;
     }
 
-    private static final class MemoryE2eModelFactory implements Model.ModelClientFactory {
+    private static final class JiuwenE2eModelFactory implements Model.ModelClientFactory {
         @Override
         public String providerName() {
             return TEST_PROVIDER;
@@ -297,15 +276,15 @@ class MemoryAgentEndToEndTest {
 
         @Override
         public BaseModelClient create(ModelRequestConfig modelConfig, ModelClientConfig clientConfig) {
-            return new MemoryE2eModelClient(modelConfig, clientConfig);
+            return new JiuwenE2eModelClient(modelConfig, clientConfig);
         }
     }
 
-    private static final class MemoryE2eModelClient extends BaseModelClient {
+    private static final class JiuwenE2eModelClient extends BaseModelClient {
         private static final ObjectMapper MAPPER = new ObjectMapper();
 
-        private MemoryE2eModelClient(ModelRequestConfig modelConfig, ModelClientConfig modelClientConfig) {
-            super(modelConfig, modelClientConfig);
+        private JiuwenE2eModelClient(ModelRequestConfig modelConfig, ModelClientConfig clientClientConfig) {
+            super(modelConfig, clientClientConfig);
         }
 
         @Override
@@ -348,15 +327,12 @@ class MemoryAgentEndToEndTest {
 
         private static ToolCall selectToolCall(String userMessage) {
             if (userMessage.contains("memory_get") || userMessage.contains("查看")) {
-                return toolCall("memory-get-1", GET_TOOL_NAME, Map.of("memory_id", MEMORY_ID));
-            }
-            if (userMessage.contains("memory_delete") || userMessage.contains("删除")) {
-                return toolCall("memory-delete-1", DELETE_TOOL_NAME, Map.of("memory_id", MEMORY_ID));
+                return toolCall("jiuwen-get-1", GET_TOOL_NAME, Map.of("memory_id", MEMORY_ID));
             }
             if (userMessage.contains("memory_add") || userMessage.contains("记录")) {
-                return toolCall("memory-add-1", ADD_TOOL_NAME, Map.of("content", STORED_CONTENT));
+                return toolCall("jiuwen-add-1", ADD_TOOL_NAME, Map.of("content", STORED_CONTENT));
             }
-            return toolCall("memory-search-1", SEARCH_TOOL_NAME, Map.of("query", SEARCH_QUERY, "top_k", 5));
+            return toolCall("jiuwen-search-1", SEARCH_TOOL_NAME, Map.of("query", SEARCH_QUERY, "top_k", 5));
         }
 
         private static String currentUserMessage(String message) {
@@ -420,16 +396,25 @@ class MemoryAgentEndToEndTest {
         }
     }
 
-    private static final class LocalMem0Server {
+    /**
+     * Local mock server simulating Jiuwen Memory Engine API.
+     *
+     * <p>Paths:
+     * <ul>
+     *   <li>POST /search_memory/ - semantic search</li>
+     *   <li>POST /add_messages/ - add messages as memory</li>
+     *   <li>POST /get_user_mem_by_page/ - paginated memory retrieval</li>
+     *   <li>GET /health - health check</li>
+     * </ul>
+     */
+    private static final class LocalJiuwenServer {
         private final HttpServer server;
 
         private final AtomicInteger addRequests = new AtomicInteger(0);
 
         private final AtomicInteger searchRequests = new AtomicInteger(0);
 
-        private final AtomicInteger getRequests = new AtomicInteger(0);
-
-        private final AtomicInteger deleteRequests = new AtomicInteger(0);
+        private final AtomicInteger getPageRequests = new AtomicInteger(0);
 
         private final AtomicInteger idSequence = new AtomicInteger(2);
 
@@ -439,28 +424,27 @@ class MemoryAgentEndToEndTest {
 
         private final Map<String, Map<String, Object>> memories = new java.util.concurrent.ConcurrentHashMap<>();
 
-        private LocalMem0Server(HttpServer server) {
+        private LocalJiuwenServer(HttpServer server) {
             this.server = server;
             reset();
         }
 
-        private static LocalMem0Server start() {
+        private static LocalJiuwenServer start() {
             try {
                 HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-                LocalMem0Server localServer = new LocalMem0Server(server);
+                LocalJiuwenServer localServer = new LocalJiuwenServer(server);
                 server.createContext("/", localServer::handle);
                 server.start();
                 return localServer;
             } catch (IOException ex) {
-                throw new IllegalStateException("Failed to start local mem0 server", ex);
+                throw new IllegalStateException("Failed to start local jiuwen server", ex);
             }
         }
 
         private void reset() {
             addRequests.set(0);
             searchRequests.set(0);
-            getRequests.set(0);
-            deleteRequests.set(0);
+            getPageRequests.set(0);
             idSequence.set(2);
             addBodies.clear();
             searchBodies.clear();
@@ -470,18 +454,14 @@ class MemoryAgentEndToEndTest {
 
         private void seedMemory(String id, String text) {
             memories.put(id, Map.of(
-                "id", id,
-                "memory", text,
-                "user_id", USER_ID));
-        }
-
-        private boolean containsMemory(String id) {
-            return memories.containsKey(id);
+                "mem_id", id,
+                "content", text,
+                "type", "fact"));
         }
 
         private boolean containsMemoryText(String text) {
             return memories.values().stream()
-                .anyMatch(record -> text.equals(String.valueOf(record.get("memory"))));
+                .anyMatch(record -> text.equals(String.valueOf(record.get("content"))));
         }
 
         private String endpoint() {
@@ -492,12 +472,8 @@ class MemoryAgentEndToEndTest {
             return searchRequests.get();
         }
 
-        private int getRequests() {
-            return getRequests.get();
-        }
-
-        private int deleteRequests() {
-            return deleteRequests.get();
+        private int getPageRequests() {
+            return getPageRequests.get();
         }
 
         private List<Map<String, Object>> addBodies() {
@@ -515,51 +491,44 @@ class MemoryAgentEndToEndTest {
         private void handle(HttpExchange exchange) throws IOException {
             String method = exchange.getRequestMethod();
             String path = exchange.getRequestURI().getPath();
-            if ("POST".equals(method) && "/v3/memories/search/".equals(path)) {
+
+            if ("POST".equals(method) && "/search_memory/".equals(path)) {
                 searchRequests.incrementAndGet();
                 searchBodies.add(readBody(exchange));
                 writeJson(exchange, 200, Map.of("results", searchResults()));
                 return;
             }
-            if ("POST".equals(method) && "/v3/memories/add/".equals(path)) {
+            if ("POST".equals(method) && "/add_messages/".equals(path)) {
                 addRequests.incrementAndGet();
                 Map<String, Object> stored = storeAddedMemory(exchange);
                 writeJson(exchange, 200, Map.of("results", stored.isEmpty() ? List.of() : List.of(stored)));
                 return;
             }
-            if ("POST".equals(method) && path.startsWith("/v3/memories")) {
-                writeJson(exchange, 200, Map.of("results", List.copyOf(memories.values())));
+            if ("POST".equals(method) && "/get_user_mem_by_page/".equals(path)) {
+                getPageRequests.incrementAndGet();
+                readBody(exchange); // consume body
+                writeJson(exchange, 200, Map.of("results", paginatedResults()));
                 return;
             }
-            if ("GET".equals(method) && path.startsWith("/v1/memories/") && path.endsWith("/")) {
-                getRequests.incrementAndGet();
-                String memoryId = path.substring("/v1/memories/".length(), path.length() - 1);
-                Map<String, Object> record = memories.get(memoryId);
-                if (record == null) {
-                    writeJson(exchange, 404, Map.of("message", "memory not found"));
-                    return;
-                }
-                writeJson(exchange, 200, record);
+            if ("GET".equals(method) && "/health".equals(path)) {
+                writeJson(exchange, 200, Map.of("status", "healthy"));
                 return;
             }
-            if ("DELETE".equals(method) && path.startsWith("/v1/memories/") && path.endsWith("/")) {
-                deleteRequests.incrementAndGet();
-                String memoryId = path.substring("/v1/memories/".length(), path.length() - 1);
-                memories.remove(memoryId);
-                writeBytes(exchange, 204, new byte[0]);
-                return;
-            }
-            writeJson(exchange, 404, Map.of("message", "mem0 route not found: " + method + " " + path));
+            writeJson(exchange, 404, Map.of("message", "jiuwen route not found: " + method + " " + path));
         }
 
         private List<Map<String, Object>> searchResults() {
             return memories.values().stream()
                 .map(record -> {
-                    Map<String, Object> result = new java.util.LinkedHashMap<>(record);
+                    Map<String, Object> result = new LinkedHashMap<>(record);
                     result.put("score", 0.9);
                     return result;
                 })
                 .toList();
+        }
+
+        private List<Map<String, Object>> paginatedResults() {
+            return new ArrayList<>(memories.values());
         }
 
         private Map<String, Object> storeAddedMemory(HttpExchange exchange) throws IOException {
@@ -569,15 +538,11 @@ class MemoryAgentEndToEndTest {
             if (text.isBlank()) {
                 return Map.of();
             }
-            String memoryId = "m-" + idSequence.getAndIncrement();
+            String memoryId = "mem-" + idSequence.getAndIncrement();
             Map<String, Object> record = new LinkedHashMap<>();
-            record.put("id", memoryId);
-            record.put("memory", text);
-            record.put("user_id", stringValue(body.get("user_id"), USER_ID));
-            Object agentId = body.get("agent_id");
-            if (agentId != null && !String.valueOf(agentId).isBlank()) {
-                record.put("agent_id", String.valueOf(agentId));
-            }
+            record.put("mem_id", memoryId);
+            record.put("content", text);
+            record.put("type", "fact");
             memories.put(memoryId, record);
             return record;
         }
@@ -600,21 +565,6 @@ class MemoryAgentEndToEndTest {
             try (InputStream input = exchange.getRequestBody()) {
                 return new ObjectMapper().readValue(input, Map.class);
             }
-        }
-
-        private String stringValue(Object value, String fallback) {
-            String text = value != null ? String.valueOf(value) : "";
-            return text.isBlank() ? fallback : text;
-        }
-
-        private void writeBytes(HttpExchange exchange, int status, byte[] body) throws IOException {
-            exchange.sendResponseHeaders(status, body.length == 0 ? -1 : body.length);
-            if (body.length > 0) {
-                try (OutputStream output = exchange.getResponseBody()) {
-                    output.write(body);
-                }
-            }
-            exchange.close();
         }
 
         private void writeJson(HttpExchange exchange, int status, Object payload) throws IOException {
