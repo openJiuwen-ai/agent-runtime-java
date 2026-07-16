@@ -34,3 +34,6 @@ runtime/
 
 .DS_Store
 Thumbs.db
+
+# Integration tests that depend on real services (keep locally, never commit)
+**/JiuwenMemoryIntegrationTest.java
