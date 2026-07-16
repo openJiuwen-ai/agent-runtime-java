@@ -13,10 +13,10 @@ openjiuwen:
       memory:
         enabled: true
         request-scoped-session: true
-        timeout-ms: 3000
+        timeout-ms: 15000
         retry:
-          max: 1
-          backoff-ms: 200
+          max: 2
+          backoff-ms: 500
         circuit-breaker:
           enabled: true
           failure-threshold: 5
