@@ -153,7 +153,7 @@ public class JiuwenMemoryApi {
                 () -> send(baseUrl, "/health", "GET", null));
             Object status = response.get("status");
             return "healthy".equalsIgnoreCase(String.valueOf(status));
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             return false;
         }
     }

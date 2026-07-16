@@ -10,6 +10,7 @@ import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -34,7 +35,7 @@ public final class MemoryStoreFactory {
         Map<String, MemoryStoreProvider> map = new LinkedHashMap<>();
         if (providerList != null) {
             for (MemoryStoreProvider p : providerList) {
-                map.put(p.providerName().toLowerCase(), p);
+                map.put(p.providerName().toLowerCase(Locale.ROOT), p);
             }
         }
         this.providers = Collections.unmodifiableMap(map);
@@ -56,7 +57,7 @@ public final class MemoryStoreFactory {
         if (provider == null || provider.isBlank()) {
             throw new IllegalStateException("openjiuwen.service.middleware.memory.provider must not be blank");
         }
-        MemoryStoreProvider storeProvider = providers.get(provider.toLowerCase());
+        MemoryStoreProvider storeProvider = providers.get(provider.toLowerCase(Locale.ROOT));
         if (storeProvider == null) {
             throw new IllegalStateException(
                 "Unsupported memory provider: " + provider + ". Available: " + providers.keySet());
