@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.adapters.common.external.ExternalCallExecutor;
 import com.openjiuwen.service.adapters.common.external.ExternalCallPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterErrorCode;
+import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterException;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -153,7 +154,7 @@ public class JiuwenMemoryApi {
                 () -> send(baseUrl, "/health", "GET", null));
             Object status = response.get("status");
             return "healthy".equalsIgnoreCase(String.valueOf(status));
-        } catch (RuntimeException e) {
+        } catch (ExternalSvcAdapterException e) {
             return false;
         }
     }
