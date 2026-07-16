@@ -20,6 +20,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Governance-decorated mem0 HTTP client.
@@ -33,6 +35,8 @@ import java.util.Map;
  * @since 0.1.0
  */
 public class GovernedMem0Api {
+    private static final Logger LOG = Logger.getLogger(GovernedMem0Api.class.getName());
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String OP = "memory";
@@ -141,6 +145,8 @@ public class GovernedMem0Api {
             || AUTH_MODE_BEARER.equals(normalized)) {
             return normalized;
         }
+        LOG.log(Level.WARNING, "Unrecognized auth-header-mode ''{0}'', falling back to ''{1}''",
+            new Object[]{mode, AUTH_MODE_TOKEN});
         return AUTH_MODE_TOKEN;
     }
 
@@ -149,7 +155,14 @@ public class GovernedMem0Api {
             return PATH_STYLE_V3;
         }
         String normalized = style.trim().toLowerCase();
-        return PATH_STYLE_OPEN.equals(normalized) ? PATH_STYLE_OPEN : PATH_STYLE_V3;
+        if (PATH_STYLE_OPEN.equals(normalized)) {
+            return PATH_STYLE_OPEN;
+        }
+        if (!PATH_STYLE_V3.equals(normalized)) {
+            LOG.log(Level.WARNING, "Unrecognized path-style ''{0}'', falling back to ''{1}''",
+                new Object[]{style, PATH_STYLE_V3});
+        }
+        return PATH_STYLE_V3;
     }
 
     private String searchPath() {
@@ -215,6 +228,13 @@ public class GovernedMem0Api {
         Map<String, Object> body = PATH_STYLE_OPEN.equals(pathStyle) ? null : new LinkedHashMap<>();
         if (body != null) {
             body.put("filters", filters);
+        } else {
+            // open style uses GET with no body; filters are not supported
+            if (filters != null && !filters.isEmpty()) {
+                LOG.log(Level.WARNING,
+                    "filters parameter is ignored when path-style=''open'' "
+                    + "(Mem0 OSS does not support filtering on GET /memories)");
+            }
         }
         Map<String, Object> response = executor.execute(OP, "getAll", shouldRetry,
             () -> send(baseUrl, getAllPath(), apiKey, method, body));
@@ -312,7 +332,7 @@ public class GovernedMem0Api {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(normalizedBase + path))
             .timeout(requestTimeout)
             .header("Accept", "application/json");
-        String effectiveApiKey = apiKey != null ? apiKey : "";
+        String effectiveApiKey = (apiKey != null && !apiKey.isBlank()) ? apiKey : this.apiKey;
         if (AUTH_MODE_X_API_KEY.equals(authHeaderMode)) {
             builder.header("X-API-Key", effectiveApiKey);
         } else if (AUTH_MODE_BEARER.equals(authHeaderMode)) {
