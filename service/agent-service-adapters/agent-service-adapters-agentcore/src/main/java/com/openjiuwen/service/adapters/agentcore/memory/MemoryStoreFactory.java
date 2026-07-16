@@ -4,23 +4,40 @@
 
 package com.openjiuwen.service.adapters.agentcore.memory;
 
-import com.openjiuwen.service.adapters.agentcore.memory.mem0.GovernedMem0Api;
-import com.openjiuwen.service.adapters.agentcore.memory.mem0.Mem0MemoryStore;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Creates provider-specific {@link MemoryStore} implementations from middleware configuration.
  *
- * <p>Each memory backend lives in its own subpackage (for example {@code memory.mem0}). Add a new
- * provider by implementing {@link MemoryStore} in a dedicated subpackage and extending this factory.
+ * <p>Routes to the matching {@link MemoryStoreProvider} by
+ * {@code memory.getProvider()}. To add a new provider, implement
+ * {@link MemoryStoreProvider} and register it as a Spring Bean — no changes
+ * to this class are needed.
  *
  * @since 0.1.0
  */
 public final class MemoryStoreFactory {
-    private static final String PROVIDER_MEM0 = "mem0";
+    private final Map<String, MemoryStoreProvider> providers;
 
-    private MemoryStoreFactory() {
+    /**
+     * Creates a factory backed by the given providers.
+     *
+     * @param providerList all available memory store providers
+     */
+    public MemoryStoreFactory(List<MemoryStoreProvider> providerList) {
+        Map<String, MemoryStoreProvider> map = new LinkedHashMap<>();
+        if (providerList != null) {
+            for (MemoryStoreProvider p : providerList) {
+                map.put(p.providerName().toLowerCase(), p);
+            }
+        }
+        this.providers = Collections.unmodifiableMap(map);
     }
 
     /**
@@ -29,8 +46,9 @@ public final class MemoryStoreFactory {
      * @param apiKey decrypted provider API key
      * @param memory memory middleware configuration
      * @return the configured memory store
+     * @throws IllegalStateException if the provider is not registered
      */
-    public static MemoryStore create(String apiKey, MiddlewareProperties.Memory memory) {
+    public MemoryStore create(String apiKey, MiddlewareProperties.Memory memory) {
         if (memory == null) {
             throw new IllegalArgumentException("memory configuration must not be null");
         }
@@ -38,9 +56,11 @@ public final class MemoryStoreFactory {
         if (provider == null || provider.isBlank()) {
             throw new IllegalStateException("openjiuwen.service.middleware.memory.provider must not be blank");
         }
-        if (PROVIDER_MEM0.equalsIgnoreCase(provider)) {
-            return new Mem0MemoryStore(apiKey, memory, new GovernedMem0Api(memory.getEndpoint(), memory));
+        MemoryStoreProvider storeProvider = providers.get(provider.toLowerCase());
+        if (storeProvider == null) {
+            throw new IllegalStateException(
+                "Unsupported memory provider: " + provider + ". Available: " + providers.keySet());
         }
-        throw new IllegalStateException("Unsupported memory provider: " + provider);
+        return storeProvider.create(apiKey, memory);
     }
 }

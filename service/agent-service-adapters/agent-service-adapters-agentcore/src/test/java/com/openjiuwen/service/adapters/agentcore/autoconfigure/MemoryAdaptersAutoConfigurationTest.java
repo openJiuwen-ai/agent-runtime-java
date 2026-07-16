@@ -85,7 +85,8 @@ class MemoryAdaptersAutoConfigurationTest {
             "openjiuwen.service.middleware.memory.encrypted-api-key=plainkey")
             .run(context -> {
                 assertThat(context).hasFailed();
-                assertThat(context.getStartupFailure()).hasMessageContaining("Unsupported memory provider");
+                assertThat(context.getStartupFailure()).hasMessageContaining("Unsupported memory provider")
+                    .hasMessageContaining("Available:");
             });
     }
 
