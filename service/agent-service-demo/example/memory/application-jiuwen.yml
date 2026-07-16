@@ -1,0 +1,9 @@
+openjiuwen:
+  service:
+    middleware:
+      memory:
+        provider: jiuwen
+        endpoint: ${JIUWEN_ENDPOINT:http://localhost:8516}
+        encrypted-api-key: ${JIUWEN_API_KEY:}
+        user-id: ${JIUWEN_USER_ID:demo-user}
+        rerank: false
