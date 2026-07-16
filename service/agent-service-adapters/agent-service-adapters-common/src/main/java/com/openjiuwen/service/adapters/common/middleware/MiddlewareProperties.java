@@ -233,6 +233,10 @@ public class MiddlewareProperties {
 
         private boolean shouldRerank = false;
 
+        private String authHeaderMode = "token";
+
+        private String pathStyle = "v3";
+
         private int timeoutMs = 3000;
 
         private ExternalRetryPolicy retry = new ExternalRetryPolicy();
@@ -295,6 +299,22 @@ public class MiddlewareProperties {
 
         public void setRerank(boolean shouldRerank) {
             this.shouldRerank = shouldRerank;
+        }
+
+        public String getAuthHeaderMode() {
+            return authHeaderMode;
+        }
+
+        public void setAuthHeaderMode(String authHeaderMode) {
+            this.authHeaderMode = authHeaderMode != null && !authHeaderMode.isBlank() ? authHeaderMode : "token";
+        }
+
+        public String getPathStyle() {
+            return pathStyle;
+        }
+
+        public void setPathStyle(String pathStyle) {
+            this.pathStyle = pathStyle != null && !pathStyle.isBlank() ? pathStyle : "v3";
         }
 
         @Override

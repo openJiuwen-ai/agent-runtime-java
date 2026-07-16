@@ -37,6 +37,16 @@ public class GovernedMem0Api {
 
     private static final String OP = "memory";
 
+    private static final String AUTH_MODE_TOKEN = "token";
+
+    private static final String AUTH_MODE_X_API_KEY = "x_api_key";
+
+    private static final String AUTH_MODE_BEARER = "bearer";
+
+    private static final String PATH_STYLE_V3 = "v3";
+
+    private static final String PATH_STYLE_OPEN = "open";
+
     private final ExternalCallExecutor executor;
 
     private final HttpClient httpClient;
@@ -45,6 +55,12 @@ public class GovernedMem0Api {
 
     private final boolean shouldRetry;
 
+    private final String authHeaderMode;
+
+    private final String apiKey;
+
+    private final String pathStyle;
+
     /**
      * Creates a governed mem0 transport.
      *
@@ -52,6 +68,35 @@ public class GovernedMem0Api {
      * @param policy external call policy (timeout/retry/circuit/audit)
      */
     public GovernedMem0Api(String targetId, ExternalCallPolicy policy) {
+        this(targetId, policy, "token", "", "v3");
+    }
+
+    /**
+     * Creates a governed mem0 transport with explicit auth header mode.
+     *
+     * @param targetId audit/circuit target label (for example the endpoint)
+     * @param policy external call policy (timeout/retry/circuit/audit)
+     * @param authHeaderMode auth header mode: {@code token} (Authorization: Token),
+     *                       {@code x_api_key} (X-API-Key), or {@code bearer} (Authorization: Bearer)
+     * @param apiKey API key used for request authentication
+     */
+    public GovernedMem0Api(String targetId, ExternalCallPolicy policy, String authHeaderMode, String apiKey) {
+        this(targetId, policy, authHeaderMode, apiKey, "v3");
+    }
+
+    /**
+     * Creates a governed mem0 transport with explicit auth and path style.
+     *
+     * @param targetId audit/circuit target label (for example the endpoint)
+     * @param policy external call policy (timeout/retry/circuit/audit)
+     * @param authHeaderMode auth header mode: {@code token} (Authorization: Token),
+     *                       {@code x_api_key} (X-API-Key), or {@code bearer} (Authorization: Bearer)
+     * @param apiKey API key used for request authentication
+     * @param pathStyle path style: {@code v3} for mem0 cloud (v3/v1 paths),
+     *                  {@code open} for self-hosted mem0 (simple paths)
+     */
+    public GovernedMem0Api(String targetId, ExternalCallPolicy policy, String authHeaderMode, String apiKey,
+        String pathStyle) {
         this.executor = new ExternalCallExecutor("Memory", targetId, policy,
             ExternalSvcAdapterErrorCode.MEMORY_OUTBOUND_CALL_FAILED,
             ExternalSvcAdapterErrorCode.MEMORY_CIRCUIT_OPEN,
@@ -61,14 +106,69 @@ public class GovernedMem0Api {
         this.requestTimeout = Duration.ofMillis(Math.max(1, timeoutMs));
         this.shouldRetry = policy != null && policy.getRetry() != null && policy.getRetry().getMax() > 0;
         this.httpClient = HttpClient.newBuilder().connectTimeout(requestTimeout).build();
+        this.authHeaderMode = normalizeAuthMode(authHeaderMode);
+        this.apiKey = apiKey != null ? apiKey : "";
+        this.pathStyle = normalizePathStyle(pathStyle);
     }
 
     GovernedMem0Api(ExternalCallExecutor executor,
         HttpClient httpClient, Duration requestTimeout, boolean shouldRetry) {
+        this(executor, httpClient, requestTimeout, shouldRetry, "token", "", "v3");
+    }
+
+    GovernedMem0Api(ExternalCallExecutor executor, HttpClient httpClient, Duration requestTimeout,
+        boolean shouldRetry, String authHeaderMode, String apiKey) {
+        this(executor, httpClient, requestTimeout, shouldRetry, authHeaderMode, apiKey, "v3");
+    }
+
+    GovernedMem0Api(ExternalCallExecutor executor, HttpClient httpClient, Duration requestTimeout,
+        boolean shouldRetry, String authHeaderMode, String apiKey, String pathStyle) {
         this.executor = executor;
         this.httpClient = httpClient;
         this.requestTimeout = requestTimeout;
         this.shouldRetry = shouldRetry;
+        this.authHeaderMode = normalizeAuthMode(authHeaderMode);
+        this.apiKey = apiKey != null ? apiKey : "";
+        this.pathStyle = normalizePathStyle(pathStyle);
+    }
+
+    private static String normalizeAuthMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return AUTH_MODE_TOKEN;
+        }
+        String normalized = mode.trim().toLowerCase().replace("-", "_");
+        if (AUTH_MODE_TOKEN.equals(normalized) || AUTH_MODE_X_API_KEY.equals(normalized)
+            || AUTH_MODE_BEARER.equals(normalized)) {
+            return normalized;
+        }
+        return AUTH_MODE_TOKEN;
+    }
+
+    private static String normalizePathStyle(String style) {
+        if (style == null || style.isBlank()) {
+            return PATH_STYLE_V3;
+        }
+        String normalized = style.trim().toLowerCase();
+        return PATH_STYLE_OPEN.equals(normalized) ? PATH_STYLE_OPEN : PATH_STYLE_V3;
+    }
+
+    private String searchPath() {
+        return PATH_STYLE_OPEN.equals(pathStyle) ? "/search" : "/v3/memories/search/";
+    }
+
+    private String addPath() {
+        return PATH_STYLE_OPEN.equals(pathStyle) ? "/memories" : "/v3/memories/add/";
+    }
+
+    private String getAllPath() {
+        return PATH_STYLE_OPEN.equals(pathStyle) ? "/memories" : "/v3/memories/";
+    }
+
+    private String memoryPath(String memoryId) {
+        String encoded = encodeSegment(memoryId);
+        return PATH_STYLE_OPEN.equals(pathStyle)
+            ? "/memories/" + encoded
+            : "/v1/memories/" + encoded + "/";
     }
 
     /**
@@ -111,10 +211,13 @@ public class GovernedMem0Api {
      * @return memory records returned by mem0
      */
     public List<Map<String, Object>> getAllMemories(String baseUrl, String apiKey, Map<String, Object> filters) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("filters", filters);
+        String method = PATH_STYLE_OPEN.equals(pathStyle) ? "GET" : "POST";
+        Map<String, Object> body = PATH_STYLE_OPEN.equals(pathStyle) ? null : new LinkedHashMap<>();
+        if (body != null) {
+            body.put("filters", filters);
+        }
         Map<String, Object> response = executor.execute(OP, "getAll", shouldRetry,
-            () -> send(baseUrl, "/v3/memories/", apiKey, "POST", body));
+            () -> send(baseUrl, getAllPath(), apiKey, method, body));
         return extractResults(response);
     }
 
@@ -138,7 +241,7 @@ public class GovernedMem0Api {
         body.put("rerank", effectiveOptions.shouldRerank);
         body.put("top_k", effectiveOptions.topK);
         Map<String, Object> response = executor.execute(OP, "search", shouldRetry,
-            () -> send(baseUrl, "/v3/memories/search/", apiKey, "POST", body));
+            () -> send(baseUrl, searchPath(), apiKey, "POST", body));
         return extractResults(response);
     }
 
@@ -172,7 +275,7 @@ public class GovernedMem0Api {
         body.put("messages", messages);
         body.put("infer", shouldInfer);
         Map<String, Object> response = executor.execute(OP, "add", shouldRetry,
-            () -> send(baseUrl, "/v3/memories/add/", apiKey, "POST", body));
+            () -> send(baseUrl, addPath(), apiKey, "POST", body));
         return extractResults(response);
     }
 
@@ -186,7 +289,7 @@ public class GovernedMem0Api {
      */
     public Map<String, Object> getMemory(String baseUrl, String apiKey, String memoryId) {
         return executor.execute(OP, "get", shouldRetry,
-            () -> send(baseUrl, "/v1/memories/" + encodeSegment(memoryId) + "/", apiKey, "GET", null));
+            () -> send(baseUrl, memoryPath(memoryId), apiKey, "GET", null));
     }
 
     /**
@@ -198,7 +301,7 @@ public class GovernedMem0Api {
      */
     public void deleteMemory(String baseUrl, String apiKey, String memoryId) {
         executor.execute(OP, "delete", shouldRetry,
-            () -> send(baseUrl, "/v1/memories/" + encodeSegment(memoryId) + "/", apiKey, "DELETE", null));
+            () -> send(baseUrl, memoryPath(memoryId), apiKey, "DELETE", null));
     }
 
     private Map<String, Object> send(String baseUrl, String path, String apiKey, String method,
@@ -208,8 +311,15 @@ public class GovernedMem0Api {
             : baseUrl.replaceAll("/+$", "");
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(normalizedBase + path))
             .timeout(requestTimeout)
-            .header("Authorization", "Token " + apiKey)
             .header("Accept", "application/json");
+        String effectiveApiKey = apiKey != null ? apiKey : "";
+        if (AUTH_MODE_X_API_KEY.equals(authHeaderMode)) {
+            builder.header("X-API-Key", effectiveApiKey);
+        } else if (AUTH_MODE_BEARER.equals(authHeaderMode)) {
+            builder.header("Authorization", "Bearer " + effectiveApiKey);
+        } else {
+            builder.header("Authorization", "Token " + effectiveApiKey);
+        }
         if (body != null) {
             String requestBody = MAPPER.writeValueAsString(body);
             builder.header("Content-Type", "application/json")
