@@ -15,10 +15,13 @@ import org.a2aproject.sdk.server.agentexecution.RequestContext;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,6 +42,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class A2AAgentExecutor implements AgentExecutor {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
+
+    private static final String INTERRUPT = "_interrupt";
 
     /**
      * Dead-time bound for waiting on the in-flight queue to drain before
@@ -74,11 +79,17 @@ public class A2AAgentExecutor implements AgentExecutor {
             req.setStream(isStream);
         }
 
-        boolean isResume = ctx.getTask() != null;
+        Task task = ctx.getTask();
+        boolean hasExistingTask = task != null;
+        boolean isResume = task != null && task.status() != null
+            && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED;
+        if (isResume) {
+            copyStoredInterrupt(task, req);
+        }
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
             msgCtx.getContextId(), req.getConversationId(), isResume, req.isStream());
 
-        if (!isResume) {
+        if (!hasExistingTask) {
             emitter.submit();
         }
         emitter.startWork();
@@ -173,17 +184,52 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private static Optional<Message> toStatusMessage(QueryChunk chunk) {
-        if (chunk.getData() instanceof Map<?, ?> m && m.get("message") instanceof String s && !s.isBlank()) {
-            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(s))).build());
+        if (chunk.getData() instanceof Map<?, ?> data
+            && data.get("message") instanceof String message && !message.isBlank()) {
+            return Optional.of(statusMessage(message, data));
         }
         return Optional.empty();
     }
 
     private static Optional<Message> toStatusMessageFromMap(Map<?, ?> interruptData) {
-        if (interruptData.get("message") instanceof String s && !s.isBlank()) {
-            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(s))).build());
+        if (interruptData.get("message") instanceof String message && !message.isBlank()) {
+            return Optional.of(statusMessage(message, interruptData));
         }
         return Optional.empty();
+    }
+
+    private static Message statusMessage(String message, Map<?, ?> interruptData) {
+        return Message.builder()
+            .role(Message.Role.ROLE_AGENT)
+            .parts(List.of(new TextPart(message)))
+            .metadata(Map.of(INTERRUPT, interruptData))
+            .build();
+    }
+
+    private static void copyStoredInterrupt(Task task, ServeRequest request) {
+        Message storedMessage = task.status() == null ? null : task.status().message();
+        List<Message> history = task.history();
+        if (storedMessage == null) {
+            if (history != null) {
+                for (int index = history.size() - 1; index >= 0; index--) {
+                    Message message = history.get(index);
+                    if (message != null && message.role() == Message.Role.ROLE_AGENT) {
+                        storedMessage = message;
+                        break;
+                    }
+                }
+            }
+        }
+        if (storedMessage == null || storedMessage.metadata() == null) {
+            return;
+        }
+        Object interrupt = storedMessage.metadata().get(INTERRUPT);
+        if (interrupt == null) {
+            return;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>(request.getMetadata());
+        metadata.put(INTERRUPT, interrupt);
+        request.setMetadata(metadata);
     }
 
     /**
