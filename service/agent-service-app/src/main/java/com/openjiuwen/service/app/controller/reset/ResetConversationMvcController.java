@@ -10,6 +10,7 @@ import com.openjiuwen.service.spec.dto.ResetConversationRequest;
 import com.openjiuwen.service.spec.dto.ResetConversationResponse;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
+import com.openjiuwen.service.spec.security.AuthorizedResource;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -58,6 +59,7 @@ public class ResetConversationMvcController {
      * @throws IOException IOException
      */
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_V1, produces = MediaType.APPLICATION_JSON_VALUE)
+    @AuthorizedResource(resource = "session", action = "reset")
     public ResetConversationResponse resetV1(@RequestBody ResetConversationRequest request,
         HttpServletResponse response) throws IOException {
         return handleReset(request, response);
@@ -74,6 +76,7 @@ public class ResetConversationMvcController {
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_LEGACY, produces = MediaType.APPLICATION_JSON_VALUE)
     @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true",
         matchIfMissing = true)
+    @AuthorizedResource(resource = "session", action = "reset")
     public ResetConversationResponse resetLegacy(@RequestBody ResetConversationRequest request,
         HttpServletResponse response) throws IOException {
         return handleReset(request, response);

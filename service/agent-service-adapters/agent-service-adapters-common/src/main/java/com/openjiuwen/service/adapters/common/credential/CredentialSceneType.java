@@ -22,6 +22,12 @@ public final class CredentialSceneType {
     /** Long-term memory provider API key credential. */
     public static final int MEMORY_API_KEY = 3;
 
+    /** Ingress TLS key store password credential. */
+    public static final int TLS_KEYSTORE_PASSWORD = 13;
+
+    /** Ingress/outbound TLS trust store password credential. */
+    public static final int TLS_TRUSTSTORE_PASSWORD = 14;
+
     private CredentialSceneType() {
     }
 }

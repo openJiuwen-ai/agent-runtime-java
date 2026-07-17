@@ -14,6 +14,7 @@
 | [mcp](mcp/README.md)         | `agent-service-demo-mcp`     | **8092** | 外部 MCP 出站、Tool 注册                 |
 | [sandbox](sandbox/README.md) | `agent-service-demo-sandbox` | **8093** | Sandbox 外置服务                      |
 | [memory](memory/README.md)   | `agent-service-demo-memory`  | **8094** | mem0 长期记忆                         |
+| [security](security/README.md) | `agent-service-demo-security` | **8095** | TLS / 细粒度鉴权配置与 SPI 示例              |
 
 各特性在自身 `application.yml` 里用 `server.port` 覆盖 base 的 8090，可与主 demo **同时运行**。
 
@@ -56,5 +57,5 @@ mvn -pl agent-service-demo -am spring-boot:run
 # Redis 示例（8091）
 mvn -pl agent-service-demo/example/redis -am spring-boot:run
 
-# MCP / Sandbox / Memory：见各子目录 README
+# MCP / Sandbox / Memory / Security：见各子目录 README
 ```

@@ -8,6 +8,7 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
+import com.openjiuwen.service.spec.security.AuthorizedResource;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -58,6 +59,7 @@ public class AgentCardController {
      * @return the agent card
      */
     @GetMapping(A2AServicePaths.WELL_KNOWN_AGENT_CARD)
+    @AuthorizedResource(resource = "agent-card", action = "read")
     public AgentCard getStandardCard(HttpServletRequest request) {
         return buildCard(request);
     }
@@ -69,6 +71,7 @@ public class AgentCardController {
      * @return the agent card
      */
     @GetMapping(A2AServicePaths.WELL_KNOWN_AGENT_JSON)
+    @AuthorizedResource(resource = "agent-card", action = "read")
     public AgentCard getCompatCard(HttpServletRequest request) {
         return buildCard(request);
     }
@@ -80,6 +83,7 @@ public class AgentCardController {
      * @return the agent card
      */
     @GetMapping(A2AServicePaths.A2A_WELL_KNOWN_CARD)
+    @AuthorizedResource(resource = "agent-card", action = "read")
     public AgentCard getPrefixedCard(HttpServletRequest request) {
         return buildCard(request);
     }

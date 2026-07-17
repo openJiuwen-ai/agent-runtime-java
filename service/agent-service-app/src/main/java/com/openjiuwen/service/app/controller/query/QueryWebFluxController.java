@@ -11,6 +11,7 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
+import com.openjiuwen.service.spec.security.AuthorizedResource;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
@@ -66,6 +67,7 @@ public class QueryWebFluxController {
      * @return the response mono
      */
     @PostMapping(AgentServicePaths.QUERY_V1_REACTIVE)
+    @AuthorizedResource(resource = "query", action = "execute")
     public Mono<ResponseEntity<?>> queryReactive(@RequestBody QueryRequest request,
         @RequestHeader HttpHeaders headers) {
         return handleQuery(request, headers);

@@ -11,6 +11,7 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
+import com.openjiuwen.service.spec.security.AuthorizedResource;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
@@ -71,6 +72,7 @@ public class QueryMvcController {
      * @throws IOException on write errors
      */
     @PostMapping(AgentServicePaths.QUERY_V1)
+    @AuthorizedResource(resource = "query", action = "execute")
     public SseEmitter queryV1(@RequestBody String rawBody, @RequestHeader HttpHeaders headers,
         HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
         return handleQuery(rawBody, headers, servletRequest, response);
@@ -207,6 +209,7 @@ class QueryLegacyMvcController {
      * @throws IOException on write errors
      */
     @PostMapping(AgentServicePaths.QUERY_LEGACY)
+    @AuthorizedResource(resource = "query", action = "execute")
     public SseEmitter queryLegacy(@RequestBody String rawBody, @RequestHeader HttpHeaders headers,
         HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
         return delegate.handleQuery(rawBody, headers, servletRequest, response);

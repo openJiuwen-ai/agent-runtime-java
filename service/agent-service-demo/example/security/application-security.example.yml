@@ -1,0 +1,129 @@
+# openjiuwen.service.security 配置参考样例（Issue #24）。
+#
+# 用法：
+#   1. 复制为 application-security_local.yml（建议加入 .gitignore，勿提交密钥）
+#   2. 在 application.yml 的 spring.config.import 中 import（本模块已预留 optional 条目）
+#   3. 按需取消注释并填写；后加载的文件覆盖先加载的同名键
+#
+# 注释约定：
+#   [说明]     配置项用途
+#   [必选性]   可选 / 必选 / 条件必选
+#   [条件必选] 在何种前置配置下本项必须填写（无此前置时可省略）
+
+server:
+  # [说明] 嵌入式容器监听端口；tls.enabled=true 时同一端口提供 HTTPS（非 HTTP/HTTPS 双端口）
+  # [必选性] 可选；默认 8080；启用 TLS 时通常设为 8443 等 HTTPS 端口
+  # [条件必选] 无
+  port: 8443
+
+openjiuwen:
+  service:
+    security:
+      # [说明] 安全能力总开关：为 true 时才注册 TLS 绑定（TlsAutoConfiguration）与细粒度鉴权 AOP（AuthAutoConfiguration）
+      # [必选性] 可选；默认 false；false 时与未引入安全能力前行为完全一致
+      # [条件必选] 当 tls.enabled=true 或 auth.enabled=true 时必须设为 true，否则子开关不会生效
+      enabled: false
+
+      tls:
+        # [说明] 入站 HTTPS / mTLS 开关；为 true 时将下方 tls.* 映射到 Spring Boot server.ssl.*
+        # [必选性] 可选；默认 false
+        # [条件必选] 无；但若设为 true，则 security.enabled 也必须为 true
+        enabled: false
+
+        # [说明] 传输层协议标识（预留；当前映射以 enabled-protocols 与 JDK 为准）
+        # [必选性] 可选；默认 TLS
+        # [条件必选] 无
+        protocol: TLS
+
+        # [说明] 启用的 TLS 协议版本列表，映射到 server.ssl.enabled-protocols
+        # [必选性] 可选；默认 [TLSv1.2, TLSv1.3]
+        # [条件必选] 无
+        enabled-protocols:
+          - TLSv1.2
+          - TLSv1.3
+
+        # [说明] 客户端证书校验模式，映射到 server.ssl.client-auth
+        #        none = 单向 TLS（仅服务端证书）
+        #        want = 可选 mTLS（请求客户端证书，无证书仍可能完成握手）
+        #        need = 强制 mTLS（无有效客户端证书则 TLS 握手失败，无 HTTP 响应体）
+        # [必选性] 可选；默认 none
+        # [条件必选] 无
+        client-auth: none
+
+        # [说明] 服务端密钥库路径（classpath: / file: / 绝对路径），映射到 server.ssl.key-store
+        # [必选性] 条件必选
+        # [条件必选] 当 tls.enabled=true 时必须配置且文件可读，否则启动 fail-fast
+        key-store: file:/etc/agent/tls/server.p12
+
+        # [说明] 密钥库密码密文，经 CredentialDecryptor 解密（场景 TLS_KEYSTORE_PASSWORD）
+        # [必选性] 条件必选
+        # [条件必选] 当 tls.enabled=true 时必须配置
+        # [注意] 禁止在可提交 yaml 中写明文；请使用 ENC(...) 或环境变量注入密文
+        key-store-password: ${KEYSTORE_PASSWORD}
+
+        # [说明] 密钥库类型，映射到 server.ssl.key-store-type
+        # [必选性] 可选；默认 PKCS12
+        # [条件必选] 无
+        key-store-type: PKCS12
+
+        # [说明] 信任库路径（校验客户端证书），映射到 server.ssl.trust-store
+        # [必选性] 条件必选
+        # [条件必选] 当 tls.enabled=true 且 client-auth 为 want 或 need 时必须配置且可读
+        trust-store: file:/etc/agent/tls/truststore.p12
+
+        # [说明] 信任库密码密文，经 CredentialDecryptor 解密（场景 TLS_TRUSTSTORE_PASSWORD）
+        # [必选性] 条件必选
+        # [条件必选] 当 trust-store 已配置且 client-auth 为 want 或 need 时必须配置
+        # [注意] 禁止在可提交 yaml 中写明文；请使用 ENC(...) 或环境变量注入密文
+        trust-store-password: ${TRUSTSTORE_PASSWORD}
+
+        # [说明] 信任库类型，映射到 server.ssl.trust-store-type
+        # [必选性] 可选；默认 PKCS12
+        # [条件必选] 无
+        trust-store-type: PKCS12
+
+        # [说明] 密钥库证书过期时的启动策略：warn = 仅告警继续启动；fail = 抛出异常拒绝启动
+        # [必选性] 可选；默认 warn
+        # [条件必选] 无
+        certificate-expiry-policy: warn
+
+      auth:
+        # [说明] 细粒度鉴权 AOP 开关；为 true 时拦截带 @AuthorizedResource 的 Controller 方法，调用 FineGrainedAuthorizer SPI
+        # [必选性] 可选；默认 false
+        # [条件必选] 无；但若设为 true，则 security.enabled 必须为 true，且 Spring 容器中必须存在 FineGrainedAuthorizer @Bean（否则启动 fail-fast）
+        enabled: false
+
+# ---------------------------------------------------------------------------
+# 典型组合示例（复制到 application-security_local.yml 后按需启用其一）
+# ---------------------------------------------------------------------------
+#
+# --- 仅细粒度鉴权（HTTP，开发/联调）---
+# server.port: 8095
+# openjiuwen.service.security.enabled: true
+# openjiuwen.service.security.tls.enabled: false
+# openjiuwen.service.security.auth.enabled: true
+# 另：在 @Configuration 中注册 FineGrainedAuthorizer Bean（见 DemoFineGrainedAuthorizer.java）
+#
+# --- 仅传输加密（HTTPS 单向 TLS）---
+# server.port: 8443
+# openjiuwen.service.security.enabled: true
+# openjiuwen.service.security.tls.enabled: true
+# openjiuwen.service.security.tls.client-auth: none
+# openjiuwen.service.security.tls.key-store: file:/etc/agent/tls/server.p12
+# openjiuwen.service.security.tls.key-store-password: ENC(...)
+# openjiuwen.service.security.auth.enabled: false
+#
+# --- 生产推荐：mTLS + 细粒度鉴权 ---
+# server.port: 8443
+# openjiuwen.service.security.enabled: true
+# openjiuwen.service.security.tls.enabled: true
+# openjiuwen.service.security.tls.client-auth: need
+# openjiuwen.service.security.tls.key-store: file:/etc/agent/tls/server.p12
+# openjiuwen.service.security.tls.key-store-password: ENC(...)
+# openjiuwen.service.security.tls.trust-store: file:/etc/agent/tls/truststore.p12
+# openjiuwen.service.security.tls.trust-store-password: ENC(...)
+# openjiuwen.service.security.auth.enabled: true
+#
+# 鉴权拒绝时 HTTP 403 JSON 契约（与 Servlet / WebFlux 一致）：
+#   type: error, code: ACCESS_DENIED, resource, action, reason
+# mTLS 握手失败发生在连接层，不会返回上述 JSON。
