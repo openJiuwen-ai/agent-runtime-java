@@ -16,6 +16,8 @@ import java.lang.reflect.Method;
 
 /**
  * Unit tests for {@link AuthorizationRequestBuilder}.
+ *
+ * @since 0.1.0
  */
 class AuthorizationRequestBuilderTest {
     @Test

@@ -26,7 +26,9 @@ Issue #24 引入入站 **HTTPS/mTLS** 与 **细粒度鉴权 AOP**，但主 demo 
 |------|------|
 | `application-security.yml` | 本模块默认加载：8095 端口 + `security.enabled` + `auth.enabled` |
 | `application-security.example.yml` | **完整参考**：每个配置项注释含 `[说明]` / `[必选性]` / `[条件必选]` |
+| `application-security-tls.example.yml` | **TLS/mTLS 本地 profile 模板**（需先生成 `tls/` 目录下证书） |
 | `application-security_local.yml` | 本地覆盖（复制 example 后修改；建议 gitignore，勿提交密钥） |
+| `application-security-tls_local.yml` | TLS 本地 profile（gitignore；复制 tls example 后启用） |
 
 `application.yml` 通过 `spring.config.import` 依次加载 base → local → security → security_local。
 
@@ -76,12 +78,45 @@ cd agent-service-demo\example\security
 
 ### 4. 启用 TLS / mTLS（可选）
 
-1. 复制 `application-security.example.yml` → `application-security_local.yml`
-2. 按注释填写 `tls.*`（`key-store`、`trust-store` 等）
-3. 设置 `security.enabled=true`、`tls.enabled=true`，按需设置 `client-auth: need`，并配置 `server.port`（HTTPS 端口）
-4. 重启服务
+**Step A — 生成本地测试证书（`tls/` 已 gitignore，勿提交）**
 
-> `tls.enabled=true` 时 **必须** 提供可读密钥库与密码密文；`client-auth` 为 `want`/`need` 时 **必须** 配置 `trust-store`。监听端口使用 **`server.port`**，勿在 yaml 中写明文密码。
+Windows：
+
+```powershell
+cd agent-service-demo\example\security
+.\generate-tls-material.ps1
+```
+
+Linux / Git Bash：
+
+```bash
+cd agent-service-demo/example/security
+bash generate-tls-material.sh
+```
+
+**Step B — 启用 TLS profile**
+
+```bash
+cp application-security-tls.example.yml application-security-tls_local.yml
+# 编辑 application-security-tls_local.yml：
+#   KEYSTORE_PASSWORD / TRUSTSTORE_PASSWORD 设为 demo-tls-pass（或你的 ENC 密文）
+#   生产环境请使用 ENC(...) 密文，勿提交明文
+```
+
+**Step C — 启动 HTTPS（8443，mTLS need）**
+
+```bash
+mvn -pl agent-service-demo/example/security -am spring-boot:run
+```
+
+验证（需客户端信任 `tls/client-trust.p12` 并提供 `tls/client.p12`；可用集成测试里的 `TlsTestSslContextFactory` 思路，或机构侧 mTLS 客户端）：
+
+- 无客户端证书 → TLS 握手失败（连接层，无 HTTP body）
+- 带有效客户端证书 → `GET https://127.0.0.1:8443/health` 返回 200
+
+> 自动化覆盖见 `agent-service-app` 模块：`TlsHttpsIntegrationTest`、`TlsMtlsNeedIntegrationTest`、`TlsMtlsWantIntegrationTest`（测试内临时 keytool 生成证书，不入库）。
+
+默认 **8095 HTTP + auth** 与 **8443 HTTPS mTLS**  profile 互斥加载：仅 import `application-security-tls_local.yml` 时走 TLS demo；否则走 auth demo。
 
 ## 代码入口
 

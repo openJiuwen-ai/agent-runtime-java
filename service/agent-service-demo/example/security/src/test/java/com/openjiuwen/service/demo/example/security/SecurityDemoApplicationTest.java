@@ -24,7 +24,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Integration tests for the security demo module.
+ * Integration tests for the security demo module against
+ * {@link SecurityDemoApplication}.
+ *
+ * @since 0.1.0
  */
 @SpringBootTest(classes = SecurityDemoApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate

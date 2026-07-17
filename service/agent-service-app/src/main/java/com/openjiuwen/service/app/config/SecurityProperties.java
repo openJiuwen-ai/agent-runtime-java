@@ -19,7 +19,10 @@ import java.util.List;
 @Data
 @ConfigurationProperties(prefix = "openjiuwen.service.security")
 public class SecurityProperties {
-    /** Master switch; when {@code false}, TLS binding and auth AOP are not registered. */
+    /**
+     * Master switch; when {@code false}, TLS binding and auth AOP are not
+     * registered.
+     */
     private boolean enabled = false;
 
     private Tls tls = new Tls();
@@ -42,14 +45,20 @@ public class SecurityProperties {
 
         private String keyStore;
 
-        /** Ciphertext decrypted by {@code CredentialDecryptor} (scene {@code TLS_KEYSTORE_PASSWORD}). */
+        /**
+         * Ciphertext decrypted by {@code CredentialDecryptor} (scene
+         * {@code TLS_KEYSTORE_PASSWORD}).
+         */
         private String keyStorePassword;
 
         private String keyStoreType = "PKCS12";
 
         private String trustStore;
 
-        /** Ciphertext decrypted by {@code CredentialDecryptor} (scene {@code TLS_TRUSTSTORE_PASSWORD}). */
+        /**
+         * Ciphertext decrypted by {@code CredentialDecryptor} (scene
+         * {@code TLS_TRUSTSTORE_PASSWORD}).
+         */
         private String trustStorePassword;
 
         private String trustStoreType = "PKCS12";

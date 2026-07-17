@@ -15,20 +15,23 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.PostMapping;
 
 /**
- * Unit tests for WebFlux authorization request assembly.
+ * Unit tests for WebFlux authorization request assembly via
+ * {@link AuthorizationRequestBuilder}.
+ *
+ * @since 0.1.0
  */
 class AuthorizationRequestBuilderWebFluxTest {
     @Test
     void buildFromHeadersUsesTenantHeadersAndMappingMetadata() throws Exception {
         AuthorizedResource annotation = SampleReactiveEndpoints.class.getDeclaredMethod("queryReactive")
-            .getAnnotation(AuthorizedResource.class);
+                .getAnnotation(AuthorizedResource.class);
         HttpHeaders headers = new HttpHeaders();
         headers.add("X-User-ID", "flux-user");
         headers.add("X-Space-ID", "flux-space");
         headers.add("X-Tenant-ID", "flux-tenant");
 
         AuthorizationRequest built = AuthorizationRequestBuilder.build(annotation, headers, "POST",
-            AgentServicePaths.QUERY_V1_REACTIVE, "10.0.0.8");
+                AgentServicePaths.QUERY_V1_REACTIVE, "10.0.0.8");
 
         assertThat(built.resource()).isEqualTo("query");
         assertThat(built.action()).isEqualTo("execute");

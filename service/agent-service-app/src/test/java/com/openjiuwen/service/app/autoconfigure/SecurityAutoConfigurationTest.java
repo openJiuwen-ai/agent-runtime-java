@@ -19,11 +19,14 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
- * Auto-configuration tests for ingress security.
+ * Auto-configuration tests for ingress security via
+ * {@link SecurityAutoConfiguration}.
+ *
+ * @since 0.1.0
  */
 class SecurityAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
-        AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class, SecurityAutoConfiguration.class));
+            AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class, SecurityAutoConfiguration.class));
 
     @Test
     void securityDisabledDoesNotRegisterAuthBeans() {
@@ -36,33 +39,32 @@ class SecurityAutoConfigurationTest {
     @Test
     void authEnabledWithoutAuthorizerFailsStartup() {
         contextRunner.withPropertyValues("openjiuwen.service.security.enabled=true",
-            "openjiuwen.service.security.auth.enabled=true").run(context -> {
-                assertThat(context).hasFailed();
-                assertThat(context.getStartupFailure()).hasMessageContaining("FineGrainedAuthorizer");
-            });
+                "openjiuwen.service.security.auth.enabled=true").run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasMessageContaining("FineGrainedAuthorizer");
+                });
     }
 
     @Test
     void authEnabledWithAuthorizerRegistersAspect() {
-        contextRunner.withPropertyValues("openjiuwen.service.security.enabled=true",
-            "openjiuwen.service.security.auth.enabled=true")
-            .withBean(FineGrainedAuthorizer.class, () -> request -> AuthorizationResult.allow())
-            .run(context -> {
-                assertThat(context).hasSingleBean(ResourceAuthorizationAspect.class);
-                assertThat(context).hasSingleBean(AuthorizationDeniedExceptionHandler.class);
-            });
+        contextRunner
+                .withPropertyValues("openjiuwen.service.security.enabled=true",
+                        "openjiuwen.service.security.auth.enabled=true")
+                .withBean(FineGrainedAuthorizer.class, () -> request -> AuthorizationResult.allow()).run(context -> {
+                    assertThat(context).hasSingleBean(ResourceAuthorizationAspect.class);
+                    assertThat(context).hasSingleBean(AuthorizationDeniedExceptionHandler.class);
+                });
     }
 
     @Test
     void bindsSecurityProperties() {
         contextRunner.withPropertyValues("openjiuwen.service.security.enabled=true",
-            "openjiuwen.service.security.tls.client-auth=need",
-            "openjiuwen.service.security.auth.enabled=false")
-            .run(context -> {
-                SecurityProperties properties = context.getBean(SecurityProperties.class);
-                assertThat(properties.isEnabled()).isTrue();
-                assertThat(properties.getTls().getClientAuth()).isEqualTo("need");
-                assertThat(properties.getAuth().isEnabled()).isFalse();
-            });
+                "openjiuwen.service.security.tls.client-auth=need", "openjiuwen.service.security.auth.enabled=false")
+                .run(context -> {
+                    SecurityProperties properties = context.getBean(SecurityProperties.class);
+                    assertThat(properties.isEnabled()).isTrue();
+                    assertThat(properties.getTls().getClientAuth()).isEqualTo("need");
+                    assertThat(properties.getAuth().isEnabled()).isFalse();
+                });
     }
 }
