@@ -21,14 +21,13 @@ import java.lang.reflect.Method;
  */
 class AuthorizationRequestBuilderTest {
     @Test
-    void buildIncludesResourceActionHeadersAndExtensions() throws Exception {
+    void buildIncludesResourceActionAndTenantHeaders() throws Exception {
         Method method = SampleEndpoints.class.getDeclaredMethod("query");
         AuthorizedResource annotation = method.getAnnotation(AuthorizedResource.class);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/v1/query");
         request.addHeader("X-User-ID", "user-1");
         request.addHeader("X-Space-ID", "space-1");
         request.addHeader("X-Tenant-ID", "tenant-1");
-        request.setRemoteAddr("127.0.0.1");
 
         AuthorizationRequest built = AuthorizationRequestBuilder.build(annotation, request);
 
@@ -37,9 +36,7 @@ class AuthorizationRequestBuilderTest {
         assertThat(built.userId()).isEqualTo("user-1");
         assertThat(built.spaceId()).isEqualTo("space-1");
         assertThat(built.tenantId()).isEqualTo("tenant-1");
-        assertThat(built.extensions()).containsEntry("httpMethod", "POST");
-        assertThat(built.extensions()).containsEntry("requestPath", "/v1/query");
-        assertThat(built.extensions()).containsEntry("clientIp", "127.0.0.1");
+        assertThat(built.extensions()).isEmpty();
     }
 
     static class SampleEndpoints {

@@ -15,7 +15,7 @@ import java.util.Map;
  * @param userId {@code X-User-ID} header value, may be {@code null}
  * @param spaceId {@code X-Space-ID} header value, may be {@code null}
  * @param tenantId {@code X-Tenant-ID} header value, may be {@code null}
- * @param extensions reserved extension map; runtime pre-populates common keys
+ * @param extensions reserved extension map for SPI implementations; empty by default
  * @since 0.1.0
  */
 public record AuthorizationRequest(String resource, String action, String userId, String spaceId, String tenantId,
