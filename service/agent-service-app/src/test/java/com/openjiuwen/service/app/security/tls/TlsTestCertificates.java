@@ -86,26 +86,26 @@ public final class TlsTestCertificates {
     public static Material generate() throws IOException, InterruptedException {
         Path directory = Files.createTempDirectory("agent-service-tls-it-");
         Path serverKeyStore = directory.resolve("server.p12");
-        Path clientKeyStore = directory.resolve("client.p12");
-        Path serverTrustStore = directory.resolve("server-trust.p12");
-        Path clientTrustStore = directory.resolve("client-trust.p12");
-        Path serverCert = directory.resolve("server.crt");
-        Path clientCert = directory.resolve("client.crt");
 
         runKeytool("-genkeypair", "-alias", "server", "-keyalg", "RSA", "-keysize", "2048", "-storetype", "PKCS12",
             "-keystore", serverKeyStore.toString(), "-storepass", PASSWORD, "-keypass", PASSWORD, "-validity", "1",
             "-dname", "CN=localhost", "-ext", "SAN=DNS:localhost,IP:127.0.0.1");
+        Path clientKeyStore = directory.resolve("client.p12");
         runKeytool("-genkeypair", "-alias", "client", "-keyalg", "RSA", "-keysize", "2048", "-storetype", "PKCS12",
             "-keystore", clientKeyStore.toString(), "-storepass", PASSWORD, "-keypass", PASSWORD, "-validity", "1",
             "-dname", "CN=test-client");
 
+        Path serverCert = directory.resolve("server.crt");
         runKeytool("-exportcert", "-alias", "server", "-keystore", serverKeyStore.toString(), "-storepass", PASSWORD,
             "-file", serverCert.toString());
+        Path clientCert = directory.resolve("client.crt");
         runKeytool("-exportcert", "-alias", "client", "-keystore", clientKeyStore.toString(), "-storepass", PASSWORD,
             "-file", clientCert.toString());
 
+        Path clientTrustStore = directory.resolve("client-trust.p12");
         runKeytool("-importcert", "-alias", "server", "-file", serverCert.toString(), "-keystore",
             clientTrustStore.toString(), "-storepass", PASSWORD, "-storetype", "PKCS12", "-noprompt");
+        Path serverTrustStore = directory.resolve("server-trust.p12");
         runKeytool("-importcert", "-alias", "client", "-file", clientCert.toString(), "-keystore",
             serverTrustStore.toString(), "-storepass", PASSWORD, "-storetype", "PKCS12", "-noprompt");
 

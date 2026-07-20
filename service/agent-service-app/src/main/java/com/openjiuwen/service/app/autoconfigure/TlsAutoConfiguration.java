@@ -45,9 +45,9 @@ public class TlsAutoConfiguration {
     public WebServerFactoryCustomizer<ConfigurableServletWebServerFactory> tlsWebServerCustomizer(
         SecurityProperties securityProperties, CredentialDecryptor credentialDecryptor, ResourceLoader resourceLoader) {
         SecurityProperties.Tls tls = securityProperties.getTls();
-        TlsMaterial material = TlsMaterialLoader.load(tls.getKeyStore(), tls.getKeyStorePassword(), tls.getKeyStoreType(),
-            tls.getTrustStore(), tls.getTrustStorePassword(), tls.getTrustStoreType(), tls.getEnabledProtocols(), true,
-            credentialDecryptor);
+        TlsMaterial material = TlsMaterialLoader.load(tls.getKeyStore(), tls.getKeyStorePassword(),
+            tls.getKeyStoreType(), tls.getTrustStore(), tls.getTrustStorePassword(), tls.getTrustStoreType(),
+            tls.getEnabledProtocols(), true, credentialDecryptor);
         TlsStartupValidator.validate(tls, material, resourceLoader);
         Ssl ssl = toServerSsl(material, tls.getClientAuth());
         return factory -> factory.setSsl(ssl);
