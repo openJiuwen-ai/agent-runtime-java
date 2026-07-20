@@ -104,6 +104,7 @@ public class MockOutboundSecureMcpServer {
      * Standalone entry point.
      *
      * @param args {@code --port=18443} {@code --token=demo-outbound-token}
+     * @throws Exception Exception
      */
     public static void main(String[] args) throws Exception {
         Map<String, String> options = parseArgs(args);

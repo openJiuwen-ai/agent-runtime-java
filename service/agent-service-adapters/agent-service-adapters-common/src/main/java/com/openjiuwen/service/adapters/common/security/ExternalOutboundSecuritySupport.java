@@ -47,11 +47,11 @@ public class ExternalOutboundSecuritySupport {
     public PreparedOutboundSecurity prepare(ExternalTargetRef target, ExternalTlsConfig tlsConfig,
         ExternalAuthProperties authConfig, Duration connectTimeout) {
         Optional<TlsMaterial> tlsMaterial = tlsConfigResolver.resolve(tlsConfig);
-        AuthMaterial authMaterial = authMaterialMerger.merge(target,
-            authConfig != null ? authConfig.toSpecConfig() : com.openjiuwen.service.spec.security.ExternalAuthConfig.none());
+        AuthMaterial authMaterial = authMaterialMerger.merge(target, authConfig != null
+            ? authConfig.toSpecConfig()
+            : com.openjiuwen.service.spec.security.ExternalAuthConfig.none());
 
-        HttpClient jdkClient = tlsMaterial
-            .map(material -> httpClientFactory.createJdkClient(material, connectTimeout))
+        HttpClient jdkClient = tlsMaterial.map(material -> httpClientFactory.createJdkClient(material, connectTimeout))
             .orElse(null);
         OkHttpClient okHttpClient = null;
         if (tlsMaterial.isPresent() || (authMaterial != null && !authMaterial.isEmpty())) {

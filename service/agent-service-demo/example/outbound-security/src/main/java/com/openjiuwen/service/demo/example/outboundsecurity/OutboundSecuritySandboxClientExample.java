@@ -74,8 +74,6 @@ public final class OutboundSecuritySandboxClientExample {
      */
     public static String readFileThroughOutboundSecurity(MockOutboundSecureJiuwenBoxServer mockServer)
         throws Exception {
-        OutboundTlsMaterialGenerator.Material tlsMaterial = mockServer.tlsMaterial();
-
         AgentCoreExternalProperties properties = new AgentCoreExternalProperties();
         properties.getSandbox().setEnabled(true);
         properties.getSandbox().setTimeoutMs(5000);
@@ -90,6 +88,7 @@ public final class OutboundSecuritySandboxClientExample {
         server.setRootPath(".");
 
         ExternalTlsConfig tlsConfig = server.getTls();
+        OutboundTlsMaterialGenerator.Material tlsMaterial = mockServer.tlsMaterial();
         tlsConfig.setEnabled(true);
         tlsConfig.setTrustStore(tlsMaterial.clientTrustStoreLocation());
         tlsConfig.setTrustStorePassword(OutboundTlsMaterialGenerator.PASSWORD);

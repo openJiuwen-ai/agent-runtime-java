@@ -19,7 +19,9 @@ public record AuthMaterial(Map<String, String> headers, Map<String, String> quer
     Map<String, Object> materialExtensions) {
 
     /**
-     * Returns an empty authentication overlay.
+     * return empty AuthMaterial
+     *
+     * @return AuthMaterial
      */
     public static AuthMaterial none() {
         return new AuthMaterial(Map.of(), Map.of(), Map.of());
@@ -30,7 +32,9 @@ public record AuthMaterial(Map<String, String> headers, Map<String, String> quer
      */
     public AuthMaterial {
         headers = headers == null || headers.isEmpty() ? Map.of() : Map.copyOf(new LinkedHashMap<>(headers));
-        queryParams = queryParams == null || queryParams.isEmpty() ? Map.of() : Map.copyOf(new LinkedHashMap<>(queryParams));
+        queryParams = queryParams == null || queryParams.isEmpty()
+            ? Map.of()
+            : Map.copyOf(new LinkedHashMap<>(queryParams));
         materialExtensions = materialExtensions == null || materialExtensions.isEmpty()
             ? Map.of()
             : Map.copyOf(new LinkedHashMap<>(materialExtensions));
@@ -38,6 +42,8 @@ public record AuthMaterial(Map<String, String> headers, Map<String, String> quer
 
     /**
      * Whether no HTTP authentication overlay is present.
+     *
+     * @return boolean
      */
     public boolean isEmpty() {
         return headers.isEmpty() && queryParams.isEmpty();

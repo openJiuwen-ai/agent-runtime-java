@@ -14,7 +14,6 @@ import java.util.List;
  * E2E integration test for outbound MCP HTTPS + Bearer auth (Issue #25).
  */
 class OutboundSecurityMcpE2EIT {
-
     @Test
     void listsToolsOverHttpsWithBearerAuth() throws Exception {
         List<String> toolNames = OutboundSecurityMcpClientExample.runDemo(0);

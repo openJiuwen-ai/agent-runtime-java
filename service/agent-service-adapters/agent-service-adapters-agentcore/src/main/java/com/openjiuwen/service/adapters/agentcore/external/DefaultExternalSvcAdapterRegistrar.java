@@ -83,7 +83,8 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
         AgentCoreMcpClientDecoratorFactory decoratorFactory,
         AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory, List<McpClientProvider> customMcpClientProviders,
         List<RemoteClientProvider> customRemoteClientProviders) {
-        this(properties, decoratorFactory, remoteDecoratorFactory, customMcpClientProviders, customRemoteClientProviders,
+        this(properties, decoratorFactory, remoteDecoratorFactory, customMcpClientProviders,
+            customRemoteClientProviders,
             ExternalOutboundSecuritySupport.createDefault(new PassthroughCredentialDecryptor()));
     }
 

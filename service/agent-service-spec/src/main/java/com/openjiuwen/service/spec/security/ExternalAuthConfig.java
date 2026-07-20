@@ -24,6 +24,8 @@ public record ExternalAuthConfig(String type, String headerName, String token, S
 
     /**
      * Default no-authentication configuration.
+     *
+     * @return ExternalAuthConfig
      */
     public static ExternalAuthConfig none() {
         return new ExternalAuthConfig("none", "Authorization", null, null, null, Map.of());
@@ -50,6 +52,8 @@ public record ExternalAuthConfig(String type, String headerName, String token, S
 
     /**
      * Whether this configuration explicitly disables outbound authentication.
+     *
+     * @return boolean
      */
     public boolean isNoneType() {
         return "none".equals(type);

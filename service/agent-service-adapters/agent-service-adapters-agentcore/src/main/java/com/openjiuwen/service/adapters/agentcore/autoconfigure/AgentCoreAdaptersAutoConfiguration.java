@@ -74,6 +74,7 @@ public class AgentCoreAdaptersAutoConfiguration {
      * @param remoteDecoratorFactory remote client decorator factory
      * @param mcpClientProviders custom MCP client providers
      * @param remoteClientProviders custom remote client providers
+     * @param outboundSecuritySupport outboundSecuritySupport
      * @return external service adapter registrar bean
      */
     @Bean
@@ -96,6 +97,7 @@ public class AgentCoreAdaptersAutoConfiguration {
      * @param properties external adapter properties
      * @param remoteDecoratorFactory remote client decorator factory
      * @param remoteClientProviders custom remote client providers
+     * @param outboundSecuritySupport outboundSecuritySupport
      * @return default remote client factory bean
      */
     @Bean
@@ -114,6 +116,7 @@ public class AgentCoreAdaptersAutoConfiguration {
      * enabled.
      *
      * @param properties external adapter properties
+     * @param outboundSecuritySupport outboundSecuritySupport
      * @return default sandbox client factory bean
      */
     @Bean

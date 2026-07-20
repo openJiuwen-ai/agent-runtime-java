@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
  * E2E integration test for outbound Sandbox HTTPS + Bearer auth (Issue #25).
  */
 class OutboundSecuritySandboxE2EIT {
-
     @Test
     void readsFileOverHttpsWithBearerAuth() throws Exception {
         String content = OutboundSecuritySandboxClientExample.runDemo(0);

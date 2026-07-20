@@ -34,10 +34,9 @@ import java.util.Map;
  * @since 0.1.0
  */
 public final class OutboundSecurityMcpClientExample {
-    private static final Logger log = LoggerFactory.getLogger(OutboundSecurityMcpClientExample.class);
-
     /** Demo bearer token shared with {@link MockOutboundSecureMcpServer}. */
     public static final String DEMO_TOKEN = "demo-outbound-token";
+    private static final Logger log = LoggerFactory.getLogger(OutboundSecurityMcpClientExample.class);
 
     private OutboundSecurityMcpClientExample() {
     }
@@ -81,8 +80,6 @@ public final class OutboundSecurityMcpClientExample {
     public static List<String> listToolsThroughOutboundSecurity(MockOutboundSecureMcpServer mockServer)
         throws Exception {
         OutboundTlsMaterialGenerator.Material tlsMaterial = mockServer.tlsMaterial();
-        int actualPort = mockServer.port();
-
         ExternalTlsConfig tlsConfig = new ExternalTlsConfig();
         tlsConfig.setEnabled(true);
         tlsConfig.setTrustStore(tlsMaterial.clientTrustStoreLocation());
@@ -96,6 +93,7 @@ public final class OutboundSecurityMcpClientExample {
 
         ExternalOutboundSecuritySupport support = ExternalOutboundSecuritySupport
             .createDefault(new PassthroughCredentialDecryptor());
+        int actualPort = mockServer.port();
         PreparedOutboundSecurity prepared = support.prepare(
             new ExternalTargetRef("MCP", "demo-secure-mcp",
                 "https://127.0.0.1:" + actualPort + "/mcp", CredentialSceneType.MCP_AUTH_TOKEN),

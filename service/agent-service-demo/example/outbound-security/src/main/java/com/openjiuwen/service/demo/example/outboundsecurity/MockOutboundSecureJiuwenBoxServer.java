@@ -115,6 +115,7 @@ public class MockOutboundSecureJiuwenBoxServer {
      * Standalone entry point.
      *
      * @param args {@code --port=18490} {@code --token=demo-outbound-token}
+     * @throws Exception Exception
      */
     public static void main(String[] args) throws Exception {
         Map<String, String> options = parseArgs(args);
