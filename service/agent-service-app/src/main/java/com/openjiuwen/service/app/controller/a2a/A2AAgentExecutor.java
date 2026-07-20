@@ -35,8 +35,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * AgentHandler chain.
  *
  * <p>
- * Delegates stream/chunk handling to the orchestrator. Interrupt detection and
- * resume logic belong to the orchestrator layer, not here.
+ * Delegates execution to the orchestrator and owns the A2A protocol projection:
+ * interrupt data is stored in task status metadata and restored only for an
+ * {@code INPUT_REQUIRED} task resume.
  *
  * @since 0.1.0
  */
@@ -80,7 +81,6 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
 
         Task task = ctx.getTask();
-        boolean hasExistingTask = task != null;
         boolean isInputRequiredResume = task != null && task.status() != null
             && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED;
         Map<String, Object> metadata = new LinkedHashMap<>(req.getMetadata());
@@ -95,7 +95,7 @@ public class A2AAgentExecutor implements AgentExecutor {
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
             msgCtx.getContextId(), req.getConversationId(), isInputRequiredResume, req.isStream());
 
-        if (!hasExistingTask) {
+        if (task == null) {
             emitter.submit();
         }
         emitter.startWork();
@@ -203,11 +203,9 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private static Optional<Map<?, ?>> findStoredInterrupt(Task task) {
-        Optional<Map<?, ?>> statusInterrupt = task.status() == null
-            ? Optional.empty()
-            : interruptFrom(task.status().message());
-        if (statusInterrupt.isPresent()) {
-            return statusInterrupt;
+        Optional<Message> statusMessage = Optional.ofNullable(task.status()).map(status -> status.message());
+        if (statusMessage.isPresent()) {
+            return statusMessage.flatMap(A2AAgentExecutor::interruptFrom);
         }
 
         List<Message> history = task.history();
@@ -215,9 +213,10 @@ public class A2AAgentExecutor implements AgentExecutor {
             return Optional.empty();
         }
         for (int index = history.size() - 1; index >= 0; index--) {
-            Optional<Map<?, ?>> interrupt = interruptFrom(history.get(index));
-            if (interrupt.isPresent()) {
-                return interrupt;
+            Optional<Message> agentMessage = Optional.ofNullable(history.get(index))
+                .filter(message -> message.role() == Message.Role.ROLE_AGENT);
+            if (agentMessage.isPresent()) {
+                return agentMessage.flatMap(A2AAgentExecutor::interruptFrom);
             }
         }
         return Optional.empty();
