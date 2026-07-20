@@ -4,6 +4,9 @@
 
 package com.openjiuwen.service.adapters.common.security;
 
+import lombok.Getter;
+import lombok.Setter;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.ArrayList;
@@ -15,6 +18,8 @@ import java.util.List;
  *
  * @since 0.1.0
  */
+@Getter
+@Setter
 @ConfigurationProperties(prefix = "openjiuwen.service.security.tls")
 public class GlobalTlsProperties {
     private boolean enabled = false;
@@ -33,66 +38,11 @@ public class GlobalTlsProperties {
 
     private List<String> enabledProtocols = new ArrayList<>(List.of("TLSv1.2", "TLSv1.3"));
 
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-    }
-
-    public String getKeyStore() {
-        return keyStore;
-    }
-
-    public void setKeyStore(String keyStore) {
-        this.keyStore = keyStore;
-    }
-
-    public String getKeyStorePassword() {
-        return keyStorePassword;
-    }
-
-    public void setKeyStorePassword(String keyStorePassword) {
-        this.keyStorePassword = keyStorePassword;
-    }
-
-    public String getKeyStoreType() {
-        return keyStoreType;
-    }
-
-    public void setKeyStoreType(String keyStoreType) {
-        this.keyStoreType = keyStoreType;
-    }
-
-    public String getTrustStore() {
-        return trustStore;
-    }
-
-    public void setTrustStore(String trustStore) {
-        this.trustStore = trustStore;
-    }
-
-    public String getTrustStorePassword() {
-        return trustStorePassword;
-    }
-
-    public void setTrustStorePassword(String trustStorePassword) {
-        this.trustStorePassword = trustStorePassword;
-    }
-
-    public String getTrustStoreType() {
-        return trustStoreType;
-    }
-
-    public void setTrustStoreType(String trustStoreType) {
-        this.trustStoreType = trustStoreType;
-    }
-
-    public List<String> getEnabledProtocols() {
-        return enabledProtocols;
-    }
-
+    /**
+     * Assigns enabled TLS protocol names, defaulting to an empty modifiable list when null.
+     *
+     * @param enabledProtocols protocol names from YAML
+     */
     public void setEnabledProtocols(List<String> enabledProtocols) {
         this.enabledProtocols = enabledProtocols != null ? enabledProtocols : new ArrayList<>();
     }

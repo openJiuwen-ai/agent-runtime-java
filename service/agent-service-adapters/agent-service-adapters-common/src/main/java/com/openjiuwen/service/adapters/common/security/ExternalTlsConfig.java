@@ -4,11 +4,19 @@
 
 package com.openjiuwen.service.adapters.common.security;
 
+import lombok.Getter;
+import lombok.Setter;
+
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Per-endpoint TLS configuration bound from external service YAML.
  *
  * @since 0.1.0
  */
+@Getter
+@Setter
 public class ExternalTlsConfig {
     private boolean enabled = false;
 
@@ -27,87 +35,16 @@ public class ExternalTlsConfig {
 
     private String trustStoreType;
 
-    private java.util.List<String> enabledProtocols = new java.util.ArrayList<>();
+    private List<String> enabledProtocols = new ArrayList<>();
 
     private boolean verifyHostname = true;
 
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-    }
-
-    public String getRef() {
-        return ref;
-    }
-
-    public void setRef(String ref) {
-        this.ref = ref;
-    }
-
-    public String getKeyStore() {
-        return keyStore;
-    }
-
-    public void setKeyStore(String keyStore) {
-        this.keyStore = keyStore;
-    }
-
-    public String getKeyStorePassword() {
-        return keyStorePassword;
-    }
-
-    public void setKeyStorePassword(String keyStorePassword) {
-        this.keyStorePassword = keyStorePassword;
-    }
-
-    public String getKeyStoreType() {
-        return keyStoreType;
-    }
-
-    public void setKeyStoreType(String keyStoreType) {
-        this.keyStoreType = keyStoreType;
-    }
-
-    public String getTrustStore() {
-        return trustStore;
-    }
-
-    public void setTrustStore(String trustStore) {
-        this.trustStore = trustStore;
-    }
-
-    public String getTrustStorePassword() {
-        return trustStorePassword;
-    }
-
-    public void setTrustStorePassword(String trustStorePassword) {
-        this.trustStorePassword = trustStorePassword;
-    }
-
-    public String getTrustStoreType() {
-        return trustStoreType;
-    }
-
-    public void setTrustStoreType(String trustStoreType) {
-        this.trustStoreType = trustStoreType;
-    }
-
-    public java.util.List<String> getEnabledProtocols() {
-        return enabledProtocols;
-    }
-
-    public void setEnabledProtocols(java.util.List<String> enabledProtocols) {
-        this.enabledProtocols = enabledProtocols != null ? enabledProtocols : new java.util.ArrayList<>();
-    }
-
-    public boolean isVerifyHostname() {
-        return verifyHostname;
-    }
-
-    public void setVerifyHostname(boolean verifyHostname) {
-        this.verifyHostname = verifyHostname;
+    /**
+     * Assigns enabled TLS protocol names, defaulting to an empty modifiable list when null.
+     *
+     * @param enabledProtocols protocol names from YAML
+     */
+    public void setEnabledProtocols(List<String> enabledProtocols) {
+        this.enabledProtocols = enabledProtocols != null ? enabledProtocols : new ArrayList<>();
     }
 }

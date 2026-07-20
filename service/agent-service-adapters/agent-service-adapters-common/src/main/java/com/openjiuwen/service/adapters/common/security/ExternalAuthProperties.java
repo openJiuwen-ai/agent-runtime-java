@@ -6,6 +6,9 @@ package com.openjiuwen.service.adapters.common.security;
 
 import com.openjiuwen.service.spec.security.ExternalAuthConfig;
 
+import lombok.Getter;
+import lombok.Setter;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -14,6 +17,8 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
+@Getter
+@Setter
 public class ExternalAuthProperties {
     private String type = "none";
 
@@ -27,50 +32,11 @@ public class ExternalAuthProperties {
 
     private Map<String, Object> extensions = new LinkedHashMap<>();
 
-    public String getType() {
-        return type;
-    }
-
-    public void setType(String type) {
-        this.type = type;
-    }
-
-    public String getHeaderName() {
-        return headerName;
-    }
-
-    public void setHeaderName(String headerName) {
-        this.headerName = headerName;
-    }
-
-    public String getToken() {
-        return token;
-    }
-
-    public void setToken(String token) {
-        this.token = token;
-    }
-
-    public String getEncryptedToken() {
-        return encryptedToken;
-    }
-
-    public void setEncryptedToken(String encryptedToken) {
-        this.encryptedToken = encryptedToken;
-    }
-
-    public String getCredentialsRef() {
-        return credentialsRef;
-    }
-
-    public void setCredentialsRef(String credentialsRef) {
-        this.credentialsRef = credentialsRef;
-    }
-
-    public Map<String, Object> getExtensions() {
-        return extensions;
-    }
-
+    /**
+     * Assigns SPI extension map, defaulting to an empty modifiable map when null.
+     *
+     * @param extensions auth extension parameters from YAML
+     */
     public void setExtensions(Map<String, Object> extensions) {
         this.extensions = extensions != null ? extensions : new LinkedHashMap<>();
     }
