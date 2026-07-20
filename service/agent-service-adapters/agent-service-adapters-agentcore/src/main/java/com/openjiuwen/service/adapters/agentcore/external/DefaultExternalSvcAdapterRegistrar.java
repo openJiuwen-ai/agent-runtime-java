@@ -42,6 +42,12 @@ import java.util.function.Function;
 public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterRegistrar {
     private static final Logger log = LoggerFactory.getLogger(DefaultExternalSvcAdapterRegistrar.class);
 
+    private static final String STREAMABLE_HTTP = "streamable_http";
+
+    private static final String ACCEPT_HEADER = "Accept";
+
+    private static final String STREAMABLE_HTTP_ACCEPT = "application/json";
+
     private final AgentCoreExternalProperties properties;
 
     private final AgentCoreMcpClientDecoratorFactory decoratorFactory;
@@ -232,7 +238,11 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
         }
         config.setServerName(requireText(server.getServerName(), "server-name"));
         config.setServerPath(requireText(server.getServerPath(), "server-path"));
-        config.setClientType(normalizeClientType(server.getClientType()));
+        String clientType = normalizeClientType(server.getClientType());
+        config.setClientType(clientType);
+        if (STREAMABLE_HTTP.equals(clientType)) {
+            config.getAuthHeaders().put(ACCEPT_HEADER, STREAMABLE_HTTP_ACCEPT);
+        }
         config.setParams(server.getParams());
         return config;
     }
@@ -243,7 +253,7 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
         }
         String normalized = clientType.toLowerCase(Locale.ROOT);
         if ("streamable-http".equals(normalized)) {
-            return "streamable_http";
+            return STREAMABLE_HTTP;
         }
         return normalized;
     }

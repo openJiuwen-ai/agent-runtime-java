@@ -1,220 +1,139 @@
-# Sandbox Examples
+# Sandbox Demo
 
-独立工程：`agent-service-demo-sandbox`（`example/sandbox/`）。**Agent Service 默认端口 8093**，外置 Sandbox 服务默认端口示例为 `18090`。
+`agent-service-demo-sandbox` 演示用户请求经过大模型后，由 Agent 调用真实 JiuwenBox 中的
+`executeCmd`、`readFile` 和 `executeCode` 工具。
 
-runtime 不再实现独立的 sandbox HTTP provider。sandbox 后端协议由 agent-core-java 的 provider 负责，标准后端入口是 `/api/v1/sandboxes`。runtime 这一层负责读取外部服务配置、创建 core client，并统一套用 timeout、retry、circuit breaker、audit 等外部调用策略。
-
-## 两个示例的区别
-
-| 示例 | 文件 | 是否经过 Agent | 用途 |
-|------|------|---------------|------|
-| Agent 调沙箱完整服务 | `src/main/java/com/openjiuwen/service/demo/example/sandbox/SandboxDemoApplication.java` | 是 | 启动 Agent Service，LLM 可选择 `readFile` / `executeCmd` / `executeCode` 工具，工具背后调用装饰后的 `SandboxClient` |
-| Adapter 直连示例 | `SandboxAdapterExample.java` | 否 | 直接创建 core `SandboxClient` 并调用沙箱服务，用来验证 sandbox 配置、client 创建和基础操作 |
-
-一般手工联调“大模型通过 agent 调用沙箱，并经过 runtime 装饰器”时，使用 `SandboxDemoApplication.java`。只想验证 sandbox adapter/client 是否能连通后端时，使用 `SandboxAdapterExample.java`。
-
-## SandboxDemoApplication：Agent 调装饰后 Sandbox
-
-`SandboxDemoApplication` 会创建一个 `ReActAgent`，然后在存在 `AgentCoreSandboxClientFactory` bean 时执行：
-
-```java
-DecoratedSandboxToolRegistrar.register(agent, factory)
-```
-
-这个注册过程会：
-
-1. 通过 `factory.create()` 创建 core `SandboxClient`。
-2. `DefaultAgentCoreSandboxClientFactory` 返回的是 `DecoratingSandboxClient`。
-3. 把 `readFile`、`executeCmd`、`executeCode` 包成 `LocalFunction` / `ToolCard` 注册到 `ReActAgent`。
-4. LLM 在 ReAct 流程中选择工具后，工具执行会进入 `DecoratingSandboxClient.fs()` / `shell()` / `code()`，再调用真实 sandbox 服务。
-
-调用链：
+完整链路：
 
 ```text
 POST /v1/query
-  -> SandboxDemoApplication 的 ReActAgent
-  -> LLM 选择 readFile / executeCmd / executeCode
-  -> ReActAgent 执行 LocalFunction
-  -> DecoratingSandboxClient.fs()/shell()/code()
-  -> agent-core-java jiuwenbox provider
-  -> 外置 sandbox 服务 /api/v1/sandboxes
+→ ReActAgent
+→ DecoratingSandboxClient
+→ agent-core-java JiuwenBox provider
+→ 独立 JiuwenBox 服务
+→ 工具结果回填 Agent
 ```
 
-### 前置条件
+本模块不实现 Sandbox 后端，也不会在 Java Demo 所在宿主机执行模型生成的命令。
 
-1. 已启动兼容 core `jiuwenbox` provider 的 sandbox 服务。
-2. 服务基地址可访问，例如 `http://localhost:18090`。
-3. Sandbox 服务支持 `/api/v1/sandboxes` 标准接口。
-4. 已准备可用的 LLM API 配置。
+## 1. 启动 JiuwenBox
 
-### 启动 Agent Service
+JiuwenBox 原生运行需要 Linux、Python 3.11+ 和 `bubblewrap`。先按照
+[JiuwenBox 官方文档](https://gitcode.com/openJiuwen/jiuwenswarm/blob/develop/jiuwenbox/README_CN.md)
+完成安装，然后在 JiuwenBox 工程中启动服务：
 
-从 `agent-runtime-java/service` 目录启动：
+```bash
+sudo ./.venv/bin/jiuwenbox-server
+```
+
+默认地址为 `http://127.0.0.1:8321`。确认服务可用：
+
+```bash
+curl -s http://127.0.0.1:8321/health
+```
+
+macOS、Windows 可以连接运行在 Linux 或 Docker 中的 JiuwenBox，并通过
+`OPENJIUWEN_SANDBOX_SERVICE_URL` 指定地址。
+
+## 2. 启动 Java Agent Demo
+
+从 `agent-runtime-java/service` 目录运行：
 
 ```bash
 OPENJIUWEN_SERVICE_LLM_API_KEY=xxx \
 OPENJIUWEN_SERVICE_LLM_API_BASE=https://your-llm-endpoint.example.com \
 OPENJIUWEN_SERVICE_LLM_MODEL_NAME=your-model-name \
-OPENJIUWEN_SANDBOX_SERVICE_URL=http://localhost:18090 \
+OPENJIUWEN_SANDBOX_SERVICE_URL=http://127.0.0.1:8321 \
 mvn -pl agent-service-demo/example/sandbox -am spring-boot:run
 ```
 
-启动后服务地址：
+Agent Service 默认监听 `http://127.0.0.1:8093`。
 
-```text
-http://localhost:8093
-```
+## 3. 手工验证完整链路
 
-如果使用非默认 sandbox 参数，可继续通过环境变量覆盖：
+先让 Agent 在 Sandbox 中创建文件：
 
 ```bash
-OPENJIUWEN_SANDBOX_ENABLED=true
-OPENJIUWEN_SANDBOX_SERVER_ID=default
-OPENJIUWEN_SANDBOX_TYPE=jiuwenbox
-OPENJIUWEN_SANDBOX_LAUNCHER_TYPE=pre_deploy
-OPENJIUWEN_SANDBOX_ON_STOP=delete
-OPENJIUWEN_SANDBOX_ROOT_PATH=.
-OPENJIUWEN_SANDBOX_TIMEOUT_MS=30000
-OPENJIUWEN_SANDBOX_RETRY_MAX=1
-OPENJIUWEN_SANDBOX_RETRY_BACKOFF_MS=200
-OPENJIUWEN_SANDBOX_CIRCUIT_BREAKER_ENABLED=true
+curl -s http://127.0.0.1:8093/v1/query \
+  -H 'Content-Type: application/json' \
+  -d '{"conversation_id":"sandbox-cmd","message":"请调用 executeCmd 工具执行：printf sandbox-file-ok > /tmp/openjiuwen-demo.txt && cat /tmp/openjiuwen-demo.txt","stream":false}'
 ```
 
-对应配置来自 `application-sandbox.yml`：
+再读取同一个文件：
+
+```bash
+curl -s http://127.0.0.1:8093/v1/query \
+  -H 'Content-Type: application/json' \
+  -d '{"conversation_id":"sandbox-read","message":"请调用 readFile 工具读取 /tmp/openjiuwen-demo.txt","stream":false}'
+```
+
+最后执行 Python：
+
+```bash
+curl -s http://127.0.0.1:8093/v1/query \
+  -H 'Content-Type: application/json' \
+  -d '{"conversation_id":"sandbox-code","message":"请调用 executeCode 工具，用 python 执行 print(\"sandbox-code-ok\")","stream":false}'
+```
+
+预期三次回答分别包含命令输出、`sandbox-file-ok` 和 `sandbox-code-ok`。工具是否被选择仍由真实大模型决定，
+因此提示词中显式指定了工具名。
+
+## 一键 Smoke
+
+JiuwenBox 已启动后，从 `agent-runtime-java/service` 运行：
+
+```bash
+./agent-service-demo/example/sandbox/smoke-sandbox.sh
+```
+
+连接其他 JiuwenBox：
+
+```bash
+OPENJIUWEN_SANDBOX_SERVICE_URL=http://your-jiuwenbox:8321 \
+./agent-service-demo/example/sandbox/smoke-sandbox.sh
+```
+
+脚本使用确定性内存 mock LLM，但所有 Sandbox 操作都经过真实网络和独立 JiuwenBox。它会验证：
+
+- Agent 能看到并调用三个 Sandbox 工具；
+- `executeCmd` 创建的文件可被 `readFile` 读取；
+- `executeCode` 返回真实 Python 输出；
+- `sleep` 触发 Runtime timeout，下一次同类调用触发 circuit breaker；
+- `EXTERNAL_CALL_AUDIT` 实际写入独立日志目录。
+
+外部集成测试默认跳过，不影响普通 `mvn test`。也可以直接运行：
+
+```bash
+mvn -pl agent-service-demo/example/sandbox -am \
+  -Dtest=SandboxAgentExternalEndToEndTest \
+  -Dsurefire.failIfNoSpecifiedTests=false \
+  -Ddemo.sandbox.e2e.service-url=http://127.0.0.1:8321 \
+  test
+```
+
+## 配置与边界
+
+主要配置位于 `application-sandbox.yml`：
 
 ```yaml
-openjiuwen:
-  service:
-    external:
-      sandbox:
-        enabled: true
-        timeout-ms: 30000
-        retry:
-          max: 1
-          backoff-ms: 200
-        circuit-breaker:
-          enabled: true
-          failure-threshold: 3
-          reset-timeout-ms: 30000
-        audit:
-          enabled: true
-        servers:
-          - server-id: default
-            service-url: http://localhost:18090
-            sandbox-type: jiuwenbox
-            launcher-type: pre_deploy
-            on-stop: delete
-            root-path: .
+openjiuwen.service.external.sandbox:
+  enabled: true
+  timeout-ms: 30000
+  servers:
+    - server-id: default
+      service-url: http://127.0.0.1:8321
+      sandbox-type: jiuwenbox
+      launcher-type: pre_deploy
 ```
 
-`enabled=true` 时，`service-url` 必须是合法的 `http` 或 `https` URL，否则应用启动会失败。
+- 本 Demo 不修改 `agent-core-java`，协议由 Core 的 JiuwenBox provider 决定。
+- 当前 Core Client 没有为 JiuwenBox 注入 Token 请求头，本 Demo 只验证受信网络中的无 Token 服务。
+- `executeCmd`、`executeCode` 有副作用，Runtime 不对它们重试；`readFile` 可以按配置重试。
+- Runtime 超时只表示调用方停止等待，已发送到 JiuwenBox 的命令可能继续执行一小段时间。
+- `pre_deploy` 下不依赖 `on-stop=delete` 自动清理；外部 E2E 会显式调用 Core 生命周期清理方法。
 
-### 调用示例
+## 设计取舍
 
-非流式请求：
-
-```bash
-curl -s http://localhost:8093/v1/query \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "conversation_id": "sandbox-demo-c1",
-    "message": "请读取沙箱里的 /tmp/demo.txt，并返回文件内容。",
-    "stream": false
-  }'
-```
-
-执行命令：
-
-```bash
-curl -s http://localhost:8093/v1/query \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "conversation_id": "sandbox-demo-c2",
-    "message": "请在沙箱中执行命令：echo sandbox，并返回 stdout。",
-    "stream": false
-  }'
-```
-
-执行代码：
-
-```bash
-curl -s http://localhost:8093/v1/query \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "conversation_id": "sandbox-demo-c3",
-    "message": "请在沙箱中用 python 执行 print(\"sandbox\")，并返回输出。",
-    "stream": false
-  }'
-```
-
-如果 LLM 没有主动选择工具，可以把提示词写得更明确，例如“请调用 readFile 工具读取 `/tmp/demo.txt`”。实际是否调用工具由模型根据 tool schema 和提示词决定。
-
-### 验证
-
-运行 sandbox agent 冒烟测试：
-
-```bash
-mvn -pl agent-service-demo/example/sandbox -am test \
-  -Dgroups=smoke \
-  -Dsurefire.failIfNoSpecifiedTests=false
-```
-
-这个测试会启动 mock LLM 和 mock jiuwenbox-compatible sandbox server，验证：
-
-```text
-LLM tool_call(readFile)
-  -> ReActAgent 工具执行
-  -> DecoratingSandboxClient
-  -> mock sandbox server
-  -> 返回文件内容
-```
-
-## SandboxAdapterExample：直接调用 SandboxClient
-
-`SandboxAdapterExample.java` 不启动 Agent Service，也不经过 LLM。它只展示如何通过 Service external adapter 配置创建 core `SandboxClient`，并直接调用配置的 sandbox 服务。
-
-从 `agent-runtime-java/service` 目录生成 classpath 并编译示例：
-
-```bash
-mvn -pl agent-service-demo dependency:build-classpath \
-  -Dmdep.outputFile=target/example.classpath
-
-mkdir -p agent-service-demo/target/example-classes
-
-EXAMPLE_CP="agent-service-demo/target/classes:$(cat agent-service-demo/target/example.classpath)"
-
-javac -d agent-service-demo/target/example-classes \
-  -cp "$EXAMPLE_CP" \
-  agent-service-demo/example/sandbox/SandboxAdapterExample.java
-```
-
-默认只展示配置、校验和 client 创建：
-
-```bash
-java -cp "agent-service-demo/target/example-classes:$EXAMPLE_CP" \
-  com.openjiuwen.service.demo.example.sandbox.SandboxAdapterExample \
-  --url=http://localhost:18090
-```
-
-传入 `--operation` 后会通过 core `SandboxClient` 调用配置的 sandbox 服务：
-
-```bash
-java -cp "agent-service-demo/target/example-classes:$EXAMPLE_CP" \
-  com.openjiuwen.service.demo.example.sandbox.SandboxAdapterExample \
-  --url=http://localhost:18090 \
-  --operation=read-file \
-  --path=/tmp/demo.txt
-
-java -cp "agent-service-demo/target/example-classes:$EXAMPLE_CP" \
-  com.openjiuwen.service.demo.example.sandbox.SandboxAdapterExample \
-  --url=http://localhost:18090 \
-  --operation=shell \
-  --command="echo sandbox"
-
-java -cp "agent-service-demo/target/example-classes:$EXAMPLE_CP" \
-  com.openjiuwen.service.demo.example.sandbox.SandboxAdapterExample \
-  --url=http://localhost:18090 \
-  --operation=code \
-  --language=python \
-  --code="print('sandbox')"
-```
+这里选择官方 JiuwenBox，而不是在 Runtime 仓库中实现一个本地 Java 后端。后者如果执行真实命令，会把模型命令
+直接运行在宿主机；如果只返回固定结果，又只能证明 mock 协议。回滚本改动只需恢复原测试、配置和文档，不涉及
+REST API 或数据迁移。
