@@ -126,13 +126,15 @@ done
 [[ "$ready" == "true" ]] || fail "FastMCP server did not become ready"
 pass "independent FastMCP server ready at $MCP_URL"
 
-print_step "3" "Verify FastMCP initialize, tools/list, and tools/call JSON responses"
+print_step "3" "Verify FastMCP initialize, tools/list, tools/call, and tool-error JSON responses"
 post_mcp "initialize" \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"openjiuwen-smoke","version":"1.0"}}}'
 post_mcp "tools-list" \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 post_mcp "tools-call" \
   '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"demo_echo","arguments":{"text":"smoke"}}}'
+post_mcp "tools-call-fail" \
+  '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"demo_fail","arguments":{}}}'
 
 grep -Fq 'openjiuwen-demo-fastmcp' "$TMP_DIR/initialize.json" \
   || fail "initialize did not return FastMCP server information"
@@ -144,7 +146,11 @@ grep -Fq 'demo_fail' "$TMP_DIR/tools-list.json" \
   || fail "tools/list did not contain demo_fail"
 grep -Fq 'demo_echo:smoke' "$TMP_DIR/tools-call.json" \
   || fail "tools/call did not return demo_echo:smoke"
-pass "FastMCP returned stateless application/json responses"
+grep -Eq '"isError"[[:space:]]*:[[:space:]]*true' "$TMP_DIR/tools-call-fail.json" \
+  || fail "demo_fail did not return an MCP tool result with isError=true"
+grep -Fq 'demo_fail requested failure' "$TMP_DIR/tools-call-fail.json" \
+  || fail "demo_fail result did not contain the expected error text"
+pass "FastMCP returned stateless application/json responses, including the tool-error boundary"
 
 print_step "4" "Run the MCP Demo Agent and governance E2E tests"
 (

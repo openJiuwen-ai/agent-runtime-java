@@ -36,7 +36,7 @@ class McpGovernanceIntegrationTest {
     private static final String MCP_ACCEPT = "application/json";
 
     @Test
-    void externalMcpDelayTriggersTimeoutAndCircuitBreaker(CapturedOutput output) throws Exception {
+    void externalMcpToolErrorDoesNotTripCircuitBeforeTimeout(CapturedOutput output) throws Exception {
         McpServerConfig config = newConfig("demo-mcp-governance");
         StreamableHttpClient delegate = new StreamableHttpClient(config);
         delegate.connect(0, 2.0f);
@@ -49,18 +49,27 @@ class McpGovernanceIntegrationTest {
         policy.getCircuitBreaker().setResetTimeoutMs(60000);
         McpClient client = new DecoratingMcpClient(config, delegate, policy);
 
-        assertThatThrownBy(
-            () -> client.callTool("demo_delay", Map.of("delay_ms", 500), 2.0f))
-            .isInstanceOf(ExternalSvcAdapterException.class)
-            .extracting("errorCode")
-            .isEqualTo(ExternalSvcAdapterErrorCode.MCP_TIMEOUT);
-        assertThatThrownBy(
-            () -> client.callTool("demo_echo", Map.of("text", "blocked"), 2.0f))
-            .isInstanceOf(ExternalSvcAdapterException.class)
-            .extracting("errorCode")
-            .isEqualTo(ExternalSvcAdapterErrorCode.MCP_CIRCUIT_OPEN);
+        try {
+            Object toolError = client.callTool("demo_fail", Map.of(), 2.0f);
+            assertThat(toolError).asString().contains("demo_fail requested failure");
 
-        delegate.disconnect(2.0f);
+            Object echoAfterToolError = client.callTool("demo_echo", Map.of("text", "after-tool-error"), 2.0f);
+            assertThat(echoAfterToolError).isEqualTo("demo_echo:after-tool-error");
+
+            assertThatThrownBy(
+                () -> client.callTool("demo_delay", Map.of("delay_ms", 500), 2.0f))
+                .isInstanceOf(ExternalSvcAdapterException.class)
+                .extracting("errorCode")
+                .isEqualTo(ExternalSvcAdapterErrorCode.MCP_TIMEOUT);
+            assertThatThrownBy(
+                () -> client.callTool("demo_echo", Map.of("text", "blocked"), 2.0f))
+                .isInstanceOf(ExternalSvcAdapterException.class)
+                .extracting("errorCode")
+                .isEqualTo(ExternalSvcAdapterErrorCode.MCP_CIRCUIT_OPEN);
+        } finally {
+            delegate.disconnect(2.0f);
+        }
+
         assertThat(output).contains("EXTERNAL_CALL_AUDIT")
             .contains("success=false")
             .contains("code=EXT_MCP_004")
