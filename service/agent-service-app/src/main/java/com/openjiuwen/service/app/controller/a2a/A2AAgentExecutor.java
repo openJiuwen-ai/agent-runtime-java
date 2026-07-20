@@ -15,10 +15,13 @@ import org.a2aproject.sdk.server.agentexecution.RequestContext;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,13 +35,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * AgentHandler chain.
  *
  * <p>
- * Delegates stream/chunk handling to the orchestrator. Interrupt detection and
- * resume logic belong to the orchestrator layer, not here.
+ * Delegates execution to the orchestrator and owns the A2A protocol projection:
+ * interrupt data is stored in task status metadata and restored only for an
+ * {@code INPUT_REQUIRED} task resume.
  *
  * @since 0.1.0
  */
 public class A2AAgentExecutor implements AgentExecutor {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
+
+    private static final String INTERRUPT = "_interrupt";
 
     /**
      * Dead-time bound for waiting on the in-flight queue to drain before
@@ -74,11 +80,22 @@ public class A2AAgentExecutor implements AgentExecutor {
             req.setStream(isStream);
         }
 
-        boolean isResume = ctx.getTask() != null;
+        Task task = ctx.getTask();
+        boolean isInputRequiredResume = task != null && task.status() != null
+            && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED;
+        Map<String, Object> metadata = new LinkedHashMap<>(req.getMetadata());
+        metadata.remove(INTERRUPT);
+        if (isInputRequiredResume) {
+            Optional<Map<?, ?>> storedInterrupt = findStoredInterrupt(task);
+            if (storedInterrupt.isPresent()) {
+                metadata.put(INTERRUPT, storedInterrupt.get());
+            }
+        }
+        req.setMetadata(metadata);
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
-            msgCtx.getContextId(), req.getConversationId(), isResume, req.isStream());
+            msgCtx.getContextId(), req.getConversationId(), isInputRequiredResume, req.isStream());
 
-        if (!isResume) {
+        if (task == null) {
             emitter.submit();
         }
         emitter.startWork();
@@ -107,8 +124,11 @@ public class A2AAgentExecutor implements AgentExecutor {
                     if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
                         log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
                             msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
-                        Message statusMsg = toStatusMessage(chunk).orElse(null);
-                        emitter.requiresInput(statusMsg);
+                        if (chunk.getData() instanceof Map<?, ?> interruptData) {
+                            emitter.requiresInput(statusMessage(interruptData));
+                        } else {
+                            emitter.requiresInput();
+                        }
                         closeEventQueue(emitter, msgCtx.getTaskId());
                         interrupted.set(true);
                         return;
@@ -155,11 +175,10 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter) {
         QueryResponse response = orchestrator.query(req);
-        if (response.getResult() instanceof Map<?, ?> result && result.get(
-            "_interrupt") instanceof Map<?, ?> interruptData) {
+        if (response.getResult() instanceof Map<?, ?> result
+            && result.get(INTERRUPT) instanceof Map<?, ?> interruptData) {
             log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
-            Message statusMsg = toStatusMessageFromMap(interruptData).orElse(null);
-            emitter.requiresInput(statusMsg);
+            emitter.requiresInput(statusMessage(interruptData));
             closeEventQueue(emitter, msgCtx.getTaskId());
         } else if (response.getResult() instanceof Map<?, ?> result) {
             Object content = result.get("content");
@@ -172,18 +191,43 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
-    private static Optional<Message> toStatusMessage(QueryChunk chunk) {
-        if (chunk.getData() instanceof Map<?, ?> m && m.get("message") instanceof String s && !s.isBlank()) {
-            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(s))).build());
+    private static Message statusMessage(Map<?, ?> interruptData) {
+        String message = interruptData.get("message") instanceof String text && !text.isBlank()
+            ? text
+            : "Input required";
+        return Message.builder()
+            .role(Message.Role.ROLE_AGENT)
+            .parts(List.of(new TextPart(message)))
+            .metadata(Map.of(INTERRUPT, interruptData))
+            .build();
+    }
+
+    private static Optional<Map<?, ?>> findStoredInterrupt(Task task) {
+        Optional<Message> statusMessage = Optional.ofNullable(task.status()).map(status -> status.message());
+        if (statusMessage.isPresent()) {
+            return statusMessage.flatMap(A2AAgentExecutor::interruptFrom);
+        }
+
+        List<Message> history = task.history();
+        if (history == null) {
+            return Optional.empty();
+        }
+        for (int index = history.size() - 1; index >= 0; index--) {
+            Optional<Message> agentMessage = Optional.ofNullable(history.get(index))
+                .filter(message -> message.role() == Message.Role.ROLE_AGENT);
+            if (agentMessage.isPresent()) {
+                return agentMessage.flatMap(A2AAgentExecutor::interruptFrom);
+            }
         }
         return Optional.empty();
     }
 
-    private static Optional<Message> toStatusMessageFromMap(Map<?, ?> interruptData) {
-        if (interruptData.get("message") instanceof String s && !s.isBlank()) {
-            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(s))).build());
+    private static Optional<Map<?, ?>> interruptFrom(Message message) {
+        if (message == null || message.role() != Message.Role.ROLE_AGENT || message.metadata() == null
+            || !(message.metadata().get(INTERRUPT) instanceof Map<?, ?> interruptData)) {
+            return Optional.empty();
         }
-        return Optional.empty();
+        return Optional.of(interruptData);
     }
 
     /**
