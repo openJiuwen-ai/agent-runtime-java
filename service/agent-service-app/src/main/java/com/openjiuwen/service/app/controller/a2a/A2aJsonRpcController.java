@@ -9,6 +9,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
+import com.openjiuwen.service.spec.security.AuthorizedResource;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -73,6 +74,7 @@ public class A2aJsonRpcController {
      * @return the JSON-RPC response entity
      */
     @PostMapping({A2AServicePaths.A2A_JSONRPC, A2AServicePaths.A2A_JSONRPC_NO_SLASH})
+    @AuthorizedResource(resource = "a2a", action = "rpc")
     public ResponseEntity<?> handleJsonRpc(@RequestBody String rawBody, HttpServletRequest servletRequest) {
         String method;
         Object id;

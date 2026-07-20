@@ -59,7 +59,9 @@ public class Mem0MemoryStore implements MemoryStore {
         this.baseUrl = config.getEndpoint();
         this.defaultScope = new MemoryScope(config.getUserId(), "", "", "");
         this.shouldRerankByDefault = config.isRerank();
-        this.api = api != null ? api : new GovernedMem0Api(config.getEndpoint(), config);
+        this.api = api != null ? api
+            : new GovernedMem0Api(config.getEndpoint(), config, config.getAuthHeaderMode(), this.apiKey,
+                config.getPathStyle());
     }
 
     @Override

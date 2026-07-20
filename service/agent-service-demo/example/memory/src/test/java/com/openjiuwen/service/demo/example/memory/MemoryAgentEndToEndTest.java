@@ -120,6 +120,8 @@ class MemoryAgentEndToEndTest {
         registry.add("openjiuwen.service.middleware.memory.provider", () -> "mem0");
         registry.add("openjiuwen.service.middleware.memory.endpoint", MEM0_SERVER::endpoint);
         registry.add("openjiuwen.service.middleware.memory.encrypted-api-key", () -> "mock-key");
+        registry.add("openjiuwen.service.middleware.memory.auth-header-mode", () -> "token");
+        registry.add("openjiuwen.service.middleware.memory.path-style", () -> "v3");
         registry.add("openjiuwen.service.middleware.memory.user-id", () -> "memory-e2e-user");
         registry.add("openjiuwen.service.middleware.memory.request-scoped-session", () -> "true");
         registry.add("openjiuwen.service.middleware.memory.timeout-ms", () -> "3000");
