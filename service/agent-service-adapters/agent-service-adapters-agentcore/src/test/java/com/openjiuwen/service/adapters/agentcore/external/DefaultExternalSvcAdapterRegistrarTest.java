@@ -21,8 +21,6 @@ import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientProvider;
 
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Method;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -137,10 +135,13 @@ class DefaultExternalSvcAdapterRegistrarTest {
     }
 
     @Test
-    void mcpServerPropertiesDoNotExposeAuthConfiguration() {
-        assertThat(Arrays.stream(AgentCoreExternalProperties.McpServer.class.getMethods())
-            .map(Method::getName)).doesNotContain("getAuthHeaders", "setAuthHeaders", "getAuthQueryParams",
-            "setAuthQueryParams");
+    void mcpServerPropertiesExposeTlsAndAuthConfiguration() {
+        AgentCoreExternalProperties.McpServer server = new AgentCoreExternalProperties.McpServer();
+        server.getAuth().setType("bearer");
+        server.getTls().setEnabled(true);
+
+        assertThat(server.getAuth().getType()).isEqualTo("bearer");
+        assertThat(server.getTls().isEnabled()).isTrue();
     }
 
     @Test

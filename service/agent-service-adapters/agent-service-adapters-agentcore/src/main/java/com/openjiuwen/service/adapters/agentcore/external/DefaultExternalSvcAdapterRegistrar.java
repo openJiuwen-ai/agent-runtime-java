@@ -19,15 +19,23 @@ import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientFactory;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientProvider;
 import com.openjiuwen.extensions.a2a.A2ARemoteClient;
+import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
+import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDecryptor;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport.PreparedOutboundSecurity;
+import com.openjiuwen.service.spec.security.ExternalTargetRef;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -52,6 +60,8 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
 
     private final List<RemoteClientProvider> customRemoteClientProviders;
 
+    private final ExternalOutboundSecuritySupport outboundSecuritySupport;
+
     public DefaultExternalSvcAdapterRegistrar(AgentCoreExternalProperties properties,
         AgentCoreMcpClientDecoratorFactory decoratorFactory) {
         this(properties, decoratorFactory, new DefaultAgentCoreRemoteClientDecoratorFactory());
@@ -67,6 +77,15 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
         AgentCoreMcpClientDecoratorFactory decoratorFactory,
         AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory, List<McpClientProvider> customMcpClientProviders,
         List<RemoteClientProvider> customRemoteClientProviders) {
+        this(properties, decoratorFactory, remoteDecoratorFactory, customMcpClientProviders, customRemoteClientProviders,
+            ExternalOutboundSecuritySupport.createDefault(new PassthroughCredentialDecryptor()));
+    }
+
+    public DefaultExternalSvcAdapterRegistrar(AgentCoreExternalProperties properties,
+        AgentCoreMcpClientDecoratorFactory decoratorFactory,
+        AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory, List<McpClientProvider> customMcpClientProviders,
+        List<RemoteClientProvider> customRemoteClientProviders,
+        ExternalOutboundSecuritySupport outboundSecuritySupport) {
         this.properties = properties != null ? properties : new AgentCoreExternalProperties();
         this.decoratorFactory = decoratorFactory != null
             ? decoratorFactory
@@ -79,6 +98,8 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
             : Collections.emptyList();
         this.customRemoteClientProviders = customRemoteClientProviders != null ? List.copyOf(
             customRemoteClientProviders) : Collections.emptyList();
+        this.outboundSecuritySupport = outboundSecuritySupport != null ? outboundSecuritySupport
+            : ExternalOutboundSecuritySupport.createDefault(new PassthroughCredentialDecryptor());
     }
 
     @Override
@@ -232,9 +253,27 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
         }
         config.setServerName(requireText(server.getServerName(), "server-name"));
         config.setServerPath(requireText(server.getServerPath(), "server-path"));
-        config.setClientType(normalizeClientType(server.getClientType()));
-        config.setParams(server.getParams());
+        String clientType = normalizeClientType(server.getClientType());
+        config.setClientType(clientType);
+        Map<String, Object> params = new LinkedHashMap<>(server.getParams());
+        if ("stdio".equals(clientType) && server.getTls() != null && server.getTls().isEnabled()) {
+            log.warn("Ignoring MCP TLS configuration for stdio transport, serverId={}", server.getServerId());
+        } else {
+            PreparedOutboundSecurity security = prepareMcpSecurity(server);
+            security.applyAuthToMaps(config.getAuthHeaders(), config.getAuthQueryParams());
+            security.injectParams(params);
+        }
+        config.setParams(params);
         return config;
+    }
+
+    private PreparedOutboundSecurity prepareMcpSecurity(AgentCoreExternalProperties.McpServer server) {
+        int timeoutMs = server.getTimeoutMs() != null ? server.getTimeoutMs() : properties.getMcp().getTimeoutMs();
+        ExternalTargetRef target = new ExternalTargetRef("MCP",
+            notBlank(server.getServerId()) ? server.getServerId() : server.getServerName(), server.getServerPath(),
+            CredentialSceneType.MCP_AUTH_TOKEN);
+        return outboundSecuritySupport.prepare(target, server.getTls(), server.getAuth(),
+            Duration.ofMillis(timeoutMs));
     }
 
     private static String normalizeClientType(String clientType) {

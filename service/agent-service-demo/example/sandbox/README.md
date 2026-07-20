@@ -4,6 +4,9 @@
 
 runtime 不再实现独立的 sandbox HTTP provider。sandbox 后端协议由 agent-core-java 的 provider 负责，标准后端入口是 `/api/v1/sandboxes`。runtime 这一层负责读取外部服务配置、创建 core client，并统一套用 timeout、retry、circuit breaker、audit 等外部调用策略。
 
+HTTPS + Bearer 出站安全配置见 [`application-sandbox-outbound-security.example.yml`](application-sandbox-outbound-security.example.yml)；
+可运行 E2E（无需 LLM / Spring Boot）见 [`../outbound-security/README.md`](../outbound-security/README.md)。
+
 ## 两个示例的区别
 
 | 示例 | 文件 | 是否经过 Agent | 用途 |

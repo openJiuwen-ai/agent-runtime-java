@@ -10,14 +10,22 @@ import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientFactory;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientProvider;
 import com.openjiuwen.extensions.a2a.A2ARemoteClient;
+import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
+import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDecryptor;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport.PreparedOutboundSecurity;
+import com.openjiuwen.service.spec.security.ExternalTargetRef;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -34,6 +42,8 @@ public class DefaultAgentCoreRemoteClientFactory implements AgentCoreRemoteClien
 
     private final List<RemoteClientProvider> customRemoteClientProviders;
 
+    private final ExternalOutboundSecuritySupport outboundSecuritySupport;
+
     public DefaultAgentCoreRemoteClientFactory(AgentCoreExternalProperties properties,
         AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory) {
         this(properties, remoteDecoratorFactory, List.of());
@@ -42,12 +52,22 @@ public class DefaultAgentCoreRemoteClientFactory implements AgentCoreRemoteClien
     public DefaultAgentCoreRemoteClientFactory(AgentCoreExternalProperties properties,
         AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
         List<RemoteClientProvider> customRemoteClientProviders) {
+        this(properties, remoteDecoratorFactory, customRemoteClientProviders,
+            ExternalOutboundSecuritySupport.createDefault(new PassthroughCredentialDecryptor()));
+    }
+
+    public DefaultAgentCoreRemoteClientFactory(AgentCoreExternalProperties properties,
+        AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
+        List<RemoteClientProvider> customRemoteClientProviders,
+        ExternalOutboundSecuritySupport outboundSecuritySupport) {
         this.properties = properties != null ? properties : new AgentCoreExternalProperties();
         this.remoteDecoratorFactory = remoteDecoratorFactory != null
             ? remoteDecoratorFactory
             : new DefaultAgentCoreRemoteClientDecoratorFactory();
         this.customRemoteClientProviders = customRemoteClientProviders != null ? List.copyOf(
             customRemoteClientProviders) : Collections.emptyList();
+        this.outboundSecuritySupport = outboundSecuritySupport != null ? outboundSecuritySupport
+            : ExternalOutboundSecuritySupport.createDefault(new PassthroughCredentialDecryptor());
         this.properties.getRemote().validateClients();
     }
 
@@ -68,12 +88,24 @@ public class DefaultAgentCoreRemoteClientFactory implements AgentCoreRemoteClien
         policy.validateClients();
         AgentCoreExternalProperties.RemoteClientEndpoint client = policy.findClient(clientId)
             .orElseThrow(() -> new IllegalArgumentException("Unknown remote client: " + clientId));
+        Map<String, Object> kwargs = new LinkedHashMap<>();
+        PreparedOutboundSecurity security = prepareRemoteSecurity(client);
+        security.injectRemoteKwargs(kwargs);
         return RemoteClientConfig.builder()
             .id(client.getId())
             .name(defaultText(client.getName(), client.getId()))
             .protocol(toProtocol(client.getProtocol()))
             .url(client.getUrl())
+            .kwargs(kwargs)
             .build();
+    }
+
+    private PreparedOutboundSecurity prepareRemoteSecurity(AgentCoreExternalProperties.RemoteClientEndpoint client) {
+        int timeoutMs = client.getTimeoutMs() != null ? client.getTimeoutMs() : properties.getRemote().getTimeoutMs();
+        ExternalTargetRef target = new ExternalTargetRef("Remote", client.getId(), client.getUrl(),
+            CredentialSceneType.REMOTE_AUTH_TOKEN);
+        return outboundSecuritySupport.prepare(target, client.getTls(), client.getAuth(),
+            Duration.ofMillis(timeoutMs));
     }
 
     private void registerRemoteClientProviders() {

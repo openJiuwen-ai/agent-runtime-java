@@ -104,3 +104,6 @@ openjiuwen:
 
 线上接入时通常只需要替换 `server-path`，治理参数按服务稳定性要求调整。`tools/call` 默认不自动重试，只有确认工具调用幂等时才开启
 `retry-tool-calls`。
+
+HTTPS + Bearer 出站安全配置示例见 [`application-mcp-outbound-security.example.yml`](application-mcp-outbound-security.example.yml)；
+可运行 E2E 见 [`../outbound-security/README.md`](../outbound-security/README.md)。
