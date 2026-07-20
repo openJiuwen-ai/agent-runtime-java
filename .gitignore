@@ -14,6 +14,9 @@ logs/
 !.env.example
 apiconfig.json
 **/application-base_local.yml
+**/application-security_local.yml
+**/application-security-tls_local.yml
+**/example/security/tls/
 # Local copies of *.example.yml templates used for local verification (never commit)
 **/*.local.yml
 config/deploy.properties
