@@ -43,14 +43,12 @@ public class JiuwenMemoryStore implements MemoryStore {
 
     private final String apiKey;
     private final String baseUrl;
-    private final MemoryScope defaultScope;
     private final JiuwenMemoryApi api;
 
     public JiuwenMemoryStore(String apiKey, MiddlewareProperties.Memory memory, JiuwenMemoryApi api) {
         MiddlewareProperties.Memory config = memory != null ? memory : new MiddlewareProperties.Memory();
         this.apiKey = apiKey != null ? apiKey : "";
         this.baseUrl = config.getEndpoint();
-        this.defaultScope = new MemoryScope(config.getUserId(), "", "", "");
         this.api = api != null ? api
             : new JiuwenMemoryApi(config.getEndpoint(), config, this.apiKey);
     }
@@ -138,13 +136,9 @@ public class JiuwenMemoryStore implements MemoryStore {
 
     private MemoryScope mergeScope(MemoryScope requestScope) {
         if (requestScope == null) {
-            return defaultScope;
+            return MemoryScope.empty();
         }
-        String userId = requestScope.userId().isBlank() ? defaultScope.userId() : requestScope.userId();
-        String agentId = requestScope.agentId().isBlank() ? defaultScope.agentId() : requestScope.agentId();
-        String sessionId = requestScope.sessionId().isBlank() ? defaultScope.sessionId() : requestScope.sessionId();
-        String scopeId = requestScope.scopeId().isBlank() ? defaultScope.scopeId() : requestScope.scopeId();
-        return new MemoryScope(userId, agentId, sessionId, scopeId);
+        return requestScope;
     }
 
     private List<Map<String, Object>> toJiuwenMessages(List<MemoryMessage> messages) {

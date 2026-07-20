@@ -253,6 +253,9 @@ final class MemoryLifecycleAgentHandler implements AgentHandler {
             return;
         }
         if (chunk.getData() instanceof Map<?, ?> map) {
+            if (shouldSkipFinalAnswer(map, assistant)) {
+                return;
+            }
             Optional<Object> text = firstPresent(map, "content", "delta", "output", "response");
             Object payload = map.get("payload");
             if (payload instanceof Map<?, ?> payloadMap) {
@@ -265,6 +268,10 @@ final class MemoryLifecycleAgentHandler implements AgentHandler {
             return;
         }
         assistant.append(chunk.getData());
+    }
+
+    private boolean shouldSkipFinalAnswer(Map<?, ?> map, StringBuilder assistant) {
+        return assistant.length() > 0 && "answer".equals(String.valueOf(map.get("type")));
     }
 
     private Optional<Object> firstPresent(Map<?, ?> map, String... keys) {
