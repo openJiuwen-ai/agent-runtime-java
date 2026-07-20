@@ -182,7 +182,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void doesNotReuseEarlierInterruptWhenLatestAgentHistoryMessageHasNoMarker() {
+    void doesNotReuseOldInterruptWhenLatestAgentMessageHasNoMarker() {
         Message oldInputRequiredMessage = Message.builder()
             .role(Message.Role.ROLE_AGENT)
             .parts(List.of(new TextPart("Old interrupt")))
