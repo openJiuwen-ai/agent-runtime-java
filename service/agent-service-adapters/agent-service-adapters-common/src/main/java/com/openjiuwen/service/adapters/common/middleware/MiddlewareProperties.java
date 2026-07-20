@@ -227,8 +227,6 @@ public class MiddlewareProperties {
 
         private String encryptedApiKey = "";
 
-        private String userId = "";
-
         private boolean shouldUseRequestScopedSession = false;
 
         private boolean shouldRerank = false;
@@ -275,14 +273,6 @@ public class MiddlewareProperties {
 
         public void setEncryptedApiKey(String encryptedApiKey) {
             this.encryptedApiKey = encryptedApiKey != null ? encryptedApiKey : "";
-        }
-
-        public String getUserId() {
-            return userId;
-        }
-
-        public void setUserId(String userId) {
-            this.userId = userId != null ? userId : "";
         }
 
         public boolean isRequestScopedSession() {

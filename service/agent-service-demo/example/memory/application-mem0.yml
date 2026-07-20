@@ -10,7 +10,6 @@ openjiuwen:
         provider: mem0
         endpoint: ${MEM0_ENDPOINT:https://api.mem0.ai}
         encrypted-api-key: ${MEM0_API_KEY:}
-        user-id: ${MEM0_USER_ID:demo-user}
         rerank: false
 
         # --- Self-hosted Mem0 OSS example ---

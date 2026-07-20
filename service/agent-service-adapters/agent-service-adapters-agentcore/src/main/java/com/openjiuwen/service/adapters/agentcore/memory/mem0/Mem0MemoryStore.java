@@ -40,8 +40,6 @@ public class Mem0MemoryStore implements MemoryStore {
 
     private final String baseUrl;
 
-    private final MemoryScope defaultScope;
-
     private final boolean shouldRerankByDefault;
 
     private final GovernedMem0Api api;
@@ -57,7 +55,6 @@ public class Mem0MemoryStore implements MemoryStore {
         MiddlewareProperties.Memory config = memory != null ? memory : new MiddlewareProperties.Memory();
         this.apiKey = apiKey != null ? apiKey : "";
         this.baseUrl = config.getEndpoint();
-        this.defaultScope = new MemoryScope(config.getUserId(), "", "", "");
         this.shouldRerankByDefault = config.isRerank();
         this.api = api != null ? api
             : new GovernedMem0Api(config.getEndpoint(), config, config.getAuthHeaderMode(), this.apiKey,
@@ -167,12 +164,7 @@ public class Mem0MemoryStore implements MemoryStore {
     }
 
     private MemoryScope mergeScope(MemoryScope scope) {
-        MemoryScope request = scope != null ? scope : MemoryScope.empty();
-        return new MemoryScope(
-            !request.userId().isBlank() ? request.userId() : defaultScope.userId(),
-            request.agentId(),
-            !request.sessionId().isBlank() ? request.sessionId() : defaultScope.sessionId(),
-            !request.scopeId().isBlank() ? request.scopeId() : defaultScope.scopeId());
+        return scope != null ? scope : MemoryScope.empty();
     }
 
     private int normalizeTopK(int topK) {

@@ -125,7 +125,7 @@ public class MemoryStoreMemoryProvider implements MemoryProvider {
 
     private MemoryScope resolveScope(Map<String, Object> kwargs) {
         return new MemoryScope(
-            firstText(kwargs, memory.getUserId(), "user_id", "userId"),
+            firstText(kwargs, "", "user_id", "userId"),
             firstText(kwargs, "", "agent_id", "agentId"),
             firstText(kwargs, "", "session_id", "sessionId"),
             firstText(kwargs, "", "scope_id", "scopeId", "space_id", "spaceId"));
