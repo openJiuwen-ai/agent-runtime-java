@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.AdditionalAnswers.answerVoid;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -91,6 +92,46 @@ class A2AAgentExecutorTest {
     }
 
     @Test
+    void syncInterruptWithoutMessageStoresRawData() {
+        Map<String, Object> interaction = Map.of(
+            "type", "__interaction__",
+            "payload", Map.of("kind", "confirmation"));
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(
+            new QueryResponse(Map.of("_interrupt", interaction), "ctx-1"));
+        CapturingEventQueue queue = new CapturingEventQueue();
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false))
+            .execute(context, new AgentEmitter(context, queue));
+
+        Message message = inputRequiredMessage(queue);
+        assertThat(message.metadata()).containsOnly(Map.entry("_interrupt", interaction));
+        assertThat(((TextPart) message.parts().get(0)).text()).isEqualTo("Input required");
+    }
+
+    @Test
+    void streamingInterruptWithoutMessageStoresRawData() {
+        Map<String, Object> interaction = Map.of(
+            "type", "__interaction__",
+            "payload", Map.of("kind", "tool_result"));
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, interaction));
+            observer.onComplete();
+        })).when(orchestrator).streamQuery(any(), any());
+        CapturingEventQueue queue = new CapturingEventQueue();
+        RequestContext context = requestContext("task-1", "ctx-1", true);
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(true))
+            .execute(context, new AgentEmitter(context, queue));
+
+        Message message = inputRequiredMessage(queue);
+        assertThat(message.metadata()).containsOnly(Map.entry("_interrupt", interaction));
+        assertThat(((TextPart) message.parts().get(0)).text()).isEqualTo("Input required");
+    }
+
+    @Test
     void syncCompletedPathWaitsForEnqueuedFinalEventToDrain() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
@@ -144,6 +185,28 @@ class A2AAgentExecutorTest {
             .contextId("ctx-1")
             .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
             .history(List.of(inputRequiredMessage, resumeMessage))
+            .build();
+
+        assertStoredInterruptCopied(task, interaction);
+    }
+
+    @Test
+    void copiesHistoryInterruptWhenStatusHasNoInterrupt() {
+        Map<String, Object> interaction = Map.of("kind", "confirmation", "message", "Approve");
+        Message inputRequiredMessage = Message.builder()
+            .role(Message.Role.ROLE_AGENT)
+            .parts(List.of(new TextPart("Approve")))
+            .metadata(Map.of("_interrupt", interaction))
+            .build();
+        Message unrelatedStatusMessage = Message.builder()
+            .role(Message.Role.ROLE_AGENT)
+            .parts(List.of(new TextPart("Working")))
+            .build();
+        Task task = Task.builder()
+            .id("task-1")
+            .contextId("ctx-1")
+            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, unrelatedStatusMessage, null))
+            .history(List.of(inputRequiredMessage))
             .build();
 
         assertStoredInterruptCopied(task, interaction);

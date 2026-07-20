@@ -81,13 +81,13 @@ public class A2AAgentExecutor implements AgentExecutor {
 
         Task task = ctx.getTask();
         boolean hasExistingTask = task != null;
-        boolean isResume = task != null && task.status() != null
+        boolean isInputRequiredResume = task != null && task.status() != null
             && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED;
-        if (isResume) {
+        if (isInputRequiredResume) {
             copyStoredInterrupt(task, req);
         }
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
-            msgCtx.getContextId(), req.getConversationId(), isResume, req.isStream());
+            msgCtx.getContextId(), req.getConversationId(), isInputRequiredResume, req.isStream());
 
         if (!hasExistingTask) {
             emitter.submit();
@@ -118,8 +118,11 @@ public class A2AAgentExecutor implements AgentExecutor {
                     if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
                         log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
                             msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
-                        Message statusMsg = toStatusMessage(chunk).orElse(null);
-                        emitter.requiresInput(statusMsg);
+                        if (chunk.getData() instanceof Map<?, ?> interruptData) {
+                            emitter.requiresInput(statusMessage(interruptData));
+                        } else {
+                            emitter.requiresInput();
+                        }
                         closeEventQueue(emitter, msgCtx.getTaskId());
                         interrupted.set(true);
                         return;
@@ -169,8 +172,7 @@ public class A2AAgentExecutor implements AgentExecutor {
         if (response.getResult() instanceof Map<?, ?> result
             && result.get(INTERRUPT) instanceof Map<?, ?> interruptData) {
             log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
-            Message statusMsg = toStatusMessageFromMap(interruptData).orElse(null);
-            emitter.requiresInput(statusMsg);
+            emitter.requiresInput(statusMessage(interruptData));
             closeEventQueue(emitter, msgCtx.getTaskId());
         } else if (response.getResult() instanceof Map<?, ?> result) {
             Object content = result.get("content");
@@ -183,22 +185,10 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
-    private static Optional<Message> toStatusMessage(QueryChunk chunk) {
-        if (chunk.getData() instanceof Map<?, ?> data
-            && data.get("message") instanceof String message && !message.isBlank()) {
-            return Optional.of(statusMessage(message, data));
-        }
-        return Optional.empty();
-    }
-
-    private static Optional<Message> toStatusMessageFromMap(Map<?, ?> interruptData) {
-        if (interruptData.get("message") instanceof String message && !message.isBlank()) {
-            return Optional.of(statusMessage(message, interruptData));
-        }
-        return Optional.empty();
-    }
-
-    private static Message statusMessage(String message, Map<?, ?> interruptData) {
+    private static Message statusMessage(Map<?, ?> interruptData) {
+        String message = interruptData.get("message") instanceof String text && !text.isBlank()
+            ? text
+            : "Input required";
         return Message.builder()
             .role(Message.Role.ROLE_AGENT)
             .parts(List.of(new TextPart(message)))
@@ -207,36 +197,41 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private static void copyStoredInterrupt(Task task, ServeRequest request) {
-        Message storedMessage = findStoredMessage(task);
-        if (storedMessage == null || storedMessage.metadata() == null) {
-            return;
-        }
-        Object interrupt = storedMessage.metadata().get(INTERRUPT);
-        if (interrupt == null) {
+        Optional<Object> interrupt = findStoredInterrupt(task);
+        if (interrupt.isEmpty()) {
             return;
         }
         Map<String, Object> metadata = new LinkedHashMap<>(request.getMetadata());
-        metadata.put(INTERRUPT, interrupt);
+        metadata.put(INTERRUPT, interrupt.get());
         request.setMetadata(metadata);
     }
 
-    private static Message findStoredMessage(Task task) {
-        Message storedMessage = task.status() == null ? null : task.status().message();
-        if (storedMessage != null) {
-            return storedMessage;
+    private static Optional<Object> findStoredInterrupt(Task task) {
+        Optional<Object> statusInterrupt = task.status() == null
+            ? Optional.empty()
+            : interruptFrom(task.status().message());
+        if (statusInterrupt.isPresent()) {
+            return statusInterrupt;
         }
 
         List<Message> history = task.history();
         if (history == null) {
-            return null;
+            return Optional.empty();
         }
         for (int index = history.size() - 1; index >= 0; index--) {
-            Message message = history.get(index);
-            if (message != null && message.role() == Message.Role.ROLE_AGENT) {
-                return message;
+            Optional<Object> interrupt = interruptFrom(history.get(index));
+            if (interrupt.isPresent()) {
+                return interrupt;
             }
         }
-        return null;
+        return Optional.empty();
+    }
+
+    private static Optional<Object> interruptFrom(Message message) {
+        if (message == null || message.metadata() == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(message.metadata().get(INTERRUPT));
     }
 
     /**
