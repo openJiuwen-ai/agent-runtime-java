@@ -83,9 +83,15 @@ public class A2AAgentExecutor implements AgentExecutor {
         boolean hasExistingTask = task != null;
         boolean isInputRequiredResume = task != null && task.status() != null
             && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED;
+        Map<String, Object> metadata = new LinkedHashMap<>(req.getMetadata());
+        metadata.remove(INTERRUPT);
         if (isInputRequiredResume) {
-            copyStoredInterrupt(task, req);
+            Optional<Map<?, ?>> storedInterrupt = findStoredInterrupt(task);
+            if (storedInterrupt.isPresent()) {
+                metadata.put(INTERRUPT, storedInterrupt.get());
+            }
         }
+        req.setMetadata(metadata);
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
             msgCtx.getContextId(), req.getConversationId(), isInputRequiredResume, req.isStream());
 
@@ -196,18 +202,8 @@ public class A2AAgentExecutor implements AgentExecutor {
             .build();
     }
 
-    private static void copyStoredInterrupt(Task task, ServeRequest request) {
-        Optional<Object> interrupt = findStoredInterrupt(task);
-        if (interrupt.isEmpty()) {
-            return;
-        }
-        Map<String, Object> metadata = new LinkedHashMap<>(request.getMetadata());
-        metadata.put(INTERRUPT, interrupt.get());
-        request.setMetadata(metadata);
-    }
-
-    private static Optional<Object> findStoredInterrupt(Task task) {
-        Optional<Object> statusInterrupt = task.status() == null
+    private static Optional<Map<?, ?>> findStoredInterrupt(Task task) {
+        Optional<Map<?, ?>> statusInterrupt = task.status() == null
             ? Optional.empty()
             : interruptFrom(task.status().message());
         if (statusInterrupt.isPresent()) {
@@ -219,7 +215,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             return Optional.empty();
         }
         for (int index = history.size() - 1; index >= 0; index--) {
-            Optional<Object> interrupt = interruptFrom(history.get(index));
+            Optional<Map<?, ?>> interrupt = interruptFrom(history.get(index));
             if (interrupt.isPresent()) {
                 return interrupt;
             }
@@ -227,11 +223,12 @@ public class A2AAgentExecutor implements AgentExecutor {
         return Optional.empty();
     }
 
-    private static Optional<Object> interruptFrom(Message message) {
-        if (message == null || message.metadata() == null) {
+    private static Optional<Map<?, ?>> interruptFrom(Message message) {
+        if (message == null || message.role() != Message.Role.ROLE_AGENT || message.metadata() == null
+            || !(message.metadata().get(INTERRUPT) instanceof Map<?, ?> interruptData)) {
             return Optional.empty();
         }
-        return Optional.ofNullable(message.metadata().get(INTERRUPT));
+        return Optional.of(interruptData);
     }
 
     /**

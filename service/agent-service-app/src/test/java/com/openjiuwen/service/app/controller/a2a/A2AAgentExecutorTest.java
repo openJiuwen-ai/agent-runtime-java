@@ -55,7 +55,7 @@ class A2AAgentExecutorTest {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenReturn(
             new QueryResponse(Map.of("_interrupt", interaction), "ctx-1"));
-        A2AProtocolAdapter adapter = requestAdapter(false);
+        A2AProtocolAdapter adapter = requestAdapter(false, Map.of());
         CapturingEventQueue queue = new CapturingEventQueue();
 
         RequestContext context = requestContext("task-1", "ctx-1", false);
@@ -63,72 +63,32 @@ class A2AAgentExecutorTest {
         new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
 
         assertThat(inputRequiredMessage(queue).metadata()).containsOnly(Map.entry("_interrupt", interaction));
-    }
-
-    @Test
-    void streamingInterruptStoresRawDataUnderReservedMetadataKey() {
-        Map<String, Object> interaction = Map.of(
-            "type", "__interaction__",
-            "index", 0,
-            "payload", Map.of(
-                "kind", "confirmation",
-                "items", List.of(Map.of("name", "transfer", "type", "tool_call"))),
-            "message", "Approve transfer?",
-            "context", Map.of("_interrupt_kind", "ask_user"));
-        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
-        doAnswer(invocation -> {
-            QueryStreamObserver observer = invocation.getArgument(1);
-            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, interaction));
-            observer.onComplete();
-            return null;
-        }).when(orchestrator).streamQuery(any(), any());
-        A2AProtocolAdapter adapter = requestAdapter(true);
-        CapturingEventQueue queue = new CapturingEventQueue();
-        RequestContext context = requestContext("task-1", "ctx-1", true);
-
-        new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
-
-        assertThat(inputRequiredMessage(queue).metadata()).containsOnly(Map.entry("_interrupt", interaction));
-    }
-
-    @Test
-    void syncInterruptWithoutMessageStoresRawData() {
-        Map<String, Object> interaction = Map.of(
-            "type", "__interaction__",
-            "payload", Map.of("kind", "confirmation"));
-        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
-        when(orchestrator.query(any())).thenReturn(
-            new QueryResponse(Map.of("_interrupt", interaction), "ctx-1"));
-        CapturingEventQueue queue = new CapturingEventQueue();
-        RequestContext context = requestContext("task-1", "ctx-1", false);
-
-        new A2AAgentExecutor(orchestrator, requestAdapter(false))
-            .execute(context, new AgentEmitter(context, queue));
-
-        Message message = inputRequiredMessage(queue);
-        assertThat(message.metadata()).containsOnly(Map.entry("_interrupt", interaction));
-        assertThat(((TextPart) message.parts().get(0)).text()).isEqualTo("Input required");
     }
 
     @Test
     void streamingInterruptWithoutMessageStoresRawData() {
         Map<String, Object> interaction = Map.of(
             "type", "__interaction__",
-            "payload", Map.of("kind", "tool_result"));
+            "index", 0,
+            "payload", Map.of(
+                "kind", "confirmation",
+                "items", List.of(Map.of("name", "transfer", "type", "tool_call"))),
+            "context", Map.of("_interrupt_kind", "ask_user"));
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
             observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, interaction));
             observer.onComplete();
         })).when(orchestrator).streamQuery(any(), any());
+        A2AProtocolAdapter adapter = requestAdapter(true, Map.of());
         CapturingEventQueue queue = new CapturingEventQueue();
         RequestContext context = requestContext("task-1", "ctx-1", true);
 
-        new A2AAgentExecutor(orchestrator, requestAdapter(true))
-            .execute(context, new AgentEmitter(context, queue));
+        new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
 
         Message message = inputRequiredMessage(queue);
         assertThat(message.metadata()).containsOnly(Map.entry("_interrupt", interaction));
-        assertThat(((TextPart) message.parts().get(0)).text()).isEqualTo("Input required");
+        assertThat(message.parts().get(0)).isInstanceOfSatisfying(TextPart.class,
+            textPart -> assertThat(textPart.text()).isEqualTo("Input required"));
     }
 
     @Test
@@ -169,22 +129,28 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void copiesStoredInterruptFromHistoryWhenStatusMessageIsMissing() {
+    void copiesLatestValidAgentInterruptFromHistory() {
         Map<String, Object> interaction = Map.of("kind", "confirmation", "message", "Approve");
         Message inputRequiredMessage = Message.builder()
             .role(Message.Role.ROLE_AGENT)
             .parts(List.of(new TextPart("Approve")))
             .metadata(Map.of("_interrupt", interaction, "trace", "not-resume-data"))
             .build();
+        Message invalidAgentMessage = Message.builder()
+            .role(Message.Role.ROLE_AGENT)
+            .parts(List.of(new TextPart("Invalid interrupt")))
+            .metadata(Map.of("_interrupt", "invalid"))
+            .build();
         Message resumeMessage = Message.builder()
             .role(Message.Role.ROLE_USER)
             .parts(List.of(new TextPart("APPROVE")))
+            .metadata(Map.of("_interrupt", Map.of("payload", Map.of("kind", "forged"))))
             .build();
         Task task = Task.builder()
             .id("task-1")
             .contextId("ctx-1")
             .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
-            .history(List.of(inputRequiredMessage, resumeMessage))
+            .history(List.of(inputRequiredMessage, invalidAgentMessage, resumeMessage))
             .build();
 
         assertStoredInterruptCopied(task, interaction);
@@ -213,7 +179,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void doesNotCopyStoredInterruptFromNonInputRequiredTask() {
+    void removesClientInterruptFromNonInputRequiredRequest() {
         Map<String, Object> interaction = Map.of("kind", "message", "message", "Old interrupt");
         Message oldInterrupt = Message.builder()
             .role(Message.Role.ROLE_AGENT)
@@ -228,24 +194,26 @@ class A2AAgentExecutorTest {
             .build();
 
         AgentEmitter emitter = mock(AgentEmitter.class);
-        ServeRequest request = executeWithStoredTask(task, emitter);
+        ServeRequest request = executeWithStoredTask(task, emitter,
+            Map.of("_interrupt", Map.of("payload", Map.of("kind", "forged"))));
 
         assertThat(request.getMetadata()).doesNotContainKey("_interrupt");
         verify(emitter, never()).submit();
     }
 
     private static void assertStoredInterruptCopied(Task task, Map<String, Object> interaction) {
-        ServeRequest request = executeWithStoredTask(task, mock(AgentEmitter.class));
+        ServeRequest request = executeWithStoredTask(task, mock(AgentEmitter.class), Map.of());
 
         assertThat(request.getMetadata())
             .containsEntry("_interrupt", interaction)
             .doesNotContainKey("trace");
     }
 
-    private static ServeRequest executeWithStoredTask(Task task, AgentEmitter emitter) {
+    private static ServeRequest executeWithStoredTask(Task task, AgentEmitter emitter,
+        Map<String, Object> requestMetadata) {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
-        A2AProtocolAdapter adapter = requestAdapter(false);
+        A2AProtocolAdapter adapter = requestAdapter(false, requestMetadata);
         RequestContext context = requestContext("task-1", "ctx-1", false);
         when(context.getTask()).thenReturn(task);
 
@@ -267,11 +235,12 @@ class A2AAgentExecutorTest {
         return context;
     }
 
-    private static A2AProtocolAdapter requestAdapter(boolean isStream) {
+    private static A2AProtocolAdapter requestAdapter(boolean isStream, Map<String, Object> metadata) {
         A2AProtocolAdapter adapter = mock(A2AProtocolAdapter.class);
         ServeRequest request = new ServeRequest();
         request.setConversationId("ctx-1");
         request.setStream(isStream);
+        request.setMetadata(metadata);
         when(adapter.toServeRequest(any())).thenReturn(request);
         return adapter;
     }
