@@ -128,7 +128,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void copiesOnlyStoredInterruptFromHistoryAfterSdkMovesInputRequiredMessage() {
+    void copiesStoredInterruptFromHistoryWhenStatusMessageIsMissing() {
         Map<String, Object> interaction = Map.of("kind", "confirmation", "message", "Approve");
         Message inputRequiredMessage = Message.builder()
             .role(Message.Role.ROLE_AGENT)
@@ -204,11 +204,11 @@ class A2AAgentExecutorTest {
         return context;
     }
 
-    private static A2AProtocolAdapter requestAdapter(boolean stream) {
+    private static A2AProtocolAdapter requestAdapter(boolean isStream) {
         A2AProtocolAdapter adapter = mock(A2AProtocolAdapter.class);
         ServeRequest request = new ServeRequest();
         request.setConversationId("ctx-1");
-        request.setStream(stream);
+        request.setStream(isStream);
         when(adapter.toServeRequest(any())).thenReturn(request);
         return adapter;
     }

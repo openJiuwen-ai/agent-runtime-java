@@ -166,8 +166,8 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter) {
         QueryResponse response = orchestrator.query(req);
-        if (response.getResult() instanceof Map<?, ?> result && result.get(
-            "_interrupt") instanceof Map<?, ?> interruptData) {
+        if (response.getResult() instanceof Map<?, ?> result
+            && result.get(INTERRUPT) instanceof Map<?, ?> interruptData) {
             log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
             Message statusMsg = toStatusMessageFromMap(interruptData).orElse(null);
             emitter.requiresInput(statusMsg);
@@ -207,19 +207,7 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private static void copyStoredInterrupt(Task task, ServeRequest request) {
-        Message storedMessage = task.status() == null ? null : task.status().message();
-        List<Message> history = task.history();
-        if (storedMessage == null) {
-            if (history != null) {
-                for (int index = history.size() - 1; index >= 0; index--) {
-                    Message message = history.get(index);
-                    if (message != null && message.role() == Message.Role.ROLE_AGENT) {
-                        storedMessage = message;
-                        break;
-                    }
-                }
-            }
-        }
+        Message storedMessage = findStoredMessage(task);
         if (storedMessage == null || storedMessage.metadata() == null) {
             return;
         }
@@ -230,6 +218,25 @@ public class A2AAgentExecutor implements AgentExecutor {
         Map<String, Object> metadata = new LinkedHashMap<>(request.getMetadata());
         metadata.put(INTERRUPT, interrupt);
         request.setMetadata(metadata);
+    }
+
+    private static Message findStoredMessage(Task task) {
+        Message storedMessage = task.status() == null ? null : task.status().message();
+        if (storedMessage != null) {
+            return storedMessage;
+        }
+
+        List<Message> history = task.history();
+        if (history == null) {
+            return null;
+        }
+        for (int index = history.size() - 1; index >= 0; index--) {
+            Message message = history.get(index);
+            if (message != null && message.role() == Message.Role.ROLE_AGENT) {
+                return message;
+            }
+        }
+        return null;
     }
 
     /**
