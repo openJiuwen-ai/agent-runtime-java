@@ -925,11 +925,14 @@ public class AgentCoreExternalProperties {
             && (tls.getRef() == null || !"global".equalsIgnoreCase(tls.getRef().trim()))) {
             throw new IllegalArgumentException(label + " tls.enabled=true requires key-store or trust-store");
         }
-        if (auth != null && auth.getType() != null && !auth.getType().isBlank()
-            && !"none".equalsIgnoreCase(auth.getType()) && !hasText(auth.getToken())
-            && !hasText(auth.getEncryptedToken()) && !"custom".equalsIgnoreCase(auth.getType())) {
-            throw new IllegalArgumentException(label + " auth requires token or encrypted-token");
+        if (auth != null && auth.getType() != null && !auth.getType().isBlank()) {
+            if (!"none".equalsIgnoreCase(auth.getType()) && !hasText(auth.getToken())) {
+                if (!hasText(auth.getEncryptedToken()) && !"custom".equalsIgnoreCase(auth.getType())) {
+                    throw new IllegalArgumentException(label + " auth requires token or encrypted-token");
+                }
+            }
         }
+    }
     }
 
     private static boolean hasText(String value) {
