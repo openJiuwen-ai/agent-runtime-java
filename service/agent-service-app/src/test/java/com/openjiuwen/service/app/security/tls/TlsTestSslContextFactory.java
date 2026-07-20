@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.security.tls;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.net.URLConnection;
 import java.nio.file.Files;
 import java.security.KeyStore;
 import java.security.SecureRandom;
@@ -57,15 +58,19 @@ public final class TlsTestSslContextFactory {
      */
     public static int getHealthStatusCode(int port, SSLContext sslContext) throws IOException {
         URL url = new URL("https://127.0.0.1:" + port + "/health");
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        connection.setSSLSocketFactory(sslContext.getSocketFactory());
-        connection.setConnectTimeout(5_000);
-        connection.setReadTimeout(5_000);
-        connection.setRequestMethod("GET");
-        try {
-            return connection.getResponseCode();
-        } finally {
-            connection.disconnect();
+        URLConnection connection = url.openConnection();
+        if (connection instanceof HttpsURLConnection httpsConnection) {
+            httpsConnection.setSSLSocketFactory(sslContext.getSocketFactory());
+            httpsConnection.setConnectTimeout(5_000);
+            httpsConnection.setReadTimeout(5_000);
+            httpsConnection.setRequestMethod("GET");
+            try {
+                return httpsConnection.getResponseCode();
+            } finally {
+                httpsConnection.disconnect();
+            }
+        } else {
+            throw new IOException("Failed to open HTTPS connection");
         }
     }
 
