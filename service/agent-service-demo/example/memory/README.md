@@ -78,10 +78,10 @@ export OPENJIUWEN_SERVICE_LLM_MODEL_NAME=your-model
 ```bash
 export MEM0_ENDPOINT=https://api.mem0.ai
 export MEM0_API_KEY=your-mem0-api-key
-export MEM0_USER_ID=demo-user
 ```
 
 如果你使用本地或自建 mem0 兼容服务，把 `MEM0_ENDPOINT` 改成对应地址即可。
+用户维度不通过配置兜底，所有请求都需要在请求体里显式传 `user_id`。
 
 `application-memory.yml` 默认打开 request-scoped Core session：
 
@@ -100,7 +100,6 @@ openjiuwen:
 ```bash
 MEM0_ENDPOINT=https://api.mem0.ai \
 MEM0_API_KEY=your-mem0-api-key \
-MEM0_USER_ID=demo-user \
 mvn -pl service/agent-service-demo/example/memory -am spring-boot:run
 ```
 

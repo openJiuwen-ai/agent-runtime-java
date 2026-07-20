@@ -55,6 +55,7 @@ class DefaultExternalSvcAdapterRegistrarTest {
         assertThat(coreConfig.getServerName()).isEqualTo("tools");
         assertThat(coreConfig.getServerPath()).isEqualTo("http://localhost:9000/mcp");
         assertThat(coreConfig.getClientType()).isEqualTo("streamable_http");
+        assertThat(coreConfig.getAuthHeaders()).containsEntry("Accept", "application/json");
     }
 
     @Test

@@ -14,6 +14,8 @@ openjiuwen:
           enabled: ${DEMO_MCP_CIRCUIT_BREAKER_ENABLED:true}
           failure-threshold: ${DEMO_MCP_CIRCUIT_BREAKER_FAILURE_THRESHOLD:3}
           reset-timeout-ms: ${DEMO_MCP_CIRCUIT_BREAKER_RESET_TIMEOUT_MS:30000}
+        audit:
+          enabled: ${DEMO_MCP_AUDIT_ENABLED:true}
         servers:
           - server-id: ${DEMO_MCP_SERVER_ID:demo-mcp}
             server-name: ${DEMO_MCP_SERVER_NAME:demo-mcp-tools}

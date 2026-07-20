@@ -5,6 +5,7 @@
 package com.openjiuwen.service.adapters.agentcore.memory.mem0;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.adapters.common.memory.MemoryAddRequest;
@@ -28,6 +29,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -53,7 +55,6 @@ class Mem0MemoryStoreTest {
         server = LocalMem0Server.start();
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
         memory.setEndpoint(server.endpoint());
-        memory.setUserId("configured-user");
         memory.setRerank(false);
 
         Mem0MemoryStore store = new Mem0MemoryStore("plainkey", memory,
@@ -104,7 +105,6 @@ class Mem0MemoryStoreTest {
         server = LocalMem0Server.start();
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
         memory.setEndpoint(server.endpoint());
-        memory.setUserId("configured-user");
 
         Mem0MemoryStore store = new Mem0MemoryStore("plainkey", memory,
             new GovernedMem0Api(server.endpoint(), memory));
@@ -117,8 +117,57 @@ class Mem0MemoryStoreTest {
             .containsEntry("agent_id", "request-agent");
     }
 
+    @Test
+    void blankQueryReturnsEmptyAndSkipsApi() {
+        server = LocalMem0Server.start();
+        MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
+        memory.setEndpoint(server.endpoint());
+        Mem0MemoryStore store = new Mem0MemoryStore("plainkey", memory,
+            new GovernedMem0Api(server.endpoint(), memory));
+
+        List<MemoryRecord> records = store.search(new MemorySearchRequest(
+            new MemoryScope("request-user", "", "", ""), " ", 3, false, Map.of()));
+
+        assertThat(records).isEmpty();
+        assertThat(server.searchRequests()).isZero();
+    }
+
+    @Test
+    void topKUsesDefaultAndUpperBound() {
+        server = LocalMem0Server.start();
+        MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
+        memory.setEndpoint(server.endpoint());
+        Mem0MemoryStore store = new Mem0MemoryStore("plainkey", memory,
+            new GovernedMem0Api(server.endpoint(), memory));
+        MemoryScope requestScope = new MemoryScope("request-user", "", "", "");
+
+        store.search(new MemorySearchRequest(requestScope, "咖啡偏好", 0, false, Map.of()));
+        assertThat(server.lastSearchBody()).containsEntry("top_k", 10);
+
+        store.search(new MemorySearchRequest(requestScope, "咖啡偏好", 99, false, Map.of()));
+        assertThat(server.lastSearchBody()).containsEntry("top_k", 50);
+    }
+
+    @Test
+    void blankGetIdReturnsEmpty() {
+        Mem0MemoryStore store = new Mem0MemoryStore("plainkey", new MiddlewareProperties.Memory(), null);
+
+        assertThat(store.get(new MemoryGetRequest(MemoryScope.empty(), " "))).isEmpty();
+    }
+
+    @Test
+    void blankDeleteIdThrows() {
+        Mem0MemoryStore store = new Mem0MemoryStore("plainkey", new MiddlewareProperties.Memory(), null);
+
+        assertThatThrownBy(() -> store.delete(new MemoryDeleteRequest(MemoryScope.empty(), " ")))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("memory_id must not be blank");
+    }
+
     private static final class LocalMem0Server {
         private final HttpServer server;
+
+        private final AtomicInteger searchRequests = new AtomicInteger(0);
 
         private final AtomicReference<Map<String, Object>> lastAddBody = new AtomicReference<>(Map.of());
 
@@ -154,6 +203,10 @@ class Mem0MemoryStoreTest {
             return lastSearchBody.get();
         }
 
+        private int searchRequests() {
+            return searchRequests.get();
+        }
+
         @SuppressWarnings("unchecked")
         private Map<String, Object> lastSearchFilters() {
             Object filters = lastSearchBody.get().get("filters");
@@ -180,6 +233,7 @@ class Mem0MemoryStoreTest {
             }
             if ("POST".equals(method) && "/v3/memories/search/".equals(path)) {
                 Map<String, Object> body = readBody(exchange);
+                searchRequests.incrementAndGet();
                 lastSearchBody.set(body);
                 writeJson(exchange, 200, Map.of("results", List.of(memoryRecord())));
                 return;
