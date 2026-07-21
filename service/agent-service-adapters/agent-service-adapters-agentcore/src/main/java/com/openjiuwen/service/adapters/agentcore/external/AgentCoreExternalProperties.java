@@ -933,7 +933,6 @@ public class AgentCoreExternalProperties {
             }
         }
     }
-    }
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
