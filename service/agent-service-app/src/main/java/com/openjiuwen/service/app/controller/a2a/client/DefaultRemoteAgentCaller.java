@@ -86,17 +86,23 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
                 .metadata(call.serveRequest().getMetadata())
                 .build();
         CompletableFuture<String> result = new CompletableFuture<>();
-        client.sendMessage(params, List.of((BiConsumer<ClientEvent, AgentCard>) (event, c) -> {
-            if (event instanceof TaskUpdateEvent tue) {
-                if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
-                    handleArtifact(aue, result, observer);
-                } else if (tue.getUpdateEvent() instanceof TaskStatusUpdateEvent sue) {
-                    handleStatusUpdate(sue, result, observer);
+        try {
+            client.sendMessage(params, List.of((BiConsumer<ClientEvent, AgentCard>) (event, c) -> {
+                if (event instanceof TaskUpdateEvent tue) {
+                    if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
+                        handleArtifact(aue, result, observer);
+                    } else if (tue.getUpdateEvent() instanceof TaskStatusUpdateEvent sue) {
+                        handleStatusUpdate(sue, result);
+                    }
+                } else if (event instanceof TaskEvent te) {
+                    handleTaskEvent(te, result);
                 }
-            } else if (event instanceof TaskEvent te) {
-                handleTaskEvent(te, result, observer);
-            }
-        }), result::completeExceptionally, null);
+            }), result::completeExceptionally, null);
+        } catch (RuntimeException ex) {
+            observer.onError(new RemoteAgentException(
+                    "Remote agent '" + call.agentId() + "' failed", ex));
+            return;
+        }
 
         try {
             result.get(entry.timeoutSeconds(), TimeUnit.SECONDS);
@@ -107,6 +113,7 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
             observer.onError(new RemoteAgentException(
                     "Remote agent '" + call.agentId() + "' timed out after " + entry.timeoutSeconds() + "s", e));
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             observer.onError(new RemoteAgentException(
                     "Interrupted while waiting for remote agent '" + call.agentId() + "'", e));
         } catch (ExecutionException e) {
@@ -152,6 +159,9 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
 
     private void handleArtifact(TaskArtifactUpdateEvent aue, CompletableFuture<String> result,
             QueryStreamObserver observer) {
+        if (result.isDone()) {
+            return;
+        }
         Artifact a = aue.artifact();
         if (a == null || a.parts() == null) {
             return;
@@ -208,8 +218,7 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
         return Optional.empty();
     }
 
-    private void handleStatusUpdate(TaskStatusUpdateEvent sue, CompletableFuture<String> result,
-            QueryStreamObserver observer) {
+    private void handleStatusUpdate(TaskStatusUpdateEvent sue, CompletableFuture<String> result) {
         if (sue.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED) {
             String statusText = sue.status().message() != null
                     ? extractText(sue.status().message().parts()) : "";
@@ -223,8 +232,7 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
         }
     }
 
-    private void handleTaskEvent(TaskEvent te, CompletableFuture<String> result,
-            QueryStreamObserver observer) {
+    private void handleTaskEvent(TaskEvent te, CompletableFuture<String> result) {
         if (result.isDone()) {
             return;
         }

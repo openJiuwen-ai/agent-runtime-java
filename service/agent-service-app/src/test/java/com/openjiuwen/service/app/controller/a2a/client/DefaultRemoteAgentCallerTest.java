@@ -57,8 +57,17 @@ class DefaultRemoteAgentCallerTest {
                 .hasMessageContaining("Unknown remote agent");
     }
 
+    /**
+     * Verifies that {@link DefaultRemoteAgentCaller} does not mutate the serve
+     * request's {@code messages} when the agent is unknown (early onError path).
+     *
+     * <p>The broader contract that {@code responseContent} is ignored is
+     * documented on {@link RemoteAgentCall} and exercised by integration tests;
+     * this unit test only covers the no-mutation guarantee on the unknown-agent
+     * path.
+     */
     @Test
-    void ignoresResponseContentAndDoesNotMutateRequestMessages() {
+    void doesNotMutateRequestMessagesWhenAgentUnknown() {
         when(registry.get("agent-a")).thenReturn(java.util.Optional.empty());
         ServeRequest request = new ServeRequest();
         request.setMessages(List.of(java.util.Map.of("role", "user", "content", "hi")));
