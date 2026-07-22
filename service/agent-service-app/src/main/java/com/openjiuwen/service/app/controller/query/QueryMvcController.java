@@ -15,9 +15,6 @@ import com.openjiuwen.service.spec.security.AuthorizedResource;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -48,6 +45,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class QueryMvcController {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(QueryMvcController.class);
+
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
 
     private final ObjectProvider<AgentReadiness> readinessProvider;
@@ -55,7 +54,7 @@ public class QueryMvcController {
     private final ObjectMapper objectMapper;
 
     public QueryMvcController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
-        ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
+            ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
         this.orchestratorProvider = orchestratorProvider;
         this.readinessProvider = readinessProvider;
         this.objectMapper = objectMapper;
@@ -74,12 +73,13 @@ public class QueryMvcController {
     @PostMapping(AgentServicePaths.QUERY_V1)
     @AuthorizedResource(resource = "query", action = "execute")
     public SseEmitter queryV1(@RequestBody String rawBody, @RequestHeader HttpHeaders headers,
-        HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
+            jakarta.servlet.http.HttpServletRequest servletRequest, jakarta.servlet.http.HttpServletResponse response)
+            throws IOException {
         return handleQuery(rawBody, headers, servletRequest, response);
     }
 
-    SseEmitter handleQuery(String rawBody, HttpHeaders headers, HttpServletRequest servletRequest,
-        HttpServletResponse response) throws IOException {
+    SseEmitter handleQuery(String rawBody, HttpHeaders headers, jakarta.servlet.http.HttpServletRequest servletRequest,
+            jakarta.servlet.http.HttpServletResponse response) throws IOException {
         QueryRequest request = objectMapper.readValue(rawBody, QueryRequest.class);
         QueryIngressSupport.ValidationResult validation = QueryIngressSupport.validateAndBuild(request, headers);
         if (!validation.valid()) {
@@ -99,13 +99,21 @@ public class QueryMvcController {
         if (request.isStream()) {
             return streamResponse(orchestrator, validation.serveRequest(), response);
         }
-        QueryResponse queryResponse = orchestrator.query(validation.serveRequest());
-        writeJson(response, HttpStatus.OK.value(), queryResponse);
+        try {
+            QueryResponse queryResponse = orchestrator.query(validation.serveRequest());
+            writeJson(response, HttpStatus.OK.value(), queryResponse);
+        } catch (RuntimeException ex) {
+            String conversationId = validation.serveRequest().getConversationId();
+            log.error("Synchronous query failed for conversation_id={}", conversationId, ex);
+            writeJson(response, HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                    QueryIngressSupport.agentExecutionFailed(conversationId));
+        }
         return null;
     }
 
     private SseEmitter streamResponse(ServeOrchestrator orchestrator,
-        com.openjiuwen.service.spec.dto.ServeRequest serveRequest, HttpServletResponse response) {
+            com.openjiuwen.service.spec.dto.ServeRequest serveRequest,
+            jakarta.servlet.http.HttpServletResponse response) {
         response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE);
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
         response.setHeader(HttpHeaders.CONNECTION, "keep-alive");
@@ -123,7 +131,7 @@ public class QueryMvcController {
     }
 
     private void streamToEmitter(ServeOrchestrator orchestrator,
-        com.openjiuwen.service.spec.dto.ServeRequest serveRequest, SseEmitter emitter, AtomicBoolean cancelled) {
+            com.openjiuwen.service.spec.dto.ServeRequest serveRequest, SseEmitter emitter, AtomicBoolean cancelled) {
         orchestrator.streamQuery(serveRequest, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
@@ -164,19 +172,21 @@ public class QueryMvcController {
         return readiness == null || readiness.isAgentLoaded();
     }
 
-    private void writeJson(HttpServletResponse response, int status, Object value) throws IOException {
+    private void writeJson(jakarta.servlet.http.HttpServletResponse response, int status, Object value)
+            throws IOException {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getOutputStream(), value);
     }
 
-    void validateAndBuildMetadata(ServeRequest sr, HttpHeaders headers, HttpServletRequest servletRequest,
-        String rawBody) {
+    void validateAndBuildMetadata(ServeRequest sr, HttpHeaders headers,
+            jakarta.servlet.http.HttpServletRequest servletRequest, String rawBody) {
         Map<String, String> queryMap = new LinkedHashMap<>();
         servletRequest.getParameterMap().forEach((k, v) -> queryMap.put(k, v[0]));
         Map<String, Object> bodyMap;
         try {
-            @SuppressWarnings("unchecked") Map<String, Object> parsed = objectMapper.readValue(rawBody, Map.class);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(rawBody, Map.class);
             bodyMap = parsed;
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             // fallback to raw body on parse error
@@ -189,8 +199,7 @@ public class QueryMvcController {
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
-@ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true",
-    matchIfMissing = true)
+@ConditionalOnProperty(name = QueryIngressSupport.LEGACY_PATH_PROPERTY, havingValue = "true", matchIfMissing = true)
 class QueryLegacyMvcController {
     private final QueryMvcController delegate;
 
@@ -211,7 +220,8 @@ class QueryLegacyMvcController {
     @PostMapping(AgentServicePaths.QUERY_LEGACY)
     @AuthorizedResource(resource = "query", action = "execute")
     public SseEmitter queryLegacy(@RequestBody String rawBody, @RequestHeader HttpHeaders headers,
-        HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
+            jakarta.servlet.http.HttpServletRequest servletRequest, jakarta.servlet.http.HttpServletResponse response)
+            throws IOException {
         return delegate.handleQuery(rawBody, headers, servletRequest, response);
     }
 }
