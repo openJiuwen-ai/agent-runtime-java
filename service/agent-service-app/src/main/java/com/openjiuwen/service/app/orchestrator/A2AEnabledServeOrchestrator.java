@@ -394,7 +394,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             log.error("Remote call '{}' failed (sse)", data.agentName(), e);
         } catch (InterruptedException e) {
             log.error("Remote call '{}' interrupted (sse)", data.agentName(), e);
-            Thread.currentThread().interrupt();
         } catch (Exception e) {
             if (isRemoteFailure(e)) {
                 return resumeAfterRemoteFailure(data, current, e);
@@ -625,7 +624,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 return remoteInputRequiredResponse(interruptData, response, current, data, rie);
             } catch (InterruptedException e) {
                 log.error("Remote call '{}' interrupted", data.agentName(), e);
-                Thread.currentThread().interrupt();
                 saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
                         data.streamMode());
             } catch (Exception e) {
