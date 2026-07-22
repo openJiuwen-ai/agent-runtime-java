@@ -34,6 +34,25 @@ import java.util.concurrent.TimeUnit;
  * @since 0.1.0
  */
 class A2ARemoteAgentClientStreamingLifecycleTest {
+    private static final QueryStreamObserver NOOP_OBSERVER = new QueryStreamObserver() {
+        @Override
+        public void onNext(QueryChunk chunk) {
+        }
+
+        @Override
+        public void onComplete() {
+        }
+
+        @Override
+        public void onError(Throwable error) {
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false;
+        }
+    };
+
     private HttpServer server;
 
     @AfterEach
@@ -58,11 +77,10 @@ class A2ARemoteAgentClientStreamingLifecycleTest {
                 new A2ARemoteAgentClient.RemoteCall("remote", "hello", "ctx", null, Map.of()), NOOP_OBSERVER);
 
         Throwable thrown = catchThrowable(() -> result.get(5, TimeUnit.SECONDS));
-        assertThat(thrown).isInstanceOf(ExecutionException.class);
-        assertThat(thrown.getCause()).isInstanceOf(A2ARemoteAgentClient.RemoteAgentException.class);
-        A2ARemoteAgentClient.RemoteAgentException failure = (A2ARemoteAgentClient.RemoteAgentException) thrown
-                .getCause();
-        assertThat(failure.getCode()).isEqualTo(A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED);
+        assertThat(thrown).isInstanceOfSatisfying(ExecutionException.class,
+                executionException -> assertThat(executionException.getCause()).isInstanceOfSatisfying(
+                        A2ARemoteAgentClient.RemoteAgentException.class, failure -> assertThat(failure.getCode())
+                                .isEqualTo(A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED)));
     }
 
     @Test
@@ -79,11 +97,10 @@ class A2ARemoteAgentClientStreamingLifecycleTest {
         CompletableFuture<String> result = A2ARemoteAgentClient.applyTimeout(new CompletableFuture<>(), "remote", 0);
 
         Throwable thrown = catchThrowable(() -> result.get(1, TimeUnit.SECONDS));
-        assertThat(thrown).isInstanceOf(ExecutionException.class);
-        assertThat(thrown.getCause()).isInstanceOf(A2ARemoteAgentClient.RemoteAgentException.class);
-        A2ARemoteAgentClient.RemoteAgentException failure = (A2ARemoteAgentClient.RemoteAgentException) thrown
-                .getCause();
-        assertThat(failure.getCode()).isEqualTo(A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT);
+        assertThat(thrown).isInstanceOfSatisfying(ExecutionException.class,
+                executionException -> assertThat(executionException.getCause()).isInstanceOfSatisfying(
+                        A2ARemoteAgentClient.RemoteAgentException.class,
+                        failure -> assertThat(failure.getCode()).isEqualTo(A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT)));
     }
 
     private void closeEmptyEventStream(HttpExchange exchange) throws IOException {
@@ -103,22 +120,4 @@ class A2ARemoteAgentClientStreamingLifecycleTest {
                 .preferredTransport("JSONRPC").additionalInterfaces(List.of()).build();
     }
 
-    private static final QueryStreamObserver NOOP_OBSERVER = new QueryStreamObserver() {
-        @Override
-        public void onNext(QueryChunk chunk) {
-        }
-
-        @Override
-        public void onComplete() {
-        }
-
-        @Override
-        public void onError(Throwable error) {
-        }
-
-        @Override
-        public boolean isCancelled() {
-            return false;
-        }
-    };
 }

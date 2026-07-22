@@ -644,12 +644,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         Optional<RemoteAgentException> remoteFailure = remoteFailure(failure);
         if (remoteFailure.isPresent()) {
             code = remoteFailure.get().getCode();
-            if (A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT.equals(code)) {
-                error = "remote A2A call timed out";
-            } else if (A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED.equals(code)) {
-                error = "remote A2A stream closed before a terminal event";
-            }
-        } else if (unwrapFailure(failure) instanceof java.util.concurrent.TimeoutException) {
+            error = remoteFailureMessage(code);
+        }
+        if (remoteFailure.isEmpty() && unwrapFailure(failure) instanceof java.util.concurrent.TimeoutException) {
             code = A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT;
             error = "remote A2A call timed out";
         }
@@ -657,6 +654,14 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         payload.put("error", error);
         payload.put("code", code);
         return GSON.toJson(payload);
+    }
+
+    private static String remoteFailureMessage(String code) {
+        return switch (code) {
+            case A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT -> "remote A2A call timed out";
+            case A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED -> "remote A2A stream closed before a terminal event";
+            default -> "remote A2A call failed";
+        };
     }
 
     private static boolean isRemoteFailure(Throwable failure) {
