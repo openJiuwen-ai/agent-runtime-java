@@ -1,0 +1,152 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+ */
+
+package com.openjiuwen.service.app.controller.a2a;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
+import com.google.gson.reflect.TypeToken;
+
+import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
+import org.a2aproject.sdk.spec.InvalidParamsError;
+import org.a2aproject.sdk.spec.Message;
+import org.a2aproject.sdk.spec.MessageSendParams;
+import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.TaskQueryParams;
+import org.a2aproject.sdk.spec.TextPart;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.lang.reflect.Type;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Parses and validates method-specific A2A JSON-RPC parameters before they are passed to the SDK.
+ */
+final class A2aJsonRpcParamsParser {
+    private static final Logger log = LoggerFactory.getLogger(A2aJsonRpcParamsParser.class);
+
+    private static final Gson GSON = new Gson();
+
+    private static final Type METADATA_TYPE = new TypeToken<Map<String, Object>>() {
+    }.getType();
+
+    private A2aJsonRpcParamsParser() {
+    }
+
+    static MessageSendParams parseMessageSendParams(JsonObject request) {
+        try {
+            JsonObject params = requiredObject(request, "params", "params");
+            JsonObject messageObject = requiredObject(params, "message", "params.message");
+            JsonArray partObjects = requiredNonEmptyArray(messageObject, "parts", "params.message.parts");
+            List<Part<?>> parts = parseParts(partObjects);
+            if (parts.isEmpty()) {
+                throw invalid("params.message.parts must contain at least one non-blank text part");
+            }
+            Message message = buildMessage(messageObject, parts);
+
+            var builder = MessageSendParams.builder().message(message);
+            if (params.has("metadata") && !params.get("metadata").isJsonNull()) {
+                if (!params.get("metadata").isJsonObject()) {
+                    throw invalid("params.metadata must be an object");
+                }
+                builder.metadata(GSON.fromJson(params.get("metadata"), METADATA_TYPE));
+            }
+            return builder.build();
+        } catch (InvalidParamsError e) {
+            throw e;
+        } catch (JsonParseException | ClassCastException | IllegalStateException | IllegalArgumentException
+                | NullPointerException | UnsupportedOperationException e) {
+            log.debug("Invalid SendMessage params", e);
+            throw new InvalidParamsError();
+        }
+    }
+
+    static TaskQueryParams parseTaskQueryParams(JsonObject request) {
+        try {
+            JsonObject params = requiredObject(request, "params", "params");
+            requiredNonBlankString(params, "id", "params.id");
+            return JsonUtil.fromJson(params.toString(), TaskQueryParams.class);
+        } catch (InvalidParamsError e) {
+            throw e;
+        } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
+            log.debug("Invalid GetTask params", e);
+            throw new InvalidParamsError();
+        }
+    }
+
+    private static List<Part<?>> parseParts(JsonArray partObjects) {
+        List<Part<?>> parts = new ArrayList<>();
+        for (JsonElement element : partObjects) {
+            if (!element.isJsonObject()) {
+                throw invalid("params.message.parts entries must be objects");
+            }
+            JsonObject part = element.getAsJsonObject();
+            if (part.has("text") && !part.get("text").isJsonNull()) {
+                if (!part.get("text").isJsonPrimitive() || !part.getAsJsonPrimitive("text").isString()) {
+                    throw invalid("params.message.parts[].text must be a string");
+                }
+                String text = part.get("text").getAsString();
+                if (!text.isBlank()) {
+                    parts.add(new TextPart(text));
+                }
+            }
+        }
+        return parts;
+    }
+
+    private static Message buildMessage(JsonObject messageObject, List<Part<?>> parts) {
+        String roleValue = optionalNonBlankString(messageObject, "role", "params.message.role");
+        Message.Role role = Message.Role.valueOf(roleValue != null ? roleValue : "ROLE_USER");
+        return Message.builder().role(role).parts(parts)
+                .contextId(optionalNonBlankString(messageObject, "contextId", "params.message.contextId"))
+                .taskId(optionalNonBlankString(messageObject, "taskId", "params.message.taskId"))
+                .messageId(optionalNonBlankString(messageObject, "messageId", "params.message.messageId")).build();
+    }
+
+    private static JsonObject requiredObject(JsonObject parent, String memberName, String path) {
+        JsonElement value = parent.get(memberName);
+        if (value == null || value.isJsonNull() || !value.isJsonObject()) {
+            throw invalid(path + " is required and must be an object");
+        }
+        return value.getAsJsonObject();
+    }
+
+    private static JsonArray requiredNonEmptyArray(JsonObject parent, String memberName, String path) {
+        JsonElement value = parent.get(memberName);
+        if (value == null || value.isJsonNull() || !value.isJsonArray() || value.getAsJsonArray().isEmpty()) {
+            throw invalid(path + " is required and must be a non-empty array");
+        }
+        return value.getAsJsonArray();
+    }
+
+    private static String requiredNonBlankString(JsonObject parent, String memberName, String path) {
+        String value = optionalNonBlankString(parent, memberName, path);
+        if (value == null) {
+            throw invalid(path + " is required and must be a non-blank string");
+        }
+        return value;
+    }
+
+    private static String optionalNonBlankString(JsonObject parent, String memberName, String path) {
+        JsonElement value = parent.get(memberName);
+        if (value == null || value.isJsonNull()) {
+            return null;
+        }
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+            throw invalid(path + " must be a string");
+        }
+        String text = value.getAsString();
+        return text.isBlank() ? null : text;
+    }
+
+    private static InvalidParamsError invalid(String detail) {
+        return new InvalidParamsError("Invalid params: " + detail);
+    }
+}

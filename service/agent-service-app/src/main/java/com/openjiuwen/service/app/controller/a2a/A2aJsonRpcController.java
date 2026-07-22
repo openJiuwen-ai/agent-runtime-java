@@ -6,12 +6,9 @@ package com.openjiuwen.service.app.controller.a2a;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
-
-import jakarta.servlet.http.HttpServletRequest;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.A2AMessage;
@@ -23,15 +20,10 @@ import org.a2aproject.sdk.spec.A2AError;
 import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.EventKind;
 import org.a2aproject.sdk.spec.InternalError;
-import org.a2aproject.sdk.spec.InvalidParamsError;
-import org.a2aproject.sdk.spec.Message;
-import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.MethodNotFoundError;
-import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskQueryParams;
-import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -41,11 +33,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * JSON-RPC controller for A2A protocol endpoints. Handles {@code SendMessage}, {@code SendStreamingMessage}, and
@@ -96,13 +89,13 @@ public class A2aJsonRpcController {
             return switch (method) {
                 case A2AMethods.SEND_MESSAGE_METHOD -> {
                     ctx.getState().put("_a2a_stream", false);
-                    var params = parseParams(request.payload());
+                    var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     EventKind result = requestHandler.onMessageSend(params, ctx);
                     yield ResponseEntity.ok(JsonUtil.toJson(new SendMessageResponse(id, result)));
                 }
                 case A2AMethods.SEND_STREAMING_MESSAGE_METHOD -> {
                     ctx.getState().put("_a2a_stream", true);
-                    var params = parseParams(request.payload());
+                    var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
                     yield streamToSse(pub, id);
                 }
@@ -175,76 +168,9 @@ public class A2aJsonRpcController {
     }
 
     private ResponseEntity<?> handleGetTask(JsonObject request, Object id, ServerCallContext ctx) {
-        TaskQueryParams tqp = parseTaskQueryParams(request);
+        TaskQueryParams tqp = A2aJsonRpcParamsParser.parseTaskQueryParams(request);
         Task task = requestHandler.onGetTask(tqp, ctx);
         return jsonRpcResponse(id, task);
-    }
-
-    private MessageSendParams parseParams(JsonObject request) {
-        try {
-            JsonObject params = request.getAsJsonObject("params");
-            JsonObject m = params.getAsJsonObject("message");
-            List<Part<?>> parts = parseParts(m);
-            Message msg = buildMessage(m, parts);
-            var sendParamsBuilder = MessageSendParams.builder().message(msg);
-            if (params.has("metadata")) {
-                sendParamsBuilder.metadata(GSON.fromJson(params.get("metadata"), Map.class));
-            }
-            return sendParamsBuilder.build();
-        } catch (JsonParseException | ClassCastException | IllegalStateException | IllegalArgumentException
-                | NullPointerException | UnsupportedOperationException e) {
-            log.debug("Invalid SendMessage params", e);
-            throw new InvalidParamsError();
-        }
-    }
-
-    private TaskQueryParams parseTaskQueryParams(JsonObject request) {
-        try {
-            JsonObject params = request.getAsJsonObject("params");
-            return JsonUtil.fromJson(params.toString(), TaskQueryParams.class);
-        } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
-            log.debug("Invalid GetTask params", e);
-            throw new InvalidParamsError();
-        }
-    }
-
-    private static List<Part<?>> parseParts(JsonObject m) {
-        List<Part<?>> parts = new java.util.ArrayList<>();
-        if (m.has("parts")) {
-            for (var el : m.getAsJsonArray("parts")) {
-                var obj = el.getAsJsonObject();
-                extractTextPart(obj, parts);
-            }
-        }
-        return parts;
-    }
-
-    private static void extractTextPart(JsonObject obj, List<Part<?>> parts) {
-        if (obj.has("text") && !obj.get("text").isJsonNull()) {
-            String text = obj.get("text").getAsString();
-            if (!text.isBlank()) {
-                parts.add(new TextPart(text));
-            }
-        }
-    }
-
-    private static Message buildMessage(JsonObject m, List<Part<?>> parts) {
-        String roleStr = (m.has("role") && !m.get("role").isJsonNull() && !m.get("role").getAsString().isBlank())
-                ? m.get("role").getAsString()
-                : "ROLE_USER";
-        Message.Role role = Message.Role.valueOf(roleStr);
-        String rawMessageId = m.has("messageId") && !m.get("messageId").isJsonNull()
-                ? m.get("messageId").getAsString()
-                : null;
-        String rawContextId = m.has("contextId") && !m.get("contextId").isJsonNull()
-                ? m.get("contextId").getAsString()
-                : null;
-        String messageId = (rawMessageId != null && !rawMessageId.isBlank()) ? rawMessageId : null;
-        String contextId = (rawContextId != null && !rawContextId.isBlank()) ? rawContextId : null;
-        String rawTaskId = m.has("taskId") && !m.get("taskId").isJsonNull() ? m.get("taskId").getAsString() : null;
-        String taskId = (rawTaskId != null && !rawTaskId.isBlank()) ? rawTaskId : null;
-        return Message.builder().role(role).parts(parts).contextId(contextId).taskId(taskId).messageId(messageId)
-                .build();
     }
 
     /**
