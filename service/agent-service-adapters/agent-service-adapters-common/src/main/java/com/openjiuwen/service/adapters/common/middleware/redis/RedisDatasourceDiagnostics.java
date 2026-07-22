@@ -43,10 +43,9 @@ public class RedisDatasourceDiagnostics implements SmartInitializingSingleton {
             return;
         }
         String redisRef = properties.getCheckpointer().getRedisRef();
-        MiddlewareProperties.RedisEndpoint endpoint = RedisConnectionAssembler.resolveEndpoint(properties, redisRef);
-        String endpointType = RedisConnectionAssembler.resolveEndpointType(endpoint);
+        ResolvedRedisEndpoint endpoint = RedisConnectionAssembler.resolve(properties, redisRef);
         log.info(diagnosticMessage(properties, redisClient));
-        if (RedisConnectionAssembler.TYPE_CLUSTER.equals(endpointType) && endpoint.getDatabase() != 0) {
+        if (endpoint.isCluster() && endpoint.getDatabase() != 0) {
             log.info("Runtime Redis cluster ignores standalone-only database setting: redis-ref={}, databaseIgnored={}",
                     normalizedRef(redisRef), endpoint.getDatabase());
         }
@@ -54,12 +53,11 @@ public class RedisDatasourceDiagnostics implements SmartInitializingSingleton {
 
     static String diagnosticMessage(MiddlewareProperties properties, RuntimeRedisClient redisClient) {
         String redisRef = properties.getCheckpointer().getRedisRef();
-        MiddlewareProperties.RedisEndpoint endpoint = RedisConnectionAssembler.resolveEndpoint(properties, redisRef);
-        String endpointType = RedisConnectionAssembler.resolveEndpointType(endpoint);
+        ResolvedRedisEndpoint endpoint = RedisConnectionAssembler.resolve(properties, redisRef);
         return "Runtime Redis datasource selected: redis-ref=" + normalizedRef(redisRef) + ", endpoint-type="
-                + endpointType + ", RuntimeRedisClient=" + redisClient.getClass().getSimpleName() + ", ttl-seconds="
-                + properties.getCheckpointer().getTtlSeconds() + ", "
-                + RedisConnectionAssembler.safeSummary(redisRef, endpoint);
+                + endpoint.getType() + ", RuntimeRedisClient=" + redisClient.getClass().getSimpleName()
+                + ", ttl-seconds=" + properties.getCheckpointer().getTtlSeconds() + ", "
+                + RedisConnectionAssembler.safeSummary(endpoint);
     }
 
     private static String normalizedRef(String redisRef) {
