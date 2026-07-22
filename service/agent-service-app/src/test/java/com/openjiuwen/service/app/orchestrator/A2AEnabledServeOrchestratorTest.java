@@ -17,7 +17,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.openjiuwen.service.app.controller.a2a.client.DefaultRemoteAgentCaller.RemoteInputRequiredException;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCall;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;

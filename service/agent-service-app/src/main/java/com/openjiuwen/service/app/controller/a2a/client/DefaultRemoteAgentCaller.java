@@ -4,9 +4,6 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
-import com.google.gson.reflect.TypeToken;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import org.a2aproject.sdk.client.Client;
@@ -29,10 +26,8 @@ import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -42,9 +37,6 @@ import java.util.function.Supplier;
 
 public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
     private static final Logger log = LoggerFactory.getLogger(DefaultRemoteAgentCaller.class);
-    private static final Gson GSON = new Gson();
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
-    private static final String ANSWER_ENVELOPE_TYPE = "answer";
 
     private final A2ARemoteAgentCardRegistry registry;
     private final Map<String, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
@@ -171,51 +163,11 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
             return;
         }
         observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, raw));
-        answerText(raw).ifPresent(answer -> {
+        RemoteAgentAnswerExtractor.extractAnswer(raw).ifPresent(answer -> {
             if (!result.isDone()) {
                 result.complete(answer);
             }
         });
-    }
-
-    public static Optional<String> answerText(String raw) {
-        return parseEnvelope(raw)
-                .filter(env -> ANSWER_ENVELOPE_TYPE.equals(env.get("type")))
-                .map(env -> extractBusinessText(env).orElse(raw));
-    }
-
-    private static Optional<Map<String, Object>> parseEnvelope(String raw) {
-        try {
-            return Optional.ofNullable(GSON.fromJson(raw, MAP_TYPE));
-        } catch (JsonSyntaxException e) {
-            return Optional.empty();
-        }
-    }
-
-    public static Optional<String> extractBusinessText(Object data) {
-        if (data instanceof String s) {
-            return s.isBlank() ? Optional.empty() : Optional.of(s);
-        }
-        if (!(data instanceof Map<?, ?> map)) {
-            return Optional.empty();
-        }
-        Optional<String> fromPayload = map.get("payload") instanceof Map<?, ?> payload
-                ? firstText(payload) : Optional.empty();
-        return fromPayload.isPresent() ? fromPayload : firstText(map);
-    }
-
-    private static Optional<String> firstText(Map<?, ?> map) {
-        for (String key : List.of("content", "delta", "output", "response")) {
-            Object value = map.get(key);
-            if (value == null || value instanceof Map || value instanceof List) {
-                continue;
-            }
-            String text = String.valueOf(value);
-            if (!text.isBlank()) {
-                return Optional.of(text);
-            }
-        }
-        return Optional.empty();
     }
 
     private void handleStatusUpdate(TaskStatusUpdateEvent sue, CompletableFuture<String> result) {
@@ -261,24 +213,5 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
             }
         }
         return sb.toString();
-    }
-
-    public static class RemoteInputRequiredException extends RuntimeException {
-        private final String remoteTaskId;
-
-        public RemoteInputRequiredException(String message, String remoteTaskId) {
-            super(message);
-            this.remoteTaskId = remoteTaskId;
-        }
-
-        public String getRemoteTaskId() {
-            return remoteTaskId;
-        }
-    }
-
-    public static class RemoteAgentException extends RuntimeException {
-        public RemoteAgentException(String message, Throwable cause) {
-            super(message, cause);
-        }
     }
 }
