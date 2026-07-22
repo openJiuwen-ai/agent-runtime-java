@@ -93,6 +93,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
         private final AtomicReference<String> captured = new AtomicReference<>();
 
+        private final AtomicReference<Map<?, ?>> capturedEnvelope = new AtomicReference<>();
+
         private final AtomicReference<QueryChunk> pendingInterrupt = new AtomicReference<>();
 
         private final AtomicReference<Throwable> error = new AtomicReference<>();
@@ -129,6 +131,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                     // Map chunk rather than a JSON string; extract the business
                     // text directly so sync query() mode still captures it.
                     RemoteAgentAnswerExtractor.extractAnswerFromMap(m).ifPresent(captured::set);
+                    capturedEnvelope.set(m);
                 }
             }
         }
@@ -165,6 +168,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             return captured.get();
         }
 
+        Map<?, ?> capturedEnvelope() {
+            return capturedEnvelope.get();
+        }
+
         QueryChunk pendingInterrupt() {
             return pendingInterrupt.get();
         }
@@ -187,7 +194,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * when this is {@code true}, to honour the observer contract.
      */
     private record RemoteCallResult(String answer, QueryChunk interrupt, Throwable error,
-                                    boolean terminallyNotified) {
+                                    boolean terminallyNotified, Map<?, ?> envelope) {
         boolean hasInterrupt() {
             return interrupt != null;
         }
@@ -233,7 +240,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         remoteAgentCaller.call(call, wrapper);
         String answer = wrapper.capturedAnswer();
         return new RemoteCallResult(answer != null ? answer : "", wrapper.pendingInterrupt(), wrapper.error(),
-            wrapper.isTerminallyNotified());
+            wrapper.isTerminallyNotified(), wrapper.capturedEnvelope());
     }
 
     private final AgentHandler agentHandler;
@@ -565,6 +572,17 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             forwardedResult.put("role", "assistant");
             forwardedResult.put("content", remoteContent);
             forwardedResult.put("response_content", remoteContent);
+            Map<?, ?> envelope = remoteResult.envelope();
+            if (envelope != null) {
+                Object remoteAgentId = envelope.get("agent_id");
+                if (remoteAgentId != null) {
+                    forwardedResult.put("agent_id", remoteAgentId);
+                }
+                Object remoteIntentId = envelope.get("intent_id");
+                if (remoteIntentId != null) {
+                    forwardedResult.put("intent_id", remoteIntentId);
+                }
+            }
             return Optional.of(new QueryResponse(forwardedResult, current.getConversationId()));
         }
 
