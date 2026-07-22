@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Protocol-neutral orchestration request (Ingress DTO → internal model).
@@ -56,8 +57,7 @@ public class ServeRequest {
      * @return the latest user message content, or empty string if none found
      */
     public String lastUserQuery() {
-        Map<String, Object> message = lastMessageWithContent();
-        return message != null ? String.valueOf(message.get("content")) : "";
+        return lastMessageWithContent().map(message -> String.valueOf(message.get("content"))).orElse("");
     }
 
     /**
@@ -67,20 +67,20 @@ public class ServeRequest {
      * @return latest user-message metadata, or an empty map when absent
      */
     public Map<String, Object> lastUserMessageMetadata() {
-        Map<String, Object> message = lastMessageWithContent();
-        if (message == null || !(message.get("metadata") instanceof Map<?, ?> rawMetadata)) {
+        Optional<Map<String, Object>> message = lastMessageWithContent();
+        if (message.isEmpty() || !(message.get().get("metadata") instanceof Map<?, ?> rawMetadata)) {
             return Map.of();
         }
-        Map<String, Object> metadata = new LinkedHashMap<>();
+        Map<String, Object> messageMetadata = new LinkedHashMap<>();
         rawMetadata.forEach((key, value) -> {
             if (key instanceof String stringKey) {
-                metadata.put(stringKey, value);
+                messageMetadata.put(stringKey, value);
             }
         });
-        return metadata;
+        return messageMetadata;
     }
 
-    private Map<String, Object> lastMessageWithContent() {
+    private Optional<Map<String, Object>> lastMessageWithContent() {
         for (int i = messages.size() - 1; i >= 0; i--) {
             Map<String, Object> m = messages.get(i);
             if (m == null) {
@@ -89,16 +89,16 @@ public class ServeRequest {
             Object role = m.get("role");
             Object content = m.get("content");
             if (role != null && "user".equalsIgnoreCase(String.valueOf(role)) && content != null) {
-                return m;
+                return Optional.of(m);
             }
         }
         if (!messages.isEmpty()) {
             Map<String, Object> last = messages.get(messages.size() - 1);
             if (last != null && last.get("content") != null) {
-                return last;
+                return Optional.of(last);
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     /**

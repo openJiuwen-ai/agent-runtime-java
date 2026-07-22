@@ -255,7 +255,7 @@ public class A2aJsonRpcController {
 
     private static Map<String, Object> parseMetadata(JsonObject owner) {
         if (!owner.has("metadata") || owner.get("metadata").isJsonNull()) {
-            return null;
+            return Map.of();
         }
         if (!owner.get("metadata").isJsonObject()) {
             throw new JsonParseException("metadata must be a JSON object");
