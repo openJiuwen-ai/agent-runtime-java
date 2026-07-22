@@ -62,7 +62,7 @@ public class A2AAgentCardDiscovery {
             Thread t = new Thread(r, "a2a-discovery-retry");
             t.setDaemon(true);
             t.setUncaughtExceptionHandler(
-                (thread, ex) -> log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
+                    (thread, ex) -> log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
             return t;
         });
     }
@@ -75,9 +75,21 @@ public class A2AAgentCardDiscovery {
         if (properties.getRemoteAgents().isEmpty()) {
             return;
         }
+        validateRemoteAgents();
         log.info("Discovering {} remote A2A agent(s)", properties.getRemoteAgents().size());
         for (var remote : properties.getRemoteAgents()) {
             tryDiscover(remote);
+        }
+    }
+
+    private void validateRemoteAgents() {
+        for (int index = 0; index < properties.getRemoteAgents().size(); index++) {
+            RemoteAgentProperties remote = properties.getRemoteAgents().get(index);
+            if (remote.getUrl() == null || remote.getUrl().isBlank()) {
+                throw new IllegalStateException("Remote agent '" + remote.getName()
+                        + "' has no URL configured. Set openjiuwen.service.a2a.remote-agents[" + index
+                        + "].url or remove this agent.");
+            }
         }
     }
 
@@ -86,7 +98,7 @@ public class A2AAgentCardDiscovery {
             discoverAndRegister(remote);
         } catch (org.springframework.web.client.RestClientException e) {
             log.warn("Failed to discover {}, retry every {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
-                e.getMessage());
+                    e.getMessage());
             ScheduledFuture<?> future = retryExecutor.scheduleWithFixedDelay(() -> {
                 try {
                     discoverAndRegister(remote);
@@ -94,7 +106,7 @@ public class A2AAgentCardDiscovery {
                     cancelRetry(remote.getName());
                 } catch (org.springframework.web.client.RestClientException ex) {
                     log.warn("Retry {} failed, will retry in {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
-                        ex.getMessage());
+                            ex.getMessage());
                 }
             }, RETRY_INTERVAL_SECONDS, RETRY_INTERVAL_SECONDS, TimeUnit.SECONDS);
             retryFutures.put(remote.getName(), future);
@@ -115,6 +127,9 @@ public class A2AAgentCardDiscovery {
     }
 
     AgentCard fetchCard(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalArgumentException("baseUrl must not be null or blank");
+        }
         String cardUrl = baseUrl.replaceAll("/$", "") + "/.well-known/agent-card.json";
         return restClient.get().uri(cardUrl).accept(MediaType.APPLICATION_JSON).retrieve().body(AgentCard.class);
     }
