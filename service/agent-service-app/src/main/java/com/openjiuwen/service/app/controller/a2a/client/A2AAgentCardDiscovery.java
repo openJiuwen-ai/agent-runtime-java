@@ -128,12 +128,12 @@ public class A2AAgentCardDiscovery {
     }
 
     private void discoverAndRegister(RemoteAgentProperties remote) {
-        AgentCard card = fetchCard(remote.getUrl());
+        AgentCard card = fetchCardInternal(remote.getUrl());
         registry.register(remote.getName(), card, remote.getTimeoutSeconds());
         log.info("Discovered remote agent '{}'", remote.getName());
     }
 
-    AgentCard fetchCard(String baseUrl) {
+    AgentCard fetchCardInternal(String baseUrl) {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("baseUrl must not be null or blank");
         }
