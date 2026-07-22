@@ -50,6 +50,23 @@ public final class RemoteAgentAnswerExtractor {
     }
 
     /**
+     * Attempts to extract the final business answer from a Map answer envelope
+     * (shape {@code {"type":"answer", ...}}) emitted directly as a chunk payload,
+     * as opposed to a JSON-string envelope. Used by callers that stream Map
+     * envelopes (e.g. in-process or gateway callers) rather than JSON strings.
+     *
+     * @param envelope the chunk data as a Map
+     * @return the extracted answer text, or {@link Optional#empty()} if
+     *         {@code envelope} is not an answer envelope or carries no business text
+     */
+    public static Optional<String> extractAnswerFromMap(Map<?, ?> envelope) {
+        if (envelope == null || !ANSWER_ENVELOPE_TYPE.equals(envelope.get("type"))) {
+            return Optional.empty();
+        }
+        return extractBusinessText(envelope);
+    }
+
+    /**
      * Extracts business text from an envelope's {@code payload} (or the envelope
      * itself when the payload is not a map), checking well-known keys.
      *

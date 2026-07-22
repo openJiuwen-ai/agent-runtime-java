@@ -119,8 +119,16 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             if (passthrough != null && !passthrough.isCancelled()) {
                 passthrough.onNext(chunk);
             }
-            if (QueryChunk.TYPE_CHUNK.equals(chunk.getType()) && chunk.getData() instanceof String raw) {
-                RemoteAgentAnswerExtractor.extractAnswer(raw).ifPresent(captured::set);
+            if (QueryChunk.TYPE_CHUNK.equals(chunk.getType())) {
+                Object data = chunk.getData();
+                if (data instanceof String raw) {
+                    RemoteAgentAnswerExtractor.extractAnswer(raw).ifPresent(captured::set);
+                } else if (data instanceof Map<?, ?> m && "answer".equals(m.get("type"))) {
+                    // Some Caller implementations emit the answer envelope as a
+                    // Map chunk rather than a JSON string; extract the business
+                    // text directly so sync query() mode still captures it.
+                    RemoteAgentAnswerExtractor.extractAnswerFromMap(m).ifPresent(captured::set);
+                }
             }
         }
 
@@ -283,7 +291,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             QueryResponse response = agentHandler.query(current);
             Map<String, Object> interruptData = extractInterruptFromResponse(response);
             if (interruptData.isEmpty()) {
-                return response;
+                Optional<QueryResponse> forwarded = forwardIfThreeFieldResult(response, current, null);
+                return forwarded.orElse(response);
             }
 
             Optional<ServeRequest> interruptResult = handleQueryInterrupt(interruptData, current, response);
@@ -307,7 +316,23 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 }
                 current = opt.get();
 
-                QueryChunk interrupt = runAgentAndCaptureInterrupt(current, observer, handle);
+                AgentRunResult agentResult = runAgentAndCaptureInterruptOrThreeField(current, observer, handle);
+                if (agentResult.threeFieldEnvelope() != null) {
+                    Object agentIdObj = agentResult.threeFieldEnvelope().get("agent_id");
+                    if (agentIdObj instanceof String aid && !aid.isBlank() && !aid.equals(this.agentId)) {
+                        Object rc = agentResult.threeFieldEnvelope().get("response_content");
+                        String rcStr = rc instanceof String s ? s : null;
+                        log.info("Orchestrator forwarding three-field chunk to remote agent={} convId={}",
+                            aid, current.getConversationId());
+                        RemoteAgentCall forward = new RemoteAgentCall(
+                                aid, current, rcStr, current.getConversationId(), null);
+                        callRemoteAndCapture(forward, observer);
+                    } else {
+                        observer.onComplete();
+                    }
+                    return;
+                }
+                QueryChunk interrupt = agentResult.interrupt();
                 if (interrupt == null) {
                     return;
                 }
@@ -457,6 +482,149 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             }
         });
         return interruptHolder.get();
+    }
+
+    /**
+     * Outcome of running the local agent: either an interrupt chunk (for the
+     * classic {@code a2a_delegate}/{@code ask_user} path) or a three-field
+     * answer envelope emitted inline as a chunk (Versatile intent workflow
+     * short-circuit). At most one of the two is non-null.
+     */
+    private record AgentRunResult(QueryChunk interrupt, Map<String, Object> threeFieldEnvelope) {
+        static AgentRunResult empty() {
+            return new AgentRunResult(null, null);
+        }
+    }
+
+    /**
+     * Variant of {@link #runAgentAndCaptureInterrupt} that also intercepts
+     * three-field answer envelopes emitted inline by the agent handler. When a
+     * chunk carries an {@code answer} envelope with a non-blank {@code agent_id},
+     * it is captured for downstream forwarding instead of being forwarded to the
+     * client observer. Interrupts and normal chunks are handled exactly as in
+     * {@link #runAgentAndCaptureInterrupt}.
+     *
+     * @param current
+     *            the current serve request
+     * @param observer
+     *            the query stream observer
+     * @param handle
+     *            the stream cancellation handle
+     * @return the run outcome (interrupt chunk and/or three-field envelope)
+     */
+    private AgentRunResult runAgentAndCaptureInterruptOrThreeField(ServeRequest current, QueryStreamObserver observer,
+        StreamCancellationHandle handle) {
+        AtomicReference<QueryChunk> interruptHolder = new AtomicReference<>();
+        AtomicReference<Map<String, Object>> envelopeHolder = new AtomicReference<>();
+        agentHandler.streamQuery(current, new QueryStreamObserver() {
+            @Override
+            public void onNext(QueryChunk chunk) {
+                if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
+                    interruptHolder.set(chunk);
+                    return;
+                }
+                if (chunk.getData() instanceof Map<?, ?> m && "answer".equals(m.get("type"))
+                        && m.get("agent_id") instanceof String aid && !aid.isBlank()) {
+                    Map<String, Object> envelope = new LinkedHashMap<>();
+                    for (Map.Entry<?, ?> entry : m.entrySet()) {
+                        envelope.put(String.valueOf(entry.getKey()), entry.getValue());
+                    }
+                    envelopeHolder.set(envelope);
+                    return;
+                }
+                observer.onNext(chunk);
+            }
+
+            @Override
+            public void onComplete() {
+                if (interruptHolder.get() == null && envelopeHolder.get() == null) {
+                    observer.onComplete();
+                }
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                log.error("Agent stream error", e);
+                observer.onError(e);
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return handle.isCancelled() || observer.isCancelled();
+            }
+        });
+        return new AgentRunResult(interruptHolder.get(), envelopeHolder.get());
+    }
+
+    /**
+     * Inspects a {@link QueryResponse} for a Versatile intent workflow
+     * three-field result ({@code agent_id} + {@code response_content} + optional
+     * {@code intent_id}) and, when present and addressed to a different agent,
+     * forwards the call to the remote agent via {@link RemoteAgentCaller}.
+     *
+     * <p>In sync {@code query()} mode ({@code observer == null}), the remote's
+     * captured answer text is wrapped into a new {@link QueryResponse} with
+     * {@code role=assistant} + {@code response_content} fields. In streaming
+     * mode, chunks are forwarded directly to the observer via
+     * {@link #callRemoteAndCapture(RemoteAgentCall, QueryStreamObserver)}; the
+     * caller is responsible for any post-call observer notification (the
+     * capturing wrapper honours the observer contract for terminal signals).
+     *
+     * @param response
+     *            the local handler's response to inspect
+     * @param current
+     *            the current serve request
+     * @param observer
+     *            the client stream observer, or {@code null} for sync mode
+     * @return the forwarded response, or {@link Optional#empty()} if no
+     *         forwarding applies (caller should return the original response)
+     */
+    private Optional<QueryResponse> forwardIfThreeFieldResult(QueryResponse response, ServeRequest current,
+        QueryStreamObserver observer) {
+        if (!(response.getResult() instanceof Map<?, ?> resultMap)) {
+            return Optional.empty();
+        }
+        Object agentIdObj = resultMap.get("agent_id");
+        if (!(agentIdObj instanceof String agentId) || agentId.isBlank()) {
+            return Optional.empty();
+        }
+        if (agentId.equals(this.agentId)) {
+            log.warn("Orchestrator skipping three-field forward to self agentId={} convId={}",
+                agentId, current.getConversationId());
+            return Optional.empty();
+        }
+        Object responseContent = resultMap.get("response_content");
+        String responseContentStr = responseContent instanceof String s ? s : null;
+
+        log.info("Orchestrator forwarding three-field result to remote agent={} convId={}",
+            agentId, current.getConversationId());
+        RemoteAgentCall call = new RemoteAgentCall(
+                agentId, current, responseContentStr, current.getConversationId(), null);
+
+        if (observer == null) {
+            // Sync query mode: NOOP observer, translate captured answer into a
+            // fresh QueryResponse. On interrupt or error, fall back to the local
+            // response rather than crashing.
+            RemoteCallResult remoteResult = callRemoteAndCapture(call, NOOP_OBSERVER);
+            if (remoteResult.hasInterrupt() || remoteResult.hasError()) {
+                log.warn("Orchestrator three-field forward to agent={} convId={} did not complete cleanly "
+                    + "(interrupt={}, error={}); returning local response", agentId, current.getConversationId(),
+                    remoteResult.hasInterrupt(), remoteResult.hasError() ? remoteResult.error().getMessage() : "n/a");
+                return Optional.empty();
+            }
+            String remoteContent = remoteResult.answer();
+            Map<String, Object> forwardedResult = new LinkedHashMap<>();
+            forwardedResult.put("role", "assistant");
+            forwardedResult.put("content", remoteContent);
+            forwardedResult.put("response_content", remoteContent);
+            return Optional.of(new QueryResponse(forwardedResult, current.getConversationId()));
+        }
+
+        // Streaming mode: chunks have already been forwarded to the observer by
+        // the capturing wrapper (including any terminal signal). Nothing more
+        // to do here — the streamQuery loop returns immediately after this call.
+        callRemoteAndCapture(call, observer);
+        return Optional.of(response);
     }
 
     /**
