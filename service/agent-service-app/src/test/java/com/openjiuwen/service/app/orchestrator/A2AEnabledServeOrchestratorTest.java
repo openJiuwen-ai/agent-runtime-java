@@ -414,61 +414,6 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void sseDelegateInterruptedSavesShadowTask() {
-        when(taskStore.get(anyString())).thenReturn(null);
-        CompletableFuture<String> interrupted = new CompletableFuture<>() {
-            @Override
-            public String get() throws InterruptedException {
-                throw new InterruptedException("cancelled");
-            }
-        };
-        when(a2aClient.callStreaming(any(), any())).thenReturn(interrupted);
-        doAnswer(inv -> {
-            QueryStreamObserver obs = inv.getArgument(1);
-            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", "delegate", "context",
-                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "test", "_stream_mode", "sse"))));
-            return null;
-        }).when(agentHandler).streamQuery(any(), any());
-        assertThat(Thread.interrupted()).isFalse();
-
-        orchestrator.streamQuery(req("c-delegate-interrupted"), mock(QueryStreamObserver.class));
-
-        assertThat(Thread.currentThread().isInterrupted()).isFalse();
-        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
-        assertThat(taskCaptor.getValue().metadata()).containsEntry("_stream_mode", "sse");
-    }
-
-    @Test
-    void querySseInterruptedSavesShadowTask() {
-        when(taskStore.get(anyString())).thenReturn(null);
-        when(registry.resolveUrl("test")).thenReturn("http://remote/a2a/");
-        CompletableFuture<String> interrupted = new CompletableFuture<>() {
-            @Override
-            public String get() throws InterruptedException {
-                throw new InterruptedException("cancelled");
-            }
-        };
-        when(a2aClient.callStreaming(any(), any())).thenReturn(interrupted);
-        when(agentHandler.query(any()))
-                .thenReturn(
-                        new com.openjiuwen.service.spec.dto.QueryResponse(
-                                Map.of("role", "assistant", "_interrupt",
-                                        Map.of("message", "delegate", "toolCallId", "call-1", "toolName",
-                                                "delegate_to_test", "context", Map.of("_interrupt_kind", "a2a_delegate",
-                                                        "agentName", "test", "_stream_mode", "sse"))),
-                                "c-query-interrupted"));
-        assertThat(Thread.interrupted()).isFalse();
-
-        orchestrator.query(req("c-query-interrupted"));
-
-        assertThat(Thread.currentThread().isInterrupted()).isFalse();
-        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
-        assertThat(taskCaptor.getValue().metadata()).containsEntry("_stream_mode", "sse");
-    }
-
-    @Test
     void queryPendingResumeWithSseModeUsesStreamingRemoteCall() {
         String shadowId = "shadow:test-agent:c-query-pending-sse";
         Task pending = Task.builder().id(shadowId).contextId("c-query-pending-sse")
