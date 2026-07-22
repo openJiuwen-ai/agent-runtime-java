@@ -38,8 +38,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 
-import jakarta.servlet.http.HttpServletRequest;
-
 /**
  * JSON-RPC controller for A2A protocol endpoints. Handles {@code SendMessage}, {@code SendStreamingMessage}, and
  * {@code GetTask} methods.
@@ -73,7 +71,7 @@ public class A2aJsonRpcController {
     @PostMapping({A2AServicePaths.A2A_JSONRPC, A2AServicePaths.A2A_JSONRPC_NO_SLASH})
     @AuthorizedResource(resource = "a2a", action = "rpc")
     public ResponseEntity<?> handleJsonRpc(@RequestBody(required = false) String rawBody,
-            HttpServletRequest servletRequest) {
+            jakarta.servlet.http.HttpServletRequest servletRequest) {
         A2aJsonRpcProtocol.Request request;
         try {
             request = A2aJsonRpcProtocol.parseRequest(rawBody);
@@ -202,7 +200,7 @@ public class A2aJsonRpcController {
         }
     }
 
-    private ServerCallContext buildCallContext(HttpServletRequest req) {
+    private ServerCallContext buildCallContext(jakarta.servlet.http.HttpServletRequest req) {
         var ctx = new ServerCallContext(UnauthenticatedUser.INSTANCE,
                 Map.of("remote-addr", req.getRemoteAddr(), "path", req.getRequestURI()), Set.of());
         ctx.getState().put(ServerCallContext.STRICT_CONTEXT_VALIDATION_KEY, false);

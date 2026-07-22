@@ -25,6 +25,7 @@ import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Parses and validates method-specific A2A JSON-RPC parameters before they are passed to the SDK.
@@ -102,12 +103,12 @@ final class A2aJsonRpcParamsParser {
     }
 
     private static Message buildMessage(JsonObject messageObject, List<Part<?>> parts) {
-        String roleValue = optionalNonBlankString(messageObject, "role", "params.message.role");
-        Message.Role role = Message.Role.valueOf(roleValue != null ? roleValue : "ROLE_USER");
-        return Message.builder().role(role).parts(parts)
-                .contextId(optionalNonBlankString(messageObject, "contextId", "params.message.contextId"))
-                .taskId(optionalNonBlankString(messageObject, "taskId", "params.message.taskId"))
-                .messageId(optionalNonBlankString(messageObject, "messageId", "params.message.messageId")).build();
+        String roleValue = optionalNonBlankString(messageObject, "role", "params.message.role").orElse("ROLE_USER");
+        var builder = Message.builder().role(Message.Role.valueOf(roleValue)).parts(parts);
+        optionalNonBlankString(messageObject, "contextId", "params.message.contextId").ifPresent(builder::contextId);
+        optionalNonBlankString(messageObject, "taskId", "params.message.taskId").ifPresent(builder::taskId);
+        optionalNonBlankString(messageObject, "messageId", "params.message.messageId").ifPresent(builder::messageId);
+        return builder.build();
     }
 
     private static JsonObject requiredObject(JsonObject parent, String memberName, String path) {
@@ -127,23 +128,20 @@ final class A2aJsonRpcParamsParser {
     }
 
     private static String requiredNonBlankString(JsonObject parent, String memberName, String path) {
-        String value = optionalNonBlankString(parent, memberName, path);
-        if (value == null) {
-            throw invalid(path + " is required and must be a non-blank string");
-        }
-        return value;
+        return optionalNonBlankString(parent, memberName, path)
+                .orElseThrow(() -> invalid(path + " is required and must be a non-blank string"));
     }
 
-    private static String optionalNonBlankString(JsonObject parent, String memberName, String path) {
+    private static Optional<String> optionalNonBlankString(JsonObject parent, String memberName, String path) {
         JsonElement value = parent.get(memberName);
         if (value == null || value.isJsonNull()) {
-            return null;
+            return Optional.empty();
         }
         if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
             throw invalid(path + " must be a string");
         }
         String text = value.getAsString();
-        return text.isBlank() ? null : text;
+        return text.isBlank() ? Optional.empty() : Optional.of(text);
     }
 
     private static InvalidParamsError invalid(String detail) {
