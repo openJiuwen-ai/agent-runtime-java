@@ -70,4 +70,25 @@ class DefaultCardResolverTest {
 
         assertThat(resolver.supported("agent-a")).isTrue();
     }
+
+    @Test
+    void resolveCardUrlHandlesUrlWithoutPath() {
+        when(registry.resolveUrl("agent-a")).thenReturn("https://host");
+        assertThat(resolver.resolveCardUrl("agent-a"))
+                .isEqualTo("https://host/.well-known/agent-card.json");
+    }
+
+    @Test
+    void resolveCardUrlPreservesPort() {
+        when(registry.resolveUrl("agent-a")).thenReturn("https://host:8080/a2a");
+        assertThat(resolver.resolveCardUrl("agent-a"))
+                .isEqualTo("https://host:8080/.well-known/agent-card.json");
+    }
+
+    @Test
+    void resolveCardUrlStripsTrailingSlashAndPath() {
+        when(registry.resolveUrl("agent-a")).thenReturn("https://host/a2a/");
+        assertThat(resolver.resolveCardUrl("agent-a"))
+                .isEqualTo("https://host/.well-known/agent-card.json");
+    }
 }
