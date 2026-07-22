@@ -212,12 +212,12 @@ import json, sys
 with open(sys.argv[1]) as f:
     data = json.load(f)
 result = data.get("result", {})
-content = str(result.get("content", ""))
+content = result.get("content")
 if result.get("_interrupt"):
     print("FAIL: A->B->C Round 2 remained interrupted after confirmation", file=sys.stderr)
     print(json.dumps(data, ensure_ascii=False)[:1000], file=sys.stderr)
     sys.exit(1)
-if not content:
+if not isinstance(content, str) or not content.strip():
     print("FAIL: A->B->C Round 2 returned an empty response", file=sys.stderr)
     print(json.dumps(data, ensure_ascii=False)[:1000], file=sys.stderr)
     sys.exit(1)

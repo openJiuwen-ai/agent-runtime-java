@@ -193,6 +193,7 @@ public class A2aJsonRpcController {
             return sendParamsBuilder.build();
         } catch (JsonParseException | ClassCastException | IllegalStateException | IllegalArgumentException
                 | NullPointerException | UnsupportedOperationException e) {
+            log.debug("Invalid SendMessage params", e);
             throw new InvalidParamsError();
         }
     }
@@ -202,6 +203,7 @@ public class A2aJsonRpcController {
             JsonObject params = request.getAsJsonObject("params");
             return JsonUtil.fromJson(params.toString(), TaskQueryParams.class);
         } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
+            log.debug("Invalid GetTask params", e);
             throw new InvalidParamsError();
         }
     }
