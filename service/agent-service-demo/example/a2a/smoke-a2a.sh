@@ -197,4 +197,32 @@ print(f"A->B->C Round 1 interrupt: {interrupt.get('message', '')[:300]}")
 PY
 pass "A->B->C path reached Agent C confirmation"
 
+print_step "3b" "Round 2: resume A->B->C delegation"
+round2_file="$TMP_DIR/round2.json"
+round2_status="$(curl -sS -o "$round2_file" -w '%{http_code}' -X POST "$BASE_URL_A/v1/query" \
+  -H 'Content-Type: application/json' \
+  -d "{\"conversation_id\":\"$CONV_ID\",\"message\":\"ok, confirmed\",\"stream\":false}")"
+
+if [ "$round2_status" != "200" ]; then
+  fail "A->B->C Round 2 query returned HTTP $round2_status"
+fi
+
+$PYTHON - "$round2_file" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+result = data.get("result", {})
+content = result.get("content")
+if result.get("_interrupt"):
+    print("FAIL: A->B->C Round 2 remained interrupted after confirmation", file=sys.stderr)
+    print(json.dumps(data, ensure_ascii=False)[:1000], file=sys.stderr)
+    sys.exit(1)
+if not isinstance(content, str) or not content.strip():
+    print("FAIL: A->B->C Round 2 returned an empty response", file=sys.stderr)
+    print(json.dumps(data, ensure_ascii=False)[:1000], file=sys.stderr)
+    sys.exit(1)
+print(f"A->B->C Round 2: {content[:300]}")
+PY
+pass "A->B->C path resumed and completed"
+
 printf '\nA2A demo smoke checks passed against Agent A=%s Agent B=%s Agent C=%s\n' "$BASE_URL_A" "$BASE_URL_B" "$BASE_URL_C"
