@@ -41,9 +41,9 @@ public class RedisMiddlewareAutoConfiguration {
     @ConditionalOnProperty(prefix = "openjiuwen.service.middleware.checkpointer", name = "type", havingValue = "redis")
     public RuntimeRedisClient runtimeRedisClient(MiddlewareProperties properties, CredentialDecryptor decryptor) {
         String redisRef = properties.getCheckpointer().getRedisRef();
-        MiddlewareProperties.RedisEndpoint endpoint = RedisConnectionAssembler.resolveEndpoint(properties, redisRef);
+        ResolvedRedisEndpoint endpoint = RedisConnectionAssembler.resolve(properties, redisRef);
         String password = decryptor.decrypt(endpoint.getEncryptedPassword(), CredentialSceneType.REDIS_PASSWORD);
-        if (RedisConnectionAssembler.TYPE_CLUSTER.equals(RedisConnectionAssembler.resolveEndpointType(endpoint))) {
+        if (endpoint.isCluster()) {
             return new JedisClusterRuntimeRedisClient(RedisJedisClientFactory.createCluster(endpoint, password));
         }
         return new JedisPooledRuntimeRedisClient(RedisJedisClientFactory.createPooled(endpoint, password));

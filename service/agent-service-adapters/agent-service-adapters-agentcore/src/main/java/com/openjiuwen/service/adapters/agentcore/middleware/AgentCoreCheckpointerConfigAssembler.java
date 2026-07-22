@@ -8,6 +8,7 @@ import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisConnectionAssembler;
+import com.openjiuwen.service.adapters.common.middleware.redis.ResolvedRedisEndpoint;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import java.util.HashMap;
@@ -63,7 +64,7 @@ public final class AgentCoreCheckpointerConfigAssembler {
             throw new IllegalStateException("RuntimeRedisClient is required for redis checkpointer");
         }
         String redisRef = properties.getCheckpointer().getRedisRef();
-        MiddlewareProperties.RedisEndpoint endpoint = RedisConnectionAssembler.resolveEndpoint(properties, redisRef);
+        ResolvedRedisEndpoint endpoint = RedisConnectionAssembler.resolve(properties, redisRef);
         String password = decryptor.decrypt(endpoint.getEncryptedPassword(), CredentialSceneType.REDIS_PASSWORD);
 
         Map<String, Object> connection = new HashMap<>(RedisConnectionAssembler.buildConnectionMap(endpoint, password));
