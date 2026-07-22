@@ -250,6 +250,10 @@ public class A2ARemoteAgentClient {
      * @return whether this callback completed the result exceptionally
      */
     static boolean completeOnStreamEnd(String agentName, CompletableFuture<String> result, Throwable error) {
+        if (result.isDone()) {
+            log.debug("A2A stream closed after terminal event agent={}", agentName);
+            return false;
+        }
         RemoteAgentException failure;
         if (error == null) {
             failure = new RemoteAgentException(CODE_REMOTE_STREAM_CLOSED,

@@ -414,7 +414,34 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void querySseInterruptedSavesShadowTask() {
+    void sseDelegateInterruptedRestoresInterruptStatus() {
+        when(taskStore.get(anyString())).thenReturn(null);
+        CompletableFuture<String> interrupted = new CompletableFuture<>() {
+            @Override
+            public String get() throws InterruptedException {
+                throw new InterruptedException("cancelled");
+            }
+        };
+        when(a2aClient.callStreaming(any(), any())).thenReturn(interrupted);
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", "delegate", "context",
+                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "test", "_stream_mode", "sse"))));
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        assertThat(Thread.interrupted()).isFalse();
+
+        try {
+            orchestrator.streamQuery(req("c-delegate-interrupted"), mock(QueryStreamObserver.class));
+
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
+    void querySseInterruptedRestoresInterruptStatusAndSavesShadowTask() {
         when(taskStore.get(anyString())).thenReturn(null);
         when(registry.resolveUrl("test")).thenReturn("http://remote/a2a/");
         CompletableFuture<String> interrupted = new CompletableFuture<>() {
@@ -432,15 +459,18 @@ class A2AEnabledServeOrchestratorTest {
                                                 "delegate_to_test", "context", Map.of("_interrupt_kind", "a2a_delegate",
                                                         "agentName", "test", "_stream_mode", "sse"))),
                                 "c-query-interrupted"));
-        boolean isInterrupted = Thread.interrupted();
-        assertThat(isInterrupted).isFalse();
+        assertThat(Thread.interrupted()).isFalse();
 
-        orchestrator.query(req("c-query-interrupted"));
+        try {
+            orchestrator.query(req("c-query-interrupted"));
 
-        assertThat(Thread.currentThread().isInterrupted()).isFalse();
-        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
-        assertThat(taskCaptor.getValue().metadata()).containsEntry("_stream_mode", "sse");
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+            ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
+            verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
+            assertThat(taskCaptor.getValue().metadata()).containsEntry("_stream_mode", "sse");
+        } finally {
+            Thread.interrupted();
+        }
     }
 
     @Test

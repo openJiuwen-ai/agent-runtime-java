@@ -119,5 +119,4 @@ class A2ARemoteAgentClientStreamingLifecycleTest {
                 .supportedInterfaces(List.of(new AgentInterface("JSONRPC", endpoint, null, "1.0"))).url(endpoint)
                 .preferredTransport("JSONRPC").additionalInterfaces(List.of()).build();
     }
-
 }
