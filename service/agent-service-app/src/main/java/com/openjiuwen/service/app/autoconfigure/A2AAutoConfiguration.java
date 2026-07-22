@@ -45,6 +45,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -59,6 +60,8 @@ import java.util.concurrent.TimeUnit;
 @ConditionalOnClass(AgentExecutor.class)
 @EnableConfigurationProperties(A2AProperties.class)
 public class A2AAutoConfiguration {
+    private static final Map<String, String> A2A_RUNTIME_DEFAULTS = Map.of("a2a.blocking.agent.timeout.seconds", "300");
+
     /**
      * Creates the SDK main event bus bean.
      *
@@ -163,7 +166,7 @@ public class A2AAutoConfiguration {
     @ConditionalOnMissingBean
     public A2AConfigProvider a2aConfigProvider(Environment environment, AutowireCapableBeanFactory beanFactory) {
         DefaultValuesConfigProvider defaults = beanFactory.createBean(DefaultValuesConfigProvider.class);
-        return new SpringEnvironmentConfigProvider(environment, defaults);
+        return new SpringEnvironmentConfigProvider(environment, defaults, A2A_RUNTIME_DEFAULTS);
     }
 
     /**

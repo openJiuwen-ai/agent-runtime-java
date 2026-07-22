@@ -50,11 +50,11 @@ class A2AAutoConfigurationTest {
     }
 
     @Test
-    void a2aConfigProviderFallsBackToInitializedSdkDefaults() {
+    void a2aConfigProviderUsesRuntimeDefaultAndInitializedSdkFallback() {
         contextRunner.run(context -> {
             A2AConfigProvider provider = context.getBean(A2AConfigProvider.class);
 
-            assertThat(provider.getValue(AGENT_TIMEOUT)).isEqualTo("30");
+            assertThat(provider.getValue(AGENT_TIMEOUT)).isEqualTo("300");
             assertThat(provider.getOptionalValue(CONSUMPTION_TIMEOUT)).contains("5");
         });
     }
