@@ -56,6 +56,31 @@ public class ServeRequest {
      * @return the latest user message content, or empty string if none found
      */
     public String lastUserQuery() {
+        Map<String, Object> message = lastMessageWithContent();
+        return message != null ? String.valueOf(message.get("content")) : "";
+    }
+
+    /**
+     * Returns a defensive copy of the metadata attached to the latest message selected by
+     * {@link #lastUserQuery()}.
+     *
+     * @return latest user-message metadata, or an empty map when absent
+     */
+    public Map<String, Object> lastUserMessageMetadata() {
+        Map<String, Object> message = lastMessageWithContent();
+        if (message == null || !(message.get("metadata") instanceof Map<?, ?> rawMetadata)) {
+            return Map.of();
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        rawMetadata.forEach((key, value) -> {
+            if (key instanceof String stringKey) {
+                metadata.put(stringKey, value);
+            }
+        });
+        return metadata;
+    }
+
+    private Map<String, Object> lastMessageWithContent() {
         for (int i = messages.size() - 1; i >= 0; i--) {
             Map<String, Object> m = messages.get(i);
             if (m == null) {
@@ -64,16 +89,16 @@ public class ServeRequest {
             Object role = m.get("role");
             Object content = m.get("content");
             if (role != null && "user".equalsIgnoreCase(String.valueOf(role)) && content != null) {
-                return String.valueOf(content);
+                return m;
             }
         }
         if (!messages.isEmpty()) {
             Map<String, Object> last = messages.get(messages.size() - 1);
             if (last != null && last.get("content") != null) {
-                return String.valueOf(last.get("content"));
+                return last;
             }
         }
-        return "";
+        return null;
     }
 
     /**

@@ -31,6 +31,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Type;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -86,54 +88,79 @@ public class A2ARemoteAgentClient {
      * @param taskId
      *            remote task ID to resume, or null for a new task
      * @param metadata
-     *            additional metadata for the call
+     *            params-level metadata
+     * @param messageMetadata
+     *            message-level metadata
      */
     public record RemoteCall(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata) {
+            Map<String, Object> metadata, Map<String, Object> messageMetadata) {
+        public RemoteCall {
+            metadata = immutableMetadata(metadata);
+            messageMetadata = immutableMetadata(messageMetadata);
+        }
+
+        /**
+         * Compatibility constructor for callers that only supply params-level metadata.
+         *
+         * @param agentName registered remote agent name
+         * @param message text payload to send
+         * @param contextId conversation context ID
+         * @param taskId remote task ID to resume
+         * @param paramsMetadata params-level metadata
+         */
+        public RemoteCall(String agentName, String message, String contextId, String taskId,
+                Map<String, Object> paramsMetadata) {
+            this(agentName, message, contextId, taskId, paramsMetadata, null);
+        }
     }
 
     /**
-     * Parameter object bundling the result of {@link #prepareCall}.
+     * Parameter object bundling the result of {@link #prepareCall(RemoteCall)}.
      *
      * @param entry
      *            the resolved remote agent entry
-     * @param message
-     *            the built SDK message
+     * @param params
+     *            the built SDK send parameters
      * @param contextId
      *            the context/conversation ID
-     * @param metadata
-     *            the metadata map
      */
-    private record RemoteCallSetup(A2ARemoteAgentCardRegistry.RemoteAgentEntry entry, Message message, String contextId,
-            Map<String, Object> metadata) {
+    private record RemoteCallSetup(A2ARemoteAgentCardRegistry.RemoteAgentEntry entry, MessageSendParams params,
+            String contextId) {
     }
 
     /**
      * Resolves the remote agent entry and builds the SDK message.
      *
-     * @param agentName
-     *            the remote agent name
-     * @param message
-     *            the text payload
-     * @param contextId
-     *            the context/conversation ID
-     * @param taskId
-     *            the optional task ID for resume
-     * @param metadata
-     *            the metadata map
+     * @param call remote call coordinates and metadata
      * @return the prepared call setup
      */
-    private RemoteCallSetup prepareCall(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata) {
-        var entry = registry.get(agentName)
-                .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + agentName));
-        var ctxId = contextId != null ? contextId : java.util.UUID.randomUUID().toString();
-        var msgBuilder = Message.builder().role(Message.Role.ROLE_USER).contextId(ctxId)
-                .parts(List.<Part<?>>of(new TextPart(message)));
-        if (taskId != null && !taskId.isBlank()) {
-            msgBuilder.taskId(taskId);
+    private RemoteCallSetup prepareCall(RemoteCall call) {
+        var entry = registry.get(call.agentName())
+                .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
+        var contextId = call.contextId() != null ? call.contextId() : java.util.UUID.randomUUID().toString();
+        return new RemoteCallSetup(entry, buildSendParams(call, contextId), contextId);
+    }
+
+    /**
+     * Builds the complete SDK request while preserving both protocol metadata levels.
+     *
+     * @param call remote call coordinates and metadata
+     * @param contextId resolved context ID
+     * @return SDK message send parameters
+     */
+    static MessageSendParams buildSendParams(RemoteCall call, String contextId) {
+        var messageBuilder = Message.builder().role(Message.Role.ROLE_USER).contextId(contextId)
+                .parts(List.<Part<?>>of(new TextPart(call.message()))).metadata(call.messageMetadata());
+        if (call.taskId() != null && !call.taskId().isBlank()) {
+            messageBuilder.taskId(call.taskId());
         }
-        return new RemoteCallSetup(entry, msgBuilder.build(), ctxId, metadata);
+        return MessageSendParams.builder().message(messageBuilder.build()).metadata(call.metadata()).build();
+    }
+
+    private static Map<String, Object> immutableMetadata(Map<String, Object> metadata) {
+        return metadata == null || metadata.isEmpty()
+                ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(metadata));
     }
 
     /**
@@ -202,15 +229,14 @@ public class A2ARemoteAgentClient {
      * @return future resolving to the final-answer text
      */
     public CompletableFuture<String> callStreaming(RemoteCall call, QueryStreamObserver streamObserver) {
-        var setup = prepareCall(call.agentName(), call.message(), call.contextId(), call.taskId(), call.metadata());
+        var setup = prepareCall(call);
         log.info("A2A streaming call agent={} taskId={} contextId={} textLen={}", call.agentName(),
                 call.taskId() != null ? call.taskId() : "new", setup.contextId,
                 call.message() != null ? call.message().length() : 0);
 
         Client client = createClient(setup.entry.card(), true);
-        var params = MessageSendParams.builder().message(setup.message).metadata(setup.metadata).build();
         CompletableFuture<String> result = new CompletableFuture<>();
-        client.sendMessage(params, List.of((BiConsumer<ClientEvent, AgentCard>) (event, c) -> {
+        client.sendMessage(setup.params, List.of((BiConsumer<ClientEvent, AgentCard>) (event, c) -> {
             if (event instanceof TaskUpdateEvent tue) {
                 if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
                     handleArtifact(aue, result, streamObserver);
@@ -404,30 +430,20 @@ public class A2ARemoteAgentClient {
      * Call a remote agent via non-streaming SendMessage (synchronous). Blocks until
      * the remote agent completes or requires input.
      *
-     * @param agentName
-     *            registered remote agent name
-     * @param message
-     *            text payload to send
-     * @param contextId
-     *            conversation context ID
-     * @param taskId
-     *            remote task ID to resume, or null for a new task
-     * @param metadata
-     *            additional metadata for the call
+     * @param call remote call coordinates and metadata
      * @return the final-answer text from the remote agent
      * @throws RemoteInputRequiredException
      *             if the remote agent requires user input
      */
-    public String callSync(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata) throws RemoteInputRequiredException {
-        var setup = prepareCall(agentName, message, contextId, taskId, metadata);
-        log.info("A2A sync call agent={} taskId={} contextId={} textLen={}", agentName, taskId != null ? taskId : "new",
-                setup.contextId, message != null ? message.length() : 0);
+    public String callSync(RemoteCall call) throws RemoteInputRequiredException {
+        var setup = prepareCall(call);
+        log.info("A2A sync call agent={} taskId={} contextId={} textLen={}", call.agentName(),
+                call.taskId() != null ? call.taskId() : "new", setup.contextId,
+                call.message() != null ? call.message().length() : 0);
 
         Client client = createClient(setup.entry.card(), false);
-        var params = MessageSendParams.builder().message(setup.message).metadata(setup.metadata).build();
         CompletableFuture<String> result = new CompletableFuture<>();
-        client.sendMessage(params, List.of((BiConsumer<ClientEvent, AgentCard>) (event, c) -> {
+        client.sendMessage(setup.params, List.of((BiConsumer<ClientEvent, AgentCard>) (event, c) -> {
             if (event instanceof TaskEvent te) {
                 handleTaskEvent(te, result);
             } else {
@@ -439,15 +455,32 @@ public class A2ARemoteAgentClient {
         try {
             return result.get(timeout, TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
-            throw new RemoteAgentException("Remote agent '" + agentName + "' timed out after " + timeout + "s", e);
+            throw new RemoteAgentException("Remote agent '" + call.agentName() + "' timed out after " + timeout + "s",
+                    e);
         } catch (InterruptedException e) {
-            throw new RemoteAgentException("Interrupted while waiting for remote agent '" + agentName + "'", e);
+            throw new RemoteAgentException("Interrupted while waiting for remote agent '" + call.agentName() + "'", e);
         } catch (java.util.concurrent.ExecutionException e) {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
                 throw rie;
             }
-            throw new RemoteAgentException("Remote agent '" + agentName + "' failed", e.getCause());
+            throw new RemoteAgentException("Remote agent '" + call.agentName() + "' failed", e.getCause());
         }
+    }
+
+    /**
+     * Compatibility overload for callers that only supply params-level metadata.
+     *
+     * @param agentName registered remote agent name
+     * @param message text payload to send
+     * @param contextId conversation context ID
+     * @param taskId remote task ID to resume
+     * @param metadata params-level metadata
+     * @return final-answer text
+     * @throws RemoteInputRequiredException if the remote agent requires user input
+     */
+    public String callSync(String agentName, String message, String contextId, String taskId,
+            Map<String, Object> metadata) throws RemoteInputRequiredException {
+        return callSync(new RemoteCall(agentName, message, contextId, taskId, metadata));
     }
 
     private static String extractText(List<Part<?>> parts) {
