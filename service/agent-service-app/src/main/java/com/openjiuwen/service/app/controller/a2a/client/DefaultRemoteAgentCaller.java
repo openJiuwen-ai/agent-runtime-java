@@ -178,7 +178,7 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
         });
     }
 
-    static Optional<String> answerText(String raw) {
+    public static Optional<String> answerText(String raw) {
         return parseEnvelope(raw)
                 .filter(env -> ANSWER_ENVELOPE_TYPE.equals(env.get("type")))
                 .map(env -> extractBusinessText(env).orElse(raw));
@@ -192,7 +192,7 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
         }
     }
 
-    static Optional<String> extractBusinessText(Object data) {
+    public static Optional<String> extractBusinessText(Object data) {
         if (data instanceof String s) {
             return s.isBlank() ? Optional.empty() : Optional.of(s);
         }

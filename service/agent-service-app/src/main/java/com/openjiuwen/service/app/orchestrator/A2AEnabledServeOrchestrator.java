@@ -4,9 +4,10 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient.RemoteInputRequiredException;
+import com.openjiuwen.service.app.controller.a2a.client.DefaultRemoteAgentCaller.RemoteInputRequiredException;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCall;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.StreamCancellationHandle;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -30,7 +31,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
 
 /**
  * A2A-aware orchestrator with interrupt-resume chain.
@@ -38,7 +38,7 @@ import java.util.concurrent.ExecutionException;
  * <p>
  * Detects {@code "interrupt"} chunks from the agent handler, routes
  * {@code a2a_delegate} interrupts to a remote agent via
- * {@link A2ARemoteAgentClient}, and resumes the local agent with the remote
+ * {@link RemoteAgentCaller}, and resumes the local agent with the remote
  * result. Other interrupts are forwarded as {@code INPUT_REQUIRED}.
  *
  * @since 0.1.0
@@ -74,13 +74,100 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      */
     private static final String SHADOW_KEY_PREFIX = "shadow:";
 
+    /**
+     * Invokes the remote agent caller and captures the final answer text, while
+     * forwarding chunks to the optional passthrough observer. Re-throws
+     * {@link RemoteInputRequiredException} when the remote signals INPUT_REQUIRED
+     * so callers can preserve the legacy interrupt-handling flow.
+     *
+     * @param call
+     *            the remote call coordinates
+     * @param passthrough
+     *            optional observer to receive streaming chunks; {@code null} for sync mode
+     * @return the remote agent's final answer text, or empty string if none captured
+     */
+    private String callRemoteAndCapture(RemoteAgentCall call, QueryStreamObserver passthrough) {
+        java.util.concurrent.atomic.AtomicReference<String> captured =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<Throwable> error =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<QueryChunk> pendingInterrupt =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        QueryStreamObserver wrapper = new QueryStreamObserver() {
+            @Override
+            public void onNext(QueryChunk chunk) {
+                if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
+                    // Interrupt is a control signal: capture it for the caller to
+                    // translate into a RemoteInputRequiredException, but do not
+                    // forward to the passthrough — the upper layer (e.g.
+                    // refreshPendingOnRemoteInput / handleRemoteInputRequired) is
+                    // responsible for notifying the client with a properly framed
+                    // interrupt chunk. This avoids double-delivery when the caller
+                    // already emitted the interrupt via the stream.
+                    pendingInterrupt.set(chunk);
+                    return;
+                }
+                if (passthrough != null && !passthrough.isCancelled()) {
+                    passthrough.onNext(chunk);
+                }
+                if (QueryChunk.TYPE_CHUNK.equals(chunk.getType()) && chunk.getData() instanceof String raw) {
+                    com.openjiuwen.service.app.controller.a2a.client.DefaultRemoteAgentCaller
+                            .answerText(raw).ifPresent(captured::set);
+                }
+            }
+
+            @Override
+            public void onComplete() {
+                // If the caller signalled an interrupt, the upper layer will
+                // handle client notification (including completion); suppress
+                // passthrough completion to avoid double onComplete.
+                if (pendingInterrupt.get() != null) {
+                    return;
+                }
+                if (passthrough != null && !passthrough.isCancelled()) {
+                    passthrough.onComplete();
+                }
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                error.set(e);
+                if (passthrough != null && !passthrough.isCancelled()) {
+                    passthrough.onError(e);
+                }
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return passthrough != null && passthrough.isCancelled();
+            }
+        };
+        remoteAgentCaller.call(call, wrapper);
+        QueryChunk interrupt = pendingInterrupt.get();
+        if (interrupt != null) {
+            Object data = interrupt.getData();
+            if (data instanceof Map<?, ?> m && m.get("remote_task_id") instanceof String rtid) {
+                throw new RemoteInputRequiredException(
+                        m.get("message") instanceof String s ? s : "Remote agent requires input", rtid);
+            }
+        }
+        Throwable err = error.get();
+        if (err instanceof RuntimeException re) {
+            throw re;
+        }
+        if (err != null) {
+            throw new RuntimeException(err);
+        }
+        return captured.get() != null ? captured.get() : "";
+    }
+
     private final AgentHandler agentHandler;
 
     private final TaskStore taskStore;
 
-    private final A2ARemoteAgentClient a2aClient;
+    private final RemoteAgentCaller remoteAgentCaller;
 
-    private final A2ARemoteAgentCardRegistry registry;
+    private final RemoteAgentCardResolver cardResolver;
 
     private final ActiveStreamRegistry streamRegistry;
 
@@ -93,21 +180,22 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *            the local agent handler
      * @param taskStore
      *            the A2A task store for shadow tasks
-     * @param a2aClient
-     *            the remote A2A agent client
-     * @param registry
-     *            the remote agent card registry
+     * @param remoteAgentCaller
+     *            the remote agent caller SPI
+     * @param cardResolver
+     *            the remote agent card resolver SPI
      * @param streamRegistry
      *            the active stream registry for cancellation
      * @param agentId
      *            this agent's identity for shadow task key namespacing
      */
-    public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore, A2ARemoteAgentClient a2aClient,
-        A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry, String agentId) {
+    public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
+        RemoteAgentCaller remoteAgentCaller, RemoteAgentCardResolver cardResolver, ActiveStreamRegistry streamRegistry,
+        String agentId) {
         this.agentHandler = agentHandler;
         this.taskStore = taskStore;
-        this.a2aClient = a2aClient;
-        this.registry = registry;
+        this.remoteAgentCaller = remoteAgentCaller;
+        this.cardResolver = cardResolver;
         this.streamRegistry = streamRegistry;
         this.agentId = agentId == null || agentId.isBlank() ? "agent" : agentId;
     }
@@ -200,24 +288,13 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             // delegation opted into
             // SSE passthrough; otherwise resolve synchronously so the remote result reaches
             // the tool only.
-            String content = isSse
-                ? a2aClient.callStreaming(
-                new A2ARemoteAgentClient.RemoteCall(agentName, current.lastUserQuery(), current.getConversationId(),
-                    remoteTaskId, current.getMetadata()), observer).get()
-                : a2aClient.callSync(agentName, current.lastUserQuery(), current.getConversationId(), remoteTaskId,
-                    current.getMetadata());
+            String content = callRemoteAndCapture(new RemoteAgentCall(
+                    agentName, current, null, current.getConversationId(), remoteTaskId,
+                    current.lastUserQuery()), isSse ? observer : null);
             deleteShadowTask(pt.id());
             return Optional.of(buildResumeRequest(current, content, "", ""));
-        } catch (ExecutionException e) {
-            if (e.getCause() instanceof RemoteInputRequiredException rie) {
-                return refreshPendingOnRemoteInput(current, pt, rie, observer);
-            }
-            log.error("Remote call '{}' failed for pending task", agentName, e);
         } catch (RemoteInputRequiredException rie) {
-            // Sync resume path: remote still needs input.
             return refreshPendingOnRemoteInput(current, pt, rie, observer);
-        } catch (InterruptedException e) {
-            log.error("Remote call '{}' interrupted for pending task", agentName, e);
         } catch (Exception e) {
             log.error("Remote call '{}' failed for pending task", agentName, e);
         }
@@ -361,20 +438,18 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         log.info("Orchestrator delegating (sse) to remote agent={} convId={}", data.agentName(),
             current.getConversationId());
         try {
-            String content = a2aClient.callStreaming(
-                new A2ARemoteAgentClient.RemoteCall(data.agentName(), data.message(), current.getConversationId(), null,
-                    current.getMetadata()), observer).get();
+            String content = callRemoteAndCapture(new RemoteAgentCall(
+                    data.agentName(), current, null, current.getConversationId(), null,
+                    data.message()), observer);
             log.info("Orchestrator remote result received ({} chars), building resume", content.length());
             return Optional.of(buildResumeRequest(current, content, data.toolCallId(), data.toolName()));
-        } catch (ExecutionException e) {
-            if (e.getCause() instanceof RemoteInputRequiredException rie) {
-                return handleRemoteInputRequired(data, current, observer, rie);
-            }
-            log.error("Remote call '{}' failed (sse)", data.agentName(), e);
+        } catch (RemoteInputRequiredException rie) {
+            return handleRemoteInputRequired(data, current, observer, rie);
         } catch (Exception e) {
             log.error("Remote call '{}' failed (sse)", data.agentName(), e);
         }
-        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
+        saveShadowTask(current.getConversationId(), data.agentName(), cardResolver.resolveJsonRpcUrl(data.agentName()),
+            "",
             data.streamMode());
         observer.onComplete();
         return Optional.empty();
@@ -397,8 +472,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         log.info("Orchestrator delegating (sync) to remote agent={} convId={}", data.agentName(),
             current.getConversationId());
         try {
-            String content = a2aClient.callSync(data.agentName(), data.message(), current.getConversationId(), null,
-                current.getMetadata());
+            String content = callRemoteAndCapture(new RemoteAgentCall(
+                    data.agentName(), current, null, current.getConversationId(), null,
+                    data.message()), null);
             log.info("Orchestrator remote result received ({} chars), building resume", content.length());
             return Optional.of(buildResumeRequest(current, content, data.toolCallId(), data.toolName()));
         } catch (RemoteInputRequiredException rie) {
@@ -406,7 +482,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         } catch (Exception e) {
             log.error("Remote call '{}' failed (sync)", data.agentName(), e);
         }
-        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()));
+        saveShadowTask(current.getConversationId(), data.agentName(), cardResolver.resolveJsonRpcUrl(data.agentName()));
         observer.onComplete();
         return Optional.empty();
     }
@@ -429,7 +505,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         QueryStreamObserver observer, RemoteInputRequiredException rie) {
         log.info("Orchestrator remote INPUT_REQUIRED convId={} remoteTaskId={}", current.getConversationId(),
             rie.getRemoteTaskId());
-        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()),
+        saveShadowTask(current.getConversationId(), data.agentName(), cardResolver.resolveJsonRpcUrl(data.agentName()),
             rie.getRemoteTaskId(), data.streamMode());
         observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", rie.getMessage())));
         observer.onComplete();
@@ -502,23 +578,13 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         log.info("Orchestrator syncResumePending convId={} agent={} remoteTaskId={} streamMode={}",
             current.getConversationId(), agentName, remoteTaskId, streamMode);
         try {
-            String content = isSse
-                ? a2aClient.callStreaming(
-                new A2ARemoteAgentClient.RemoteCall(agentName, current.lastUserQuery(), current.getConversationId(),
-                    remoteTaskId, current.getMetadata()), NOOP_OBSERVER).get()
-                : a2aClient.callSync(agentName, current.lastUserQuery(), current.getConversationId(), remoteTaskId,
-                    current.getMetadata());
+            String content = callRemoteAndCapture(new RemoteAgentCall(
+                    agentName, current, null, current.getConversationId(), remoteTaskId,
+                    current.lastUserQuery()), null);
             deleteShadowTask(pt.id());
             return QueryResumeResult.continueWith(buildResumeRequest(current, content, "", ""));
-        } catch (ExecutionException e) {
-            if (e.getCause() instanceof RemoteInputRequiredException rie) {
-                return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
-            }
-            log.error("Remote call '{}' failed for pending task", agentName, e);
         } catch (RemoteInputRequiredException rie) {
             return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
-        } catch (InterruptedException e) {
-            log.error("Remote call '{}' interrupted for pending task", agentName, e);
         } catch (Exception e) {
             log.error("Remote call '{}' failed for pending task", agentName, e);
         }
@@ -549,31 +615,17 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 InterruptData.STREAM_MODE_SSE.equals(data.streamMode()) ? "sse" : "sync", data.agentName(),
                 current.getConversationId());
             try {
-                String content = InterruptData.STREAM_MODE_SSE.equals(data.streamMode())
-                    ? a2aClient.callStreaming(
-                    new A2ARemoteAgentClient.RemoteCall(data.agentName(), data.message(), current.getConversationId(),
-                        null, current.getMetadata()), NOOP_OBSERVER).get()
-                    : a2aClient.callSync(data.agentName(), data.message(), current.getConversationId(), null,
-                        current.getMetadata());
+                String content = callRemoteAndCapture(new RemoteAgentCall(
+                        data.agentName(), current, null, current.getConversationId(), null,
+                        data.message()), null);
                 log.info("Orchestrator query remote result received ({} chars), building resume",
                     content != null ? content.length() : 0);
                 return Optional.of(buildResumeRequest(current, content, data.toolCallId(), data.toolName()));
-            } catch (ExecutionException e) {
-                if (e.getCause() instanceof RemoteInputRequiredException rie) {
-                    return remoteInputRequiredResponse(interruptData, response, current, data, rie);
-                }
-                log.error("Remote call '{}' failed", data.agentName(), e);
-                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
-                    data.streamMode());
             } catch (RemoteInputRequiredException rie) {
                 return remoteInputRequiredResponse(interruptData, response, current, data, rie);
-            } catch (InterruptedException e) {
-                log.error("Remote call '{}' interrupted", data.agentName(), e);
-                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
-                    data.streamMode());
             } catch (Exception e) {
                 log.error("Remote call '{}' failed", data.agentName(), e);
-                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
+                saveShadowTask(current.getConversationId(), data.agentName(), cardResolver.resolveJsonRpcUrl(data.agentName()), "",
                     data.streamMode());
             }
         }
@@ -584,7 +636,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         QueryResponse response, ServeRequest current, InterruptData data, RemoteInputRequiredException rie) {
         Map<String, Object> result = queryInputRequiredResult(response, rie.getMessage());
         response.setResult(result);
-        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()),
+        saveShadowTask(current.getConversationId(), data.agentName(), cardResolver.resolveJsonRpcUrl(data.agentName()),
             rie.getRemoteTaskId(), data.streamMode());
         return Optional.empty();
     }

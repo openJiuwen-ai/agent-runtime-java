@@ -14,6 +14,10 @@ import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.client.DefaultCardResolver;
+import com.openjiuwen.service.app.controller.a2a.client.DefaultRemoteAgentCaller;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.spi.AgentHandler;
@@ -208,6 +212,33 @@ public class A2AAutoConfiguration {
     }
 
     /**
+     * Creates the default {@link RemoteAgentCaller} bean, wrapping the legacy
+     * {@link A2ARemoteAgentClient}. Deployments may override with an
+     * {@code A2AGatewayRemoteAgentCaller} or {@code InProcessRemoteAgentCaller}.
+     *
+     * @param registry the remote agent card registry
+     * @return the default remote agent caller
+     */
+    @Bean
+    @ConditionalOnMissingBean(RemoteAgentCaller.class)
+    public DefaultRemoteAgentCaller defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry) {
+        return new DefaultRemoteAgentCaller(registry);
+    }
+
+    /**
+     * Creates the default {@link RemoteAgentCardResolver} bean. Deployments may
+     * override with an {@code A2AGatewayCardResolver} for cross-origin cards.
+     *
+     * @param registry the remote agent card registry
+     * @return the default remote agent card resolver
+     */
+    @Bean
+    @ConditionalOnMissingBean(RemoteAgentCardResolver.class)
+    public DefaultCardResolver defaultCardResolver(A2ARemoteAgentCardRegistry registry) {
+        return new DefaultCardResolver(registry);
+    }
+
+    /**
      * Creates the agent card discovery bean for fetching remote agent cards at startup.
      *
      * @param props the A2A properties
@@ -225,8 +256,8 @@ public class A2AAutoConfiguration {
      *
      * @param agentHandler the agent handler
      * @param taskStore the task store
-     * @param a2aClient the remote agent client
-     * @param registry the remote agent card registry
+     * @param remoteAgentCaller the remote agent caller SPI
+     * @param cardResolver the remote agent card resolver SPI
      * @param streamRegistry the active stream registry
      * @param agentId the application name used as the agent identifier for shadow task namespacing
      * @return the A2A-enabled serve orchestrator
@@ -234,9 +265,10 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-            A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry,
+            RemoteAgentCaller remoteAgentCaller, RemoteAgentCardResolver cardResolver, ActiveStreamRegistry streamRegistry,
             @Value("${spring.application.name:agent}") String agentId) {
-        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry, agentId);
+        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, cardResolver,
+                streamRegistry, agentId);
     }
 
     /**
