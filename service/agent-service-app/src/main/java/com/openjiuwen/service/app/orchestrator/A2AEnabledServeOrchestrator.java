@@ -217,7 +217,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             // Sync resume path: remote still needs input.
             return refreshPendingOnRemoteInput(current, pt, rie, observer);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             return failRemoteStream(current, agentName, observer, e);
         } catch (Exception e) {
             return failRemoteStream(current, agentName, observer, e);
@@ -368,7 +367,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             }
             return failRemoteStream(current, data.agentName(), observer, e.getCause());
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             return failRemoteStream(current, data.agentName(), observer, e);
         } catch (Exception e) {
             return failRemoteStream(current, data.agentName(), observer, e);
@@ -505,7 +503,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         } catch (RemoteInputRequiredException rie) {
             return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             throw failRemoteQuery(current, agentName, e);
         } catch (Exception e) {
             throw failRemoteQuery(current, agentName, e);
@@ -550,7 +547,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             } catch (RemoteInputRequiredException rie) {
                 return remoteInputRequiredResponse(interruptData, response, current, data, rie);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
                 throw failRemoteQuery(current, data.agentName(), e);
             } catch (Exception e) {
                 throw failRemoteQuery(current, data.agentName(), e);

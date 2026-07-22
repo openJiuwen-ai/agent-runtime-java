@@ -386,7 +386,7 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void querySseInterruptedRestoresInterruptAndDeletesShadow() {
+    void querySseInterruptedDeletesShadowAndThrows() {
         when(taskStore.get(anyString())).thenReturn(null);
         when(registry.resolveUrl("test")).thenReturn("http://remote/a2a/");
         CompletableFuture<String> interrupted = new CompletableFuture<>() {
@@ -404,17 +404,9 @@ class A2AEnabledServeOrchestratorTest {
                                                 "delegate_to_test", "context", Map.of("_interrupt_kind", "a2a_delegate",
                                                         "agentName", "test", "_stream_mode", "sse"))),
                                 "c-query-interrupted"));
-        boolean isInterrupted = Thread.interrupted();
-        assertThat(isInterrupted).isFalse();
-
-        try {
-            assertThatThrownBy(() -> orchestrator.query(req("c-query-interrupted")))
-                    .isInstanceOf(A2ARemoteAgentClient.RemoteAgentException.class)
-                    .hasMessageContaining("Remote agent 'test' call failed");
-            assertThat(Thread.currentThread().isInterrupted()).isTrue();
-        } finally {
-            Thread.interrupted();
-        }
+        assertThatThrownBy(() -> orchestrator.query(req("c-query-interrupted")))
+                .isInstanceOf(A2ARemoteAgentClient.RemoteAgentException.class)
+                .hasMessageContaining("Remote agent 'test' call failed");
         verify(taskStore).delete("shadow:test-agent:c-query-interrupted");
         verify(taskStore, never()).save(any(), anyBoolean());
     }
