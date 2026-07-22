@@ -6,9 +6,12 @@ package com.openjiuwen.service.app.controller.a2a;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.A2AMessage;
@@ -43,8 +46,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
-
-import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * JSON-RPC controller for A2A protocol endpoints. Handles {@code SendMessage}, {@code SendStreamingMessage}, and
@@ -190,7 +191,8 @@ public class A2aJsonRpcController {
                 sendParamsBuilder.metadata(GSON.fromJson(params.get("metadata"), Map.class));
             }
             return sendParamsBuilder.build();
-        } catch (RuntimeException e) {
+        } catch (JsonParseException | ClassCastException | IllegalStateException | IllegalArgumentException
+                | NullPointerException | UnsupportedOperationException e) {
             throw new InvalidParamsError();
         }
     }
@@ -278,5 +280,4 @@ public class A2aJsonRpcController {
         ctx.getState().put(ServerCallContext.STRICT_CONTEXT_VALIDATION_KEY, false);
         return ctx;
     }
-
 }
