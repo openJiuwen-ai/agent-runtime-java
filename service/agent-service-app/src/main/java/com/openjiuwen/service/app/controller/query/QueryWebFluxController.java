@@ -7,7 +7,6 @@ package com.openjiuwen.service.app.controller.query;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryRequest;
-import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
@@ -94,17 +93,16 @@ public class QueryWebFluxController {
                     .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform")
                     .header(HttpHeaders.CONNECTION, "keep-alive").header("X-Accel-Buffering", "no").body(flux));
         }
-        try {
-            QueryResponse response = orchestrator.query(validation.serveRequest());
-            return reactor.core.publisher.Mono
-                    .just(ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(response));
-        } catch (RuntimeException ex) {
-            String conversationId = validation.serveRequest().getConversationId();
-            log.error("Synchronous query failed for conversation_id={}", conversationId, ex);
-            return reactor.core.publisher.Mono.just(
-                    ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).contentType(MediaType.APPLICATION_JSON)
+        String conversationId = validation.serveRequest().getConversationId();
+        return reactor.core.publisher.Mono.fromSupplier(() -> orchestrator.query(validation.serveRequest()))
+                .<ResponseEntity<?>>map(
+                        response -> ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(response))
+                .onErrorResume(RuntimeException.class, error -> {
+                    log.error("Synchronous query failed for conversation_id={}", conversationId, error);
+                    return reactor.core.publisher.Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .contentType(MediaType.APPLICATION_JSON)
                             .body(QueryIngressSupport.agentExecutionFailed(conversationId)));
-        }
+                });
     }
 
     private boolean isAgentReady() {

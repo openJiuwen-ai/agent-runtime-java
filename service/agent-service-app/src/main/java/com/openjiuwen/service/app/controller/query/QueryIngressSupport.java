@@ -19,10 +19,6 @@ import java.util.Set;
  * @since 0.1.0
  */
 public final class QueryIngressSupport {
-    static final String LEGACY_PATH_PROPERTY = "openjiuwen.service.query.legacy-path-enabled";
-
-    static final String WEBFLUX_ENABLED_PROPERTY = "openjiuwen.service.query.webflux.enabled";
-
     /** Gateway user identifier header. */
     public static final String HEADER_USER_ID = "X-User-ID";
 
@@ -31,6 +27,12 @@ public final class QueryIngressSupport {
 
     /** Gateway tenant identifier header. */
     public static final String HEADER_TENANT_ID = "X-Tenant-ID";
+
+    static final String LEGACY_PATH_PROPERTY = "openjiuwen.service.query.legacy-path-enabled";
+
+    static final String WEBFLUX_ENABLED_PROPERTY = "openjiuwen.service.query.webflux.enabled";
+
+    static final String CONVERSATION_ID_ATTRIBUTE = QueryIngressSupport.class.getName() + ".conversationId";
 
     private static final Set<String> EXCLUDED_HEADERS = Set.of("authorization", "cookie", "set-cookie", "x-api-key",
             "proxy-authorization", "x-csrf-token");

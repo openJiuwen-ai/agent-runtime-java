@@ -19,13 +19,18 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -45,8 +50,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class QueryMvcController {
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(QueryMvcController.class);
-
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
 
     private final ObjectProvider<AgentReadiness> readinessProvider;
@@ -87,6 +90,8 @@ public class QueryMvcController {
             return null;
         }
         validateAndBuildMetadata(validation.serveRequest(), headers, servletRequest, rawBody);
+        servletRequest.setAttribute(QueryIngressSupport.CONVERSATION_ID_ATTRIBUTE,
+                validation.serveRequest().getConversationId());
         if (!isAgentReady()) {
             writeJson(response, HttpStatus.SERVICE_UNAVAILABLE.value(), QueryIngressSupport.agentNotReady());
             return null;
@@ -99,15 +104,8 @@ public class QueryMvcController {
         if (request.isStream()) {
             return streamResponse(orchestrator, validation.serveRequest(), response);
         }
-        try {
-            QueryResponse queryResponse = orchestrator.query(validation.serveRequest());
-            writeJson(response, HttpStatus.OK.value(), queryResponse);
-        } catch (RuntimeException ex) {
-            String conversationId = validation.serveRequest().getConversationId();
-            log.error("Synchronous query failed for conversation_id={}", conversationId, ex);
-            writeJson(response, HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                    QueryIngressSupport.agentExecutionFailed(conversationId));
-        }
+        QueryResponse queryResponse = orchestrator.query(validation.serveRequest());
+        writeJson(response, HttpStatus.OK.value(), queryResponse);
         return null;
     }
 
@@ -223,5 +221,24 @@ class QueryLegacyMvcController {
             jakarta.servlet.http.HttpServletRequest servletRequest, jakarta.servlet.http.HttpServletResponse response)
             throws IOException {
         return delegate.handleQuery(rawBody, headers, servletRequest, response);
+    }
+}
+
+@RestControllerAdvice(assignableTypes = {QueryMvcController.class, QueryLegacyMvcController.class})
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+@Order(Ordered.LOWEST_PRECEDENCE)
+class QueryMvcExceptionHandler {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(QueryMvcExceptionHandler.class);
+
+    @ExceptionHandler(RuntimeException.class)
+    ResponseEntity<Map<String, Object>> handleExecutionFailure(RuntimeException error,
+            jakarta.servlet.http.HttpServletRequest request) {
+        Object attribute = request.getAttribute(QueryIngressSupport.CONVERSATION_ID_ATTRIBUTE);
+        if (!(attribute instanceof String conversationId)) {
+            throw error;
+        }
+        log.error("Synchronous query failed for conversation_id={}", conversationId, error);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).contentType(MediaType.APPLICATION_JSON)
+                .body(QueryIngressSupport.agentExecutionFailed(conversationId));
     }
 }
