@@ -16,7 +16,7 @@ import java.util.Objects;
  * consume to append an assistant message to the forwarded request's
  * {@code messages} array (see spec §4.9). The {@code DefaultRemoteAgentCaller}
  * ignores {@link #responseContent} to preserve logic-equivalence with the
- * legacy {@code A2ARemoteAgentClient}; the A2AGateway / InProcess Caller
+ * original A2A remote client behavior; the A2AGateway / InProcess Caller
  * implementations (deployment module) consume it.
  *
  * <p>The optional {@link #message} override supports the legacy

@@ -22,18 +22,18 @@ import java.util.List;
  * Regression tests for creating an A2A SDK client from worker threads whose
  * context class loader cannot see Java service descriptors.
  */
-class A2ARemoteAgentClientClassLoaderTest {
+class DefaultRemoteAgentCallerClassLoaderTest {
     @Test
     void createClientUsesApplicationClassLoaderForTransportDiscovery() throws Exception {
         ClassLoader original = Thread.currentThread().getContextClassLoader();
         Thread.currentThread().setContextClassLoader(new NoServicesClassLoader(original));
         try {
-            A2ARemoteAgentClient client = new A2ARemoteAgentClient(new A2ARemoteAgentCardRegistry());
-            Method createClient = A2ARemoteAgentClient.class.getDeclaredMethod("createClient", AgentCard.class,
+            DefaultRemoteAgentCaller caller = new DefaultRemoteAgentCaller(new A2ARemoteAgentCardRegistry());
+            Method createClient = DefaultRemoteAgentCaller.class.getDeclaredMethod("createClient", AgentCard.class,
                     boolean.class);
             createClient.setAccessible(true);
 
-            assertThatCode(() -> createClient.invoke(client, testCard(), true)).doesNotThrowAnyException();
+            assertThatCode(() -> createClient.invoke(caller, testCard(), true)).doesNotThrowAnyException();
         } finally {
             Thread.currentThread().setContextClassLoader(original);
         }
