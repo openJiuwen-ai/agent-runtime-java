@@ -221,6 +221,12 @@ if not isinstance(content, str) or not content.strip():
     print("FAIL: A->B->C Round 2 returned an empty response", file=sys.stderr)
     print(json.dumps(data, ensure_ascii=False)[:1000], file=sys.stderr)
     sys.exit(1)
+combined = content.lower()
+failure_markers = ["unavailable", "unable", "failed", "failure", "error", "remote_"]
+if "agent c" not in combined or any(marker in combined for marker in failure_markers):
+    print("FAIL: A->B->C Round 2 did not return a successful Agent C result", file=sys.stderr)
+    print(json.dumps(data, ensure_ascii=False)[:1000], file=sys.stderr)
+    sys.exit(1)
 print(f"A->B->C Round 2: {content[:300]}")
 PY
 pass "A->B->C path resumed and completed"
