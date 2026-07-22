@@ -29,7 +29,12 @@ import java.util.Optional;
  * @since 0.1.0
  */
 public final class RemoteAgentAnswerExtractor {
-    private static final String ANSWER_ENVELOPE_TYPE = "answer";
+    /**
+     * The {@code type} value that marks a chunk payload as a final answer
+     * envelope. Public so callers (e.g. the orchestrator) can recognise the
+     * same envelope shape without re-hardcoding the literal.
+     */
+    public static final String ANSWER_ENVELOPE_TYPE = "answer";
     private static final Gson GSON = new Gson();
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
 

@@ -123,7 +123,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 Object data = chunk.getData();
                 if (data instanceof String raw) {
                     RemoteAgentAnswerExtractor.extractAnswer(raw).ifPresent(captured::set);
-                } else if (data instanceof Map<?, ?> m && "answer".equals(m.get("type"))) {
+                } else if (data instanceof Map<?, ?> m
+                        && RemoteAgentAnswerExtractor.ANSWER_ENVELOPE_TYPE.equals(m.get("type"))) {
                     // Some Caller implementations emit the answer envelope as a
                     // Map chunk rather than a JSON string; extract the business
                     // text directly so sync query() mode still captures it.
@@ -318,15 +319,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
                 AgentRunResult agentResult = runAgentAndCaptureInterruptOrThreeField(current, observer, handle);
                 if (agentResult.threeFieldEnvelope() != null) {
-                    Object agentIdObj = agentResult.threeFieldEnvelope().get("agent_id");
-                    if (agentIdObj instanceof String aid && !aid.isBlank() && !aid.equals(this.agentId)) {
-                        Object rc = agentResult.threeFieldEnvelope().get("response_content");
-                        String rcStr = rc instanceof String s ? s : null;
+                    Optional<RemoteAgentCall> forward = buildForwardCall(agentResult.threeFieldEnvelope(), current);
+                    if (forward.isPresent()) {
                         log.info("Orchestrator forwarding three-field chunk to remote agent={} convId={}",
-                            aid, current.getConversationId());
-                        RemoteAgentCall forward = new RemoteAgentCall(
-                                aid, current, rcStr, current.getConversationId(), null);
-                        callRemoteAndCapture(forward, observer);
+                            forward.get().agentId(), current.getConversationId());
+                        callRemoteAndCapture(forward.get(), observer);
                     } else {
                         observer.onComplete();
                     }
@@ -440,69 +437,27 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     }
 
     /**
-     * Runs the agent and captures any interrupt chunk.
-     *
-     * @param current
-     *            the current serve request
-     * @param observer
-     *            the query stream observer
-     * @param handle
-     *            the stream cancellation handle
-     * @return the interrupt chunk, or {@code null} if the stream completed normally
-     */
-    private QueryChunk runAgentAndCaptureInterrupt(ServeRequest current, QueryStreamObserver observer,
-        StreamCancellationHandle handle) {
-        var interruptHolder = new AtomicReference<QueryChunk>();
-        agentHandler.streamQuery(current, new QueryStreamObserver() {
-            @Override
-            public void onNext(QueryChunk chunk) {
-                if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
-                    interruptHolder.set(chunk);
-                    return;
-                }
-                observer.onNext(chunk);
-            }
-
-            @Override
-            public void onComplete() {
-                if (interruptHolder.get() == null) {
-                    observer.onComplete();
-                }
-            }
-
-            @Override
-            public void onError(Throwable e) {
-                log.error("Agent stream error", e);
-                observer.onError(e);
-            }
-
-            @Override
-            public boolean isCancelled() {
-                return handle.isCancelled() || observer.isCancelled();
-            }
-        });
-        return interruptHolder.get();
-    }
-
-    /**
      * Outcome of running the local agent: either an interrupt chunk (for the
      * classic {@code a2a_delegate}/{@code ask_user} path) or a three-field
      * answer envelope emitted inline as a chunk (Versatile intent workflow
      * short-circuit). At most one of the two is non-null.
      */
     private record AgentRunResult(QueryChunk interrupt, Map<String, Object> threeFieldEnvelope) {
-        static AgentRunResult empty() {
-            return new AgentRunResult(null, null);
-        }
     }
 
     /**
-     * Variant of {@link #runAgentAndCaptureInterrupt} that also intercepts
-     * three-field answer envelopes emitted inline by the agent handler. When a
-     * chunk carries an {@code answer} envelope with a non-blank {@code agent_id},
-     * it is captured for downstream forwarding instead of being forwarded to the
-     * client observer. Interrupts and normal chunks are handled exactly as in
-     * {@link #runAgentAndCaptureInterrupt}.
+     * Runs the local agent and captures either an interrupt chunk (for the
+     * classic {@code a2a_delegate}/{@code ask_user} path) or a three-field
+     * answer envelope emitted inline as a chunk (Versatile intent workflow
+     * short-circuit). At most one of the two is non-null.
+     *
+     * <p>When a chunk carries an {@code answer} envelope with a non-blank
+     * {@code agent_id}, it is captured for downstream forwarding instead of
+     * being forwarded to the client observer. Interrupts are captured for the
+     * caller to translate into a {@link RemoteInputRequiredException}; normal
+     * chunks are forwarded to {@code observer}. The wrapper suppresses
+     * {@code observer.onComplete()} when an interrupt or envelope was captured
+     * so that the caller retains sole responsibility for terminal signalling.
      *
      * @param current
      *            the current serve request
@@ -523,7 +478,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                     interruptHolder.set(chunk);
                     return;
                 }
-                if (chunk.getData() instanceof Map<?, ?> m && "answer".equals(m.get("type"))
+                if (chunk.getData() instanceof Map<?, ?> m
+                        && RemoteAgentAnswerExtractor.ANSWER_ENVELOPE_TYPE.equals(m.get("type"))
                         && m.get("agent_id") instanceof String aid && !aid.isBlank()) {
                     Map<String, Object> envelope = new LinkedHashMap<>();
                     for (Map.Entry<?, ?> entry : m.entrySet()) {
@@ -584,22 +540,14 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         if (!(response.getResult() instanceof Map<?, ?> resultMap)) {
             return Optional.empty();
         }
-        Object agentIdObj = resultMap.get("agent_id");
-        if (!(agentIdObj instanceof String agentId) || agentId.isBlank()) {
+        Optional<RemoteAgentCall> callOpt = buildForwardCall(resultMap, current);
+        if (callOpt.isEmpty()) {
             return Optional.empty();
         }
-        if (agentId.equals(this.agentId)) {
-            log.warn("Orchestrator skipping three-field forward to self agentId={} convId={}",
-                agentId, current.getConversationId());
-            return Optional.empty();
-        }
-        Object responseContent = resultMap.get("response_content");
-        String responseContentStr = responseContent instanceof String s ? s : null;
+        RemoteAgentCall call = callOpt.get();
 
         log.info("Orchestrator forwarding three-field result to remote agent={} convId={}",
-            agentId, current.getConversationId());
-        RemoteAgentCall call = new RemoteAgentCall(
-                agentId, current, responseContentStr, current.getConversationId(), null);
+            call.agentId(), current.getConversationId());
 
         if (observer == null) {
             // Sync query mode: NOOP observer, translate captured answer into a
@@ -608,7 +556,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             RemoteCallResult remoteResult = callRemoteAndCapture(call, NOOP_OBSERVER);
             if (remoteResult.hasInterrupt() || remoteResult.hasError()) {
                 log.warn("Orchestrator three-field forward to agent={} convId={} did not complete cleanly "
-                    + "(interrupt={}, error={}); returning local response", agentId, current.getConversationId(),
+                    + "(interrupt={}, error={}); returning local response", call.agentId(), current.getConversationId(),
                     remoteResult.hasInterrupt(), remoteResult.hasError() ? remoteResult.error().getMessage() : "n/a");
                 return Optional.empty();
             }
@@ -625,6 +573,32 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         // to do here — the streamQuery loop returns immediately after this call.
         callRemoteAndCapture(call, observer);
         return Optional.of(response);
+    }
+
+    /**
+     * Builds a {@link RemoteAgentCall} from a three-field envelope, or returns
+     * {@code Optional.empty()} if the envelope should not be forwarded (missing
+     * or blank {@code agent_id}, or {@code agent_id} equal to this orchestrator's
+     * own id).
+     *
+     * @param envelope the three-field envelope ({@code agent_id} +
+     *                 {@code response_content} + optional {@code intent_id})
+     * @param current  the current serve request
+     * @return the remote call coordinates, or empty if forwarding should be skipped
+     */
+    private Optional<RemoteAgentCall> buildForwardCall(Map<?, ?> envelope, ServeRequest current) {
+        Object agentIdObj = envelope.get("agent_id");
+        if (!(agentIdObj instanceof String aid) || aid.isBlank()) {
+            return Optional.empty();
+        }
+        if (aid.equals(this.agentId)) {
+            log.warn("Orchestrator skipping three-field forward to self agentId={} convId={}",
+                aid, current.getConversationId());
+            return Optional.empty();
+        }
+        Object rc = envelope.get("response_content");
+        String rcStr = rc instanceof String s ? s : null;
+        return Optional.of(new RemoteAgentCall(aid, current, rcStr, current.getConversationId(), null));
     }
 
     /**

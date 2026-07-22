@@ -28,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -106,7 +107,7 @@ class A2AEnabledServeOrchestratorThreeFieldForwardingTest {
 
         QueryResponse response = orchestrator.query(request);
 
-        verify(caller, org.mockito.Mockito.never())
+        verify(caller, never())
                 .call(any(), any());
         assertThat(((Map<?, ?>) response.getResult()).get("content")).isEqualTo("普通回答");
     }
@@ -131,7 +132,7 @@ class A2AEnabledServeOrchestratorThreeFieldForwardingTest {
 
         orchestrator.query(request);
 
-        verify(caller, org.mockito.Mockito.never()).call(any(), any());
+        verify(caller, never()).call(any(), any());
     }
 
     @Test
