@@ -441,6 +441,7 @@ public class A2ARemoteAgentClient {
         } catch (java.util.concurrent.TimeoutException e) {
             throw new RemoteAgentException("Remote agent '" + agentName + "' timed out after " + timeout + "s", e);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw new RemoteAgentException("Interrupted while waiting for remote agent '" + agentName + "'", e);
         } catch (java.util.concurrent.ExecutionException e) {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
