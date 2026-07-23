@@ -4,13 +4,13 @@
 
 package com.openjiuwen.service.spec.dto;
 
+import lombok.Data;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
-import lombok.Data;
 
 /**
  * Protocol-neutral orchestration request (Ingress DTO → internal model).
