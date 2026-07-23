@@ -245,4 +245,107 @@ class A2AEnabledServeOrchestratorThreeFieldForwardingTest {
                 .contains(QueryChunk.TYPE_CHUNK);
         assertThat(sink).hasSize(2);
     }
+
+    @Test
+    void streamingThreeFieldForwardSurfacesRemoteInputRequiredAndTerminates() {
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            obs.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, Map.of(
+                    "type", "answer",
+                    "output", "一层输出",
+                    "response_content", "一层输出",
+                    "intent_id", "intent_L1_hotel",
+                    "agent_id", "agent_card_L2_hotel")));
+            obs.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT,
+                    Map.of("message", "请补充入住日期", "remote_task_id", "rt-L2-1")));
+            obs.onComplete();
+            return null;
+        }).when(caller).call(any(), any());
+
+        A2AEnabledServeOrchestrator orchestrator = new A2AEnabledServeOrchestrator(
+                agentHandler, mock(TaskStore.class), caller, resolver, streamRegistry, "agent-L1");
+
+        List<QueryChunk> sink = new ArrayList<>();
+        java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        QueryStreamObserver clientObserver = new QueryStreamObserver() {
+            @Override public void onNext(QueryChunk chunk) { sink.add(chunk); }
+            @Override public void onComplete() { completed.set(true); }
+            @Override public void onError(Throwable e) { }
+            @Override public boolean isCancelled() { return false; }
+        };
+
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-1");
+        request.setStream(true);
+        request.setMessages(List.of(Map.of("role", "user", "content", "订酒店")));
+
+        orchestrator.streamQuery(request, clientObserver);
+
+        // The remote INPUT_REQUIRED must reach the client as an interrupt chunk,
+        // and the stream MUST terminate (onComplete) — otherwise the client hangs.
+        assertThat(sink).extracting(QueryChunk::getType)
+                .contains(QueryChunk.TYPE_INTERRUPT);
+        assertThat(sink).filteredOn(c -> QueryChunk.TYPE_INTERRUPT.equals(c.getType()))
+                .singleElement()
+                .satisfies(c -> {
+                    Map<?, ?> data = (Map<?, ?>) c.getData();
+                    assertThat(data.get("message")).isEqualTo("请补充入住日期");
+                    assertThat(data.get("remote_task_id")).isEqualTo("rt-L2-1");
+                });
+        assertThat(completed).isTrue();
+    }
+
+    @Test
+    void streamingThreeFieldForwardTerminatesOnRemoteError() {
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            obs.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, Map.of(
+                    "type", "answer",
+                    "output", "一层输出",
+                    "response_content", "一层输出",
+                    "intent_id", "intent_L1_hotel",
+                    "agent_id", "agent_card_L2_hotel")));
+            obs.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+
+        // Remote caller signals an error via observer.onError. The wrapper
+        // forwards this to the passthrough (client) observer and marks
+        // terminallyNotified; the orchestrator must not double-notify and must
+        // not leave the stream open.
+        java.util.concurrent.atomic.AtomicReference<Throwable> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            obs.onError(new RuntimeException("remote boom"));
+            return null;
+        }).when(caller).call(any(), any());
+
+        A2AEnabledServeOrchestrator orchestrator = new A2AEnabledServeOrchestrator(
+                agentHandler, mock(TaskStore.class), caller, resolver, streamRegistry, "agent-L1");
+
+        java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        QueryStreamObserver clientObserver = new QueryStreamObserver() {
+            @Override public void onNext(QueryChunk chunk) { }
+            @Override public void onComplete() { completed.set(true); }
+            @Override public void onError(Throwable e) { errorRef.set(e); }
+            @Override public boolean isCancelled() { return false; }
+        };
+
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-1");
+        request.setStream(true);
+        request.setMessages(List.of(Map.of("role", "user", "content", "订酒店")));
+
+        orchestrator.streamQuery(request, clientObserver);
+
+        assertThat(errorRef.get()).isNotNull();
+        // onError already terminated the stream; orchestrator must not also call onComplete.
+        assertThat(completed).isFalse();
+    }
 }

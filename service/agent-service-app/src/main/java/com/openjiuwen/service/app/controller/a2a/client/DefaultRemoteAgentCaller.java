@@ -45,6 +45,28 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
         this.registry = registry;
     }
 
+    /**
+     * Invokes the remote agent via the A2A SDK streaming client.
+     *
+     * <p>Unlike the legacy {@code A2ARemoteAgentClient} which exposed separate
+     * {@code callStreaming} / {@code callSync} methods with streaming and
+     * non-streaming SDK clients respectively, this unified entry always uses a
+     * streaming client and lets the caller decide whether to pass a passthrough
+     * observer. In sync mode (null/NOOP passthrough) intermediate
+     * {@link TaskArtifactUpdateEvent}s are still processed but forwarded to the
+     * no-op observer; the captured answer text is what callers consume. This
+     * unification keeps a single SDK event-handling path but is a deliberate
+     * divergence from the legacy "non-streaming client for sync" behaviour.
+     *
+     * <p>Terminal signalling contract:
+     * <ul>
+     *   <li>normal completion → {@code observer.onComplete()}</li>
+     *   <li>INPUT_REQUIRED → {@code observer.onNext(TYPE_INTERRUPT)} then
+     *       {@code observer.onComplete()}</li>
+     *   <li>timeout / execution failure → {@code observer.onError(...)} (no
+     *       subsequent {@code onComplete})</li>
+     * </ul>
+     */
     @Override
     public void call(RemoteAgentCall call, QueryStreamObserver observer) {
         A2ARemoteAgentCardRegistry.RemoteAgentEntry entry;
@@ -151,9 +173,6 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
 
     private void handleArtifact(TaskArtifactUpdateEvent aue, CompletableFuture<String> result,
             QueryStreamObserver observer) {
-        if (result.isDone()) {
-            return;
-        }
         Artifact a = aue.artifact();
         if (a == null || a.parts() == null) {
             return;
@@ -162,6 +181,10 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
         if (raw.isEmpty()) {
             return;
         }
+        // Forward every artifact to the observer, even after the answer future
+        // is complete — late-arriving chunks are legitimate in SSE passthrough
+        // and must reach the client stream. Only the future completion is
+        // guarded (matches the original A2ARemoteAgentClient behaviour).
         observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, raw));
         RemoteAgentAnswerExtractor.extractAnswer(raw).ifPresent(answer -> {
             if (!result.isDone()) {

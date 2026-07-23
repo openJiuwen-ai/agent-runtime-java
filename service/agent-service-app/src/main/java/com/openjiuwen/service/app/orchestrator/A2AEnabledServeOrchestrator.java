@@ -332,7 +332,27 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                     if (forward.isPresent()) {
                         log.info("Orchestrator forwarding three-field chunk to remote agent={} convId={}",
                             forward.get().agentId(), current.getConversationId());
-                        callRemoteAndCapture(forward.get(), observer);
+                        RemoteCallResult remoteResult = callRemoteAndCapture(forward.get(), observer);
+                        // The capturing wrapper suppresses passthrough terminal
+                        // signals when the remote returns INPUT_REQUIRED (and
+                        // does not call onError for the interrupt path). Surface
+                        // the interrupt to the client and terminate the stream
+                        // so the client observer is never left hanging.
+                        if (remoteResult.hasInterrupt()) {
+                            RemoteInputRequiredException rie = remoteResult.toInputRequiredException();
+                            if (!observer.isCancelled()) {
+                                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                                        "message", rie.getMessage(),
+                                        "remote_task_id", rie.getRemoteTaskId())));
+                                observer.onComplete();
+                            }
+                        } else if (remoteResult.hasError() && !remoteResult.terminallyNotified()
+                                && !observer.isCancelled()) {
+                            // Defensive: wrapper did not forward onError for some
+                            // reason — terminate the stream so the client is not
+                            // left waiting.
+                            observer.onComplete();
+                        }
                     } else {
                         observer.onComplete();
                     }
