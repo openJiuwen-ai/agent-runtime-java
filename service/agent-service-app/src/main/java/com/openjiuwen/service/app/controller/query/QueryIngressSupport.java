@@ -28,8 +28,14 @@ public final class QueryIngressSupport {
     /** Gateway tenant identifier header. */
     public static final String HEADER_TENANT_ID = "X-Tenant-ID";
 
+    static final String LEGACY_PATH_PROPERTY = "openjiuwen.service.query.legacy-path-enabled";
+
+    static final String WEBFLUX_ENABLED_PROPERTY = "openjiuwen.service.query.webflux.enabled";
+
+    static final String CONVERSATION_ID_ATTRIBUTE = QueryIngressSupport.class.getName() + ".conversationId";
+
     private static final Set<String> EXCLUDED_HEADERS = Set.of("authorization", "cookie", "set-cookie", "x-api-key",
-        "proxy-authorization", "x-csrf-token");
+            "proxy-authorization", "x-csrf-token");
 
     private QueryIngressSupport() {
     }
@@ -72,7 +78,7 @@ public final class QueryIngressSupport {
      * Validation result containing the resolved {@link ServeRequest} or error details.
      */
     public record ValidationResult(boolean valid, int errorStatus, Map<String, Object> errorBody,
-                                    ServeRequest serveRequest) {
+            ServeRequest serveRequest) {
         static ValidationResult ok(ServeRequest serveRequest) {
             return new ValidationResult(true, 0, null, serveRequest);
         }
@@ -92,7 +98,7 @@ public final class QueryIngressSupport {
      * @return a new metadata map with filtered headers, query params, path, and body
      */
     public static Map<String, Object> buildMetadata(HttpHeaders headers, Map<String, String> queryParams, String path,
-        Map<String, Object> bodyMap) {
+            Map<String, Object> bodyMap) {
         Map<String, Object> metadata = new LinkedHashMap<>();
 
         Map<String, String> headerMap = new LinkedHashMap<>();
@@ -131,6 +137,21 @@ public final class QueryIngressSupport {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("type", "error");
         body.put("error", "agent not loaded");
+        return body;
+    }
+
+    /**
+     * Returns the stable error contract for a synchronous agent execution failure.
+     *
+     * @param conversationId the conversation identifier
+     * @return the error body map
+     */
+    public static Map<String, Object> agentExecutionFailed(String conversationId) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("type", "error");
+        body.put("code", "AGENT_EXECUTION_FAILED");
+        body.put("error", "agent execution failed");
+        body.put("conversation_id", conversationId);
         return body;
     }
 }
