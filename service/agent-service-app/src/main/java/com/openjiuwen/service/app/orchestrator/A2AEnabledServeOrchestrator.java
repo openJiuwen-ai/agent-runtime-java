@@ -598,8 +598,18 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     /**
      * Builds a {@link RemoteAgentCall} from a three-field envelope, or returns
      * {@code Optional.empty()} if the envelope should not be forwarded (missing
-     * or blank {@code agent_id}, or {@code agent_id} equal to this orchestrator's
-     * own id).
+     * or blank {@code agent_id}).
+     *
+     * <p>Self-forward (envelope {@code agent_id} equal to this orchestrator's
+     * own id) is intentionally NOT skipped here. Re-classification per PRD §4.6
+     * requires the downstream business runtime to forward the three-field
+     * result back to the fixed layer-1 agent, creating a new Task on the
+     * layer-1 runtime — even when that target equals the current orchestrator's
+     * own agent identity in edge configurations. Loop protection (deadline,
+     * max-jump count, repeated-path detection) is the responsibility of the
+     * runtime downstream-call capability per L2 §2.2, not this orchestrator.
+     * Silently skipping self-forward would also mask configuration errors as
+     * successful completion, violating PRD §9.1 structured-failure requirement.
      *
      * @param envelope the three-field envelope ({@code agent_id} +
      *                 {@code response_content} + optional {@code intent_id})
@@ -612,9 +622,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             return Optional.empty();
         }
         if (aid.equals(this.agentId)) {
-            log.warn("Orchestrator skipping three-field forward to self agentId={} convId={}",
+            log.warn("Orchestrator forwarding three-field result to self agentId={} convId={} "
+                + "(re-classification or config error; loop protection delegated to downstream-call capability)",
                 aid, current.getConversationId());
-            return Optional.empty();
         }
         Object rc = envelope.get("response_content");
         String rcStr = rc instanceof String s ? s : null;

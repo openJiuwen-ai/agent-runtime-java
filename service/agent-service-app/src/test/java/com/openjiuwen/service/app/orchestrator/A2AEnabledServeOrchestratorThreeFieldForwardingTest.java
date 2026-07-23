@@ -154,7 +154,7 @@ class A2AEnabledServeOrchestratorThreeFieldForwardingTest {
     }
 
     @Test
-    void doesNotForwardWhenAgentIdEqualsOwnAgentId() {
+    void forwardsEvenWhenAgentIdEqualsOwnAgentId() {
         Map<String, Object> handlerResult = new LinkedHashMap<>();
         handlerResult.put("role", "assistant");
         handlerResult.put("response_content", "reclassify context");
@@ -162,6 +162,14 @@ class A2AEnabledServeOrchestratorThreeFieldForwardingTest {
         handlerResult.put("agent_id", "agent-L1");
         when(agentHandler.query(any())).thenReturn(
                 new QueryResponse(handlerResult, "c-1"));
+
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            obs.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, Map.of(
+                    "type", "answer", "output", "reclassified result")));
+            obs.onComplete();
+            return null;
+        }).when(caller).call(any(), any());
 
         A2AEnabledServeOrchestrator orchestrator = new A2AEnabledServeOrchestrator(
                 agentHandler, mock(TaskStore.class), caller, resolver, streamRegistry, "agent-L1");
@@ -173,7 +181,10 @@ class A2AEnabledServeOrchestratorThreeFieldForwardingTest {
 
         orchestrator.query(request);
 
-        verify(caller, never()).call(any(), any());
+        ArgumentCaptor<RemoteAgentCall> callCaptor = ArgumentCaptor.forClass(RemoteAgentCall.class);
+        verify(caller).call(callCaptor.capture(), any());
+        assertThat(callCaptor.getValue().agentId()).isEqualTo("agent-L1");
+        assertThat(callCaptor.getValue().responseContent()).isEqualTo("reclassify context");
     }
 
     @Test
