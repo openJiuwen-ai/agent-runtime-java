@@ -28,21 +28,36 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
  */
 public interface RemoteAgentCaller {
     /**
-     * Invoke the remote agent, forwarding chunks to {@code observer}.
+     * Invoke the remote agent, branching on {@link RemoteAgentCall#streaming()}
+     * to preserve the legacy {@code callStreaming} / {@code callSync} split.
      *
-     * <p>Implementations MUST:
+     * <p><b>Streaming mode</b> ({@link RemoteAgentCall#streaming()} is
+     * {@code true}) — implementations MUST:
      * <ul>
-     *   <li>resolve the remote URL/card via {@link RemoteAgentCardResolver}</li>
-     *   <li>build the A2A SDK message from {@link RemoteAgentCall#serveRequest()}</li>
-     *   <li>decide whether to consume {@link RemoteAgentCall#responseContent()} (Default: ignore)</li>
-     *   <li>forward each {@code QueryChunk("chunk", ...)} to {@code observer}</li>
-     *   <li>emit a final {@code QueryChunk("chunk", answer-envelope)} whose payload
-     *       contains the remote's final business text (so the orchestrator's
-     *       capturing observer can extract it for sync {@code query()} mode)</li>
-     *   <li>map remote INPUT_REQUIRED to {@code QueryChunk("interrupt", ...)} on the observer</li>
-     *   <li>map remote failure / timeout to {@code observer.onError(...)} with a
-     *       {@code RemoteAgentException} or {@code RemoteInputRequiredException} cause</li>
+     *   <li>use a streaming SDK client</li>
+     *   <li>forward each {@code QueryChunk("chunk", ...)} to {@code observer}
+     *       (the final answer is tapped, not consumed)</li>
+     *   <li>map remote INPUT_REQUIRED to {@code QueryChunk("interrupt", ...)}
+     *       on the observer, then {@code observer.onComplete()}</li>
+     *   <li>map remote failure / timeout to {@code observer.onError(...)} with
+     *       a {@link RemoteAgentException} (no subsequent {@code onComplete})</li>
      * </ul>
+     *
+     * <p><b>Sync mode</b> ({@link RemoteAgentCall#streaming()} is
+     * {@code false}) — implementations MUST:
+     * <ul>
+     *   <li>use a non-streaming SDK client</li>
+     *   <li>emit a final {@code QueryChunk("chunk", answer)} whose payload is
+     *       the raw {@code task.artifacts()} text, then {@code observer.onComplete()}</li>
+     *   <li>throw {@link RemoteInputRequiredException} on INPUT_REQUIRED (no
+     *       observer notification)</li>
+     *   <li>throw {@link RemoteAgentException} on failure / timeout (no
+     *       observer notification)</li>
+     * </ul>
+     *
+     * <p>The orchestrator's capturing observer extracts the answer from the
+     * final chunk in both modes (envelope-extracted text for streaming, raw
+     * artifact text for sync).
      *
      * @param call     the remote call coordinates
      * @param observer the observer for streaming chunks; never {@code null}

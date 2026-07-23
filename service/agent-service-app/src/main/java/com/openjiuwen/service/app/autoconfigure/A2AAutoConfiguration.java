@@ -216,7 +216,7 @@ public class A2AAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCaller.class)
-    public A2ARemoteAgentClient a2aRemoteAgentClient(A2ARemoteAgentCardRegistry registry) {
+    public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry) {
         return new A2ARemoteAgentClient(registry);
     }
 

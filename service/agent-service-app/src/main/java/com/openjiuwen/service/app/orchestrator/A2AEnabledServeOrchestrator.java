@@ -92,6 +92,13 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * or {@code onError}) so that callers can honour the observer contract:
      * once {@code onError} fires, no further notifications (not even
      * {@code onComplete}) must reach the client.
+     *
+     * <p>When the SPI runs in sync mode ({@link RemoteAgentCall#streaming()}
+     * is {@code false}), the answer arrives as a plain-text
+     * {@code QueryChunk("chunk", answer)} (the raw {@code task.artifacts()} text)
+     * rather than a JSON answer envelope. In that case {@link #capturedAnswer()}
+     * falls back to {@link #lastRawText} so the legacy {@code callSync} answer
+     * contract is preserved.
      */
     private static final class RemoteCallCaptureObserver implements QueryStreamObserver {
         private final QueryStreamObserver passthrough;
@@ -99,6 +106,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         private final AtomicReference<String> captured = new AtomicReference<>();
 
         private final AtomicReference<Map<?, ?>> capturedEnvelope = new AtomicReference<>();
+
+        private final AtomicReference<String> lastRawText = new AtomicReference<>();
 
         private final AtomicReference<QueryChunk> pendingInterrupt = new AtomicReference<>();
 
@@ -129,6 +138,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             if (QueryChunk.TYPE_CHUNK.equals(chunk.getType())) {
                 Object data = chunk.getData();
                 if (data instanceof String raw) {
+                    lastRawText.set(raw);
                     RemoteAgentAnswerExtractor.extractAnswer(raw).ifPresent(captured::set);
                     RemoteAgentAnswerExtractor.extractAnswerEnvelope(raw)
                             .ifPresent(capturedEnvelope::set);
@@ -172,7 +182,13 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         }
 
         String capturedAnswer() {
-            return captured.get();
+            String envelopeAnswer = captured.get();
+            if (envelopeAnswer != null) {
+                return envelopeAnswer;
+            }
+            // Sync-mode fallback: the SPI emits the raw task.artifacts() text as
+            // a plain chunk; fall back to it when no answer envelope was seen.
+            return lastRawText.get();
         }
 
         Map<?, ?> capturedEnvelope() {
@@ -236,6 +252,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * {@code observer.onComplete()} based on
      * {@link RemoteCallResult#terminallyNotified()}.
      *
+     * <p>In sync mode ({@link RemoteAgentCall#streaming()} is {@code false}), the
+     * SPI preserves the legacy {@code callSync} contract and throws
+     * {@link RemoteInputRequiredException} / {@link RemoteAgentException}
+     * directly. This method catches those exceptions and translates them into a
+     * {@link RemoteCallResult} so callers can handle both modes uniformly.
+     *
      * @param call
      *            the remote call coordinates
      * @param passthrough
@@ -244,7 +266,23 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      */
     private RemoteCallResult callRemoteAndCapture(RemoteAgentCall call, QueryStreamObserver passthrough) {
         RemoteCallCaptureObserver wrapper = new RemoteCallCaptureObserver(passthrough);
-        remoteAgentCaller.call(call, wrapper);
+        try {
+            remoteAgentCaller.call(call, wrapper);
+        } catch (RemoteInputRequiredException rie) {
+            // Sync mode: SPI threw INPUT_REQUIRED (preserves legacy callSync).
+            // Wrap it as a pending interrupt so the caller can translate it via
+            // RemoteCallResult.toInputRequiredException(). Any answer captured
+            // before the interrupt is preserved.
+            return new RemoteCallResult(wrapper.capturedAnswer() != null ? wrapper.capturedAnswer() : "",
+                    new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                            "message", rie.getMessage() != null ? rie.getMessage() : "Remote agent requires input",
+                            "remote_task_id", rie.getRemoteTaskId() != null ? rie.getRemoteTaskId() : "")),
+                    null, wrapper.isTerminallyNotified(), wrapper.capturedEnvelope());
+        } catch (RemoteAgentException rae) {
+            // Sync mode: SPI threw a remote failure (preserves legacy callSync).
+            return new RemoteCallResult(wrapper.capturedAnswer() != null ? wrapper.capturedAnswer() : "",
+                    null, rae, wrapper.isTerminallyNotified(), wrapper.capturedEnvelope());
+        }
         String answer = wrapper.capturedAnswer();
         return new RemoteCallResult(answer != null ? answer : "", wrapper.pendingInterrupt(), wrapper.error(),
             wrapper.isTerminallyNotified(), wrapper.capturedEnvelope());
@@ -333,7 +371,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
                 AgentRunResult agentResult = runAgentAndCaptureInterruptOrThreeField(current, observer, handle);
                 if (agentResult.threeFieldEnvelope() != null) {
-                    Optional<RemoteAgentCall> forward = buildForwardCall(agentResult.threeFieldEnvelope(), current);
+                    Optional<RemoteAgentCall> forward = buildForwardCall(agentResult.threeFieldEnvelope(), current, true);
                     if (forward.isPresent()) {
                         log.info("Orchestrator forwarding three-field chunk to remote agent={} convId={}",
                             forward.get().agentId(), current.getConversationId());
@@ -413,7 +451,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             // the tool only.
             result = callRemoteAndCapture(new RemoteAgentCall(
                     agentName, current, null, current.getConversationId(), remoteTaskId,
-                    current.lastUserQuery()), isSse ? observer : null);
+                    current.lastUserQuery(), isSse), isSse ? observer : null);
         } catch (Exception e) {
             // RemoteAgentCall construction (e.g. blank agent name) can throw before
             // the remote is contacted; no observer notification has been issued yet.
@@ -575,7 +613,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         if (!(response.getResult() instanceof Map<?, ?> resultMap)) {
             return Optional.empty();
         }
-        Optional<RemoteAgentCall> callOpt = buildForwardCall(resultMap, current);
+        Optional<RemoteAgentCall> callOpt = buildForwardCall(resultMap, current, observer != null);
         if (callOpt.isEmpty()) {
             return Optional.empty();
         }
@@ -637,12 +675,13 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      * Silently skipping self-forward would also mask configuration errors as
      * successful completion, violating PRD §9.1 structured-failure requirement.
      *
-     * @param envelope the three-field envelope ({@code agent_id} +
-     *                 {@code response_content} + optional {@code intent_id})
-     * @param current  the current serve request
+     * @param envelope  the three-field envelope ({@code agent_id} +
+     *                  {@code response_content} + optional {@code intent_id})
+     * @param current   the current serve request
+     * @param streaming whether to use streaming SDK client + observer-routed errors
      * @return the remote call coordinates, or empty if forwarding should be skipped
      */
-    private Optional<RemoteAgentCall> buildForwardCall(Map<?, ?> envelope, ServeRequest current) {
+    private Optional<RemoteAgentCall> buildForwardCall(Map<?, ?> envelope, ServeRequest current, boolean streaming) {
         Object agentIdObj = envelope.get("agent_id");
         if (!(agentIdObj instanceof String aid) || aid.isBlank()) {
             return Optional.empty();
@@ -654,7 +693,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         }
         Object rc = envelope.get("response_content");
         String rcStr = rc instanceof String s ? s : null;
-        return Optional.of(new RemoteAgentCall(aid, current, rcStr, current.getConversationId(), null));
+        return Optional.of(new RemoteAgentCall(aid, current, rcStr, current.getConversationId(),
+                null, current.lastUserQuery(), streaming));
     }
 
     /**
@@ -722,7 +762,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         try {
             result = callRemoteAndCapture(new RemoteAgentCall(
                     data.agentName(), current, null, current.getConversationId(), null,
-                    data.message()), observer);
+                    data.message(), true), observer);
         } catch (Exception e) {
             log.error("Remote call '{}' failed (sse)", data.agentName(), e);
             return failRemoteStream(current, data.agentName(), observer, e, false);
@@ -761,7 +801,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         try {
             result = callRemoteAndCapture(new RemoteAgentCall(
                     data.agentName(), current, null, current.getConversationId(), null,
-                    data.message()), null);
+                    data.message(), false), null);
         } catch (Exception e) {
             log.error("Remote call '{}' failed (sync)", data.agentName(), e);
             return failRemoteStream(current, data.agentName(), observer, e, false);
@@ -878,7 +918,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         try {
             result = callRemoteAndCapture(new RemoteAgentCall(
                     agentName, current, null, current.getConversationId(), remoteTaskId,
-                    current.lastUserQuery()), null);
+                    current.lastUserQuery(), false), null);
         } catch (Exception e) {
             log.error("Remote call '{}' failed for pending task", agentName, e);
             throw failRemoteQuery(current, agentName, e);
@@ -933,7 +973,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             try {
                 result = callRemoteAndCapture(new RemoteAgentCall(
                         data.agentName(), current, null, current.getConversationId(), null,
-                        data.message()), null);
+                        data.message(), false), null);
             } catch (Exception e) {
                 log.error("Remote call '{}' failed", data.agentName(), e);
                 throw failRemoteQuery(current, data.agentName(), e);
