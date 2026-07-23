@@ -137,7 +137,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                     // (the {type,index,payload} envelope), including the final answer, keeping
                     // one uniform stream format. The envelope's own "type" field lets the
                     // delegating caller pick out the answer to feed its LLM without this layer
-                    // rewriting the payload — see DefaultRemoteAgentCaller#handleArtifact.
+                    // rewriting the payload — see A2ARemoteAgentClient#handleArtifact.
                     List<Part<?>> parts = chunkMapper.toParts(chunk);
                     if (parts.isEmpty()) {
                         return;

@@ -11,7 +11,7 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
  *
  * <p>Implementations:
  * <ul>
- *   <li>{@link DefaultRemoteAgentCaller} — baseline, A2A SDK via
+ *   <li>{@link A2ARemoteAgentClient} — baseline, A2A SDK via
  *       {@code Client.builder(card).withTransport(JSONRPCTransport.class, config)};
  *       ignores {@link RemoteAgentCall#responseContent()}; no {@code messages} append.</li>
  *   <li>{@code A2AGatewayRemoteAgentCaller} (deployment module) —

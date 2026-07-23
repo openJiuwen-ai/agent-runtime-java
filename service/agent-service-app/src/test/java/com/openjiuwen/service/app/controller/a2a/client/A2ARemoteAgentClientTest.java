@@ -17,14 +17,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-class DefaultRemoteAgentCallerTest {
+class A2ARemoteAgentClientTest {
     private A2ARemoteAgentCardRegistry registry;
-    private DefaultRemoteAgentCaller caller;
+    private A2ARemoteAgentClient caller;
 
     @BeforeEach
     void setUp() {
         registry = mock(A2ARemoteAgentCardRegistry.class);
-        caller = new DefaultRemoteAgentCaller(registry);
+        caller = new A2ARemoteAgentClient(registry);
     }
 
     @Test
@@ -58,7 +58,7 @@ class DefaultRemoteAgentCallerTest {
     }
 
     /**
-     * Verifies that {@link DefaultRemoteAgentCaller} does not mutate the serve
+     * Verifies that {@link A2ARemoteAgentClient} does not mutate the serve
      * request's {@code messages} when the agent is unknown (early onError path).
      *
      * <p>The broader contract that {@code responseContent} is ignored is

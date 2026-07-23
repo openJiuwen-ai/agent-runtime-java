@@ -14,7 +14,7 @@ import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.DefaultCardResolver;
-import com.openjiuwen.service.app.controller.a2a.client.DefaultRemoteAgentCaller;
+import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
@@ -208,8 +208,8 @@ public class A2AAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCaller.class)
-    public DefaultRemoteAgentCaller defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry) {
-        return new DefaultRemoteAgentCaller(registry);
+    public A2ARemoteAgentClient a2aRemoteAgentClient(A2ARemoteAgentCardRegistry registry) {
+        return new A2ARemoteAgentClient(registry);
     }
 
     /**

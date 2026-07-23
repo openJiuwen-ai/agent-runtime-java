@@ -23,7 +23,7 @@ import java.util.Optional;
  * payload keys ({@code content}, {@code delta}, {@code output}, {@code response}).
  *
  * <p>Lifting this logic to the SPI package keeps the orchestrator (runtime core)
- * from depending on {@link DefaultRemoteAgentCaller} internals and lets any
+ * from depending on {@link A2ARemoteAgentClient} internals and lets any
  * {@link RemoteAgentCaller} implementation reuse the same extraction contract.
  *
  * @since 0.1.0

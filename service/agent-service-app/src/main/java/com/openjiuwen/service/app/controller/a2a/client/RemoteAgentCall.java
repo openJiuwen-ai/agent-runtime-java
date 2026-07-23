@@ -14,7 +14,7 @@ import java.util.Objects;
  * <p>Carries the addressing coordinates (agentId, original ServeRequest) and the
  * optional upstream {@code response_content} that Caller implementations may
  * consume to append an assistant message to the forwarded request's
- * {@code messages} array (see spec §4.9). The {@code DefaultRemoteAgentCaller}
+ * {@code messages} array (see spec §4.9). The {@code A2ARemoteAgentClient}
  * ignores {@link #responseContent} to preserve logic-equivalence with the
  * original A2A remote client behavior; the A2AGateway / InProcess Caller
  * implementations (deployment module) consume it.

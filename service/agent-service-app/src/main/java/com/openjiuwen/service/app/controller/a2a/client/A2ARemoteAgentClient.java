@@ -35,13 +35,13 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
-public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
-    private static final Logger log = LoggerFactory.getLogger(DefaultRemoteAgentCaller.class);
+public class A2ARemoteAgentClient implements RemoteAgentCaller {
+    private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
 
     private final A2ARemoteAgentCardRegistry registry;
     private final Map<String, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
-    public DefaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry) {
+    public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry) {
         this.registry = registry;
     }
 
@@ -90,7 +90,7 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
             msgBuilder.taskId(call.taskId());
         }
         Message msg = msgBuilder.build();
-        log.info("DefaultRemoteAgentCaller.call agent={} taskId={} contextId={} textLen={}",
+        log.info("A2ARemoteAgentClient.call agent={} taskId={} contextId={} textLen={}",
                 call.agentId(), call.taskId() != null ? call.taskId() : "new",
                 contextId, message != null ? message.length() : 0);
 
@@ -159,7 +159,7 @@ public class DefaultRemoteAgentCaller implements RemoteAgentCaller {
     private static <T> T withApplicationClassLoader(Supplier<T> action) {
         Thread thread = Thread.currentThread();
         ClassLoader original = thread.getContextClassLoader();
-        ClassLoader appCl = DefaultRemoteAgentCaller.class.getClassLoader();
+        ClassLoader appCl = A2ARemoteAgentClient.class.getClassLoader();
         if (appCl == null || original == appCl) {
             return action.get();
         }
