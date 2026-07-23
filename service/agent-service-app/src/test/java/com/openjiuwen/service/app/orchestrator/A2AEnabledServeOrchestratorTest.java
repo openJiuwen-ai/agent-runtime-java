@@ -5,12 +5,14 @@
 package com.openjiuwen.service.app.orchestrator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -123,6 +125,8 @@ class A2AEnabledServeOrchestratorTest {
         when(registry.get("hotel-agent")).thenReturn(
                 java.util.Optional.of(new A2ARemoteAgentCardRegistry.RemoteAgentEntry("hotel-agent", card, 300)));
         when(registry.resolveUrl(anyString())).thenReturn("http://remote/a2a/");
+        when(a2aClient.callSync(any())).thenThrow(
+                new A2ARemoteAgentClient.RemoteInputRequiredException("remote input required", "remote-task-1"));
 
         orchestrator.streamQuery(req("c-int"), mock(QueryStreamObserver.class));
 
@@ -132,6 +136,7 @@ class A2AEnabledServeOrchestratorTest {
         Task saved = taskCaptor.getValue();
         assertThat(saved.contextId()).isEqualTo("c-int");
         assertThat(saved.status().state()).isEqualTo(TaskState.TASK_STATE_INPUT_REQUIRED);
+        assertThat(saved.metadata()).containsEntry("_remote_task_id", "remote-task-1");
     }
 
     @Test
@@ -331,7 +336,7 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void pendingResumeFailurePreservesRemoteTaskIdAndStreamMode() {
+    void pendingResumeFailureDeletesShadowAndFailsStream() {
         String shadowId = "shadow:test-agent:c-pending-fail";
         Task pending = Task.builder().id(shadowId).contextId("c-pending-fail")
                 .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
@@ -341,14 +346,13 @@ class A2AEnabledServeOrchestratorTest {
         when(taskStore.get(shadowId)).thenReturn(pending);
         when(a2aClient.callStreaming(any(), any()))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("remote failed")));
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
 
-        orchestrator.streamQuery(req("c-pending-fail"), mock(QueryStreamObserver.class));
+        orchestrator.streamQuery(req("c-pending-fail"), observer);
 
-        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
-        Task resaved = taskCaptor.getValue();
-        assertThat(resaved.metadata()).containsEntry("_remote_task_id", "rt-1");
-        assertThat(resaved.metadata()).containsEntry("_stream_mode", "sse");
+        verify(taskStore).delete(shadowId);
+        verify(taskStore, never()).save(any(), anyBoolean());
+        verifyRemoteFailure(observer);
     }
 
     @Test
@@ -372,7 +376,7 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void sseDelegateFailurePreservesStreamMode() {
+    void sseDelegateFailureDeletesShadowAndFailsStream() {
         when(taskStore.get(anyString())).thenReturn(null);
         when(registry.resolveUrl("test")).thenReturn("http://remote/a2a/");
         when(a2aClient.callStreaming(any(), any()))
@@ -384,15 +388,16 @@ class A2AEnabledServeOrchestratorTest {
             return null;
         }).when(agentHandler).streamQuery(any(), any());
 
-        orchestrator.streamQuery(req("c-delegate-fail"), mock(QueryStreamObserver.class));
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        orchestrator.streamQuery(req("c-delegate-fail"), observer);
 
-        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
-        assertThat(taskCaptor.getValue().metadata()).containsEntry("_stream_mode", "sse");
+        verify(taskStore).delete("shadow:test-agent:c-delegate-fail");
+        verify(taskStore, never()).save(any(), anyBoolean());
+        verifyRemoteFailure(observer);
     }
 
     @Test
-    void querySseInterruptedSavesShadowTask() {
+    void querySseInterruptedDeletesShadowAndThrows() {
         when(taskStore.get(anyString())).thenReturn(null);
         when(registry.resolveUrl("test")).thenReturn("http://remote/a2a/");
         CompletableFuture<String> interrupted = new CompletableFuture<>() {
@@ -410,15 +415,69 @@ class A2AEnabledServeOrchestratorTest {
                                                 "delegate_to_test", "context", Map.of("_interrupt_kind", "a2a_delegate",
                                                         "agentName", "test", "_stream_mode", "sse"))),
                                 "c-query-interrupted"));
-        boolean isInterrupted = Thread.interrupted();
-        assertThat(isInterrupted).isFalse();
+        assertThatThrownBy(() -> orchestrator.query(req("c-query-interrupted")))
+                .isInstanceOf(A2ARemoteAgentClient.RemoteAgentException.class)
+                .hasMessageContaining("Remote agent 'test' call failed");
+        verify(taskStore).delete("shadow:test-agent:c-query-interrupted");
+        verify(taskStore, never()).save(any(), anyBoolean());
+    }
 
-        orchestrator.query(req("c-query-interrupted"));
+    @Test
+    void syncDelegateFailureDeletesShadowAndFailsStream() {
+        when(taskStore.get(anyString())).thenReturn(null);
+        when(a2aClient.callSync(any()))
+                .thenThrow(new A2ARemoteAgentClient.RemoteAgentException("remote failed", new IllegalStateException()));
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", "delegate", "context",
+                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "test"))));
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
 
-        assertThat(Thread.currentThread().isInterrupted()).isFalse();
-        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
-        assertThat(taskCaptor.getValue().metadata()).containsEntry("_stream_mode", "sse");
+        orchestrator.streamQuery(req("c-sync-delegate-fail"), observer);
+
+        verify(taskStore).delete("shadow:test-agent:c-sync-delegate-fail");
+        verify(taskStore, never()).save(any(), anyBoolean());
+        verifyRemoteFailure(observer);
+    }
+
+    @Test
+    void remoteFailureSignalsErrorWhenErrorChunkDeliveryFails() {
+        when(taskStore.get(anyString())).thenReturn(null);
+        when(a2aClient.callSync(any()))
+                .thenThrow(new A2ARemoteAgentClient.RemoteAgentException("remote failed", new IllegalStateException()));
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", "delegate", "context",
+                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "test"))));
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doThrow(new IllegalStateException("client disconnected")).when(observer).onNext(any());
+
+        assertThatThrownBy(() -> orchestrator.streamQuery(req("c-notify-fail"), observer))
+                .isInstanceOf(IllegalStateException.class).hasMessage("client disconnected");
+        verify(taskStore).delete("shadow:test-agent:c-notify-fail");
+        verify(observer).onError(any(A2ARemoteAgentClient.RemoteAgentException.class));
+        verify(observer, never()).onComplete();
+    }
+
+    @Test
+    void queryPendingResumeFailureDeletesShadowAndThrows() {
+        String shadowId = "shadow:test-agent:c-query-pending-fail";
+        Task pending = Task.builder().id(shadowId).contextId("c-query-pending-fail")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
+                .metadata(Map.of("_agent_name", "test", "_remote_task_id", "rt-1", "_stream_mode", "sse")).build();
+        when(taskStore.get(shadowId)).thenReturn(pending);
+        when(a2aClient.callStreaming(any(), any()))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("sensitive remote detail")));
+
+        assertThatThrownBy(() -> orchestrator.query(req("c-query-pending-fail")))
+                .isInstanceOf(A2ARemoteAgentClient.RemoteAgentException.class)
+                .hasMessage("Remote agent 'test' call failed");
+        verify(taskStore).delete(shadowId);
+        verify(taskStore, never()).save(any(), anyBoolean());
     }
 
     @Test
@@ -505,6 +564,14 @@ class A2AEnabledServeOrchestratorTest {
         r.setConversationId(convId);
         r.setStream(true);
         return r;
+    }
+
+    private static void verifyRemoteFailure(QueryStreamObserver observer) {
+        verify(observer).onNext(argThat(chunk -> QueryChunk.TYPE_ERROR.equals(chunk.getType())
+                && chunk.getData() instanceof Map<?, ?> body && "REMOTE_A2A_CALL_FAILED".equals(body.get("code"))
+                && !String.valueOf(body).contains("remote failed")));
+        verify(observer).onError(any(A2ARemoteAgentClient.RemoteAgentException.class));
+        verify(observer, never()).onComplete();
     }
 
     private static AgentCard testCard() {
