@@ -91,4 +91,11 @@ class DefaultCardResolverTest {
         assertThat(resolver.resolveCardUrl("agent-a"))
                 .isEqualTo("https://host/.well-known/agent-card.json");
     }
+
+    @Test
+    void resolveCardUrlPreservesPathPrefix() {
+        when(registry.resolveUrl("agent-a")).thenReturn("https://host:8080/some/prefix/a2a");
+        assertThat(resolver.resolveCardUrl("agent-a"))
+                .isEqualTo("https://host:8080/some/prefix/.well-known/agent-card.json");
+    }
 }

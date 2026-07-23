@@ -15,11 +15,13 @@ import java.net.URI;
  *
  * <p>{@link #resolveJsonRpcUrl} delegates to {@link A2ARemoteAgentCardRegistry#resolveUrl}
  * (the card's first interface URL). {@link #resolveCardUrl} derives the agent-card
- * fetch URL by stripping the jsonRpcUrl's last path segment and appending
- * {@link A2AServicePaths#WELL_KNOWN_AGENT_CARD}. This is correct when the card's
- * interface URL shares the same origin and path prefix as the configured base URL
- * (the common A2A deployment). For cross-origin or deeply nested interface URLs,
- * the deployment module should override this resolver.
+ * fetch URL by stripping the jsonRpcUrl's last path segment (the JSON-RPC endpoint)
+ * and appending {@link A2AServicePaths#WELL_KNOWN_AGENT_CARD}, preserving any path
+ * prefix. This matches the original {@code A2AAgentCardDiscovery} behaviour
+ * ({@code baseUrl + /.well-known/agent-card.json}) for the common A2A deployment
+ * where the JSON-RPC endpoint sits at {@code <base>/a2a}. For cross-origin or
+ * deeply nested interface URLs where the JSON-RPC path prefix differs from the
+ * card fetch prefix, the deployment module should override this resolver.
  *
  * @since 0.1.0
  */
@@ -52,6 +54,16 @@ public class DefaultCardResolver implements RemoteAgentCardResolver {
             int port = uri.getPort();
             if (port > 0) {
                 base.append(':').append(port);
+            }
+            String path = uri.getRawPath();
+            if (path != null && !path.isBlank() && !"/".equals(path)) {
+                while (path.length() > 1 && path.endsWith("/")) {
+                    path = path.substring(0, path.length() - 1);
+                }
+                int lastSlash = path.lastIndexOf('/');
+                if (lastSlash > 0) {
+                    base.append(path, 0, lastSlash);
+                }
             }
             return base.append(A2AServicePaths.WELL_KNOWN_AGENT_CARD).toString();
         } catch (IllegalArgumentException ex) {
