@@ -11,7 +11,6 @@ import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
-import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
@@ -355,7 +354,7 @@ final class RemoteInvocationBatchCoordinator {
                     }
                 }
             });
-        } catch (A2AException | IllegalStateException | RejectedExecutionException ex) {
+        } catch (RuntimeException ex) {
             finishInvocation(invocation, null, ex);
             return;
         }
@@ -478,17 +477,18 @@ final class RemoteInvocationBatchCoordinator {
         if (!isSettled) {
             return;
         }
-        CompletableFuture.completedFuture(batch).thenApply(this::resolveSettledBatch)
-            .whenComplete((resolution, error) -> {
+        try {
+            BatchResolution resolution = resolveSettledBatch(batch);
             synchronized (lock) {
                 activeByParent.remove(batch.parentTaskId, batch);
-                if (error == null) {
-                    batch.completion.complete(resolution);
-                } else {
-                    batch.completion.completeExceptionally(unwrap(error));
-                }
             }
-        });
+            batch.completion.complete(resolution);
+        } catch (RuntimeException ex) {
+            synchronized (lock) {
+                activeByParent.remove(batch.parentTaskId, batch);
+            }
+            batch.completion.completeExceptionally(ex);
+        }
     }
 
     private BatchResolution resolveSettledBatch(Batch batch) {
@@ -697,10 +697,7 @@ final class RemoteInvocationBatchCoordinator {
 
     private Batch parseBatch(Map<String, Object> interrupt, ServeRequest request, String parentTaskId,
             SerialObserver observer) {
-        String batchId = stringValue(interrupt.get("batchId"));
-        if (batchId.isBlank()) {
-            batchId = UUID.randomUUID().toString();
-        }
+        String batchId = UUID.randomUUID().toString();
         List<Map<String, Object>> items = interruptItems(interrupt);
         List<Member> members = new ArrayList<>();
         Set<String> toolCallIds = new LinkedHashSet<>();

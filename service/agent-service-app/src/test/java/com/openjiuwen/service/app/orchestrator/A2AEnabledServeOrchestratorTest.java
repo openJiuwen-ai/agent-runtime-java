@@ -328,7 +328,7 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void duplicateResumeInFlightDoesNotFailParentTaskOrRunCoreTwice() throws Exception {
+    void duplicateStreamingResumeReportsInFlightConflictWithoutRunningCoreTwice() throws Exception {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
@@ -365,7 +365,43 @@ class A2AEnabledServeOrchestratorTest {
         first.get(5, TimeUnit.SECONDS);
 
         assertThat(localRuns.get()).isEqualTo(2);
-        verify(secondObserver, never()).onError(any());
+        verify(secondObserver).onError(argThat(error -> error instanceof IllegalStateException
+            && error.getMessage().contains("REMOTE_BATCH_CORE_RESUME_IN_FLIGHT")));
+    }
+
+    @Test
+    void duplicateQueryResumeReportsInFlightConflictWithoutRunningCoreTwice() throws Exception {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            A2ARemoteAgentClient.RemoteCall call = invocation.getArgument(0);
+            return CompletableFuture.completedFuture(new A2ARemoteAgentClient.RemoteCallOutcome(
+                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+        });
+        CountDownLatch resumeEntered = new CountDownLatch(1);
+        CountDownLatch allowResume = new CountDownLatch(1);
+        AtomicInteger localRuns = new AtomicInteger();
+        when(agentHandler.query(any())).thenAnswer(invocation -> {
+            int run = localRuns.getAndIncrement();
+            if (run == 0) {
+                return new QueryResponse(Map.of("_interrupt", remoteBatch()), "c-duplicate-query-resume");
+            }
+            resumeEntered.countDown();
+            assertThat(allowResume.await(5, TimeUnit.SECONDS)).isTrue();
+            return new QueryResponse(Map.of("content", "final"), "c-duplicate-query-resume");
+        });
+        ServeRequest request = req("c-duplicate-query-resume");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-duplicate-query-resume"));
+
+        CompletableFuture<QueryResponse> first = CompletableFuture.supplyAsync(() -> orchestrator.query(request));
+        assertThat(resumeEntered.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThatThrownBy(() -> orchestrator.query(request))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("REMOTE_BATCH_CORE_RESUME_IN_FLIGHT");
+        allowResume.countDown();
+        assertThat(first.get(5, TimeUnit.SECONDS).getResult()).isEqualTo(Map.of("content", "final"));
+        assertThat(localRuns.get()).isEqualTo(2);
     }
 
     @Test

@@ -20,7 +20,6 @@ import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.client.config.ClientConfig;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
-import org.a2aproject.sdk.spec.A2AClientException;
 import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.Artifact;
@@ -111,8 +110,6 @@ public class A2ARemoteAgentClient {
             new ArrayBlockingQueue<>(ioConcurrency), runnable -> {
                 Thread thread = new Thread(runnable, "a2a-remote-io-" + threadIndex.incrementAndGet());
                 thread.setDaemon(true);
-                thread.setUncaughtExceptionHandler((source, error) ->
-                    log.error("Uncaught A2A remote I/O error thread={}", source.getName(), error));
                 return thread;
             }, new ThreadPoolExecutor.AbortPolicy());
     }
@@ -265,24 +262,8 @@ public class A2ARemoteAgentClient {
 
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
-        BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> {
-            if (event instanceof TaskUpdateEvent tue) {
-                if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
-                    notifyRemoteTaskId(remoteTaskIdObserver, aue.taskId(), tue.getTask().status().state());
-                    handleOutcomeArtifact(aue, result, streamObserver);
-                } else if (tue.getUpdateEvent() instanceof TaskStatusUpdateEvent sue) {
-                    handleOutcomeStatus(sue, tue.getTask(), result, remoteTaskIdObserver);
-                } else {
-                    log.debug("Unknown update event type: {}", tue.getUpdateEvent().getClass().getSimpleName());
-                }
-            } else if (event instanceof TaskEvent te) {
-                handleOutcomeTask(te, result, remoteTaskIdObserver);
-            } else if (event instanceof MessageEvent me) {
-                handleOutcomeMessage(me, result, remoteTaskIdObserver);
-            } else {
-                log.debug("Unknown event type: {}", event.getClass().getSimpleName());
-            }
-        };
+        BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) ->
+                handleClientEvent(event, result, streamObserver, remoteTaskIdObserver);
         Client client = createClient(setup.entry, isStreaming);
         AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
         try {
@@ -293,7 +274,7 @@ public class A2ARemoteAgentClient {
                                 error -> completeOutcomeOnStreamEnd(call.agentName(), result, error), null);
                         return null;
                     });
-                } catch (A2AClientException ex) {
+                } catch (RuntimeException ex) {
                     result.completeExceptionally(ex);
                 }
             });
@@ -313,6 +294,26 @@ public class A2ARemoteAgentClient {
             }
         });
         return result;
+    }
+
+    private void handleClientEvent(ClientEvent event, CompletableFuture<RemoteCallOutcome> result,
+            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver) {
+        if (event instanceof TaskUpdateEvent tue) {
+            if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
+                notifyRemoteTaskId(remoteTaskIdObserver, aue.taskId(), tue.getTask().status().state());
+                handleOutcomeArtifact(aue, result, streamObserver);
+            } else if (tue.getUpdateEvent() instanceof TaskStatusUpdateEvent sue) {
+                handleOutcomeStatus(sue, tue.getTask(), result, remoteTaskIdObserver);
+            } else {
+                log.debug("Unknown update event type: {}", tue.getUpdateEvent().getClass().getSimpleName());
+            }
+        } else if (event instanceof TaskEvent te) {
+            handleOutcomeTask(te, result, remoteTaskIdObserver);
+        } else if (event instanceof MessageEvent me) {
+            handleOutcomeMessage(me, result, remoteTaskIdObserver);
+        } else {
+            log.debug("Unknown event type: {}", event.getClass().getSimpleName());
+        }
     }
 
     private static boolean completeOutcomeOnStreamEnd(String agentName, CompletableFuture<?> result, Throwable error) {

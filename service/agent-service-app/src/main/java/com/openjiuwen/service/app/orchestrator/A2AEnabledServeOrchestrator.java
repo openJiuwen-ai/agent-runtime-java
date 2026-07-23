@@ -66,6 +66,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     private static final String MIXED_INTERRUPT_ERROR = "CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED";
 
+    private static final String CORE_RESUME_IN_FLIGHT = "REMOTE_BATCH_CORE_RESUME_IN_FLIGHT";
+
     private final AgentHandler agentHandler;
 
     private final TaskStore taskStore;
@@ -399,9 +401,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
         if (resolution.isReadyToResume()) {
             ServeRequest resume = buildBatchResumeRequest(current, resolution);
-            return batchCoordinator.claimCoreResume(resume, resolution.batchId())
-                ? Optional.of(resume)
-                : Optional.empty();
+            if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
+                observer.onError(new IllegalStateException(CORE_RESUME_IN_FLIGHT + ": " + resolution.batchId()));
+                return Optional.empty();
+            }
+            return Optional.of(resume);
         }
         observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, resolution.interrupt()));
         observer.onComplete();
@@ -412,9 +416,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryResponse response) {
         if (resolution.isReadyToResume()) {
             ServeRequest resume = buildBatchResumeRequest(current, resolution);
-            return batchCoordinator.claimCoreResume(resume, resolution.batchId())
-                ? QueryResumeResult.continueWith(resume)
-                : QueryResumeResult.stop();
+            if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
+                throw new IllegalStateException(CORE_RESUME_IN_FLIGHT + ": " + resolution.batchId());
+            }
+            return QueryResumeResult.continueWith(resume);
         }
         Map<String, Object> result = new LinkedHashMap<>();
         if (response != null && response.getResult() instanceof Map<?, ?> existing) {

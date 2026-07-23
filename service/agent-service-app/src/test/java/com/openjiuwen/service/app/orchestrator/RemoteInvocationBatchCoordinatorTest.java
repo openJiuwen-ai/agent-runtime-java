@@ -418,6 +418,34 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     @Test
+    void synchronousClientRuntimeFailureSettlesMember() {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        when(client.callOutcome(any(), any(), any()))
+            .thenThrow(new IllegalArgumentException("invalid remote client configuration"));
+        RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
+
+        RemoteInvocationBatchCoordinator.BatchResolution resolution = coordinator.execute(
+            batch("ignored-batch-id", "call-a"), request("parent-sync-client-failure", Map.of()),
+            mock(QueryStreamObserver.class)).join();
+
+        assertThat(resolution.results().get("call-a").toString()).contains("REMOTE_UNAVAILABLE");
+    }
+
+    @Test
+    void coordinatorGeneratesBatchId() {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        when(client.callOutcome(any(), any(), any()))
+            .thenReturn(CompletableFuture.completedFuture(completed("remote-a", "result-a")));
+        RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
+
+        RemoteInvocationBatchCoordinator.BatchResolution resolution = coordinator.execute(
+            batch("caller-controlled-batch", "call-a"), request("parent-generated-batch", Map.of()),
+            mock(QueryStreamObserver.class)).join();
+
+        assertThat(resolution.batchId()).isNotBlank().isNotEqualTo("caller-controlled-batch");
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void timedOutMemberReturnsStableStructuredResult() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);

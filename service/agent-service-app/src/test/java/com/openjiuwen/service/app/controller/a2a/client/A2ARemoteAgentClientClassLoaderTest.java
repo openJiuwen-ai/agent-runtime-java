@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -152,6 +153,30 @@ class A2ARemoteAgentClientClassLoaderTest {
             assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(A2AClientException.class)
                 .hasRootCauseMessage("SDK send failed");
+        } finally {
+            remoteClient.shutdown();
+        }
+    }
+
+    @Test
+    void synchronousSdkRuntimeFailureCompletesOutcomeImmediately() {
+        AgentCard card = testCard();
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("runtime-failing-agent", card, 30, false);
+        ClientBuilder builder = mock(ClientBuilder.class);
+        Client sdkClient = mock(Client.class);
+        doThrow(new IllegalArgumentException("invalid SDK event"))
+            .when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
+
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
+            stubClient(clientFactory, card, builder, sdkClient);
+
+            var outcome = remoteClient.callOutcome(remoteCall("runtime-failing-agent"), null, null);
+
+            assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS))
+                .hasCauseInstanceOf(IllegalArgumentException.class)
+                .hasRootCauseMessage("invalid SDK event");
         } finally {
             remoteClient.shutdown();
         }
