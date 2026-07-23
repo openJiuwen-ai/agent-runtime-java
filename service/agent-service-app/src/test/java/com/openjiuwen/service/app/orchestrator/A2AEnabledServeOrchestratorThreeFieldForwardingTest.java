@@ -90,6 +90,47 @@ class A2AEnabledServeOrchestratorThreeFieldForwardingTest {
     }
 
     @Test
+    void forwardsAgentIdAndIntentIdFromJsonStringAnswerEnvelope() {
+        Map<String, Object> handlerResult = new LinkedHashMap<>();
+        handlerResult.put("role", "assistant");
+        handlerResult.put("response_content", "酒店预订");
+        handlerResult.put("intent_id", "intent_L1_hotel");
+        handlerResult.put("agent_id", "agent_card_L2_hotel");
+        when(agentHandler.query(any())).thenReturn(
+                new QueryResponse(handlerResult, "c-1"));
+
+        // Default RemoteAgentCaller path: final answer emitted as a JSON-string
+        // envelope (not a Map). The sync forward path must still propagate
+        // agent_id/intent_id from the envelope to the client response.
+        // Envelope shape mirrors VersatileResponseExtractor.buildThreeFieldEnvelope:
+        // agent_id/intent_id at top level, business text in output/response_content.
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            obs.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK,
+                    "{\"type\":\"answer\",\"output\":\"downstream result\","
+                            + "\"response_content\":\"downstream result\","
+                            + "\"agent_id\":\"L2-agent\",\"intent_id\":\"L2-intent\"}"));
+            obs.onComplete();
+            return null;
+        }).when(caller).call(any(RemoteAgentCall.class), any(QueryStreamObserver.class));
+
+        A2AEnabledServeOrchestrator orchestrator = new A2AEnabledServeOrchestrator(
+                agentHandler, mock(TaskStore.class), caller, resolver, streamRegistry, "agent-L1");
+
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-1");
+        request.setStream(false);
+        request.setMessages(List.of(Map.of("role", "user", "content", "订酒店")));
+
+        QueryResponse response = orchestrator.query(request);
+
+        Map<?, ?> result = (Map<?, ?>) response.getResult();
+        assertThat(result.get("response_content")).isEqualTo("downstream result");
+        assertThat(result.get("agent_id")).isEqualTo("L2-agent");
+        assertThat(result.get("intent_id")).isEqualTo("L2-intent");
+    }
+
+    @Test
     void doesNotForwardWhenResultHasNoAgentId() {
         Map<String, Object> handlerResult = new LinkedHashMap<>();
         handlerResult.put("role", "assistant");

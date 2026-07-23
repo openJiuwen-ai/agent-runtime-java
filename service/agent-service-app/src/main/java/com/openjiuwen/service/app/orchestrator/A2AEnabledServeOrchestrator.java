@@ -125,6 +125,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 Object data = chunk.getData();
                 if (data instanceof String raw) {
                     RemoteAgentAnswerExtractor.extractAnswer(raw).ifPresent(captured::set);
+                    RemoteAgentAnswerExtractor.extractAnswerEnvelope(raw)
+                            .ifPresent(capturedEnvelope::set);
                 } else if (data instanceof Map<?, ?> m
                         && RemoteAgentAnswerExtractor.ANSWER_ENVELOPE_TYPE.equals(m.get("type"))) {
                     // Some Caller implementations emit the answer envelope as a

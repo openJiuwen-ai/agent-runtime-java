@@ -55,6 +55,21 @@ public final class RemoteAgentAnswerExtractor {
     }
 
     /**
+     * Parses a raw chunk payload as a JSON envelope and returns it only when it
+     * is an answer envelope (i.e. carries {@code type=answer}). Used by callers
+     * that need the full envelope (for example to read {@code agent_id} /
+     * {@code intent_id}) rather than just the business text.
+     *
+     * @param raw the raw chunk data, typically a JSON envelope string
+     * @return the parsed answer envelope, or {@link Optional#empty()} if {@code raw}
+     *         is not an answer envelope
+     */
+    public static Optional<Map<String, Object>> extractAnswerEnvelope(String raw) {
+        return parseEnvelope(raw)
+                .filter(envelope -> ANSWER_ENVELOPE_TYPE.equals(envelope.get("type")));
+    }
+
+    /**
      * Attempts to extract the final business answer from a Map answer envelope
      * (shape {@code {"type":"answer", ...}}) emitted directly as a chunk payload,
      * as opposed to a JSON-string envelope. Used by callers that stream Map
