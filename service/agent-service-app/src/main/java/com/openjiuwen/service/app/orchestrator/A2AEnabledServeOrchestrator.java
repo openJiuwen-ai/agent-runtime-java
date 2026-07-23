@@ -214,25 +214,21 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
                 return refreshPendingOnRemoteInput(current, pt, rie, observer);
             }
-            if (isRemoteFailure(e.getCause())) {
+            if (isRecoverableRemoteFailure(e.getCause())) {
                 return resumePendingAfterRemoteFailure(current, pt, agentName, e.getCause());
             }
-            log.error("Remote call '{}' failed for pending task", agentName, e);
+            return failRemoteStream(current, agentName, observer, e.getCause());
         } catch (RemoteInputRequiredException rie) {
             // Sync resume path: remote still needs input.
             return refreshPendingOnRemoteInput(current, pt, rie, observer);
         } catch (InterruptedException e) {
-            log.error("Remote call '{}' interrupted for pending task", agentName, e);
+            return failRemoteStream(current, agentName, observer, e);
         } catch (Exception e) {
-            if (isRemoteFailure(e)) {
+            if (isRecoverableRemoteFailure(e)) {
                 return resumePendingAfterRemoteFailure(current, pt, agentName, e);
             }
-            log.error("Remote call '{}' failed for pending task", agentName, e);
+            return failRemoteStream(current, agentName, observer, e);
         }
-        saveShadowTask(current.getConversationId(), agentName, metadataString(pt, "_remote_url"), remoteTaskId,
-                streamMode);
-        observer.onComplete();
-        return Optional.empty();
     }
 
     private Optional<ServeRequest> resumePendingAfterRemoteFailure(ServeRequest current, Task pending, String agentName,
@@ -393,20 +389,18 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
                 return handleRemoteInputRequired(data, current, observer, rie);
             }
-            if (isRemoteFailure(e.getCause())) {
+            if (isRecoverableRemoteFailure(e.getCause())) {
                 return resumeAfterRemoteFailure(data, current, e.getCause());
             }
-            log.error("Remote call '{}' failed (sse)", data.agentName(), e);
+            return failRemoteStream(current, data.agentName(), observer, e.getCause());
+        } catch (InterruptedException e) {
+            return failRemoteStream(current, data.agentName(), observer, e);
         } catch (Exception e) {
-            if (isRemoteFailure(e)) {
+            if (isRecoverableRemoteFailure(e)) {
                 return resumeAfterRemoteFailure(data, current, e);
             }
-            log.error("Remote call '{}' failed (sse)", data.agentName(), e);
+            return failRemoteStream(current, data.agentName(), observer, e);
         }
-        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
-                data.streamMode());
-        observer.onComplete();
-        return Optional.empty();
     }
 
     /**
@@ -432,14 +426,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         } catch (RemoteInputRequiredException rie) {
             return handleRemoteInputRequired(data, current, observer, rie);
         } catch (Exception e) {
-            if (isRemoteFailure(e)) {
+            if (isRecoverableRemoteFailure(e)) {
                 return resumeAfterRemoteFailure(data, current, e);
             }
-            log.error("Remote call '{}' failed (sync)", data.agentName(), e);
+            return failRemoteStream(current, data.agentName(), observer, e);
         }
-        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()));
-        observer.onComplete();
-        return Optional.empty();
     }
 
     private Optional<ServeRequest> resumeAfterRemoteFailure(InterruptData data, ServeRequest current,
@@ -511,10 +502,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             return new QueryResumeResult(Optional.of(request), null);
         }
 
-        static QueryResumeResult stop() {
-            return new QueryResumeResult(Optional.empty(), null);
-        }
-
         static QueryResumeResult respond(QueryResponse response) {
             return new QueryResumeResult(Optional.empty(), response);
         }
@@ -552,23 +539,20 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
                 return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
             }
-            if (isRemoteFailure(e.getCause())) {
+            if (isRecoverableRemoteFailure(e.getCause())) {
                 return resumePendingQueryAfterRemoteFailure(current, pt, agentName, e.getCause());
             }
-            log.error("Remote call '{}' failed for pending task", agentName, e);
+            throw failRemoteQuery(current, agentName, e.getCause());
         } catch (RemoteInputRequiredException rie) {
             return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
         } catch (InterruptedException e) {
-            log.error("Remote call '{}' interrupted for pending task", agentName, e);
+            throw failRemoteQuery(current, agentName, e);
         } catch (Exception e) {
-            if (isRemoteFailure(e)) {
+            if (isRecoverableRemoteFailure(e)) {
                 return resumePendingQueryAfterRemoteFailure(current, pt, agentName, e);
             }
-            log.error("Remote call '{}' failed for pending task", agentName, e);
+            throw failRemoteQuery(current, agentName, e);
         }
-        saveShadowTask(current.getConversationId(), agentName, metadataString(pt, "_remote_url"), remoteTaskId,
-                streamMode);
-        return QueryResumeResult.stop();
     }
 
     private QueryResumeResult resumePendingQueryAfterRemoteFailure(ServeRequest current, Task pending, String agentName,
@@ -614,25 +598,19 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 if (e.getCause() instanceof RemoteInputRequiredException rie) {
                     return remoteInputRequiredResponse(interruptData, response, current, data, rie);
                 }
-                if (isRemoteFailure(e.getCause())) {
+                if (isRecoverableRemoteFailure(e.getCause())) {
                     return resumeAfterRemoteFailure(data, current, e.getCause());
                 }
-                log.error("Remote call '{}' failed", data.agentName(), e);
-                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
-                        data.streamMode());
+                throw failRemoteQuery(current, data.agentName(), e.getCause());
             } catch (RemoteInputRequiredException rie) {
                 return remoteInputRequiredResponse(interruptData, response, current, data, rie);
             } catch (InterruptedException e) {
-                log.error("Remote call '{}' interrupted", data.agentName(), e);
-                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
-                        data.streamMode());
+                throw failRemoteQuery(current, data.agentName(), e);
             } catch (Exception e) {
-                if (isRemoteFailure(e)) {
+                if (isRecoverableRemoteFailure(e)) {
                     return resumeAfterRemoteFailure(data, current, e);
                 }
-                log.error("Remote call '{}' failed", data.agentName(), e);
-                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
-                        data.streamMode());
+                throw failRemoteQuery(current, data.agentName(), e);
             }
         }
         return Optional.empty(); // non-a2a_delegate or error → stop loop, return interrupt to caller
@@ -664,8 +642,14 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         };
     }
 
-    private static boolean isRemoteFailure(Throwable failure) {
-        return remoteFailure(failure).isPresent();
+    private static boolean isRecoverableRemoteFailure(Throwable failure) {
+        Throwable cause = unwrapFailure(failure);
+        if (cause instanceof java.util.concurrent.TimeoutException) {
+            return true;
+        }
+        return cause instanceof RemoteAgentException remoteAgentFailure
+                && (A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT.equals(remoteAgentFailure.getCode())
+                        || A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED.equals(remoteAgentFailure.getCode()));
     }
 
     private static Optional<RemoteAgentException> remoteFailure(Throwable failure) {
@@ -721,6 +705,40 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         result.put("content", message);
         result.put("_interrupt", Map.of("message", message));
         return result;
+    }
+
+    private Optional<ServeRequest> failRemoteStream(ServeRequest current, String agentName,
+            QueryStreamObserver observer, Throwable cause) {
+        RemoteAgentException failure = remoteFailure(agentName, cause);
+        log.error("Remote call '{}' failed for conversation_id={}", agentName, current.getConversationId(), failure);
+        deleteShadowTask(shadowTaskId(current.getConversationId()));
+        try {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, remoteFailureBody(agentName)));
+        } finally {
+            observer.onError(failure);
+        }
+        return Optional.empty();
+    }
+
+    private RemoteAgentException failRemoteQuery(ServeRequest current, String agentName, Throwable cause) {
+        RemoteAgentException failure = remoteFailure(agentName, cause);
+        log.error("Remote call '{}' failed for conversation_id={}", agentName, current.getConversationId(), failure);
+        deleteShadowTask(shadowTaskId(current.getConversationId()));
+        return failure;
+    }
+
+    private static RemoteAgentException remoteFailure(String agentName, Throwable cause) {
+        Throwable actualCause = cause != null ? cause : new IllegalStateException("Remote call failed without a cause");
+        return new RemoteAgentException("Remote agent '" + agentName + "' call failed", actualCause);
+    }
+
+    private static Map<String, Object> remoteFailureBody(String agentName) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("type", "error");
+        body.put("code", "REMOTE_A2A_CALL_FAILED");
+        body.put("error", "remote agent call failed");
+        body.put("agent", agentName);
+        return body;
     }
 
     @SuppressWarnings("unchecked")
