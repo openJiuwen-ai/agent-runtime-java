@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
+import com.openjiuwen.service.spec.paths.A2AServicePaths;
 
 import jakarta.annotation.PreDestroy;
 
@@ -17,6 +18,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
+import java.net.URI;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -25,13 +27,23 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Fetches AgentCards from configured remote A2A servers at startup. Successful
- * fetches are cached permanently; failures
- * are retried every 30s.
+ * Fetches AgentCards from configured remote A2A servers at startup and resolves
+ * remote agent URLs at runtime.
+ *
+ * <p>This bean implements {@link RemoteAgentCardResolver} as the baseline
+ * resolver: {@link #resolveJsonRpcUrl} reads the cached card's first interface
+ * URL from {@link A2ARemoteAgentCardRegistry}, and {@link #resolveCardUrl}
+ * derives the agent-card fetch URL by stripping the JSON-RPC endpoint's last
+ * path segment and appending {@link A2AServicePaths#WELL_KNOWN_AGENT_CARD},
+ * preserving any path prefix. Deployments may override with an
+ * {@code A2AGatewayCardResolver} for cross-origin cards.
+ *
+ * <p>Successful startup fetches are cached permanently; failures are retried
+ * every 30s.
  *
  * @since 0.1.0
  */
-public class A2AAgentCardDiscovery {
+public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentCardDiscovery.class);
 
     private static final String REMOTE_AGENTS_PROPERTY = "openjiuwen.service.a2a.remote-agents";
@@ -139,6 +151,53 @@ public class A2AAgentCardDiscovery {
         }
         String cardUrl = baseUrl.replaceAll("/$", "") + "/.well-known/agent-card.json";
         return restClient.get().uri(cardUrl).accept(MediaType.APPLICATION_JSON).retrieve().body(AgentCard.class);
+    }
+
+    @Override
+    public String resolveCardUrl(String agentId) {
+        String jsonRpcUrl = resolveJsonRpcUrl(agentId);
+        if (jsonRpcUrl == null || jsonRpcUrl.isBlank()) {
+            return "";
+        }
+        try {
+            URI uri = URI.create(jsonRpcUrl);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null || host.isBlank()) {
+                return "";
+            }
+            StringBuilder base = new StringBuilder().append(scheme).append("://").append(host);
+            int port = uri.getPort();
+            if (port > 0) {
+                base.append(':').append(port);
+            }
+            String path = uri.getRawPath();
+            if (path != null && !path.isBlank() && !"/".equals(path)) {
+                while (path.length() > 1 && path.endsWith("/")) {
+                    path = path.substring(0, path.length() - 1);
+                }
+                int lastSlash = path.lastIndexOf('/');
+                if (lastSlash > 0) {
+                    base.append(path, 0, lastSlash);
+                }
+            }
+            return base.append(A2AServicePaths.WELL_KNOWN_AGENT_CARD).toString();
+        } catch (IllegalArgumentException ex) {
+            return "";
+        }
+    }
+
+    @Override
+    public String resolveJsonRpcUrl(String agentId) {
+        if (agentId == null) {
+            return "";
+        }
+        return registry.resolveUrl(agentId);
+    }
+
+    @Override
+    public boolean supported(String agentId) {
+        return agentId != null && registry.get(agentId).isPresent();
     }
 
     /**

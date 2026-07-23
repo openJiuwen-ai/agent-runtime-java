@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.app.security;
 
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -18,6 +20,7 @@ import java.util.Map;
  * @since 0.1.0
  */
 @RestControllerAdvice
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class AuthorizationDeniedExceptionHandler {
     /**
      * Handles authorization denial.

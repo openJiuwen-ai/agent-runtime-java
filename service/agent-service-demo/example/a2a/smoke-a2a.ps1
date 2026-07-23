@@ -62,7 +62,8 @@ try {
     $r2 = Invoke-RestMethod -Uri "$BaseUrlA/v1/query" -Method Post -Body $body2 -ContentType "application/json"
     $content2 = [string]$r2.result.content
     if (-not $content2) { throw "A->B->C Round 2 empty response" }
-    if ($content2 -notmatch "Agent C" -or ($content2 -notmatch "宫保鸡丁" -and $content2 -notmatch "food" -and $content2 -notmatch "dish" -and $content2 -notmatch "recommend")) { throw "A->B->C Round 2 did not include Agent C food recommendation: $content2" }
+    $failurePattern = "unavailable|unable|failed|failure|error|remote_"
+    if ($content2 -notmatch "Agent C" -or $content2 -match $failurePattern) { throw "A->B->C Round 2 did not return a successful Agent C result: $content2" }
     Write-Host "A->B->C Round 2: $($content2.Substring(0, [Math]::Min(300, $content2.Length)))"
     Write-Host "PASS A->B->C Round 2 completed after Agent C confirmation" -ForegroundColor Green
 

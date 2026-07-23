@@ -9,7 +9,7 @@ package com.openjiuwen.service.app.controller.a2a.client;
  *
  * <p>Implementations:
  * <ul>
- *   <li>{@link DefaultCardResolver} — looks up the cached {@link AgentCard} from
+ *   <li>{@link A2AAgentCardDiscovery} — looks up the cached {@link AgentCard} from
  *       {@link A2ARemoteAgentCardRegistry} (populated by {@code A2AAgentCardDiscovery}
  *       at startup); returns the first interface's URL.</li>
  *   <li>{@code A2AGatewayCardResolver} (deployment module) —
