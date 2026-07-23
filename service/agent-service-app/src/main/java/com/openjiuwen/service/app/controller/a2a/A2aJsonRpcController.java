@@ -8,6 +8,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import com.google.gson.reflect.TypeToken;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
@@ -41,6 +42,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,6 +60,9 @@ public class A2aJsonRpcController {
     private static final Logger log = LoggerFactory.getLogger(A2aJsonRpcController.class);
 
     private static final Gson GSON = new Gson();
+
+    private static final Type METADATA_MAP_TYPE = new TypeToken<Map<String, Object>>() {
+    }.getType();
 
     private final RequestHandler requestHandler;
 
@@ -180,15 +185,16 @@ public class A2aJsonRpcController {
         return jsonRpcResponse(id, task);
     }
 
-    private MessageSendParams parseParams(JsonObject request) {
+    static MessageSendParams parseParams(JsonObject request) {
         try {
             JsonObject params = request.getAsJsonObject("params");
             JsonObject m = params.getAsJsonObject("message");
             List<Part<?>> parts = parseParts(m);
             Message msg = buildMessage(m, parts);
             var sendParamsBuilder = MessageSendParams.builder().message(msg);
-            if (params.has("metadata")) {
-                sendParamsBuilder.metadata(GSON.fromJson(params.get("metadata"), Map.class));
+            Map<String, Object> paramsMetadata = parseMetadata(params);
+            if (paramsMetadata != null) {
+                sendParamsBuilder.metadata(paramsMetadata);
             }
             return sendParamsBuilder.build();
         } catch (JsonParseException | ClassCastException | IllegalStateException | IllegalArgumentException
@@ -228,7 +234,7 @@ public class A2aJsonRpcController {
         }
     }
 
-    private static Message buildMessage(JsonObject m, List<Part<?>> parts) {
+    static Message buildMessage(JsonObject m, List<Part<?>> parts) {
         String roleStr = (m.has("role") && !m.get("role").isJsonNull() && !m.get("role").getAsString().isBlank())
                 ? m.get("role").getAsString()
                 : "ROLE_USER";
@@ -244,7 +250,17 @@ public class A2aJsonRpcController {
         String rawTaskId = m.has("taskId") && !m.get("taskId").isJsonNull() ? m.get("taskId").getAsString() : null;
         String taskId = (rawTaskId != null && !rawTaskId.isBlank()) ? rawTaskId : null;
         return Message.builder().role(role).parts(parts).contextId(contextId).taskId(taskId).messageId(messageId)
-                .build();
+                .metadata(parseMetadata(m)).build();
+    }
+
+    private static Map<String, Object> parseMetadata(JsonObject owner) {
+        if (!owner.has("metadata") || owner.get("metadata").isJsonNull()) {
+            return Map.of();
+        }
+        if (!owner.get("metadata").isJsonObject()) {
+            throw new JsonParseException("metadata must be a JSON object");
+        }
+        return GSON.fromJson(owner.get("metadata"), METADATA_MAP_TYPE);
     }
 
     /**
