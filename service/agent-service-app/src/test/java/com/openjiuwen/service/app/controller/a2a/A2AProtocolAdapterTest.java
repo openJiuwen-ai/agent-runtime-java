@@ -40,14 +40,19 @@ class A2AProtocolAdapterTest {
     void mapsContextIdAndPreservesMetadata() {
         A2AMessageContext ctx = new A2AMessageContext();
         ctx.setContextId("conv-1");
-        ctx.setMetadata(Map.of("key", "val"));
-        ctx.setA2aMessage(
-            Message.builder().role(Message.Role.ROLE_USER).parts(List.<Part<?>>of(new TextPart("hello"))).build());
+        ctx.setMetadata(Map.of("scope", "params"));
+        ctx.setHeaders(Map.of("x-user-id", "trusted-user", "x-space-id", "trusted-space"));
+        ctx.setA2aMessage(Message.builder().role(Message.Role.ROLE_USER).parts(List.<Part<?>>of(new TextPart("hello")))
+                .metadata(Map.of("scope", "message", "userId", "untrusted-user")).build());
 
         ServeRequest req = adapter.toServeRequest(ctx);
 
         assertThat(req.getConversationId()).isEqualTo("conv-1");
-        assertThat(req.getMetadata()).containsEntry("key", "val");
+        assertThat(req.getMetadata()).containsExactlyEntriesOf(Map.of("scope", "params"));
+        assertThat(req.lastUserMessageMetadata()).containsEntry("scope", "message").containsEntry("userId",
+                "untrusted-user");
+        assertThat(req.getUserId()).isEqualTo("trusted-user");
+        assertThat(req.getSpaceId()).isEqualTo("trusted-space");
         assertThat(req.getMessages().get(0)).containsEntry("role", "user");
     }
 }

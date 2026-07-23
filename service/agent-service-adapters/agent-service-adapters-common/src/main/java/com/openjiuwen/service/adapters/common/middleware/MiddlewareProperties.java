@@ -141,7 +141,7 @@ public class MiddlewareProperties {
     public static class RedisEndpoint {
         private String type = "standalone";
 
-        private String host = "localhost";
+        private String host;
 
         private int port = 6379;
 
