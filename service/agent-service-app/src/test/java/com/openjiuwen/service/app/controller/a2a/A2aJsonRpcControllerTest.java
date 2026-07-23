@@ -27,7 +27,7 @@ class A2aJsonRpcControllerTest {
         JsonObject request = requestWithMetadata("{\"request-scope\":\"params\"}",
                 "{\"request-scope\":\"message\",\"trace-id\":\"trace-1\"}");
 
-        MessageSendParams params = A2aJsonRpcController.parseParams(request);
+        MessageSendParams params = A2aJsonRpcParamsParser.parseMessageSendParams(request);
 
         assertThat(params.metadata()).containsExactlyEntriesOf(Map.of("request-scope", "params"));
         assertThat(params.message().metadata()).containsEntry("request-scope", "message").containsEntry("trace-id",
@@ -36,9 +36,9 @@ class A2aJsonRpcControllerTest {
 
     @Test
     void rejectsNonObjectMetadataAtEitherProtocolLevel() {
-        assertThatThrownBy(() -> A2aJsonRpcController.parseParams(requestWithMetadata("[]", "{}")))
+        assertThatThrownBy(() -> A2aJsonRpcParamsParser.parseMessageSendParams(requestWithMetadata("[]", "{}")))
                 .isInstanceOf(InvalidParamsError.class);
-        assertThatThrownBy(() -> A2aJsonRpcController.parseParams(requestWithMetadata("{}", "[]")))
+        assertThatThrownBy(() -> A2aJsonRpcParamsParser.parseMessageSendParams(requestWithMetadata("{}", "[]")))
                 .isInstanceOf(InvalidParamsError.class);
     }
 
