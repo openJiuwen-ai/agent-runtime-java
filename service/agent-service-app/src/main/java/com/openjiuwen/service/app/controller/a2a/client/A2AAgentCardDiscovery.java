@@ -7,8 +7,6 @@ package com.openjiuwen.service.app.controller.a2a.client;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
 
-import jakarta.annotation.PreDestroy;
-
 import org.a2aproject.sdk.spec.AgentCard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +22,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import jakarta.annotation.PreDestroy;
+
 /**
  * Fetches AgentCards from configured remote A2A servers at startup. Successful
  * fetches are cached permanently; failures
@@ -33,6 +33,8 @@ import java.util.concurrent.TimeUnit;
  */
 public class A2AAgentCardDiscovery {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentCardDiscovery.class);
+
+    private static final String REMOTE_AGENTS_PROPERTY = "openjiuwen.service.a2a.remote-agents";
 
     private static final long RETRY_INTERVAL_SECONDS = 30L;
 
@@ -85,11 +87,16 @@ public class A2AAgentCardDiscovery {
     private void validateRemoteAgents() {
         for (int index = 0; index < properties.getRemoteAgents().size(); index++) {
             RemoteAgentProperties remote = properties.getRemoteAgents().get(index);
-            if (remote.getUrl() == null || remote.getUrl().isBlank()) {
-                throw new IllegalStateException("Remote agent '" + remote.getName()
-                        + "' has no URL configured. Set openjiuwen.service.a2a.remote-agents[" + index
-                        + "].url or remove this agent.");
-            }
+            String propertyPrefix = REMOTE_AGENTS_PROPERTY + "[" + index + "]";
+            validateRequiredProperty(remote.getName(), propertyPrefix + ".name");
+            validateRequiredProperty(remote.getUrl(), propertyPrefix + ".url");
+        }
+    }
+
+    private static void validateRequiredProperty(String value, String propertyPath) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(
+                    "Invalid A2A remote agent configuration: " + propertyPath + " must not be null or blank");
         }
     }
 

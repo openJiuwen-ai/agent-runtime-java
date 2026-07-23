@@ -11,6 +11,9 @@ import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 
@@ -35,8 +38,30 @@ class A2AAgentCardDiscoveryTest {
         discovery = new A2AAgentCardDiscovery(properties, new A2ARemoteAgentCardRegistry());
 
         assertThatThrownBy(discovery::discoverAll).isInstanceOf(IllegalStateException.class)
-                .hasMessage("Remote agent 'weather-agent' has no URL configured. "
-                        + "Set openjiuwen.service.a2a.remote-agents[0].url or remove this agent.");
+                .hasMessage("Invalid A2A remote agent configuration: "
+                        + "openjiuwen.service.a2a.remote-agents[0].url must not be null or blank");
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"", "   "})
+    void missingRemoteAgentNameFailsWithConfigurationKey(String name) {
+        A2AProperties properties = propertiesWith(remoteAgent(name, "http://127.0.0.1:12345"));
+        discovery = new A2AAgentCardDiscovery(properties, new A2ARemoteAgentCardRegistry());
+
+        assertThatThrownBy(discovery::discoverAll).isInstanceOf(IllegalStateException.class)
+                .hasMessage("Invalid A2A remote agent configuration: "
+                        + "openjiuwen.service.a2a.remote-agents[0].name must not be null or blank");
+    }
+
+    @Test
+    void missingNameIsReportedBeforeMissingUrl() {
+        A2AProperties properties = propertiesWith(remoteAgent(null, null));
+        discovery = new A2AAgentCardDiscovery(properties, new A2ARemoteAgentCardRegistry());
+
+        assertThatThrownBy(discovery::discoverAll).isInstanceOf(IllegalStateException.class)
+                .hasMessage("Invalid A2A remote agent configuration: "
+                        + "openjiuwen.service.a2a.remote-agents[0].name must not be null or blank");
     }
 
     @Test
@@ -46,8 +71,8 @@ class A2AAgentCardDiscoveryTest {
         discovery = new A2AAgentCardDiscovery(properties, new A2ARemoteAgentCardRegistry());
 
         assertThatThrownBy(discovery::discoverAll).isInstanceOf(IllegalStateException.class)
-                .hasMessage("Remote agent 'travel-agent' has no URL configured. "
-                        + "Set openjiuwen.service.a2a.remote-agents[1].url or remove this agent.");
+                .hasMessage("Invalid A2A remote agent configuration: "
+                        + "openjiuwen.service.a2a.remote-agents[1].url must not be null or blank");
     }
 
     @Test

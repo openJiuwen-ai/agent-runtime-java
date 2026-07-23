@@ -52,14 +52,8 @@ final class A2aJsonRpcParamsParser {
             }
             Message message = buildMessage(messageObject, parts);
 
-            var builder = MessageSendParams.builder().message(message);
-            if (params.has("metadata") && !params.get("metadata").isJsonNull()) {
-                if (!params.get("metadata").isJsonObject()) {
-                    throw invalid("params.metadata must be an object");
-                }
-                builder.metadata(GSON.fromJson(params.get("metadata"), METADATA_TYPE));
-            }
-            return builder.build();
+            return MessageSendParams.builder().message(message).metadata(parseMetadata(params, "params.metadata"))
+                    .build();
         } catch (InvalidParamsError e) {
             throw e;
         } catch (JsonParseException | ClassCastException | IllegalStateException | IllegalArgumentException
@@ -108,7 +102,19 @@ final class A2aJsonRpcParamsParser {
         optionalNonBlankString(messageObject, "contextId", "params.message.contextId").ifPresent(builder::contextId);
         optionalNonBlankString(messageObject, "taskId", "params.message.taskId").ifPresent(builder::taskId);
         optionalNonBlankString(messageObject, "messageId", "params.message.messageId").ifPresent(builder::messageId);
+        builder.metadata(parseMetadata(messageObject, "params.message.metadata"));
         return builder.build();
+    }
+
+    private static Map<String, Object> parseMetadata(JsonObject parent, String path) {
+        JsonElement value = parent.get("metadata");
+        if (value == null || value.isJsonNull()) {
+            return Map.of();
+        }
+        if (!value.isJsonObject()) {
+            throw invalid(path + " must be an object");
+        }
+        return GSON.fromJson(value, METADATA_TYPE);
     }
 
     private static JsonObject requiredObject(JsonObject parent, String memberName, String path) {

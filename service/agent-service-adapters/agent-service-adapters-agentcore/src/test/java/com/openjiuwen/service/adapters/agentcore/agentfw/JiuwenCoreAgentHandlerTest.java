@@ -7,11 +7,15 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.core.common.schema.BaseCard;
+import com.openjiuwen.core.controller.schema.ControllerOutput;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.Session;
+import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
+import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
+import com.openjiuwen.core.workflow.WorkflowOutput;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -181,6 +185,90 @@ class JiuwenCoreAgentHandlerTest {
         assertThat((Map<String, Object>) second.getResult()).containsEntry("content", "turn2:b|prev=a");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void syncResponseExtractsCustomSingleKeyOutput() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
+
+        QueryResponse response = handler.toQueryResponse(Map.of("generated_report", "approved"), "c-custom");
+
+        assertThat((Map<String, Object>) response.getResult()).containsEntry("content", "approved");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void syncResponseRecursivelyExtractsNestedOutput() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
+        Map<String, Object> rawResult = Map.of("output", Map.of("generated_report", "nested"));
+
+        QueryResponse response = handler.toQueryResponse(rawResult, "c-nested");
+
+        assertThat((Map<String, Object>) response.getResult()).containsEntry("content", "nested");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void syncResponseUnwrapsWorkflowOutput() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
+        WorkflowOutput output = new WorkflowOutput(Map.of("generated_report", "workflow"), null);
+
+        QueryResponse response = handler.toQueryResponse(output, "c-workflow");
+
+        assertThat((Map<String, Object>) response.getResult()).containsEntry("content", "workflow");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void syncResponseUnwrapsControllerOutputMap() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
+        ControllerOutput output = new ControllerOutput("answer", Map.of("generated_report", "controller"));
+
+        QueryResponse response = handler.toQueryResponse(output, "c-controller");
+
+        assertThat((Map<String, Object>) response.getResult()).containsEntry("content", "controller");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void syncResponsePreservesUnknownMultiKeyOutput() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
+        Map<String, Object> rawResult = new LinkedHashMap<>();
+        rawResult.put("first", "one");
+        rawResult.put("second", "two");
+
+        QueryResponse response = handler.toQueryResponse(rawResult, "c-multi-key");
+
+        assertThat((Map<String, Object>) response.getResult()).containsEntry("content", "{first=one, second=two}");
+    }
+
+    @Test
+    void streamAggregationExtractsCustomSingleKeyOutput() {
+        StringBuilder content = new StringBuilder();
+        Map<String, Object> chunk = Map.of("type", "workflow_final", "payload",
+                Map.of("output", Map.of("generated_report", "streamed")));
+
+        JiuwenCoreAgentHandler.appendContent(chunk, content);
+
+        assertThat(content).hasToString("streamed");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void syncResponseKeepsStandardOutputAndInterruptSemantics() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
+
+        QueryResponse standard = handler.toQueryResponse(Map.of("output", "standard", "result_type", "answer"),
+                "c-standard");
+        assertThat((Map<String, Object>) standard.getResult()).containsEntry("content", "standard");
+
+        InterruptRequest request = InterruptRequest.builder().message("confirm").context(Map.of("step", 1)).build();
+        OutputSchema interrupt = new OutputSchema("__interaction__", 0, new InteractionOutput("i-1", request));
+        QueryResponse interrupted = handler
+                .toQueryResponse(Map.of("result_type", "interrupt", "state", List.of(interrupt)), "c-interrupt");
+        Map<String, Object> result = (Map<String, Object>) interrupted.getResult();
+        assertThat(result).containsEntry("content", "confirm").containsKey("_interrupt");
+    }
+
     private static ServeRequest request(String conversationId, String content) {
         ServeRequest request = new ServeRequest();
         request.setConversationId(conversationId);
@@ -277,11 +365,8 @@ class JiuwenCoreAgentHandlerTest {
 
     /** Test agent that exposes a card like regular ReAct agents. */
     public static class CardBackedAgent {
-        private final BaseCard card = BaseCard.builder()
-            .id("card-agent")
-            .name("Card Agent")
-            .description("card backed")
-            .build();
+        private final BaseCard card = BaseCard.builder().id("card-agent").name("Card Agent").description("card backed")
+                .build();
 
         /**
          * Returns the test agent card.
@@ -345,8 +430,8 @@ class JiuwenCoreAgentHandlerTest {
             String query = String.valueOf(inputMap.get("query"));
             Object priorState = session.getState("history");
             List<String> history = priorState instanceof List<?>
-                ? new ArrayList<>((List<String>) priorState)
-                : new ArrayList<>();
+                    ? new ArrayList<>((List<String>) priorState)
+                    : new ArrayList<>();
             String reply = "turn" + (history.size() + 1) + ":" + query;
             if (!history.isEmpty()) {
                 reply += "|prev=" + String.join(",", history);
@@ -377,8 +462,8 @@ class JiuwenCoreAgentHandlerTest {
             String query = String.valueOf(inputMap.get("query"));
             Object priorState = session.getState("history");
             List<String> history = priorState instanceof List<?>
-                ? new ArrayList<>((List<String>) priorState)
-                : new ArrayList<>();
+                    ? new ArrayList<>((List<String>) priorState)
+                    : new ArrayList<>();
             String reply = "turn" + (history.size() + 1) + ":" + query;
             if (!history.isEmpty()) {
                 reply += "|prev=" + String.join(",", history);
