@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import com.google.gson.Gson;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient.RemoteAgentException;
@@ -46,6 +47,8 @@ import java.util.concurrent.ExecutionException;
  */
 public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(A2AEnabledServeOrchestrator.class);
+
+    private static final Gson GSON = new Gson();
 
     /**
      * No-op stream observer used as a sentinel in sync/query mode.
@@ -211,6 +214,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
                 return refreshPendingOnRemoteInput(current, pt, rie, observer);
             }
+            if (isRecoverableRemoteFailure(e.getCause())) {
+                return resumePendingAfterRemoteFailure(current, pt, agentName, e.getCause());
+            }
             return failRemoteStream(current, agentName, observer, e.getCause());
         } catch (RemoteInputRequiredException rie) {
             // Sync resume path: remote still needs input.
@@ -218,8 +224,21 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         } catch (InterruptedException e) {
             return failRemoteStream(current, agentName, observer, e);
         } catch (Exception e) {
+            if (isRecoverableRemoteFailure(e)) {
+                return resumePendingAfterRemoteFailure(current, pt, agentName, e);
+            }
             return failRemoteStream(current, agentName, observer, e);
         }
+    }
+
+    private Optional<ServeRequest> resumePendingAfterRemoteFailure(ServeRequest current, Task pending, String agentName,
+            Throwable failure) {
+        log.warn("Remote call '{}' failed for pending task; resuming parent with code={}", agentName,
+                remoteFailure(failure).map(RemoteAgentException::getCode)
+                        .orElse(A2ARemoteAgentClient.CODE_REMOTE_ERROR));
+        log.debug("Remote pending task failure", failure);
+        deleteShadowTask(pending.id());
+        return Optional.of(buildResumeRequest(current, remoteFailureContent(failure), "", ""));
     }
 
     /**
@@ -370,10 +389,16 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
                 return handleRemoteInputRequired(data, current, observer, rie);
             }
+            if (isRecoverableRemoteFailure(e.getCause())) {
+                return resumeAfterRemoteFailure(data, current, e.getCause());
+            }
             return failRemoteStream(current, data.agentName(), observer, e.getCause());
         } catch (InterruptedException e) {
             return failRemoteStream(current, data.agentName(), observer, e);
         } catch (Exception e) {
+            if (isRecoverableRemoteFailure(e)) {
+                return resumeAfterRemoteFailure(data, current, e);
+            }
             return failRemoteStream(current, data.agentName(), observer, e);
         }
     }
@@ -401,8 +426,20 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         } catch (RemoteInputRequiredException rie) {
             return handleRemoteInputRequired(data, current, observer, rie);
         } catch (Exception e) {
+            if (isRecoverableRemoteFailure(e)) {
+                return resumeAfterRemoteFailure(data, current, e);
+            }
             return failRemoteStream(current, data.agentName(), observer, e);
         }
+    }
+
+    private Optional<ServeRequest> resumeAfterRemoteFailure(InterruptData data, ServeRequest current,
+            Throwable failure) {
+        log.warn("Remote call '{}' failed; resuming parent with code={}", data.agentName(), remoteFailure(failure)
+                .map(RemoteAgentException::getCode).orElse(A2ARemoteAgentClient.CODE_REMOTE_ERROR));
+        log.debug("Remote delegation failure", failure);
+        return Optional
+                .of(buildResumeRequest(current, remoteFailureContent(failure), data.toolCallId(), data.toolName()));
     }
 
     /**
@@ -502,14 +539,30 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
                 return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
             }
+            if (isRecoverableRemoteFailure(e.getCause())) {
+                return resumePendingQueryAfterRemoteFailure(current, pt, agentName, e.getCause());
+            }
             throw failRemoteQuery(current, agentName, e.getCause());
         } catch (RemoteInputRequiredException rie) {
             return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
         } catch (InterruptedException e) {
             throw failRemoteQuery(current, agentName, e);
         } catch (Exception e) {
+            if (isRecoverableRemoteFailure(e)) {
+                return resumePendingQueryAfterRemoteFailure(current, pt, agentName, e);
+            }
             throw failRemoteQuery(current, agentName, e);
         }
+    }
+
+    private QueryResumeResult resumePendingQueryAfterRemoteFailure(ServeRequest current, Task pending, String agentName,
+            Throwable failure) {
+        log.warn("Remote call '{}' failed for pending task; resuming parent with code={}", agentName,
+                remoteFailure(failure).map(RemoteAgentException::getCode)
+                        .orElse(A2ARemoteAgentClient.CODE_REMOTE_ERROR));
+        log.debug("Remote pending query failure", failure);
+        deleteShadowTask(pending.id());
+        return QueryResumeResult.continueWith(buildResumeRequest(current, remoteFailureContent(failure), "", ""));
     }
 
     /**
@@ -545,16 +598,74 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 if (e.getCause() instanceof RemoteInputRequiredException rie) {
                     return remoteInputRequiredResponse(interruptData, response, current, data, rie);
                 }
+                if (isRecoverableRemoteFailure(e.getCause())) {
+                    return resumeAfterRemoteFailure(data, current, e.getCause());
+                }
                 throw failRemoteQuery(current, data.agentName(), e.getCause());
             } catch (RemoteInputRequiredException rie) {
                 return remoteInputRequiredResponse(interruptData, response, current, data, rie);
             } catch (InterruptedException e) {
                 throw failRemoteQuery(current, data.agentName(), e);
             } catch (Exception e) {
+                if (isRecoverableRemoteFailure(e)) {
+                    return resumeAfterRemoteFailure(data, current, e);
+                }
                 throw failRemoteQuery(current, data.agentName(), e);
             }
         }
         return Optional.empty(); // non-a2a_delegate or error → stop loop, return interrupt to caller
+    }
+
+    private static String remoteFailureContent(Throwable failure) {
+        String code = A2ARemoteAgentClient.CODE_REMOTE_ERROR;
+        String error = "remote A2A call failed";
+        Optional<RemoteAgentException> remoteFailure = remoteFailure(failure);
+        if (remoteFailure.isPresent()) {
+            code = remoteFailure.get().getCode();
+            error = remoteFailureMessage(code);
+        }
+        if (remoteFailure.isEmpty() && unwrapFailure(failure) instanceof java.util.concurrent.TimeoutException) {
+            code = A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT;
+            error = "remote A2A call timed out";
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("error", error);
+        payload.put("code", code);
+        return GSON.toJson(payload);
+    }
+
+    private static String remoteFailureMessage(String code) {
+        return switch (code) {
+            case A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT -> "remote A2A call timed out";
+            case A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED -> "remote A2A stream closed before a terminal event";
+            default -> "remote A2A call failed";
+        };
+    }
+
+    private static boolean isRecoverableRemoteFailure(Throwable failure) {
+        Throwable cause = unwrapFailure(failure);
+        if (cause instanceof java.util.concurrent.TimeoutException) {
+            return true;
+        }
+        return cause instanceof RemoteAgentException remoteAgentFailure
+                && (A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT.equals(remoteAgentFailure.getCode())
+                        || A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED.equals(remoteAgentFailure.getCode()));
+    }
+
+    private static Optional<RemoteAgentException> remoteFailure(Throwable failure) {
+        Throwable cause = unwrapFailure(failure);
+        return cause instanceof RemoteAgentException remoteAgentFailure
+                ? Optional.of(remoteAgentFailure)
+                : Optional.empty();
+    }
+
+    private static Throwable unwrapFailure(Throwable failure) {
+        Throwable cause = failure;
+        while ((cause instanceof ExecutionException || cause instanceof java.util.concurrent.CompletionException)
+                && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 
     private Optional<ServeRequest> remoteInputRequiredResponse(Map<String, Object> interruptData,

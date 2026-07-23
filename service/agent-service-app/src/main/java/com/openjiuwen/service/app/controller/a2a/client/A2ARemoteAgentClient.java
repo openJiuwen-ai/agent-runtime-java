@@ -37,7 +37,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
@@ -48,6 +50,15 @@ import java.util.function.Supplier;
  * @since 0.1.0
  */
 public class A2ARemoteAgentClient {
+    /** Structured code for a remote call timeout. */
+    public static final String CODE_REMOTE_TIMEOUT = "REMOTE_TIMEOUT";
+
+    /** Structured code for a stream that ended before a terminal event. */
+    public static final String CODE_REMOTE_STREAM_CLOSED = "REMOTE_STREAM_CLOSED";
+
+    /** Structured code for other remote call failures. */
+    public static final String CODE_REMOTE_ERROR = "REMOTE_ERROR";
+
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
 
     private static final Gson GSON = new Gson();
@@ -250,10 +261,64 @@ public class A2ARemoteAgentClient {
             } else {
                 log.debug("Unknown event type: {}", event.getClass().getSimpleName());
             }
-        }), result::completeExceptionally, null);
+        }), error -> completeOnStreamEnd(call.agentName(), result, error), null);
 
-        result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
-        return result;
+        return applyTimeout(result, call.agentName(), setup.entry.timeoutSeconds());
+    }
+
+    /**
+     * Applies the SDK streaming callback contract. A {@code null} error denotes
+     * normal transport EOF, not an exceptional callback argument.
+     *
+     * @param agentName remote agent name
+     * @param result call result
+     * @param error transport error, or {@code null} for EOF
+     * @return whether this callback completed the result exceptionally
+     */
+    static boolean completeOnStreamEnd(String agentName, CompletableFuture<String> result, Throwable error) {
+        if (result.isDone()) {
+            log.debug("A2A stream closed after terminal event agent={}", agentName);
+            return false;
+        }
+        RemoteAgentException failure;
+        if (error == null) {
+            failure = new RemoteAgentException(CODE_REMOTE_STREAM_CLOSED,
+                    "Remote agent '" + agentName + "' closed the stream before a terminal event", null);
+        } else {
+            failure = new RemoteAgentException(CODE_REMOTE_ERROR, "Remote agent '" + agentName + "' stream failed",
+                    error);
+        }
+        if (!result.completeExceptionally(failure)) {
+            log.debug("A2A stream closed after terminal event agent={}", agentName);
+            return false;
+        }
+        if (error == null) {
+            log.warn("A2A stream closed before terminal event agent={}", agentName);
+        } else {
+            log.warn("A2A stream failed agent={}: {}", agentName, error.getMessage());
+        }
+        return true;
+    }
+
+    static CompletableFuture<String> applyTimeout(CompletableFuture<String> result, String agentName,
+            int timeoutSeconds) {
+        return result.orTimeout(timeoutSeconds, TimeUnit.SECONDS).handle((answer, error) -> {
+            if (error == null) {
+                return answer;
+            }
+            Throwable cause = error instanceof CompletionException && error.getCause() != null
+                    ? error.getCause()
+                    : error;
+            if (cause instanceof TimeoutException) {
+                log.warn("A2A stream timed out agent={} timeoutSeconds={}", agentName, timeoutSeconds);
+                throw new RemoteAgentException(CODE_REMOTE_TIMEOUT,
+                        "Remote agent '" + agentName + "' timed out after " + timeoutSeconds + "s", cause);
+            }
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new CompletionException(cause);
+        });
     }
 
     /**
@@ -455,15 +520,17 @@ public class A2ARemoteAgentClient {
         try {
             return result.get(timeout, TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
-            throw new RemoteAgentException("Remote agent '" + call.agentName() + "' timed out after " + timeout + "s",
-                    e);
+            throw new RemoteAgentException(CODE_REMOTE_TIMEOUT,
+                    "Remote agent '" + call.agentName() + "' timed out after " + timeout + "s", e);
         } catch (InterruptedException e) {
-            throw new RemoteAgentException("Interrupted while waiting for remote agent '" + call.agentName() + "'", e);
+            throw new RemoteAgentException(CODE_REMOTE_ERROR,
+                    "Interrupted while waiting for remote agent '" + call.agentName() + "'", e);
         } catch (java.util.concurrent.ExecutionException e) {
             if (e.getCause() instanceof RemoteInputRequiredException rie) {
                 throw rie;
             }
-            throw new RemoteAgentException("Remote agent '" + call.agentName() + "' failed", e.getCause());
+            throw new RemoteAgentException(CODE_REMOTE_ERROR, "Remote agent '" + call.agentName() + "' failed",
+                    e.getCause());
         }
     }
 
@@ -525,8 +592,11 @@ public class A2ARemoteAgentClient {
 
     /** Wraps remote agent call failures (timeout, interrupted, execution error). */
     public static class RemoteAgentException extends RuntimeException {
+        private final String code;
+
         /**
-         * Constructs the exception.
+         * Constructs a generic remote failure for compatibility with existing
+         * callers.
          *
          * @param message
          *            the error message
@@ -534,7 +604,31 @@ public class A2ARemoteAgentClient {
          *            the underlying cause
          */
         public RemoteAgentException(String message, Throwable cause) {
+            this(CODE_REMOTE_ERROR, message, cause);
+        }
+
+        /**
+         * Constructs the exception.
+         *
+         * @param code
+         *            structured remote failure code
+         * @param message
+         *            the error message
+         * @param cause
+         *            the underlying cause
+         */
+        public RemoteAgentException(String code, String message, Throwable cause) {
             super(message, cause);
+            this.code = code == null || code.isBlank() ? CODE_REMOTE_ERROR : code;
+        }
+
+        /**
+         * Returns the structured remote failure code.
+         *
+         * @return failure code
+         */
+        public String getCode() {
+            return code;
         }
     }
 }

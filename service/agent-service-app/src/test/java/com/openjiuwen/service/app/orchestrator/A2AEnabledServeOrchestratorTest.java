@@ -271,6 +271,32 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
+    void queryRemoteTimeoutResumesParentWithStructuredError() {
+        when(taskStore.get(anyString())).thenReturn(null);
+        var failure = new A2ARemoteAgentClient.RemoteAgentException(A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT,
+                "timed out", null);
+        when(a2aClient.callStreaming(any(), any())).thenReturn(CompletableFuture.failedFuture(failure));
+        when(agentHandler.query(any()))
+                .thenReturn(
+                        new com.openjiuwen.service.spec.dto.QueryResponse(Map.of("role", "assistant", "_interrupt",
+                                Map.of("message", "delegate", "toolCallId", "call-1", "toolName", "delegate_to_test",
+                                        "context",
+                                        Map.of("_interrupt_kind", "a2a_delegate", "agentName", "test", "_stream_mode",
+                                                "sse"))),
+                                "c-query-timeout"),
+                        new com.openjiuwen.service.spec.dto.QueryResponse(
+                                Map.of("role", "assistant", "content", "fallback answer"), "c-query-timeout"));
+
+        var response = orchestrator.query(req("c-query-timeout"));
+
+        assertThat(response.getResult()).isEqualTo(Map.of("role", "assistant", "content", "fallback answer"));
+        ArgumentCaptor<ServeRequest> requestCaptor = ArgumentCaptor.forClass(ServeRequest.class);
+        verify(agentHandler, atLeastOnce()).query(requestCaptor.capture());
+        assertThat(requestCaptor.getAllValues().get(1).lastUserQuery()).contains("REMOTE_TIMEOUT");
+        verify(taskStore, never()).save(any(), anyBoolean());
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void queryRemoteInputRequiredUsesRemoteMessageAsContent() {
         when(taskStore.get(anyString())).thenReturn(null);
@@ -336,6 +362,29 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
+    void pendingResumeStreamClosedDeletesShadowAndResumesParent() {
+        String shadowId = "shadow:test-agent:c-pending-stream-closed";
+        Task pending = Task.builder().id(shadowId).contextId("c-pending-stream-closed")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
+                .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1",
+                        "_stream_mode", "sse"))
+                .build();
+        when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
+        var failure = new A2ARemoteAgentClient.RemoteAgentException(A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED,
+                "stream closed", null);
+        when(a2aClient.callStreaming(any(), any())).thenReturn(CompletableFuture.failedFuture(failure));
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        orchestrator.streamQuery(req("c-pending-stream-closed"), observer);
+
+        verify(taskStore).delete(shadowId);
+        verify(taskStore, never()).save(any(), anyBoolean());
+        ArgumentCaptor<ServeRequest> requestCaptor = ArgumentCaptor.forClass(ServeRequest.class);
+        verify(agentHandler).streamQuery(requestCaptor.capture(), any());
+        assertThat(requestCaptor.getValue().lastUserQuery()).contains("REMOTE_STREAM_CLOSED");
+    }
+
+    @Test
     void pendingResumeFailureDeletesShadowAndFailsStream() {
         String shadowId = "shadow:test-agent:c-pending-fail";
         Task pending = Task.builder().id(shadowId).contextId("c-pending-fail")
@@ -376,11 +425,38 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void sseDelegateFailureDeletesShadowAndFailsStream() {
+    void sseDelegateStreamClosedResumesParentWithStructuredError() {
         when(taskStore.get(anyString())).thenReturn(null);
-        when(registry.resolveUrl("test")).thenReturn("http://remote/a2a/");
-        when(a2aClient.callStreaming(any(), any()))
-                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("remote failed")));
+        var failure = new A2ARemoteAgentClient.RemoteAgentException(A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED,
+                "stream closed", null);
+        when(a2aClient.callStreaming(any(), any())).thenReturn(CompletableFuture.failedFuture(failure));
+        AtomicBoolean firstCall = new AtomicBoolean(true);
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            if (firstCall.getAndSet(false)) {
+                obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", "delegate", "context",
+                        Map.of("_interrupt_kind", "a2a_delegate", "agentName", "test", "_stream_mode", "sse"))));
+            } else {
+                obs.onComplete();
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        orchestrator.streamQuery(req("c-delegate-fail"), observer);
+
+        verify(taskStore, never()).save(any(), anyBoolean());
+        ArgumentCaptor<ServeRequest> requestCaptor = ArgumentCaptor.forClass(ServeRequest.class);
+        verify(agentHandler, atLeastOnce()).streamQuery(requestCaptor.capture(), any());
+        assertThat(requestCaptor.getAllValues().get(1).lastUserQuery()).contains("REMOTE_STREAM_CLOSED");
+    }
+
+    @Test
+    void sseDelegateRemoteErrorDeletesShadowAndFailsStream() {
+        when(taskStore.get(anyString())).thenReturn(null);
+        var failure = new A2ARemoteAgentClient.RemoteAgentException(A2ARemoteAgentClient.CODE_REMOTE_ERROR,
+                "remote failed", null);
+        when(a2aClient.callStreaming(any(), any())).thenReturn(CompletableFuture.failedFuture(failure));
         doAnswer(inv -> {
             QueryStreamObserver obs = inv.getArgument(1);
             obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", "delegate", "context",
@@ -389,9 +465,9 @@ class A2AEnabledServeOrchestratorTest {
         }).when(agentHandler).streamQuery(any(), any());
 
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
-        orchestrator.streamQuery(req("c-delegate-fail"), observer);
+        orchestrator.streamQuery(req("c-delegate-remote-error"), observer);
 
-        verify(taskStore).delete("shadow:test-agent:c-delegate-fail");
+        verify(taskStore).delete("shadow:test-agent:c-delegate-remote-error");
         verify(taskStore, never()).save(any(), anyBoolean());
         verifyRemoteFailure(observer);
     }
