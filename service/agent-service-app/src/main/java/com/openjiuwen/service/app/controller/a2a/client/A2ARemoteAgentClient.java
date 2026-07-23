@@ -35,6 +35,8 @@ import org.slf4j.LoggerFactory;
 import jakarta.annotation.PreDestroy;
 
 import java.lang.reflect.Type;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -118,11 +120,20 @@ public class A2ARemoteAgentClient {
      *            conversation context ID (shared across calls to the same remote)
      * @param taskId
      *            remote task ID to resume, or null for a new task
-     * @param metadata
-     *            additional metadata for the call
+     * @param metadata params-level metadata
+     * @param messageMetadata message-level metadata
      */
     public record RemoteCall(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata) {
+            Map<String, Object> metadata, Map<String, Object> messageMetadata) {
+        public RemoteCall {
+            metadata = immutableMetadata(metadata);
+            messageMetadata = immutableMetadata(messageMetadata);
+        }
+
+        public RemoteCall(String agentName, String message, String contextId, String taskId,
+                Map<String, Object> metadata) {
+            this(agentName, message, contextId, taskId, metadata, null);
+        }
     }
 
     /** Structured terminal or input-required result for a coordinator-owned call. */
@@ -135,15 +146,12 @@ public class A2ARemoteAgentClient {
      *
      * @param entry
      *            the resolved remote agent entry
-     * @param message
-     *            the built SDK message
+     * @param params the built SDK send parameters
      * @param contextId
      *            the context/conversation ID
-     * @param metadata
-     *            the metadata map
      */
-    private record RemoteCallSetup(A2ARemoteAgentCardRegistry.RemoteAgentEntry entry, Message message, String contextId,
-            Map<String, Object> metadata) {
+    private record RemoteCallSetup(A2ARemoteAgentCardRegistry.RemoteAgentEntry entry, MessageSendParams params,
+            String contextId) {
     }
 
     /**
@@ -161,17 +169,28 @@ public class A2ARemoteAgentClient {
      *            the metadata map
      * @return the prepared call setup
      */
-    private RemoteCallSetup prepareCall(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata) {
-        var entry = registry.get(agentName)
-                .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + agentName));
-        var ctxId = contextId != null ? contextId : java.util.UUID.randomUUID().toString();
-        var msgBuilder = Message.builder().role(Message.Role.ROLE_USER).contextId(ctxId)
-                .parts(List.<Part<?>>of(new TextPart(message)));
-        if (taskId != null && !taskId.isBlank()) {
-            msgBuilder.taskId(taskId);
+    private RemoteCallSetup prepareCall(RemoteCall call) {
+        var entry = registry.get(call.agentName())
+                .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
+        var contextId = call.contextId() != null ? call.contextId() : java.util.UUID.randomUUID().toString();
+        return new RemoteCallSetup(entry, buildSendParams(call, contextId), contextId);
+    }
+
+    static MessageSendParams buildSendParams(RemoteCall call, String contextId) {
+        var messageBuilder = Message.builder().role(Message.Role.ROLE_USER).contextId(contextId)
+                .parts(List.<Part<?>>of(new TextPart(call.message()))).metadata(call.messageMetadata());
+        if (call.taskId() != null && !call.taskId().isBlank()) {
+            messageBuilder.taskId(call.taskId());
         }
-        return new RemoteCallSetup(entry, msgBuilder.build(), ctxId, metadata);
+        var configuration = MessageSendConfiguration.builder().returnImmediately(false).build();
+        return MessageSendParams.builder().message(messageBuilder.build()).configuration(configuration)
+                .metadata(call.metadata()).build();
+    }
+
+    private static Map<String, Object> immutableMetadata(Map<String, Object> metadata) {
+        return metadata == null || metadata.isEmpty()
+                ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(metadata));
     }
 
     /**
@@ -228,16 +247,20 @@ public class A2ARemoteAgentClient {
      */
     public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
             QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver) {
-        var setup = prepareCall(call.agentName(), call.message(), call.contextId(), call.taskId(), call.metadata());
+        A2ARemoteAgentCardRegistry.RemoteAgentEntry entry = registry.get(call.agentName())
+                .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
+        return callOutcome(call, streamObserver, remoteTaskIdObserver, entry.streaming());
+    }
+
+    private CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
+            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver, boolean streaming) {
+        var setup = prepareCall(call);
         log.info("A2A call agent={} streaming={} taskId={} contextId={} textLen={}", call.agentName(),
-                setup.entry.streaming(),
+                streaming,
                 call.taskId() != null ? call.taskId() : "new", setup.contextId,
                 call.message() != null ? call.message().length() : 0);
 
-        Client client = createClient(setup.entry, setup.entry.streaming());
-        var configuration = MessageSendConfiguration.builder().returnImmediately(false).build();
-        var params = MessageSendParams.builder().message(setup.message).configuration(configuration)
-                .metadata(setup.metadata).build();
+        Client client = createClient(setup.entry, streaming);
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
         AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
@@ -261,7 +284,8 @@ public class A2ARemoteAgentClient {
         };
         try {
             Future<?> submitted = ioExecutor.submit(() -> withApplicationClassLoader(() -> {
-                client.sendMessage(params, List.of(eventConsumer), result::completeExceptionally, null);
+                client.sendMessage(setup.params, List.of(eventConsumer),
+                        error -> completeOutcomeOnStreamEnd(call.agentName(), result, error), null);
                 return null;
             }));
             invocationTask.set(submitted);
@@ -280,6 +304,17 @@ public class A2ARemoteAgentClient {
             }
         });
         return result;
+    }
+
+    private static boolean completeOutcomeOnStreamEnd(String agentName, CompletableFuture<?> result, Throwable error) {
+        if (result.isDone()) {
+            return false;
+        }
+        Throwable failure = error == null
+                ? new IllegalStateException(
+                        "Remote agent '" + agentName + "' closed the stream before a terminal event")
+                : error;
+        return result.completeExceptionally(failure);
     }
 
     private void handleOutcomeArtifact(TaskArtifactUpdateEvent event, CompletableFuture<RemoteCallOutcome> result,

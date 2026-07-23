@@ -8,12 +8,18 @@ import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
 import com.openjiuwen.core.sysop.config.SandboxIsolationConfig;
 import com.openjiuwen.core.sysop.config.SandboxLauncherConfig;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
+import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
+import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDecryptor;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport.PreparedOutboundSecurity;
+import com.openjiuwen.service.spec.security.ExternalTargetRef;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.time.Duration;
 
 /**
  * Factory that creates Core sandbox clients from external sandbox
@@ -24,8 +30,17 @@ import java.util.Optional;
 public class DefaultAgentCoreSandboxClientFactory implements AgentCoreSandboxClientFactory {
     private final AgentCoreExternalProperties properties;
 
+    private final ExternalOutboundSecuritySupport outboundSecuritySupport;
+
     public DefaultAgentCoreSandboxClientFactory(AgentCoreExternalProperties properties) {
+        this(properties, ExternalOutboundSecuritySupport.createDefault(new PassthroughCredentialDecryptor()));
+    }
+
+    public DefaultAgentCoreSandboxClientFactory(AgentCoreExternalProperties properties,
+        ExternalOutboundSecuritySupport outboundSecuritySupport) {
         this.properties = properties != null ? properties : new AgentCoreExternalProperties();
+        this.outboundSecuritySupport = outboundSecuritySupport != null ? outboundSecuritySupport
+            : ExternalOutboundSecuritySupport.createDefault(new PassthroughCredentialDecryptor());
         this.properties.getSandbox().validate();
     }
 
@@ -60,6 +75,8 @@ public class DefaultAgentCoreSandboxClientFactory implements AgentCoreSandboxCli
         if (server.getRootPath() != null && !server.getRootPath().isBlank()) {
             params.putIfAbsent("root_path", server.getRootPath());
         }
+        PreparedOutboundSecurity security = prepareSandboxSecurity(server, policy);
+        security.injectParams(params);
 
         SandboxLauncherConfig launcherConfig = SandboxLauncherConfig.builder()
             .launcherType(defaultText(server.getLauncherType(), "pre_deploy"))
@@ -84,6 +101,15 @@ public class DefaultAgentCoreSandboxClientFactory implements AgentCoreSandboxCli
             .isolation(isolationConfig)
             .params(params)
             .build();
+    }
+
+    private PreparedOutboundSecurity prepareSandboxSecurity(AgentCoreExternalProperties.SandboxServer server,
+        AgentCoreExternalProperties.SandboxPolicy policy) {
+        int timeoutMs = server.getTimeoutMs() != null ? server.getTimeoutMs() : policy.getTimeoutMs();
+        ExternalTargetRef target = new ExternalTargetRef("Sandbox", server.getServerId(), server.getServiceUrl(),
+            CredentialSceneType.SANDBOX_AUTH_TOKEN);
+        return outboundSecuritySupport.prepare(target, server.getTls(), server.getAuth(),
+            Duration.ofMillis(timeoutMs));
     }
 
     private static int toTimeoutSeconds(int timeoutMs) {

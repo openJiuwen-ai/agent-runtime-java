@@ -313,7 +313,7 @@ final class RemoteInvocationBatchCoordinator {
         }
         Map<String, Object> metadata = outboundMetadata(batch.request.getMetadata());
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
-            blankToNull(member.remoteTaskId), metadata);
+            blankToNull(member.remoteTaskId), metadata, batch.request.lastUserMessageMetadata());
         QueryStreamObserver progressObserver = memberProgressObserver(batch, member);
         CompletableFuture<RemoteCallOutcome> future;
         try {

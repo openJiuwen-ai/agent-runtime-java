@@ -57,7 +57,9 @@ class AgentCoreCheckpointerConfigAssemblerTest {
         MiddlewareProperties properties = new MiddlewareProperties();
         properties.getCheckpointer().setType("redis");
         properties.getCheckpointer().setTtlSeconds(30L);
-        properties.getRedis().put("default", new MiddlewareProperties.RedisEndpoint());
+        MiddlewareProperties.RedisEndpoint endpoint = new MiddlewareProperties.RedisEndpoint();
+        endpoint.setHost("127.0.0.1");
+        properties.getRedis().put("default", endpoint);
 
         Map<String, Object> config = AgentCoreCheckpointerConfigAssembler.build(properties, value -> value,
                 new NoopRuntimeRedisClient());

@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.a2aproject.sdk.spec.A2AErrorCodes;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
@@ -34,6 +35,10 @@ class A2aIntegrationTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private ResponseEntity<String> postA2a(Map<String, Object> body) {
+        return postA2a(mapper.valueToTree(body).toString());
+    }
+
+    private ResponseEntity<String> postA2a(String body) {
         HttpHeaders h = new HttpHeaders();
         h.setContentType(MediaType.APPLICATION_JSON);
         return rest.postForEntity("/a2a/", new HttpEntity<>(body, h), String.class);
@@ -116,12 +121,106 @@ class A2aIntegrationTest {
     }
 
     @Test
-    void unknownMethodReturnsJsonRpcError() throws Exception {
-        var resp = postA2a(Map.of("jsonrpc", "2.0", "id", 99, "method", "Bogus", "params", Map.of()));
+    @SuppressWarnings("unchecked")
+    void parseErrorReturnsJsonRpcErrorWithHttpOkAndNullId() throws Exception {
+        var resp = postA2a("{not-json");
 
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
         Map<String, Object> body = json(resp.getBody());
+        assertThat(body).containsEntry("jsonrpc", "2.0").containsKey("id");
+        assertThat(body.get("id")).isNull();
+        assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.JSON_PARSE.code())
+                .containsEntry("message", "Parse error");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void nonObjectPayloadReturnsInvalidRequest() throws Exception {
+        var resp = postA2a("[]");
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> body = json(resp.getBody());
+        assertThat(body).containsKey("id");
+        assertThat(body.get("id")).isNull();
+        assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.INVALID_REQUEST.code());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void missingMethodReturnsInvalidRequestWithHttpOk() throws Exception {
+        var resp = postA2a(Map.of("jsonrpc", "2.0", "id", "1"));
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> body = json(resp.getBody());
+        assertThat(body).containsEntry("jsonrpc", "2.0").containsEntry("id", "1");
+        assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.INVALID_REQUEST.code())
+                .containsEntry("message", "Invalid Request");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void unknownMethodReturnsJsonRpcError() throws Exception {
+        var resp = postA2a(Map.of("jsonrpc", "2.0", "id", "7", "method", "NoSuchMethodEver", "params", Map.of()));
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> body = json(resp.getBody());
+        assertThat(body).containsEntry("jsonrpc", "2.0").containsEntry("id", "7");
         Map<String, Object> err = (Map<String, Object>) body.get("error");
-        assertThat(err.get("code")).isEqualTo(-32601);
+        assertThat(err).containsEntry("code", A2AErrorCodes.METHOD_NOT_FOUND.code()).containsEntry("message",
+                "Method not found: NoSuchMethodEver");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void malformedMethodParamsReturnInvalidParams() throws Exception {
+        var resp = postA2a("{\"jsonrpc\":\"2.0\",\"id\":\"8\",\"method\":\"SendMessage\",\"params\":[]}");
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> body = json(resp.getBody());
+        assertThat(body).containsEntry("jsonrpc", "2.0").containsEntry("id", "8");
+        assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.INVALID_PARAMS.code());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void sendMessageWithContentInsteadOfPartsReturnsInvalidParams() throws Exception {
+        Map<String, Object> message = Map.of("role", "ROLE_USER", "content", List.of(Map.of("text", "hello")),
+                "messageId", "test-002");
+        var resp = postA2a(rpc("SendMessage", 9, Map.of("message", message)));
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> body = json(resp.getBody());
+        assertThat(body).containsEntry("jsonrpc", "2.0").containsEntry("id", 9.0);
+        assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.INVALID_PARAMS.code())
+                .containsEntry("message",
+                        "Invalid params: params.message.parts is required and must be a non-empty array");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void sendMessageWithoutUsableTextPartReturnsInvalidParams() throws Exception {
+        Map<String, Object> message = Map.of("role", "ROLE_USER", "parts", List.of(Map.of("text", "   ")), "messageId",
+                "test-003");
+        var resp = postA2a(rpc("SendMessage", 10, Map.of("message", message)));
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> body = json(resp.getBody());
+        assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.INVALID_PARAMS.code())
+                .containsEntry("message",
+                        "Invalid params: params.message.parts must contain at least one non-blank text part");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void getTaskWithTaskIdInsteadOfIdReturnsInvalidParams() throws Exception {
+        var resp = postA2a(rpc("GetTask", 11, Map.of("taskId", "test-task-001")));
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> body = json(resp.getBody());
+        assertThat(body).containsEntry("jsonrpc", "2.0").containsEntry("id", 11.0);
+        assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.INVALID_PARAMS.code())
+                .containsEntry("message", "Invalid params: params.id is required and must be a non-blank string");
     }
 
     @Test

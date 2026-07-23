@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.autoconfigure;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
 import com.openjiuwen.service.app.config.A2AProperties;
+import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
 import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
@@ -36,12 +37,15 @@ import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -56,6 +60,8 @@ import java.util.concurrent.TimeUnit;
 @ConditionalOnClass(AgentExecutor.class)
 @EnableConfigurationProperties(A2AProperties.class)
 public class A2AAutoConfiguration {
+    private static final Map<String, String> A2A_RUNTIME_DEFAULTS = Map.of("a2a.blocking.agent.timeout.seconds", "300");
+
     /**
      * Creates the SDK main event bus bean.
      *
@@ -150,14 +156,17 @@ public class A2AAutoConfiguration {
     }
 
     /**
-     * Creates the A2A config provider bean with SDK defaults.
+     * Creates the A2A config provider bean backed by the Spring environment and SDK defaults.
      *
+     * @param environment the Spring environment
+     * @param beanFactory the bean factory used to initialize the SDK defaults provider
      * @return the A2A config provider
      */
     @Bean
     @ConditionalOnMissingBean
-    public A2AConfigProvider a2aConfigProvider() {
-        return new DefaultValuesConfigProvider();
+    public A2AConfigProvider a2aConfigProvider(Environment environment, AutowireCapableBeanFactory beanFactory) {
+        DefaultValuesConfigProvider defaults = beanFactory.createBean(DefaultValuesConfigProvider.class);
+        return new SpringEnvironmentConfigProvider(environment, defaults, A2A_RUNTIME_DEFAULTS);
     }
 
     /**

@@ -115,6 +115,82 @@ class LlmConfigResolverTest {
     }
 
     @Test
+    void resolveRequired_rejectsBlankApiKey() {
+        LlmProperties properties = configuredProperties();
+        properties.setApiKey("   ");
+        LlmConfigResolver resolver = resolver(properties, ciphertext -> ciphertext);
+
+        assertThatThrownBy(resolver::resolveRequired)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.api-key");
+    }
+
+    @Test
+    void resolveRequired_rejectsMissingApiBase() {
+        LlmProperties properties = configuredProperties();
+        properties.setApiBase("   ");
+        LlmConfigResolver resolver = resolver(properties, ciphertext -> ciphertext);
+
+        assertThatThrownBy(resolver::resolveRequired)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.api-base");
+    }
+
+    @Test
+    void resolveRequired_rejectsMissingModelName() {
+        LlmProperties properties = configuredProperties();
+        properties.setModelName("   ");
+        LlmConfigResolver resolver = resolver(properties, ciphertext -> ciphertext);
+
+        assertThatThrownBy(resolver::resolveRequired)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.model-name");
+    }
+
+    @Test
+    void resolveRequired_rejectsDecryptorReturningNull() {
+        LlmProperties properties = configuredProperties();
+        LlmConfigResolver resolver = resolver(properties, ciphertext -> null);
+
+        assertThatThrownBy(resolver::resolveRequired)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.api-key");
+    }
+
+    @Test
+    void resolve_rejectsInvalidTemperature() {
+        assertInvalidTemperature(-0.1D);
+        assertInvalidTemperature(Double.NaN);
+        assertInvalidTemperature(Double.POSITIVE_INFINITY);
+    }
+
+    @Test
+    void resolve_rejectsInvalidTopP() {
+        assertInvalidTopP(-0.1D);
+        assertInvalidTopP(1.1D);
+        assertInvalidTopP(Double.NaN);
+        assertInvalidTopP(Double.POSITIVE_INFINITY);
+    }
+
+    @Test
+    void resolve_rejectsNonPositiveTimeout() {
+        assertInvalidTimeout(Duration.ZERO);
+        assertInvalidTimeout(Duration.ofSeconds(-1));
+    }
+
+    @Test
+    void resolve_rejectsNonPositiveContextWindowLimit() {
+        assertInvalidContextWindowLimit(0);
+        assertInvalidContextWindowLimit(-1);
+    }
+
+    @Test
+    void resolve_rejectsNonPositiveMaxIterations() {
+        assertInvalidMaxIterations(0);
+        assertInvalidMaxIterations(-1);
+    }
+
+    @Test
     void resolvedConfigBuilder_doesNotExposeApiKeyInToString() {
         String representation = ResolvedLlmConfig.builder().apiKey("sensitive-key").toString();
 
@@ -135,6 +211,55 @@ class LlmConfigResolverTest {
                 return ciphertext.replace("ENC:", "plain:");
             }
         };
+    }
+
+    private static LlmConfigResolver resolver(LlmProperties properties, CredentialDecryptor decryptor) {
+        return new LlmConfigResolver(properties, new MockEnvironment(), decryptor);
+    }
+
+    private static void assertInvalidTemperature(double value) {
+        LlmProperties properties = new LlmProperties();
+        properties.setTemperature(value);
+
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolve())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.temperature");
+    }
+
+    private static void assertInvalidTopP(double value) {
+        LlmProperties properties = new LlmProperties();
+        properties.setTopP(value);
+
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolve())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.top-p");
+    }
+
+    private static void assertInvalidTimeout(Duration value) {
+        LlmProperties properties = new LlmProperties();
+        properties.setTimeout(value);
+
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolve())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.timeout");
+    }
+
+    private static void assertInvalidContextWindowLimit(int value) {
+        LlmProperties properties = new LlmProperties();
+        properties.setContextWindowLimit(value);
+
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolve())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.context-window-limit");
+    }
+
+    private static void assertInvalidMaxIterations(int value) {
+        LlmProperties properties = new LlmProperties();
+        properties.setMaxIterations(value);
+
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolve())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.max-iterations");
     }
 
     private static LlmProperties configuredProperties() {

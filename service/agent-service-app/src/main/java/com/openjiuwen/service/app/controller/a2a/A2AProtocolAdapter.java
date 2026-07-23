@@ -28,17 +28,17 @@ public class A2AProtocolAdapter {
     private static final Logger log = LoggerFactory.getLogger(A2AProtocolAdapter.class);
 
     private static final Map<String, String> ROLE_MAP = Map.of("ROLE_USER", "user", "ROLE_AGENT", "assistant",
-        "ROLE_SYSTEM", "system");
+            "ROLE_SYSTEM", "system");
 
     private static final String PARENT_TASK_ID = "runtime.parentTaskId";
 
     private static final String REMOTE_TOOL_INPUTS = "runtime.remoteToolInputs";
 
     private static final List<String> RESERVED_METADATA_KEYS = List.of(
-        PARENT_TASK_ID,
-        REMOTE_TOOL_INPUTS,
-        "runtime.remoteBatchId",
-        "runtime.remoteToolResults");
+            PARENT_TASK_ID,
+            REMOTE_TOOL_INPUTS,
+            "runtime.remoteBatchId",
+            "runtime.remoteToolResults");
 
     /**
      * Converts an A2A message context into an internal {@link ServeRequest}.
@@ -51,6 +51,7 @@ public class A2AProtocolAdapter {
         req.setConversationId(ctx.getContextId());
         req.setStream(false); // default non-streaming; overridden by executor for SendStreamingMessage
 
+        // Preserve A2A protocol metadata: MessageSendParams.metadata()
         // headers → userId / spaceId / tenantId
         if (ctx.getHeaders() != null) {
             req.setUserId(ctx.getHeaders().getOrDefault("x-user-id", "anonymous"));
@@ -69,10 +70,13 @@ public class A2AProtocolAdapter {
         Map<String, Object> userMsg = new LinkedHashMap<>();
         userMsg.put("role", normalizeRole(msg.role().name()));
         userMsg.put("content", rawText);
+        if (msg.metadata() != null) {
+            userMsg.put("metadata", new LinkedHashMap<>(msg.metadata()));
+        }
         req.setMessages(List.of(userMsg));
 
         log.info("A2A toServeRequest taskId={} contextId={} conversationId={} textLen={}", ctx.getTaskId(),
-            ctx.getContextId(), req.getConversationId(), rawText != null ? rawText.length() : 0);
+                ctx.getContextId(), req.getConversationId(), rawText != null ? rawText.length() : 0);
 
         return req;
     }
@@ -95,11 +99,11 @@ public class A2AProtocolAdapter {
                 allTargeted = false;
             }
         }
-        Map<String, String> targetedInputs = new LinkedHashMap<>();
         if (anyTargeted && !allTargeted) {
             throw new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_MIXED");
         }
-        if (anyTargeted && allTargeted) {
+        Map<String, String> targetedInputs = new LinkedHashMap<>();
+        if (anyTargeted) {
             grouped.forEach((toolCallId, text) -> targetedInputs.put(toolCallId, text.toString()));
         }
         return new TextExtraction(rawText.toString(), targetedInputs);

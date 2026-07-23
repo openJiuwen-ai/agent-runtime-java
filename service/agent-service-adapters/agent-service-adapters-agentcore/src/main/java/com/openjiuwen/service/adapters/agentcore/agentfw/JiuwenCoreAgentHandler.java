@@ -16,6 +16,7 @@ import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.session.stream.TraceSchema;
 import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
+import com.openjiuwen.core.workflow.WorkflowOutput;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -71,6 +72,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static final String SYNTHETIC_AGENT_ID_PREFIX = "service-agentcore:";
 
+    private static final List<String> INVOKE_CONTENT_KEYS = List.of("output", "content", "response", "result", "data",
+            "payload");
+
+    private static final List<String> STREAM_CONTENT_KEYS = List.of("content", "delta", "output", "response", "result",
+            "data", "payload");
+
     private final Object agent;
 
     private final MiddlewareAdapterRegistrar middlewareAdapterRegistrar;
@@ -114,12 +121,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param externalSvcAdapterRegistrar the external service adapter registrar
      */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
-        ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
+            ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
         this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
-            ? externalSvcAdapterRegistrar
-            : ExternalSvcAdapterRegistrar.noop();
+                ? externalSvcAdapterRegistrar
+                : ExternalSvcAdapterRegistrar.noop();
     }
 
     /**
@@ -183,12 +190,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         String convId = request.getConversationId();
         String query = request.lastUserQuery();
         log.info("JiuwenCoreAgentHandler streamQuery convId={} textLen={} msgCount={}", convId,
-            query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
+                query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
         try {
             List<Map<String, Object>> interrupts = new ArrayList<>();
             List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
             Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request),
-                null, streamModes);
+                    null, streamModes);
             while (!observer.isCancelled() && source.hasNext()) {
                 if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
                     break;
@@ -229,7 +236,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         List<Map<String, Object>> interrupts = new ArrayList<>();
         List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
         Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request), null,
-            streamModes);
+                streamModes);
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
             lastPayload = payload;
@@ -261,14 +268,18 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             if (result1.isPresent()) {
                 return result1.get();
             }
-            String content = firstNonNull(map.get("output"), map.get("content"), map.get("response"))
-                .map(JiuwenCoreAgentHandler::stringify)
-                .orElse("");
+            String content = extractContent(map, INVOKE_CONTENT_KEYS, true).orElse("");
             result.put("content", content);
             return new QueryResponse(result, conversationId);
         }
         if (rawResult instanceof ControllerOutput controllerOutput) {
+            if (!(controllerOutput.getData() instanceof List<?>)) {
+                return toQueryResponse(controllerOutput.getData(), conversationId);
+            }
             return buildQueryResponseFromControllerOutput(controllerOutput, conversationId);
+        }
+        if (rawResult instanceof WorkflowOutput workflowOutput) {
+            return toQueryResponse(workflowOutput.getResult(), conversationId);
         }
         result.put("content", stringify(rawResult));
         return new QueryResponse(result, conversationId);
@@ -291,7 +302,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private static QueryResponse buildQueryResponseFromControllerOutput(ControllerOutput controllerOutput,
-        String conversationId) {
+            String conversationId) {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
         Object data = controllerOutput.getData();
@@ -430,9 +441,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static String resolveSessionId(ServeRequest request) {
         String conversationId = request.getConversationId();
-        return conversationId != null && !conversationId.isBlank()
-            ? conversationId
-            : DEFAULT_AGENT_SESSION_ID;
+        return conversationId != null && !conversationId.isBlank() ? conversationId : DEFAULT_AGENT_SESSION_ID;
     }
 
     private Map<String, Object> sessionEnvs(ServeRequest request) {
@@ -448,14 +457,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return card.get();
         }
         String agentId = agent instanceof String stringAgentId
-            ? stringAgentId
-            : SYNTHETIC_AGENT_ID_PREFIX + syntheticAgentClassName();
+                ? stringAgentId
+                : SYNTHETIC_AGENT_ID_PREFIX + syntheticAgentClassName();
         String agentName = agent instanceof String stringAgentId ? stringAgentId : syntheticAgentDisplayName();
-        return BaseCard.builder()
-            .id(agentId)
-            .name(agentName)
-            .description("Synthetic card for AgentCore session")
-            .build();
+        return BaseCard.builder().id(agentId).name(agentName).description("Synthetic card for AgentCore session")
+                .build();
     }
 
     private static Map<String, Object> requestEnvs(ServeRequest request) {
@@ -635,14 +641,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return;
         }
         Object rawPayload = map.get("payload");
-        Optional<Object> text = firstNonNull(map.get("content"), map.get("delta"), map.get("output"),
-            map.get("response"));
-        if (rawPayload instanceof Map<?, ?> payloadMap) {
-            Optional<Object> payloadText = firstNonNull(payloadMap.get("content"), payloadMap.get("delta"),
-                payloadMap.get("output"), payloadMap.get("response"));
-            if (payloadText.isPresent()) {
-                text = payloadText;
-            }
+        Optional<String> text = extractContent(map, STREAM_CONTENT_KEYS, false);
+        if (rawPayload != null) {
+            Optional<String> payloadText = extractContent(rawPayload, STREAM_CONTENT_KEYS, false);
+            text = payloadText.isPresent() ? payloadText : text;
         }
         if (text.isEmpty()) {
             return;
@@ -652,7 +654,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if ("answer".equals(typeText) && !content.isEmpty()) {
             return;
         }
-        content.append(stringify(text.get()));
+        content.append(text.get());
     }
 
     /**
@@ -668,8 +670,54 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return error;
     }
 
-    private static Optional<Object> firstNonNull(Object... values) {
-        return Arrays.stream(values).filter(value -> value != null).findFirst();
+    private static Optional<String> extractContent(Object value, List<String> contentKeys,
+            boolean shouldUseMapFallback) {
+        if (value == null) {
+            return Optional.empty();
+        }
+        if (value instanceof ControllerOutput controllerOutput) {
+            return extractContent(controllerOutput.getData(), contentKeys, shouldUseMapFallback);
+        }
+        if (value instanceof WorkflowOutput workflowOutput) {
+            return extractContent(workflowOutput.getResult(), contentKeys, shouldUseMapFallback);
+        }
+        if (value instanceof OutputSchema outputSchema) {
+            return extractContent(outputSchema.getPayload(), contentKeys, shouldUseMapFallback);
+        }
+        if (value instanceof Map<?, ?> map) {
+            return extractMapContent(map, contentKeys, shouldUseMapFallback);
+        }
+        if (value instanceof Iterable<?> values) {
+            return extractIterableContent(values, contentKeys, shouldUseMapFallback);
+        }
+        String content = stringify(value);
+        return content.isEmpty() ? Optional.empty() : Optional.of(content);
+    }
+
+    private static Optional<String> extractMapContent(Map<?, ?> map, List<String> contentKeys,
+            boolean shouldUseMapFallback) {
+        if (map.isEmpty()) {
+            return Optional.empty();
+        }
+        for (String key : contentKeys) {
+            Optional<String> nested = extractContent(map.get(key), contentKeys, shouldUseMapFallback);
+            if (nested.isPresent()) {
+                return nested;
+            }
+        }
+        if (map.size() == 1) {
+            return extractContent(map.values().iterator().next(), contentKeys, shouldUseMapFallback);
+        }
+        return shouldUseMapFallback ? Optional.of(stringify(map)) : Optional.empty();
+    }
+
+    private static Optional<String> extractIterableContent(Iterable<?> values, List<String> contentKeys,
+            boolean shouldUseMapFallback) {
+        StringBuilder content = new StringBuilder();
+        for (Object item : values) {
+            extractContent(item, contentKeys, shouldUseMapFallback).ifPresent(content::append);
+        }
+        return content.isEmpty() ? Optional.empty() : Optional.of(content.toString());
     }
 
     /**

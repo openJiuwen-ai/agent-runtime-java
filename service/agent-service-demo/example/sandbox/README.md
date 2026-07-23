@@ -3,7 +3,36 @@
 `agent-service-demo-sandbox` 演示用户请求经过大模型后，由 Agent 调用真实 JiuwenBox 中的
 `executeCmd`、`readFile` 和 `executeCode` 工具。
 
-完整链路：
+runtime 不再实现独立的 sandbox HTTP provider。sandbox 后端协议由 agent-core-java 的 provider 负责，标准后端入口是 `/api/v1/sandboxes`。runtime 这一层负责读取外部服务配置、创建 core client，并统一套用 timeout、retry、circuit breaker、audit 等外部调用策略。
+
+HTTPS + Bearer 出站安全配置见 [`application-sandbox-outbound-security.example.yml`](application-sandbox-outbound-security.example.yml)；
+可运行 E2E（无需 LLM / Spring Boot）见 [`../outbound-security/README.md`](../outbound-security/README.md)。
+
+## 两个示例的区别
+
+| 示例 | 文件 | 是否经过 Agent | 用途 |
+|------|------|---------------|------|
+| Agent 调沙箱完整服务 | `src/main/java/com/openjiuwen/service/demo/example/sandbox/SandboxDemoApplication.java` | 是 | 启动 Agent Service，LLM 可选择 `readFile` / `executeCmd` / `executeCode` 工具，工具背后调用装饰后的 `SandboxClient` |
+| Adapter 直连示例 | `SandboxAdapterExample.java` | 否 | 直接创建 core `SandboxClient` 并调用沙箱服务，用来验证 sandbox 配置、client 创建和基础操作 |
+
+一般手工联调“大模型通过 agent 调用沙箱，并经过 runtime 装饰器”时，使用 `SandboxDemoApplication.java`。只想验证 sandbox adapter/client 是否能连通后端时，使用 `SandboxAdapterExample.java`。
+
+## SandboxDemoApplication：Agent 调装饰后 Sandbox
+
+`SandboxDemoApplication` 会创建一个 `ReActAgent`，然后在存在 `AgentCoreSandboxClientFactory` bean 时执行：
+
+```java
+DecoratedSandboxToolRegistrar.register(agent, factory)
+```
+
+这个注册过程会：
+
+1. 通过 `factory.create()` 创建 core `SandboxClient`。
+2. `DefaultAgentCoreSandboxClientFactory` 返回的是 `DecoratingSandboxClient`。
+3. 把 `readFile`、`executeCmd`、`executeCode` 包成 `LocalFunction` / `ToolCard` 注册到 `ReActAgent`。
+4. LLM 在 ReAct 流程中选择工具后，工具执行会进入 `DecoratingSandboxClient.fs()` / `shell()` / `code()`，再调用真实 sandbox 服务。
+
+调用链：
 
 ```text
 POST /v1/query

@@ -84,7 +84,7 @@ public class A2AAgentExecutor implements AgentExecutor {
 
         Task task = ctx.getTask();
         boolean isInputRequiredResume = task != null && task.status() != null
-            && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED;
+                && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED;
         Map<String, Object> metadata = new LinkedHashMap<>(req.getMetadata());
         metadata.remove(INTERRUPT);
         if (isInputRequiredResume) {
@@ -95,7 +95,7 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
         req.setMetadata(metadata);
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
-            msgCtx.getContextId(), req.getConversationId(), isInputRequiredResume, req.isStream());
+                msgCtx.getContextId(), req.getConversationId(), isInputRequiredResume, req.isStream());
 
         if (task == null) {
             emitter.submit();
@@ -115,7 +115,7 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private void executeStreaming(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
-        AgentEmitter emitter) {
+            AgentEmitter emitter) {
         AtomicBoolean cancelled = new AtomicBoolean(false);
         AtomicBoolean interrupted = new AtomicBoolean(false);
         activeCancellations.put(ctx.getContextId(), cancelled);
@@ -128,7 +128,8 @@ public class A2AAgentExecutor implements AgentExecutor {
                     }
                     if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
                         log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
-                            msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
+                                msgCtx.getContextId(),
+                                chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
                         if (chunk.getData() instanceof Map<?, ?> interruptData) {
                             emitter.requiresInput(statusMessage(interruptData));
                         } else {
@@ -154,7 +155,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 public void onComplete() {
                     if (interrupted.get()) {
                         log.info("A2A stream ended after interrupt (COMPLETED suppressed) taskId={}",
-                            msgCtx.getTaskId());
+                                msgCtx.getTaskId());
                     } else {
                         log.info("A2A stream complete taskId={}", msgCtx.getTaskId());
                         emitter.complete();
@@ -164,7 +165,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 @Override
                 public void onError(Throwable error) {
                     log.error("A2A agent stream error taskId={} contextId={}", msgCtx.getTaskId(),
-                        msgCtx.getContextId(), error);
+                            msgCtx.getContextId(), error);
                     emitter.fail();
                 }
 
@@ -185,7 +186,7 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
         QueryResponse response = orchestrator.query(req);
         if (response.getResult() instanceof Map<?, ?> result
-            && result.get(INTERRUPT) instanceof Map<?, ?> interruptData) {
+                && result.get(INTERRUPT) instanceof Map<?, ?> interruptData) {
             log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
             emitter.requiresInput(statusMessage(interruptData));
             closeEventQueue(emitter, msgCtx.getTaskId());
@@ -294,13 +295,10 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private static Message statusMessage(Map<?, ?> interruptData) {
         String message = interruptData.get("message") instanceof String text && !text.isBlank()
-            ? text
-            : "Input required";
-        return Message.builder()
-            .role(Message.Role.ROLE_AGENT)
-            .parts(List.of(new TextPart(message)))
-            .metadata(Map.of(INTERRUPT, interruptData))
-            .build();
+                ? text
+                : "Input required";
+        return Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(message)))
+                .metadata(Map.of(INTERRUPT, interruptData)).build();
     }
 
     private static Optional<Map<?, ?>> findStoredInterrupt(Task task) {
@@ -315,7 +313,7 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
         for (int index = history.size() - 1; index >= 0; index--) {
             Optional<Message> agentMessage = Optional.ofNullable(history.get(index))
-                .filter(message -> message.role() == Message.Role.ROLE_AGENT);
+                    .filter(message -> message.role() == Message.Role.ROLE_AGENT);
             if (agentMessage.isPresent()) {
                 return agentMessage.flatMap(A2AAgentExecutor::interruptFrom);
             }
@@ -325,7 +323,7 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private static Optional<Map<?, ?>> interruptFrom(Message message) {
         if (message == null || message.role() != Message.Role.ROLE_AGENT || message.metadata() == null
-            || !(message.metadata().get(INTERRUPT) instanceof Map<?, ?> interruptData)) {
+                || !(message.metadata().get(INTERRUPT) instanceof Map<?, ?> interruptData)) {
             return Optional.empty();
         }
         return Optional.of(interruptData);
@@ -378,7 +376,7 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private static Optional<org.a2aproject.sdk.server.events.EventQueue> emitterEventQueue(AgentEmitter emitter)
-        throws ReflectiveOperationException {
+            throws ReflectiveOperationException {
         var f = AgentEmitter.class.getDeclaredField("eventQueue");
         f.setAccessible(true);
         Object queueObj = f.get(emitter);
@@ -428,7 +426,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 Thread.sleep(CLOSE_DRAIN_POLL_MS);
             }
             log.warn("A2A awaitInFlightDrained timed out after {}ms, closing anyway taskId={}", CLOSE_DRAIN_TIMEOUT_MS,
-                taskId);
+                    taskId);
         } catch (InterruptedException e) {
             log.debug("A2A awaitInFlightDrained interrupted taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {

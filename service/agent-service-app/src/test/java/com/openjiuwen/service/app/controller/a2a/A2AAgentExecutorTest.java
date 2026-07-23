@@ -29,10 +29,10 @@ import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
-import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
+import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 
@@ -137,17 +137,11 @@ class A2AAgentExecutorTest {
 
     @Test
     void syncInterruptStoresRawDataUnderReservedMetadataKey() {
-        Map<String, Object> interaction = Map.of(
-            "type", "__interaction__",
-            "index", 0,
-            "payload", Map.of(
-                "kind", "confirmation",
-                "items", List.of(Map.of("name", "transfer", "type", "tool_call"))),
-            "message", "Approve transfer?",
-            "context", Map.of("_interrupt_kind", "ask_user"));
+        Map<String, Object> interaction = Map.of("type", "__interaction__", "index", 0, "payload",
+                Map.of("kind", "confirmation", "items", List.of(Map.of("name", "transfer", "type", "tool_call"))),
+                "message", "Approve transfer?", "context", Map.of("_interrupt_kind", "ask_user"));
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
-        when(orchestrator.query(any())).thenReturn(
-            new QueryResponse(Map.of("_interrupt", interaction), "ctx-1"));
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("_interrupt", interaction), "ctx-1"));
         A2AProtocolAdapter adapter = requestAdapter(false, Map.of());
         CapturingEventQueue queue = new CapturingEventQueue();
 
@@ -160,13 +154,9 @@ class A2AAgentExecutorTest {
 
     @Test
     void streamingInterruptWithoutMessageStoresRawData() {
-        Map<String, Object> interaction = Map.of(
-            "type", "__interaction__",
-            "index", 0,
-            "payload", Map.of(
-                "kind", "confirmation",
-                "items", List.of(Map.of("name", "transfer", "type", "tool_call"))),
-            "context", Map.of("_interrupt_kind", "ask_user"));
+        Map<String, Object> interaction = Map.of("type", "__interaction__", "index", 0, "payload",
+                Map.of("kind", "confirmation", "items", List.of(Map.of("name", "transfer", "type", "tool_call"))),
+                "context", Map.of("_interrupt_kind", "ask_user"));
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
             observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, interaction));
@@ -181,7 +171,7 @@ class A2AAgentExecutorTest {
         Message message = inputRequiredMessage(queue);
         assertThat(message.metadata()).containsOnly(Map.entry("_interrupt", interaction));
         assertThat(message.parts().get(0)).isInstanceOfSatisfying(TextPart.class,
-            textPart -> assertThat(textPart.text()).isEqualTo("Input required"));
+                textPart -> assertThat(textPart.text()).isEqualTo("Input required"));
     }
 
     @Test
@@ -207,16 +197,10 @@ class A2AAgentExecutorTest {
     @Test
     void copiesOnlyStoredInterruptOntoResumeRequest() {
         Map<String, Object> interaction = Map.of("kind", "message", "message", "Continue");
-        Message statusMessage = Message.builder()
-            .role(Message.Role.ROLE_AGENT)
-            .parts(List.of(new TextPart("Continue")))
-            .metadata(Map.of("_interrupt", interaction, "trace", "not-resume-data"))
-            .build();
-        Task task = Task.builder()
-            .id("task-1")
-            .contextId("ctx-1")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, statusMessage, null))
-            .build();
+        Message statusMessage = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart("Continue")))
+                .metadata(Map.of("_interrupt", interaction, "trace", "not-resume-data")).build();
+        Task task = Task.builder().id("task-1").contextId("ctx-1")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, statusMessage, null)).build();
 
         assertStoredInterruptCopied(task, interaction);
     }
@@ -225,27 +209,16 @@ class A2AAgentExecutorTest {
     void copiesInterruptFromLatestAgentMessageInHistory() {
         Map<String, Object> oldInteraction = Map.of("kind", "message", "message", "Old interrupt");
         Map<String, Object> latestInteraction = Map.of("kind", "confirmation", "message", "Approve");
-        Message oldInputRequiredMessage = Message.builder()
-            .role(Message.Role.ROLE_AGENT)
-            .parts(List.of(new TextPart("Old interrupt")))
-            .metadata(Map.of("_interrupt", oldInteraction))
-            .build();
-        Message latestInputRequiredMessage = Message.builder()
-            .role(Message.Role.ROLE_AGENT)
-            .parts(List.of(new TextPart("Approve")))
-            .metadata(Map.of("_interrupt", latestInteraction, "trace", "not-resume-data"))
-            .build();
-        Message resumeMessage = Message.builder()
-            .role(Message.Role.ROLE_USER)
-            .parts(List.of(new TextPart("APPROVE")))
-            .metadata(Map.of("_interrupt", Map.of("payload", Map.of("kind", "forged"))))
-            .build();
-        Task task = Task.builder()
-            .id("task-1")
-            .contextId("ctx-1")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
-            .history(List.of(oldInputRequiredMessage, latestInputRequiredMessage, resumeMessage))
-            .build();
+        Message oldInputRequiredMessage = Message.builder().role(Message.Role.ROLE_AGENT)
+                .parts(List.of(new TextPart("Old interrupt"))).metadata(Map.of("_interrupt", oldInteraction)).build();
+        Message latestInputRequiredMessage = Message.builder().role(Message.Role.ROLE_AGENT)
+                .parts(List.of(new TextPart("Approve")))
+                .metadata(Map.of("_interrupt", latestInteraction, "trace", "not-resume-data")).build();
+        Message resumeMessage = Message.builder().role(Message.Role.ROLE_USER).parts(List.of(new TextPart("APPROVE")))
+                .metadata(Map.of("_interrupt", Map.of("payload", Map.of("kind", "forged")))).build();
+        Task task = Task.builder().id("task-1").contextId("ctx-1")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
+                .history(List.of(oldInputRequiredMessage, latestInputRequiredMessage, resumeMessage)).build();
 
         assertStoredInterruptCopied(task, latestInteraction);
     }
@@ -253,21 +226,13 @@ class A2AAgentExecutorTest {
     @Test
     void doesNotReuseHistoryInterruptWhenCurrentAgentStatusHasNoInterrupt() {
         Map<String, Object> interaction = Map.of("kind", "confirmation", "message", "Approve");
-        Message inputRequiredMessage = Message.builder()
-            .role(Message.Role.ROLE_AGENT)
-            .parts(List.of(new TextPart("Approve")))
-            .metadata(Map.of("_interrupt", interaction))
-            .build();
-        Message unrelatedStatusMessage = Message.builder()
-            .role(Message.Role.ROLE_AGENT)
-            .parts(List.of(new TextPart("Working")))
-            .build();
-        Task task = Task.builder()
-            .id("task-1")
-            .contextId("ctx-1")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, unrelatedStatusMessage, null))
-            .history(List.of(inputRequiredMessage))
-            .build();
+        Message inputRequiredMessage = Message.builder().role(Message.Role.ROLE_AGENT)
+                .parts(List.of(new TextPart("Approve"))).metadata(Map.of("_interrupt", interaction)).build();
+        Message unrelatedStatusMessage = Message.builder().role(Message.Role.ROLE_AGENT)
+                .parts(List.of(new TextPart("Working"))).build();
+        Task task = Task.builder().id("task-1").contextId("ctx-1")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, unrelatedStatusMessage, null))
+                .history(List.of(inputRequiredMessage)).build();
 
         ServeRequest request = executeWithStoredTask(task, mock(AgentEmitter.class), Map.of());
 
@@ -276,25 +241,16 @@ class A2AAgentExecutorTest {
 
     @Test
     void doesNotReuseOldInterruptWhenLatestAgentMessageHasNoMarker() {
-        Message oldInputRequiredMessage = Message.builder()
-            .role(Message.Role.ROLE_AGENT)
-            .parts(List.of(new TextPart("Old interrupt")))
-            .metadata(Map.of("_interrupt", Map.of("kind", "confirmation")))
-            .build();
-        Message latestAgentMessage = Message.builder()
-            .role(Message.Role.ROLE_AGENT)
-            .parts(List.of(new TextPart("Current input required")))
-            .build();
-        Message resumeMessage = Message.builder()
-            .role(Message.Role.ROLE_USER)
-            .parts(List.of(new TextPart("continue")))
-            .build();
-        Task task = Task.builder()
-            .id("task-1")
-            .contextId("ctx-1")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
-            .history(List.of(oldInputRequiredMessage, latestAgentMessage, resumeMessage))
-            .build();
+        Message oldInputRequiredMessage = Message.builder().role(Message.Role.ROLE_AGENT)
+                .parts(List.of(new TextPart("Old interrupt")))
+                .metadata(Map.of("_interrupt", Map.of("kind", "confirmation"))).build();
+        Message latestAgentMessage = Message.builder().role(Message.Role.ROLE_AGENT)
+                .parts(List.of(new TextPart("Current input required"))).build();
+        Message resumeMessage = Message.builder().role(Message.Role.ROLE_USER).parts(List.of(new TextPart("continue")))
+                .build();
+        Task task = Task.builder().id("task-1").contextId("ctx-1")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
+                .history(List.of(oldInputRequiredMessage, latestAgentMessage, resumeMessage)).build();
 
         ServeRequest request = executeWithStoredTask(task, mock(AgentEmitter.class), Map.of());
 
@@ -304,21 +260,14 @@ class A2AAgentExecutorTest {
     @Test
     void removesClientInterruptFromNonInputRequiredRequest() {
         Map<String, Object> interaction = Map.of("kind", "message", "message", "Old interrupt");
-        Message oldInterrupt = Message.builder()
-            .role(Message.Role.ROLE_AGENT)
-            .parts(List.of(new TextPart("Old interrupt")))
-            .metadata(Map.of("_interrupt", interaction))
-            .build();
-        Task task = Task.builder()
-            .id("task-1")
-            .contextId("ctx-1")
-            .status(new TaskStatus(TaskState.TASK_STATE_WORKING))
-            .history(List.of(oldInterrupt))
-            .build();
+        Message oldInterrupt = Message.builder().role(Message.Role.ROLE_AGENT)
+                .parts(List.of(new TextPart("Old interrupt"))).metadata(Map.of("_interrupt", interaction)).build();
+        Task task = Task.builder().id("task-1").contextId("ctx-1").status(new TaskStatus(TaskState.TASK_STATE_WORKING))
+                .history(List.of(oldInterrupt)).build();
 
         AgentEmitter emitter = mock(AgentEmitter.class);
         ServeRequest request = executeWithStoredTask(task, emitter,
-            Map.of("_interrupt", Map.of("payload", Map.of("kind", "forged"))));
+                Map.of("_interrupt", Map.of("payload", Map.of("kind", "forged"))));
 
         assertThat(request.getMetadata()).doesNotContainKey("_interrupt");
         verify(emitter, never()).submit();
@@ -327,13 +276,11 @@ class A2AAgentExecutorTest {
     private static void assertStoredInterruptCopied(Task task, Map<String, Object> interaction) {
         ServeRequest request = executeWithStoredTask(task, mock(AgentEmitter.class), Map.of());
 
-        assertThat(request.getMetadata())
-            .containsEntry("_interrupt", interaction)
-            .doesNotContainKey("trace");
+        assertThat(request.getMetadata()).containsEntry("_interrupt", interaction).doesNotContainKey("trace");
     }
 
     private static ServeRequest executeWithStoredTask(Task task, AgentEmitter emitter,
-        Map<String, Object> requestMetadata) {
+            Map<String, Object> requestMetadata) {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
         A2AProtocolAdapter adapter = requestAdapter(false, requestMetadata);
@@ -369,14 +316,9 @@ class A2AAgentExecutorTest {
     }
 
     private static org.a2aproject.sdk.spec.Message inputRequiredMessage(CapturingEventQueue queue) {
-        return queue.events.stream()
-            .filter(TaskStatusUpdateEvent.class::isInstance)
-            .map(TaskStatusUpdateEvent.class::cast)
-            .map(TaskStatusUpdateEvent::status)
-            .map(status -> status.message())
-            .filter(java.util.Objects::nonNull)
-            .findFirst()
-            .orElseThrow();
+        return queue.events.stream().filter(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast).map(TaskStatusUpdateEvent::status)
+                .map(status -> status.message()).filter(java.util.Objects::nonNull).findFirst().orElseThrow();
     }
 
     private static final class CapturingEventQueue extends CountingEventQueue {
