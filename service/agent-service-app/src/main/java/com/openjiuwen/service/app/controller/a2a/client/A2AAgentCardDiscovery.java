@@ -110,7 +110,7 @@ public class A2AAgentCardDiscovery {
 
     private void discoverAndRegister(RemoteAgentProperties remote) {
         AgentCard card = fetchCard(remote.getUrl());
-        registry.register(remote.getName(), card, remote.getTimeoutSeconds());
+        registry.register(remote.getName(), card, remote.getTimeoutSeconds(), remote.isStreaming());
         log.info("Discovered remote agent '{}'", remote.getName());
     }
 

@@ -10,6 +10,7 @@ import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
+import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.session.stream.TraceSchema;
@@ -28,6 +29,7 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -62,6 +64,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private static final String INPUT_SPACE_ID = "space_id";
 
     private static final String INPUT_TENANT_ID = "tenant_id";
+
+    private static final String REMOTE_TOOL_RESULTS = "runtime.remoteToolResults";
 
     private static final String DEFAULT_AGENT_SESSION_ID = "default_session";
 
@@ -181,6 +185,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         log.info("JiuwenCoreAgentHandler streamQuery convId={} textLen={} msgCount={}", convId,
             query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
         try {
+            List<Map<String, Object>> interrupts = new ArrayList<>();
             List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
             Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request),
                 null, streamModes);
@@ -191,7 +196,14 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 Object raw = source.next();
                 Object normalized = normalizeChunk(raw);
                 String chunkType = mapToQueryChunkType(normalized);
-                observer.onNext(new QueryChunk(chunkType, normalized));
+                if (QueryChunk.TYPE_INTERRUPT.equals(chunkType) && normalized instanceof Map<?, ?> map) {
+                    interrupts.add(copyStringMap(map));
+                } else {
+                    observer.onNext(new QueryChunk(chunkType, normalized));
+                }
+            }
+            if (!observer.isCancelled() && !interrupts.isEmpty()) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, normalizeInterrupts(interrupts)));
             }
             observer.onComplete();
         } catch (CancellationException ex) {
@@ -214,13 +226,21 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private QueryResponse queryViaStreaming(ServeRequest request) {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
+        List<Map<String, Object>> interrupts = new ArrayList<>();
         List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
         Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request), null,
             streamModes);
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
             lastPayload = payload;
-            appendContent(payload, content);
+            if (isCoreInteraction(payload) && payload instanceof Map<?, ?> map) {
+                interrupts.add(copyStringMap(map));
+            } else {
+                appendContent(payload, content);
+            }
+        }
+        if (!interrupts.isEmpty()) {
+            return buildInterruptQueryResponse(normalizeInterrupts(interrupts), request.getConversationId());
         }
         return buildQueryResponse(lastPayload, content, request.getConversationId());
     }
@@ -237,7 +257,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         result.put("role", "assistant");
         if (rawResult instanceof Map<?, ?> rawMap) {
             @SuppressWarnings("unchecked") Map<String, Object> map = (Map<String, Object>) rawMap;
-            Optional<QueryResponse> result1 = getQueryResponse(conversationId, map, result);
+            Optional<QueryResponse> result1 = getQueryResponse(conversationId, map);
             if (result1.isPresent()) {
                 return result1.get();
             }
@@ -254,31 +274,17 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return new QueryResponse(result, conversationId);
     }
 
-    private static Optional<QueryResponse> getQueryResponse(String conversationId, Map<String, Object> map,
-        Map<String, Object> result) {
+    private static Optional<QueryResponse> getQueryResponse(String conversationId, Map<String, Object> map) {
         if ("interrupt".equals(map.get("result_type")) && map.get("state") instanceof List<?> states) {
-            Object lastInterrupt = null;
+            List<Map<String, Object>> interrupts = new ArrayList<>();
             for (Object state : states) {
-                if (state instanceof OutputSchema outputSchema) {
-                    lastInterrupt = normalizeChunk(outputSchema);
+                Object normalized = normalizeChunk(state);
+                if (isCoreInteraction(normalized) && normalized instanceof Map<?, ?> interrupt) {
+                    interrupts.add(copyStringMap(interrupt));
                 }
             }
-            Optional<QueryResponse> result1 = getQueryResponse(conversationId, lastInterrupt, result);
-            if (result1.isPresent()) {
-                return result1;
-            }
-        }
-        return Optional.empty();
-    }
-
-    private static Optional<QueryResponse> getQueryResponse(String conversationId, Object lastInterrupt,
-        Map<String, Object> result) {
-        if (lastInterrupt instanceof Map<?, ?> interruptMap) {
-            @SuppressWarnings("unchecked") Map<String, Object> interruptData = (Map<String, Object>) interruptMap;
-            if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
-                result.put("_interrupt", interruptData);
-                result.put("content", interruptData.getOrDefault("message", ""));
-                return Optional.of(new QueryResponse(result, conversationId));
+            if (!interrupts.isEmpty()) {
+                return Optional.of(buildInterruptQueryResponse(normalizeInterrupts(interrupts), conversationId));
             }
         }
         return Optional.empty();
@@ -289,26 +295,37 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
         Object data = controllerOutput.getData();
+        List<Map<String, Object>> interrupts = new ArrayList<>();
         if (data instanceof List<?> items) {
             for (Object item : items) {
                 Object payload = normalizeChunk(item);
                 lastPayload = payload;
-                appendContent(payload, content);
+                if (isCoreInteraction(payload) && payload instanceof Map<?, ?> map) {
+                    interrupts.add(copyStringMap(map));
+                } else {
+                    appendContent(payload, content);
+                }
             }
         }
+        if (!interrupts.isEmpty()) {
+            return buildInterruptQueryResponse(normalizeInterrupts(interrupts), conversationId);
+        }
         return buildQueryResponse(lastPayload, content, conversationId);
+    }
+
+    private static QueryResponse buildInterruptQueryResponse(Map<String, Object> payload, String conversationId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("role", "assistant");
+        Map<String, Object> interrupt = new LinkedHashMap<>(payload);
+        result.put("_interrupt", interrupt);
+        result.put("content", interrupt.getOrDefault("message", ""));
+        return new QueryResponse(result, conversationId);
     }
 
     private static QueryResponse buildQueryResponse(Object lastPayload, StringBuilder content, String conversationId) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
-        if (lastPayload instanceof Map<?, ?> raw && INTERACTION_TYPE.equals(raw.get("type"))) {
-            @SuppressWarnings("unchecked") Map<String, Object> interrupt = (Map<String, Object>) raw;
-            result.put("_interrupt", interrupt);
-            result.put("content", interrupt.getOrDefault("message", ""));
-        } else {
-            result.put("content", !content.isEmpty() ? content.toString() : stringify(lastPayload));
-        }
+        result.put("content", !content.isEmpty() ? content.toString() : stringify(lastPayload));
         return new QueryResponse(result, conversationId);
     }
 
@@ -341,11 +358,45 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (request.getTenantId() != null) {
             inputs.put(INPUT_TENANT_ID, request.getTenantId());
         }
+        Object remoteToolResults = request.getMetadata().get(REMOTE_TOOL_RESULTS);
+        if (remoteToolResults instanceof Map<?, ?> resultMap) {
+            InteractiveInput interactiveInput = new InteractiveInput();
+            interactiveInput.setUserInputs(copyStringMap(resultMap));
+            inputs.put(INPUT_QUERY, interactiveInput);
+            return inputs;
+        }
         String query = request.lastUserQuery();
         if (query != null && !query.isBlank()) {
             inputs.put(INPUT_QUERY, query);
         }
         return inputs;
+    }
+
+    private static Map<String, Object> normalizeInterrupts(List<Map<String, Object>> interrupts) {
+        if (interrupts.size() == 1) {
+            return interrupts.get(0);
+        }
+        List<Map<String, Object>> items = new ArrayList<>(interrupts.size());
+        for (Map<String, Object> interrupt : interrupts) {
+            items.add(new LinkedHashMap<>(interrupt));
+        }
+        Map<String, Object> batch = new LinkedHashMap<>();
+        batch.put("message", "interaction batch");
+        batch.put("items", items);
+        return batch;
+    }
+
+    private static boolean isCoreInteraction(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return false;
+        }
+        return INTERACTION_TYPE.equals(map.get("type"));
+    }
+
+    private static Map<String, Object> copyStringMap(Map<?, ?> source) {
+        Map<String, Object> copy = new LinkedHashMap<>();
+        source.forEach((key, value) -> copy.put(String.valueOf(key), value));
+        return copy;
     }
 
     /**

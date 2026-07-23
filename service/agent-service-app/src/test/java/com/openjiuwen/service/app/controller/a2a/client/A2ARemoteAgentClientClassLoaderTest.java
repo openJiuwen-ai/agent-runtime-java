@@ -4,48 +4,327 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import org.a2aproject.sdk.client.Client;
+import org.a2aproject.sdk.client.ClientBuilder;
+import org.a2aproject.sdk.client.MessageEvent;
+import org.a2aproject.sdk.client.TaskEvent;
+import org.a2aproject.sdk.client.config.ClientConfig;
+import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
+import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.client.transport.spi.ClientTransportProvider;
 import org.a2aproject.sdk.spec.AgentCapabilities;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.AgentInterface;
+import org.a2aproject.sdk.spec.MessageSendParams;
+import org.a2aproject.sdk.spec.Message;
+import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskStatus;
+import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Regression tests for creating an A2A SDK client from worker threads whose
- * context class loader cannot see Java service descriptors.
+ * Regression tests for A2A SDK client creation and per-agent invocation modes.
  */
 class A2ARemoteAgentClientClassLoaderTest {
+    @Test
+    void callOutcomeReturnsBeforeBlockingSdkSendCompletes() throws Exception {
+        AgentCard card = testCard();
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("sync-agent", card, 30, false);
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        ClientBuilder builder = mock(ClientBuilder.class);
+        Client sdkClient = mock(Client.class);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch callReturned = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicBoolean returnedBeforeRelease = new AtomicBoolean();
+        doAnswer(invocation -> {
+            entered.countDown();
+            release.await(10, TimeUnit.SECONDS);
+            return null;
+        }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
+
+        try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
+            stubClient(clientFactory, card, builder, sdkClient);
+            Thread releaser = new Thread(() -> {
+                try {
+                    if (entered.await(2, TimeUnit.SECONDS)) {
+                        returnedBeforeRelease.set(callReturned.await(2, TimeUnit.SECONDS));
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    release.countDown();
+                }
+            });
+            releaser.start();
+            CompletableFuture<A2ARemoteAgentClient.RemoteCallOutcome> outcome = null;
+            try {
+                outcome = remoteClient.callOutcome(remoteCall("sync-agent"), null, null);
+                callReturned.countDown();
+                releaser.join();
+                assertThat(returnedBeforeRelease).isTrue();
+            } finally {
+                if (outcome != null) {
+                    outcome.cancel(true);
+                }
+                release.countDown();
+                remoteClient.shutdown();
+            }
+        }
+    }
+
+    @Test
+    void timeoutAppliesWhileNonStreamingSdkCallIsBlocked() {
+        AgentCard card = testCard();
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("timeout-agent", card, 1, false);
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        ClientBuilder builder = mock(ClientBuilder.class);
+        Client sdkClient = mock(Client.class);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            release.await(5, TimeUnit.SECONDS);
+            return null;
+        }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
+
+        try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
+            stubClient(clientFactory, card, builder, sdkClient);
+
+            var outcome = remoteClient.callOutcome(remoteCall("timeout-agent"), null, null);
+
+            assertThatThrownBy(() -> outcome.get(2, TimeUnit.SECONDS))
+                .hasCauseInstanceOf(TimeoutException.class);
+        } finally {
+            release.countDown();
+            remoteClient.shutdown();
+        }
+    }
+
+    @Test
+    void directMessageEventCompletesCallWithAllTextParts() throws Exception {
+        AgentCard card = testCard();
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("message-agent", card, 30, false);
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        ClientBuilder builder = mock(ClientBuilder.class);
+        Client sdkClient = mock(Client.class);
+        Message message = Message.builder().role(Message.Role.ROLE_AGENT)
+            .parts(List.<Part<?>>of(new TextPart("hello "), new TextPart("world"))).build();
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked") List<java.util.function.BiConsumer<org.a2aproject.sdk.client.ClientEvent,
+                AgentCard>> consumers = invocation.getArgument(1);
+            consumers.get(0).accept(new MessageEvent(message), card);
+            return null;
+        }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
+
+        try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
+            stubClient(clientFactory, card, builder, sdkClient);
+
+            var outcome = remoteClient.callOutcome(remoteCall("message-agent"), null, null)
+                .get(2, TimeUnit.SECONDS);
+
+            assertThat(outcome.remoteState()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
+            assertThat(outcome.result()).isEqualTo("hello world");
+        }
+    }
+
+    @Test
+    void completedTaskAggregatesAllArtifacts() throws Exception {
+        AgentCard card = testCard();
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("task-agent", card, 30, false);
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        ClientBuilder builder = mock(ClientBuilder.class);
+        Client sdkClient = mock(Client.class);
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+            .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
+            .artifacts(List.of(
+                org.a2aproject.sdk.spec.Artifact.builder().artifactId("a").parts(new TextPart("hello ")).build(),
+                org.a2aproject.sdk.spec.Artifact.builder().artifactId("b").parts(new TextPart("world")).build()))
+            .build();
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked") List<java.util.function.BiConsumer<org.a2aproject.sdk.client.ClientEvent,
+                AgentCard>> consumers = invocation.getArgument(1);
+            consumers.get(0).accept(new TaskEvent(task), card);
+            return null;
+        }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
+
+        try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
+            stubClient(clientFactory, card, builder, sdkClient);
+
+            var outcome = remoteClient.callOutcome(remoteCall("task-agent"), null, null)
+                .get(2, TimeUnit.SECONDS);
+
+            assertThat(outcome.result()).isEqualTo("hello world");
+        }
+    }
+
+    @Test
+    void completedTaskWithoutArtifactsUsesStatusMessage() throws Exception {
+        AgentCard card = testCard();
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("status-agent", card, 30, false);
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        ClientBuilder builder = mock(ClientBuilder.class);
+        Client sdkClient = mock(Client.class);
+        Message statusMessage = Message.builder().role(Message.Role.ROLE_AGENT)
+            .parts(List.<Part<?>>of(new TextPart("status result"))).build();
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+            .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED, statusMessage, null))
+            .artifacts(List.of())
+            .build();
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked") List<java.util.function.BiConsumer<org.a2aproject.sdk.client.ClientEvent,
+                AgentCard>> consumers = invocation.getArgument(1);
+            consumers.get(0).accept(new TaskEvent(task), card);
+            return null;
+        }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
+
+        try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
+            stubClient(clientFactory, card, builder, sdkClient);
+
+            var outcome = remoteClient.callOutcome(remoteCall("status-agent"), null, null)
+                .get(2, TimeUnit.SECONDS);
+
+            assertThat(outcome.result()).isEqualTo("status result");
+        }
+    }
+
+    @Test
+    void cardsWithSameDisplayNameButDifferentUrlsDoNotShareClient() {
+        AgentCard firstCard = testCard("http://localhost:18091/a2a");
+        AgentCard secondCard = testCard("http://localhost:18092/a2a");
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("first", firstCard, 30, false);
+        registry.register("second", secondCard, 30, false);
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        ClientBuilder firstBuilder = mock(ClientBuilder.class);
+        ClientBuilder secondBuilder = mock(ClientBuilder.class);
+        Client firstClient = mock(Client.class);
+        Client secondClient = mock(Client.class);
+
+        try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
+            stubClient(clientFactory, firstCard, firstBuilder, firstClient);
+            stubClient(clientFactory, secondCard, secondBuilder, secondClient);
+
+            var first = remoteClient.callOutcome(remoteCall("first"), null, null);
+            var second = remoteClient.callOutcome(remoteCall("second"), null, null);
+
+            verify(firstBuilder).build();
+            verify(secondBuilder).build();
+            verify(firstClient, timeout(1000)).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
+            verify(secondClient, timeout(1000)).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
+            first.cancel(true);
+            second.cancel(true);
+        }
+    }
+
+    @Test
+    void callOutcomeUsesEachRegisteredAgentsStreamingMode() throws Exception {
+        AgentCard card = testCard();
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("sync-agent", card, 30);
+        registry.register("stream-agent", card, 30, true);
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        ClientBuilder builder = mock(ClientBuilder.class);
+        Client sdkClient = mock(Client.class);
+        ArgumentCaptor<ClientConfig> configs = ArgumentCaptor.forClass(ClientConfig.class);
+        ArgumentCaptor<MessageSendParams> params = ArgumentCaptor.forClass(MessageSendParams.class);
+
+        try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
+            clientFactory.when(() -> Client.builder(card)).thenReturn(builder);
+            when(builder.clientConfig(any(ClientConfig.class))).thenReturn(builder);
+            when(builder.withTransport(eq(JSONRPCTransport.class), any(JSONRPCTransportConfig.class)))
+                    .thenReturn(builder);
+            when(builder.build()).thenReturn(sdkClient);
+
+            var sync = remoteClient.callOutcome(remoteCall("sync-agent"), null, null);
+            var stream = remoteClient.callOutcome(remoteCall("stream-agent"), null, null);
+            verify(sdkClient, timeout(1000).times(2)).sendMessage(params.capture(), anyList(), any(), isNull());
+            sync.cancel(false);
+            stream.cancel(false);
+        }
+
+        verify(builder, times(2)).clientConfig(configs.capture());
+        assertThat(configs.getAllValues()).extracting(ClientConfig::isStreaming).containsExactly(false, true);
+        assertThat(params.getAllValues()).allSatisfy(value -> {
+            assertThat(value.configuration()).isNotNull();
+            assertThat(value.configuration().returnImmediately()).isFalse();
+        });
+    }
+
     @Test
     void createClientUsesApplicationClassLoaderForTransportDiscovery() throws Exception {
         ClassLoader original = Thread.currentThread().getContextClassLoader();
         Thread.currentThread().setContextClassLoader(new NoServicesClassLoader(original));
         try {
             A2ARemoteAgentClient client = new A2ARemoteAgentClient(new A2ARemoteAgentCardRegistry());
-            Method createClient = A2ARemoteAgentClient.class.getDeclaredMethod("createClient", AgentCard.class,
-                    boolean.class);
+            A2ARemoteAgentCardRegistry.RemoteAgentEntry entry =
+                new A2ARemoteAgentCardRegistry.RemoteAgentEntry("remote", testCard(), 30, true);
+            Method createClient = A2ARemoteAgentClient.class.getDeclaredMethod("createClient",
+                    A2ARemoteAgentCardRegistry.RemoteAgentEntry.class, boolean.class);
             createClient.setAccessible(true);
 
-            assertThatCode(() -> createClient.invoke(client, testCard(), true)).doesNotThrowAnyException();
+            assertThatCode(() -> createClient.invoke(client, entry, true)).doesNotThrowAnyException();
         } finally {
             Thread.currentThread().setContextClassLoader(original);
         }
     }
 
     private static AgentCard testCard() {
+        return testCard("http://localhost:8080/a2a");
+    }
+
+    private static AgentCard testCard(String url) {
         return AgentCard.builder().name("remote").description("remote").version("1.0")
                 .capabilities(new AgentCapabilities(true, false, false, List.of())).defaultInputModes(List.of("text"))
                 .defaultOutputModes(List.of("text")).skills(List.of()).securitySchemes(Collections.emptyMap())
                 .securityRequirements(List.of())
-                .supportedInterfaces(List.of(new AgentInterface("JSONRPC", "http://localhost:8080/a2a", null, "1.0")))
-                .url("http://localhost:8080/a2a").preferredTransport("JSONRPC").additionalInterfaces(List.of()).build();
+                .supportedInterfaces(List.of(new AgentInterface("JSONRPC", url, null, "1.0")))
+                .url(url).preferredTransport("JSONRPC").additionalInterfaces(List.of()).build();
+    }
+
+    private static void stubClient(MockedStatic<Client> factory, AgentCard card, ClientBuilder builder, Client client) {
+        factory.when(() -> Client.builder(card)).thenReturn(builder);
+        when(builder.clientConfig(any(ClientConfig.class))).thenReturn(builder);
+        when(builder.withTransport(eq(JSONRPCTransport.class), any(JSONRPCTransportConfig.class))).thenReturn(builder);
+        when(builder.build()).thenReturn(client);
+    }
+
+    private static A2ARemoteAgentClient.RemoteCall remoteCall(String agentName) {
+        return new A2ARemoteAgentClient.RemoteCall(agentName, "hello", "context", null, Map.of());
     }
 
     private static final class NoServicesClassLoader extends ClassLoader {

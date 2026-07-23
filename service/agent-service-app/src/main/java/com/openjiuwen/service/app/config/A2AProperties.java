@@ -56,6 +56,18 @@ public class A2AProperties {
 
     private int taskCompletionTimeoutSeconds = 300;
 
+    private RemoteInvocationProperties remoteInvocation = new RemoteInvocationProperties();
+
+    /** Runtime-level bounded remote invocation configuration. */
+    @Data
+    public static class RemoteInvocationProperties {
+        private int maxConcurrency = 16;
+
+        private int maxQueueSize = 256;
+
+        private long queueTimeoutSeconds = 30;
+    }
+
     /**
      * Skill definition for the AgentCard.
      */
@@ -86,5 +98,7 @@ public class A2AProperties {
         private String url;
 
         private int timeoutSeconds = 300;
+
+        private boolean streaming = false;
     }
 }

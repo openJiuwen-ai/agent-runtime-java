@@ -16,7 +16,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * A2A Message → ServeRequest inbound adapter. Outbound (QueryChunk → A2A Part)
@@ -31,6 +30,16 @@ public class A2AProtocolAdapter {
     private static final Map<String, String> ROLE_MAP = Map.of("ROLE_USER", "user", "ROLE_AGENT", "assistant",
         "ROLE_SYSTEM", "system");
 
+    private static final String PARENT_TASK_ID = "runtime.parentTaskId";
+
+    private static final String REMOTE_TOOL_INPUTS = "runtime.remoteToolInputs";
+
+    private static final List<String> RESERVED_METADATA_KEYS = List.of(
+        PARENT_TASK_ID,
+        REMOTE_TOOL_INPUTS,
+        "runtime.remoteBatchId",
+        "runtime.remoteToolResults");
+
     /**
      * Converts an A2A message context into an internal {@link ServeRequest}.
      *
@@ -41,9 +50,6 @@ public class A2AProtocolAdapter {
         ServeRequest req = new ServeRequest();
         req.setConversationId(ctx.getContextId());
         req.setStream(false); // default non-streaming; overridden by executor for SendStreamingMessage
-
-        // Preserve A2A protocol metadata: MessageSendParams.metadata()
-        req.setMetadata(ctx.getMetadata() != null ? ctx.getMetadata() : Map.of());
 
         // headers → userId / spaceId / tenantId
         if (ctx.getHeaders() != null) {
@@ -56,7 +62,9 @@ public class A2AProtocolAdapter {
 
         // message.parts → text → content (passthrough, no JSON parsing)
         Message msg = ctx.getA2aMessage();
-        String rawText = extractText(msg.parts());
+        TextExtraction extraction = extractText(msg.parts());
+        String rawText = extraction.rawText();
+        req.setMetadata(trustedMetadata(ctx, extraction.targetedInputs()));
 
         Map<String, Object> userMsg = new LinkedHashMap<>();
         userMsg.put("role", normalizeRole(msg.role().name()));
@@ -69,14 +77,53 @@ public class A2AProtocolAdapter {
         return req;
     }
 
-    private String extractText(List<Part<?>> parts) {
-        return parts.stream()
-            .filter(p -> p instanceof TextPart)
-            .map(p -> ((TextPart) p).text())
-            .collect(Collectors.joining());
+    private static TextExtraction extractText(List<Part<?>> parts) {
+        StringBuilder rawText = new StringBuilder();
+        Map<String, StringBuilder> grouped = new LinkedHashMap<>();
+        boolean anyTargeted = false;
+        boolean allTargeted = true;
+        for (Part<?> part : parts) {
+            if (!(part instanceof TextPart textPart)) {
+                continue;
+            }
+            rawText.append(textPart.text());
+            Object rawToolCallId = textPart.metadata() != null ? textPart.metadata().get("toolCallId") : null;
+            if (rawToolCallId instanceof String toolCallId && !toolCallId.isBlank()) {
+                anyTargeted = true;
+                grouped.computeIfAbsent(toolCallId, ignored -> new StringBuilder()).append(textPart.text());
+            } else {
+                allTargeted = false;
+            }
+        }
+        Map<String, String> targetedInputs = new LinkedHashMap<>();
+        if (anyTargeted && !allTargeted) {
+            throw new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_MIXED");
+        }
+        if (anyTargeted && allTargeted) {
+            grouped.forEach((toolCallId, text) -> targetedInputs.put(toolCallId, text.toString()));
+        }
+        return new TextExtraction(rawText.toString(), targetedInputs);
+    }
+
+    private static Map<String, Object> trustedMetadata(A2AMessageContext ctx, Map<String, String> targetedInputs) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (ctx.getMetadata() != null) {
+            metadata.putAll(ctx.getMetadata());
+        }
+        RESERVED_METADATA_KEYS.forEach(metadata::remove);
+        if (ctx.getTaskId() != null && !ctx.getTaskId().isBlank()) {
+            metadata.put(PARENT_TASK_ID, ctx.getTaskId());
+        }
+        if (!targetedInputs.isEmpty()) {
+            metadata.put(REMOTE_TOOL_INPUTS, targetedInputs);
+        }
+        return metadata;
     }
 
     static String normalizeRole(String raw) {
         return ROLE_MAP.getOrDefault(raw, raw.toLowerCase(Locale.ROOT));
+    }
+
+    private record TextExtraction(String rawText, Map<String, String> targetedInputs) {
     }
 }

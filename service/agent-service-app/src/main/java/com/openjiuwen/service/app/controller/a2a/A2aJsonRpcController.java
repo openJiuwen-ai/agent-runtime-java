@@ -206,7 +206,13 @@ public class A2aJsonRpcController {
         if (obj.has("text") && !obj.get("text").isJsonNull()) {
             String text = obj.get("text").getAsString();
             if (!text.isBlank()) {
-                parts.add(new TextPart(text));
+                if (obj.has("metadata") && obj.get("metadata").isJsonObject()) {
+                    @SuppressWarnings("unchecked") Map<String, Object> metadata =
+                        GSON.fromJson(obj.get("metadata"), Map.class);
+                    parts.add(new TextPart(text, metadata));
+                } else {
+                    parts.add(new TextPart(text));
+                }
             }
         }
     }

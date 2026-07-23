@@ -199,12 +199,13 @@ public class A2AAutoConfiguration {
      * Creates the remote agent client bean.
      *
      * @param registry the remote agent card registry
+     * @param props A2A runtime properties
      * @return the remote agent client
      */
     @Bean
     @ConditionalOnMissingBean
-    public A2ARemoteAgentClient a2aRemoteAgentClient(A2ARemoteAgentCardRegistry registry) {
-        return new A2ARemoteAgentClient(registry);
+    public A2ARemoteAgentClient a2aRemoteAgentClient(A2ARemoteAgentCardRegistry registry, A2AProperties props) {
+        return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency());
     }
 
     /**
@@ -226,7 +227,6 @@ public class A2AAutoConfiguration {
      * @param agentHandler the agent handler
      * @param taskStore the task store
      * @param a2aClient the remote agent client
-     * @param registry the remote agent card registry
      * @param streamRegistry the active stream registry
      * @param agentId the application name used as the agent identifier for shadow task namespacing
      * @return the A2A-enabled serve orchestrator
@@ -234,9 +234,11 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-            A2ARemoteAgentClient a2aClient, A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry,
-            @Value("${spring.application.name:agent}") String agentId) {
-        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, registry, streamRegistry, agentId);
+            A2ARemoteAgentClient a2aClient, ActiveStreamRegistry streamRegistry,
+            @Value("${spring.application.name:agent}") String agentId, A2AProperties props) {
+        A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
+        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, agentId,
+            limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds());
     }
 
     /**

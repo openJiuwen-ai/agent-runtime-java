@@ -10,8 +10,11 @@ import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.Session;
+import com.openjiuwen.core.session.interaction.InteractionOutput;
+import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
+import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -181,6 +184,146 @@ class JiuwenCoreAgentHandlerTest {
         assertThat((Map<String, Object>) second.getResult()).containsEntry("content", "turn2:b|prev=a");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void nonStreamingQueryPreservesAllRemoteInterruptsInOriginalOrder() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
+        Map<String, Object> rawResult = Map.of(
+            "result_type", "interrupt",
+            "state", List.of(remoteInterrupt(0, "call-a", "tool-a"), remoteInterrupt(1, "call-b", "tool-b")));
+
+        QueryResponse response = handler.toQueryResponse(rawResult, "c-batch");
+
+        Map<String, Object> result = (Map<String, Object>) response.getResult();
+        Map<String, Object> interrupt = (Map<String, Object>) result.get("_interrupt");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) interrupt.get("items");
+        assertThat(items).extracting(item -> item.get("toolCallId")).containsExactly("call-a", "call-b");
+        assertThat(items).extracting(item -> item.get("index")).containsExactly(0, 1);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void streamingQueryEmitsOneRemoteInterruptBatch() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new ParallelInterruptAgent());
+        List<QueryChunk> chunks = new ArrayList<>();
+
+        handler.streamQuery(request("c-stream-batch", "run both"), collectingObserver(chunks));
+
+        assertThat(chunks).hasSize(1);
+        assertThat(chunks.get(0).getType()).isEqualTo(QueryChunk.TYPE_INTERRUPT);
+        Map<String, Object> interrupt = (Map<String, Object>) chunks.get(0).getData();
+        List<Map<String, Object>> items = (List<Map<String, Object>>) interrupt.get("items");
+        assertThat(items).extracting(item -> item.get("toolCallId")).containsExactly("call-a", "call-b");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void queryDoesNotTreatBusinessBatchShapeAsInterrupt() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new BusinessItemsAgent());
+
+        QueryResponse response = handler.query(request("c-business-items", "list items"));
+
+        assertThat((Map<String, Object>) response.getResult())
+            .containsEntry("content", "ok")
+            .doesNotContainKey("_interrupt");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void nonStreamingQueryPreservesLocalInterruptPayloadsInBatch() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
+        OutputSchema first = interrupt(0, "call-a", "tool-a", "ask_user");
+        OutputSchema second = interrupt(1, "call-b", "tool-b", "ask_user");
+        ((ToolCallInterruptRequest) ((InteractionOutput) first.getPayload()).getValue())
+            .setPayloadSchema(Map.of("type", "string"));
+        ((ToolCallInterruptRequest) ((InteractionOutput) second.getPayload()).getValue())
+            .setPayloadSchema(Map.of("type", "string"));
+        Map<String, Object> rawResult = Map.of(
+            "result_type", "interrupt",
+            "state", List.of(first, second));
+
+        QueryResponse response = handler.toQueryResponse(rawResult, "c-local-batch");
+
+        Map<String, Object> result = (Map<String, Object>) response.getResult();
+        Map<String, Object> interrupt = (Map<String, Object>) result.get("_interrupt");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) interrupt.get("items");
+        assertThat(items).allSatisfy(item -> {
+            assertThat(item).containsEntry("type", "__interaction__").containsKey("payload");
+            assertThat(item.get("payload")).isInstanceOf(InteractionOutput.class);
+            InteractionOutput payload = (InteractionOutput) item.get("payload");
+            assertThat(payload.getValue()).isInstanceOf(ToolCallInterruptRequest.class);
+            ToolCallInterruptRequest request = (ToolCallInterruptRequest) payload.getValue();
+            assertThat(request.getPayloadSchema()).containsEntry("type", "string");
+        });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void singleInterruptKeepsLegacyMapShape() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
+        Map<String, Object> rawResult = Map.of(
+            "result_type", "interrupt",
+            "state", List.of(remoteInterrupt(0, "call-a", "tool-a")));
+
+        QueryResponse response = handler.toQueryResponse(rawResult, "c-single");
+
+        Map<String, Object> result = (Map<String, Object>) response.getResult();
+        Map<String, Object> interrupt = (Map<String, Object>) result.get("_interrupt");
+        assertThat(interrupt).containsEntry("toolCallId", "call-a").doesNotContainKey("items");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void buildInputsNestsRemoteToolResultsInQueryForMapOnlyAgents() {
+        ServeRequest request = request("c-resume", "ignored user text");
+        request.setMetadata(Map.of("runtime.remoteToolResults", Map.of("call-a", "result-a", "call-b", "result-b")));
+
+        Object inputs = JiuwenCoreAgentHandler.buildInputs(request);
+
+        assertThat(inputs).isInstanceOf(Map.class);
+        Map<String, Object> inputMap = (Map<String, Object>) inputs;
+        assertThat(inputMap).containsEntry("conversation_id", "c-resume");
+        assertThat(inputMap.get("query")).isInstanceOf(InteractiveInput.class);
+        InteractiveInput interactiveInput = (InteractiveInput) inputMap.get("query");
+        assertThat(interactiveInput.getRawInputs()).isNull();
+        assertThat(interactiveInput.getUserInputs())
+            .containsOnly(Map.entry("call-a", "result-a"), Map.entry("call-b", "result-b"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void streamingResumeSupportsMapOnlyAgentSignature() {
+        MapInputStreamingAgent agent = new MapInputStreamingAgent();
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
+        ServeRequest request = request("c-map-resume", "ignored user text");
+        request.setMetadata(Map.of("runtime.remoteToolResults", Map.of("call-a", "result-a")));
+
+        QueryResponse response = handler.query(request);
+
+        assertThat((Map<String, Object>) response.getResult()).containsEntry("content", "resumed");
+        assertThat(agent.lastInputs.get("query")).isInstanceOf(InteractiveInput.class);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void mixedRemoteAndLocalInterruptKindsArePreservedForCallerClassification() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
+        OutputSchema localInterrupt = interrupt(1, "call-b", "tool-b", "ask_user");
+        Map<String, Object> rawResult = Map.of(
+            "result_type", "interrupt",
+            "state", List.of(remoteInterrupt(0, "call-a", "tool-a"), localInterrupt));
+
+        QueryResponse response = handler.toQueryResponse(rawResult, "c-mixed");
+
+        Map<String, Object> result = (Map<String, Object>) response.getResult();
+        Map<String, Object> interrupt = (Map<String, Object>) result.get("_interrupt");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) interrupt.get("items");
+        assertThat(items).extracting(item -> item.get("toolCallId")).containsExactly("call-a", "call-b");
+        assertThat(items).extracting(item -> String.valueOf(
+            ((Map<?, ?>) item.get("context")).get("_interrupt_kind")))
+            .containsExactly("a2a_delegate", "ask_user");
+    }
+
     private static ServeRequest request(String conversationId, String content) {
         ServeRequest request = new ServeRequest();
         request.setConversationId(conversationId);
@@ -188,6 +331,36 @@ class JiuwenCoreAgentHandlerTest {
         request.setUserId("anonymous");
         request.setSpaceId("default");
         return request;
+    }
+
+    private static QueryStreamObserver collectingObserver(List<QueryChunk> chunks) {
+        return new QueryStreamObserver() {
+            @Override
+            public void onNext(QueryChunk chunk) {
+                chunks.add(chunk);
+            }
+
+            @Override
+            public void onError(Throwable error) {
+            }
+
+            @Override
+            public void onComplete() {
+            }
+        };
+    }
+
+    private static OutputSchema remoteInterrupt(int index, String toolCallId, String toolName) {
+        return interrupt(index, toolCallId, toolName, "a2a_delegate");
+    }
+
+    private static OutputSchema interrupt(int index, String toolCallId, String toolName, String kind) {
+        ToolCallInterruptRequest request = new ToolCallInterruptRequest();
+        request.setToolCallId(toolCallId);
+        request.setToolName(toolName);
+        request.setMessage("message-" + toolCallId);
+        request.setContext(Map.of("_interrupt_kind", kind, "agentName", toolName));
+        return new OutputSchema("__interaction__", index, new InteractionOutput(toolCallId, request));
     }
 
     @Test
@@ -431,6 +604,60 @@ class JiuwenCoreAgentHandlerTest {
                     return new OutputSchema("llm_output", index, payload);
                 }
             };
+        }
+    }
+
+    /** Test agent with the same strict Map input shape exposed by DeepAgent. */
+    public static class MapInputStreamingAgent {
+        private Map<String, Object> lastInputs;
+
+        /**
+         * Streams a resumed response and records the strongly typed inputs.
+         *
+         * @param inputs inputs
+         * @param session session
+         * @param streamModes streamModes
+         * @return Iterator<Object>
+         */
+        public Iterator<Object> stream(Map<String, Object> inputs, AgentSessionApi session,
+            List<StreamMode> streamModes) {
+            this.lastInputs = inputs;
+            return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "resumed"))).iterator();
+        }
+    }
+
+    /** Test agent that emits two independent tool interruptions. */
+    public static class ParallelInterruptAgent {
+        /**
+         * Streams two remote interruptions.
+         *
+         * @param inputs inputs
+         * @param session session
+         * @param streamModes stream modes
+         * @return interruption iterator
+         */
+        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+            return List.<Object>of(
+                remoteInterrupt(0, "call-a", "tool-a"),
+                remoteInterrupt(1, "call-b", "tool-b")).iterator();
+        }
+    }
+
+    /** Test agent that returns an ordinary business map matching the batch field names. */
+    public static class BusinessItemsAgent {
+        /**
+         * Streams one ordinary business result.
+         *
+         * @param inputs inputs
+         * @param session session
+         * @param streamModes stream modes
+         * @return business result iterator
+         */
+        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+            return List.<Object>of(Map.of(
+                "batchId", "business-batch",
+                "items", List.of(Map.of("name", "business-item")),
+                "content", "ok")).iterator();
         }
     }
 

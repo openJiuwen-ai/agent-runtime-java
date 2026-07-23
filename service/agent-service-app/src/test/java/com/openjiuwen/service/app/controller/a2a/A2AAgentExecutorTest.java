@@ -18,6 +18,7 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
+import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 
 import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.agentexecution.RequestContext;
@@ -26,6 +27,8 @@ import org.a2aproject.sdk.server.events.EventQueueClosedException;
 import org.a2aproject.sdk.server.events.EventQueueItem;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.spec.Message;
+import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
@@ -42,6 +45,96 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Unit tests for {@link A2AAgentExecutor}.
  */
 class A2AAgentExecutorTest {
+    @Test
+    @SuppressWarnings("unchecked")
+    void nonStreamingA2aExecutionProjectsRemoteProgressThroughInternalStream() {
+        A2AEnabledServeOrchestrator orchestrator = mock(A2AEnabledServeOrchestrator.class);
+        Map<String, Object> projection = Map.of(
+            "kind", "remote_agent_invocation",
+            "batchId", "batch-1",
+            "toolCallId", "call-a",
+            "sequence", 1,
+            "target", "agent-a",
+            "phase", "RUNNING");
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_PROGRESS,
+                Map.of("content", "running", "projection", projection)));
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "done"));
+            observer.onComplete();
+        })).when(orchestrator).streamQuery(any(), any());
+        A2AProtocolAdapter adapter = requestAdapter(false, Map.of());
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
+
+        List<TaskArtifactUpdateEvent> artifacts = queue.events.stream()
+            .filter(TaskArtifactUpdateEvent.class::isInstance)
+            .map(TaskArtifactUpdateEvent.class::cast)
+            .toList();
+        assertThat(artifacts).anySatisfy(event -> {
+            TextPart part = (TextPart) event.artifact().parts().get(0);
+            assertThat(part.text()).isEqualTo("running");
+            assertThat(part.metadata()).containsEntry("_remote_invocation", projection);
+        });
+        verify(orchestrator).streamQuery(any(), any());
+        verify(orchestrator, never()).query(any());
+    }
+
+    @Test
+    void nonStreamingA2aExecutionDoesNotAppendTelemetryToBusinessArtifact() {
+        A2AEnabledServeOrchestrator orchestrator = mock(A2AEnabledServeOrchestrator.class);
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK,
+                Map.of("type", "llm_usage", "payload", Map.of("totalTokens", 42))));
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "final answer"));
+            observer.onComplete();
+        })).when(orchestrator).streamQuery(any(), any());
+        CapturingEventQueue queue = new CapturingEventQueue();
+        RequestContext context = requestContext("task-telemetry", "ctx-telemetry", false);
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()))
+            .execute(context, new AgentEmitter(context, queue));
+
+        List<String> texts = queue.events.stream()
+            .filter(TaskArtifactUpdateEvent.class::isInstance)
+            .map(TaskArtifactUpdateEvent.class::cast)
+            .flatMap(event -> event.artifact().parts().stream())
+            .filter(TextPart.class::isInstance)
+            .map(TextPart.class::cast)
+            .map(TextPart::text)
+            .toList();
+        assertThat(texts).contains("final answer");
+        assertThat(texts).noneMatch(text -> text.contains("llm_usage") || text.contains("totalTokens"));
+    }
+
+    @Test
+    void nonStreamingFinalAnswerReplacesAccumulatedDeltas() {
+        A2AEnabledServeOrchestrator orchestrator = mock(A2AEnabledServeOrchestrator.class);
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK,
+                Map.of("type", "chunk", "payload", Map.of("delta", "hel"))));
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK,
+                Map.of("type", "answer", "payload", Map.of("content", "hello"))));
+            observer.onComplete();
+        })).when(orchestrator).streamQuery(any(), any());
+        CapturingEventQueue queue = new CapturingEventQueue();
+        RequestContext context = requestContext("task-answer", "ctx-answer", false);
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()))
+            .execute(context, new AgentEmitter(context, queue));
+
+        List<String> texts = queue.events.stream()
+            .filter(TaskArtifactUpdateEvent.class::isInstance)
+            .map(TaskArtifactUpdateEvent.class::cast)
+            .flatMap(event -> event.artifact().parts().stream())
+            .filter(TextPart.class::isInstance)
+            .map(TextPart.class::cast)
+            .map(TextPart::text)
+            .toList();
+        assertThat(texts).containsExactly("hello");
+    }
+
     @Test
     void syncInterruptStoresRawDataUnderReservedMetadataKey() {
         Map<String, Object> interaction = Map.of(
