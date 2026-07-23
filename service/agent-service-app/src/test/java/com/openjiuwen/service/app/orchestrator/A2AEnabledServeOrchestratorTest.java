@@ -405,6 +405,60 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
+    void cancelledRequestAfterReadyResultReleasesClaimForRetry() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            A2ARemoteAgentClient.RemoteCall call = invocation.getArgument(0);
+            return CompletableFuture.completedFuture(new A2ARemoteAgentClient.RemoteCallOutcome(
+                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+        });
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (localRuns.getAndIncrement() == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, remoteBatch()));
+            }
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        AtomicBoolean cancelled = new AtomicBoolean();
+        QueryStreamObserver cancellingObserver = new QueryStreamObserver() {
+            @Override
+            public void onNext(QueryChunk chunk) {
+                if (QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType())
+                        && chunk.getData() instanceof Map<?, ?> data
+                        && data.get("projection") instanceof Map<?, ?> projection
+                        && "COMPLETED".equals(projection.get("phase"))) {
+                    cancelled.set(true);
+                }
+            }
+
+            @Override
+            public void onComplete() {
+            }
+
+            @Override
+            public void onError(Throwable error) {
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return cancelled.get();
+            }
+        };
+        ServeRequest request = req("c-cancelled-ready");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-cancelled-ready"));
+
+        orchestrator.streamQuery(request, cancellingObserver);
+        orchestrator.streamQuery(request, mock(QueryStreamObserver.class));
+
+        assertThat(localRuns.get()).isEqualTo(2);
+        assertThat(taskStore.get("shadow:test-agent:parent-cancelled-ready")).isNull();
+    }
+
+    @Test
     void interruptWithoutA2aInterruptChunkDoesNotCreateShadowTask() {
         when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of()));
         doAnswer(inv -> {

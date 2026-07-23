@@ -135,8 +135,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         log.info("Orchestrator streamQuery START conversationId={}", request.getConversationId());
         var handle = streamRegistry.register(request.getConversationId());
+        ServeRequest current = request;
         try {
-            ServeRequest current = request;
             while (!handle.isCancelled() && !observer.isCancelled()) {
                 Optional<ServeRequest> opt = tryResumePending(current, observer);
                 if (opt.isEmpty()) {
@@ -156,6 +156,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 current = interruptResult.get();
             }
         } finally {
+            batchCoordinator.abortResume(current);
             streamRegistry.unregister(request.getConversationId(), handle);
         }
     }
@@ -181,9 +182,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 return Optional.empty();
             } catch (ExecutionException ex) {
                 Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                if (isCoreResumeInFlight(cause)) {
-                    return Optional.empty();
-                }
                 observer.onError(cause);
                 return Optional.empty();
             }
@@ -345,9 +343,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             } catch (InterruptedException ex) {
                 return QueryResumeResult.stop();
             } catch (ExecutionException ex) {
-                if (isCoreResumeInFlight(ex.getCause())) {
-                    return QueryResumeResult.stop();
-                }
                 throw new IllegalStateException("Remote batch resume failed", ex.getCause());
             }
         }
@@ -403,7 +398,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private Optional<ServeRequest> streamBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
         if (resolution.isReadyToResume()) {
-            return Optional.of(buildBatchResumeRequest(current, resolution));
+            ServeRequest resume = buildBatchResumeRequest(current, resolution);
+            return batchCoordinator.claimCoreResume(resume, resolution.batchId())
+                ? Optional.of(resume)
+                : Optional.empty();
         }
         observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, resolution.interrupt()));
         observer.onComplete();
@@ -413,7 +411,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private QueryResumeResult queryBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryResponse response) {
         if (resolution.isReadyToResume()) {
-            return QueryResumeResult.continueWith(buildBatchResumeRequest(current, resolution));
+            ServeRequest resume = buildBatchResumeRequest(current, resolution);
+            return batchCoordinator.claimCoreResume(resume, resolution.batchId())
+                ? QueryResumeResult.continueWith(resume)
+                : QueryResumeResult.stop();
         }
         Map<String, Object> result = new LinkedHashMap<>();
         if (response != null && response.getResult() instanceof Map<?, ?> existing) {
@@ -485,11 +486,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         return items.stream().anyMatch(item -> item instanceof Map<?, ?> itemMap
             && itemMap.get("context") instanceof Map<?, ?> context
             && A2A_DELEGATE_KIND.equals(context.get("_interrupt_kind")));
-    }
-
-    private static boolean isCoreResumeInFlight(Throwable error) {
-        return error instanceof IllegalStateException && error.getMessage() != null
-            && error.getMessage().startsWith("REMOTE_BATCH_CORE_RESUME_IN_FLIGHT:");
     }
 
     private static QueryResponse buildInterruptQueryResponse(String convId) {

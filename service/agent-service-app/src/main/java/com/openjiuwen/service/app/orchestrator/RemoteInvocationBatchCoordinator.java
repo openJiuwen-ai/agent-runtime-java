@@ -210,7 +210,7 @@ final class RemoteInvocationBatchCoordinator {
                     new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_UNKNOWN: " + toolCallId)));
             }
         }
-        return Optional.of(claimedReadyResolution(batch));
+        return Optional.of(CompletableFuture.completedFuture(snapshotResolution(batch)));
     }
 
     private Optional<CompletableFuture<BatchResolution>> resumeWaitingBatch(Batch batch,
@@ -218,16 +218,19 @@ final class RemoteInvocationBatchCoordinator {
         List<Member> pending = batch.members.stream()
             .filter(member -> member.state == MemberState.INPUT_REQUIRED)
             .toList();
+        Map<String, String> effectiveInputs;
         if (targetedInputs.isEmpty()) {
             if (pending.size() != 1) {
                 return Optional.of(CompletableFuture.failedFuture(
                     new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_REQUIRED")));
             }
-            targetedInputs = Map.of(pending.get(0).toolCallId, lastUserQuery);
+            effectiveInputs = Map.of(pending.get(0).toolCallId, lastUserQuery);
+        } else {
+            effectiveInputs = targetedInputs;
         }
         Map<String, Member> membersById = new LinkedHashMap<>();
         batch.members.forEach(member -> membersById.put(member.toolCallId, member));
-        for (String toolCallId : targetedInputs.keySet()) {
+        for (String toolCallId : effectiveInputs.keySet()) {
             Member member = membersById.get(toolCallId);
             if (member == null) {
                 return Optional.of(CompletableFuture.failedFuture(
@@ -239,7 +242,7 @@ final class RemoteInvocationBatchCoordinator {
             }
         }
         List<Member> selected = new ArrayList<>();
-        targetedInputs.forEach((toolCallId, input) -> {
+        effectiveInputs.forEach((toolCallId, input) -> {
             Member member = membersById.get(toolCallId);
             member.message = input;
             member.resultCategory = null;
@@ -497,7 +500,7 @@ final class RemoteInvocationBatchCoordinator {
             return new BatchResolution(batch.batchId, false, Map.of(), interrupt);
         }
         saveShadow(batch, "READY_TO_RESUME");
-        return claimedReadyResolution(batch).join();
+        return snapshotResolution(batch);
     }
 
     private void saveShadow(Batch batch, String state) {
@@ -592,7 +595,7 @@ final class RemoteInvocationBatchCoordinator {
         try {
             project(batch, member, content);
             return true;
-        } catch (IllegalArgumentException | IllegalStateException ex) {
+        } catch (RuntimeException ex) {
             failProjection(batch, member, ex, hasReservedUnstartedSlot);
             return false;
         }
@@ -821,15 +824,15 @@ final class RemoteInvocationBatchCoordinator {
         return new BatchResolution(batch.batchId, true, results, Map.of());
     }
 
-    private CompletableFuture<BatchResolution> claimedReadyResolution(Batch batch) {
+    boolean claimCoreResume(ServeRequest request, String batchId) {
+        String parentTaskId = parentTaskId(request);
         synchronized (lock) {
-            if (coreResumeClaims.containsKey(batch.parentTaskId)) {
-                return CompletableFuture.failedFuture(new IllegalStateException(
-                    "REMOTE_BATCH_CORE_RESUME_IN_FLIGHT: " + batch.parentTaskId));
+            if (coreResumeClaims.containsKey(parentTaskId)) {
+                return false;
             }
-            coreResumeClaims.put(batch.parentTaskId, batch.batchId);
+            coreResumeClaims.put(parentTaskId, batchId);
         }
-        return CompletableFuture.completedFuture(snapshotResolution(batch));
+        return true;
     }
 
     private void releaseCoreResumeClaim(String parentTaskId, String batchId) {

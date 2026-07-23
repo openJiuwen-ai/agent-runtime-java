@@ -151,7 +151,6 @@ class RemoteInvocationBatchCoordinatorTest {
 
     @Test
     void queuedMemberTimesOutWithoutWaitingForRunningMemberToFinish() throws Exception {
-        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         CountDownLatch overloaded = new CountDownLatch(1);
         QueryStreamObserver observer = new QueryStreamObserver() {
             @Override
@@ -178,6 +177,7 @@ class RemoteInvocationBatchCoordinatorTest {
             }
         };
 
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(new InMemoryTaskStore(),
             client, "test-agent", 1, 10, 1);
@@ -359,7 +359,7 @@ class RemoteInvocationBatchCoordinatorTest {
     void projectionFailureFailsBatchBeforeStartingRemoteCalls() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
-        org.mockito.Mockito.doThrow(new IllegalStateException("projection sink unavailable"))
+        org.mockito.Mockito.doThrow(new RuntimeException("projection sink unavailable"))
             .when(observer).onNext(any());
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 3);
 
@@ -368,7 +368,7 @@ class RemoteInvocationBatchCoordinatorTest {
             observer);
 
         assertThatThrownBy(result::join)
-            .hasCauseInstanceOf(IllegalStateException.class)
+            .hasCauseInstanceOf(RuntimeException.class)
             .hasRootCauseMessage("projection sink unavailable");
         verify(client, never()).callOutcome(any(), any(), any());
     }
@@ -455,11 +455,12 @@ class RemoteInvocationBatchCoordinatorTest {
         assertThat(shadow).isNotNull();
         assertThat((Map<String, Object>) shadow.metadata().get("_remote_batch"))
             .containsEntry("state", "READY_TO_RESUME");
+        assertThat(coordinator.claimCoreResume(request, result.join().batchId())).isTrue();
+        assertThat(coordinator.claimCoreResume(request, result.join().batchId())).isFalse();
         Optional<CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> retry =
             coordinator.resume(request, mock(QueryStreamObserver.class));
         assertThat(retry).isPresent();
-        assertThatThrownBy(() -> retry.orElseThrow().join())
-            .hasRootCauseMessage("REMOTE_BATCH_CORE_RESUME_IN_FLIGHT: parent-ready");
+        assertThat(retry.orElseThrow().join().isReadyToResume()).isTrue();
         verify(client).callOutcome(any(), any(), any());
     }
 

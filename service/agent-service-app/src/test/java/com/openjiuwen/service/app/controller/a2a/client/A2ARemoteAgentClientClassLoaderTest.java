@@ -27,11 +27,12 @@ import org.a2aproject.sdk.client.config.ClientConfig;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.client.transport.spi.ClientTransportProvider;
+import org.a2aproject.sdk.spec.A2AClientException;
 import org.a2aproject.sdk.spec.AgentCapabilities;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.AgentInterface;
-import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.Message;
+import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
@@ -127,6 +128,31 @@ class A2ARemoteAgentClientClassLoaderTest {
                 .hasCauseInstanceOf(TimeoutException.class);
         } finally {
             release.countDown();
+            remoteClient.shutdown();
+        }
+    }
+
+    @Test
+    void synchronousSdkFailureCompletesOutcomeImmediately() {
+        AgentCard card = testCard();
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("failing-agent", card, 30, false);
+        ClientBuilder builder = mock(ClientBuilder.class);
+        Client sdkClient = mock(Client.class);
+        doAnswer(invocation -> {
+            throw new A2AClientException("SDK send failed");
+        }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
+
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
+            stubClient(clientFactory, card, builder, sdkClient);
+
+            var outcome = remoteClient.callOutcome(remoteCall("failing-agent"), null, null);
+
+            assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS))
+                .hasCauseInstanceOf(A2AClientException.class)
+                .hasRootCauseMessage("SDK send failed");
+        } finally {
             remoteClient.shutdown();
         }
     }

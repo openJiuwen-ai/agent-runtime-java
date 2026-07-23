@@ -20,6 +20,7 @@ import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.client.config.ClientConfig;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
+import org.a2aproject.sdk.spec.A2AClientException;
 import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.Artifact;
@@ -285,11 +286,17 @@ public class A2ARemoteAgentClient {
         Client client = createClient(setup.entry, isStreaming);
         AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
         try {
-            Future<?> submitted = ioExecutor.submit(() -> withApplicationClassLoader(() -> {
-                client.sendMessage(setup.params, List.of(eventConsumer),
-                        error -> completeOutcomeOnStreamEnd(call.agentName(), result, error), null);
-                return null;
-            }));
+            Future<?> submitted = ioExecutor.submit(() -> {
+                try {
+                    withApplicationClassLoader(() -> {
+                        client.sendMessage(setup.params, List.of(eventConsumer),
+                                error -> completeOutcomeOnStreamEnd(call.agentName(), result, error), null);
+                        return null;
+                    });
+                } catch (A2AClientException ex) {
+                    result.completeExceptionally(ex);
+                }
+            });
             invocationTask.set(submitted);
             if (result.isDone()) {
                 submitted.cancel(true);

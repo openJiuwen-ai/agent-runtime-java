@@ -234,7 +234,6 @@ class JiuwenCoreAgentHandlerTest {
     @Test
     @SuppressWarnings("unchecked")
     void nonStreamingQueryPreservesLocalInterruptPayloadsInBatch() {
-        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
         OutputSchema first = interrupt(0, "call-a", "tool-a", "ask_user");
         OutputSchema second = interrupt(1, "call-b", "tool-b", "ask_user");
         assertThat(first.getPayload()).isInstanceOfSatisfying(InteractionOutput.class,
@@ -246,6 +245,7 @@ class JiuwenCoreAgentHandlerTest {
         Map<String, Object> rawResult = Map.of(
             "result_type", "interrupt",
             "state", List.of(first, second));
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
 
         QueryResponse response = handler.toQueryResponse(rawResult, "c-local-batch");
 
