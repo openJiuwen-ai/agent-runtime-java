@@ -71,7 +71,7 @@ class A2AEnabledServeOrchestratorTest {
         streamRegistry = mock(ActiveStreamRegistry.class);
         when(streamRegistry.register(anyString())).thenReturn(mock(StreamCancellationHandle.class));
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, cardResolver,
-            streamRegistry, "test-agent");
+            streamRegistry, "test-agent", new NoopServeForwardStrategy());
     }
 
     /**

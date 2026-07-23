@@ -300,6 +300,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     private final String agentId;
 
+    private final ServeForwardStrategy forwardStrategy;
+
     /**
      * Constructs the orchestrator with required dependencies.
      *
@@ -315,16 +317,20 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *            the active stream registry for cancellation
      * @param agentId
      *            this agent's identity for shadow task key namespacing
+     * @param forwardStrategy
+     *            the forward-decision strategy; {@link NoopServeForwardStrategy}
+     *            preserves legacy behaviour when no deployment-module strategy is active
      */
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
         RemoteAgentCaller remoteAgentCaller, RemoteAgentCardResolver cardResolver, ActiveStreamRegistry streamRegistry,
-        String agentId) {
+        String agentId, ServeForwardStrategy forwardStrategy) {
         this.agentHandler = agentHandler;
         this.taskStore = taskStore;
         this.remoteAgentCaller = remoteAgentCaller;
         this.cardResolver = cardResolver;
         this.streamRegistry = streamRegistry;
         this.agentId = agentId == null || agentId.isBlank() ? "agent" : agentId;
+        this.forwardStrategy = forwardStrategy != null ? forwardStrategy : new NoopServeForwardStrategy();
     }
 
     @Override
@@ -344,8 +350,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             QueryResponse response = agentHandler.query(current);
             Map<String, Object> interruptData = extractInterruptFromResponse(response);
             if (interruptData.isEmpty()) {
-                Optional<QueryResponse> forwarded = forwardIfThreeFieldResult(response, current, null);
-                return forwarded.orElse(response);
+                Optional<RemoteAgentCall> forward = forwardStrategy.evaluateForward(response, current);
+                if (forward.isPresent()) {
+                    return executeForwardSync(forward.get(), response, current);
+                }
+                return response;
             }
 
             Optional<ServeRequest> interruptResult = handleQueryInterrupt(interruptData, current, response);
@@ -369,39 +378,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 }
                 current = opt.get();
 
-                AgentRunResult agentResult = runAgentAndCaptureInterruptOrThreeField(current, observer, handle);
-                if (agentResult.threeFieldEnvelope() != null) {
-                    Optional<RemoteAgentCall> forward = buildForwardCall(agentResult.threeFieldEnvelope(), current, true);
-                    if (forward.isPresent()) {
-                        log.info("Orchestrator forwarding three-field chunk to remote agent={} convId={}",
-                            forward.get().agentId(), current.getConversationId());
-                        RemoteCallResult remoteResult = callRemoteAndCapture(forward.get(), observer);
-                        // The capturing wrapper suppresses passthrough terminal
-                        // signals when the remote returns INPUT_REQUIRED (and
-                        // does not call onError for the interrupt path). Surface
-                        // the interrupt to the client and terminate the stream
-                        // so the client observer is never left hanging.
-                        if (remoteResult.hasInterrupt()) {
-                            RemoteInputRequiredException rie = remoteResult.toInputRequiredException();
-                            if (!observer.isCancelled()) {
-                                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
-                                        "message", rie.getMessage(),
-                                        "remote_task_id", rie.getRemoteTaskId())));
-                                observer.onComplete();
-                            }
-                        } else if (remoteResult.hasError() && !remoteResult.terminallyNotified()
-                                && !observer.isCancelled()) {
-                            // Defensive: wrapper did not forward onError for some
-                            // reason — terminate the stream so the client is not
-                            // left waiting.
-                            observer.onComplete();
-                        }
-                    } else {
-                        observer.onComplete();
-                    }
+                ForwardDetection detection = runAgentAndDetectForward(current, observer, handle);
+                if (detection.forwardCall() != null) {
+                    executeForwardStream(detection.forwardCall(), current, observer);
                     return;
                 }
-                QueryChunk interrupt = agentResult.interrupt();
+                QueryChunk interrupt = detection.interrupt();
                 if (interrupt == null) {
                     return;
                 }
@@ -511,26 +493,29 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     /**
      * Outcome of running the local agent: either an interrupt chunk (for the
-     * classic {@code a2a_delegate}/{@code ask_user} path) or a three-field
-     * answer envelope emitted inline as a chunk (Versatile intent workflow
-     * short-circuit). At most one of the two is non-null.
+     * classic {@code a2a_delegate}/{@code ask_user} path) or a forward call
+     * returned by the {@link ServeForwardStrategy} (e.g. a three-field envelope
+     * detected by the deployment module's strategy). At most one of the two is
+     * non-null.
      */
-    private record AgentRunResult(QueryChunk interrupt, Map<String, Object> threeFieldEnvelope) {
+    private record ForwardDetection(QueryChunk interrupt, RemoteAgentCall forwardCall) {
     }
 
     /**
      * Runs the local agent and captures either an interrupt chunk (for the
-     * classic {@code a2a_delegate}/{@code ask_user} path) or a three-field
-     * answer envelope emitted inline as a chunk (Versatile intent workflow
-     * short-circuit). At most one of the two is non-null.
+     * classic {@code a2a_delegate}/{@code ask_user} path) or a forward call
+     * returned by the {@link ServeForwardStrategy}. At most one of the two is
+     * non-null.
      *
-     * <p>When a chunk carries an {@code answer} envelope with a non-blank
-     * {@code agent_id}, it is captured for downstream forwarding instead of
-     * being forwarded to the client observer. Interrupts are captured for the
-     * caller to translate into a {@link RemoteInputRequiredException}; normal
-     * chunks are forwarded to {@code observer}. The wrapper suppresses
-     * {@code observer.onComplete()} when an interrupt or envelope was captured
-     * so that the caller retains sole responsibility for terminal signalling.
+     * <p>For each non-interrupt chunk, the strategy's
+     * {@link ServeForwardStrategy#interceptStreamEnvelope} is invoked; when it
+     * returns a {@link RemoteAgentCall}, the chunk is captured (not forwarded
+     * to the client) and subsequent chunks are suppressed. Interrupts are
+     * captured for the caller to translate into a
+     * {@link RemoteInputRequiredException}; normal chunks are forwarded to
+     * {@code observer}. The wrapper suppresses {@code observer.onComplete()}
+     * when an interrupt or forward call was captured so that the caller
+     * retains sole responsibility for terminal signalling.
      *
      * @param current
      *            the current serve request
@@ -538,12 +523,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *            the query stream observer
      * @param handle
      *            the stream cancellation handle
-     * @return the run outcome (interrupt chunk and/or three-field envelope)
+     * @return the run outcome (interrupt chunk and/or forward call)
      */
-    private AgentRunResult runAgentAndCaptureInterruptOrThreeField(ServeRequest current, QueryStreamObserver observer,
+    private ForwardDetection runAgentAndDetectForward(ServeRequest current, QueryStreamObserver observer,
         StreamCancellationHandle handle) {
         AtomicReference<QueryChunk> interruptHolder = new AtomicReference<>();
-        AtomicReference<Map<String, Object>> envelopeHolder = new AtomicReference<>();
+        AtomicReference<RemoteAgentCall> forwardCallHolder = new AtomicReference<>();
         agentHandler.streamQuery(current, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
@@ -551,14 +536,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                     interruptHolder.set(chunk);
                     return;
                 }
-                if (chunk.getData() instanceof Map<?, ?> m
-                        && RemoteAgentAnswerExtractor.ANSWER_ENVELOPE_TYPE.equals(m.get("type"))
-                        && m.get("agent_id") instanceof String aid && !aid.isBlank()) {
-                    Map<String, Object> envelope = new LinkedHashMap<>();
-                    for (Map.Entry<?, ?> entry : m.entrySet()) {
-                        envelope.put(String.valueOf(entry.getKey()), entry.getValue());
-                    }
-                    envelopeHolder.set(envelope);
+                Optional<RemoteAgentCall> forward = forwardStrategy.interceptStreamEnvelope(chunk, current);
+                if (forward.isPresent()) {
+                    forwardCallHolder.set(forward.get());
                     return;
                 }
                 observer.onNext(chunk);
@@ -566,7 +546,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
             @Override
             public void onComplete() {
-                if (interruptHolder.get() == null && envelopeHolder.get() == null) {
+                if (interruptHolder.get() == null && forwardCallHolder.get() == null) {
                     observer.onComplete();
                 }
             }
@@ -582,119 +562,119 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 return handle.isCancelled() || observer.isCancelled();
             }
         });
-        return new AgentRunResult(interruptHolder.get(), envelopeHolder.get());
+        return new ForwardDetection(interruptHolder.get(), forwardCallHolder.get());
     }
 
     /**
-     * Inspects a {@link QueryResponse} for a Versatile intent workflow
-     * three-field result ({@code agent_id} + {@code response_content} + optional
-     * {@code intent_id}) and, when present and addressed to a different agent,
-     * forwards the call to the remote agent via {@link RemoteAgentCaller}.
+     * Executes a forward call in sync {@code query()} mode: invokes the remote
+     * agent via {@link RemoteAgentCaller}, captures the outcome, and translates
+     * it into a {@link QueryResponse}.
      *
-     * <p>In sync {@code query()} mode ({@code observer == null}), the remote's
-     * captured answer text is wrapped into a new {@link QueryResponse} with
-     * {@code role=assistant} + {@code response_content} fields. In streaming
-     * mode, chunks are forwarded directly to the observer via
-     * {@link #callRemoteAndCapture(RemoteAgentCall, QueryStreamObserver)}; the
-     * caller is responsible for any post-call observer notification (the
-     * capturing wrapper honours the observer contract for terminal signals).
+     * <p>On remote {@code INPUT_REQUIRED}, saves a shadow task (so the next
+     * resume targets the right remote task) and returns a response carrying
+     * {@code _interrupt}. On remote error, falls back to the local response.
+     * On success, wraps the remote answer into a fresh {@link QueryResponse}
+     * with {@code role=assistant} + {@code response_content} and transparently
+     * propagates the remote envelope's {@code agent_id}/{@code intent_id}.
      *
-     * @param response
-     *            the local handler's response to inspect
+     * @param call
+     *            the remote call coordinates (built by the forward strategy)
+     * @param localResponse
+     *            the local agent's response, used as fallback on error
+     * @param current
+     *            the current serve request
+     * @return the forwarded response, or the local response on recoverable error
+     */
+    private QueryResponse executeForwardSync(RemoteAgentCall call, QueryResponse localResponse,
+            ServeRequest current) {
+        log.info("Orchestrator forwarding (sync) to remote agent={} convId={}", call.agentId(),
+                current.getConversationId());
+        if (call.agentId().equals(this.agentId)) {
+            log.warn("Orchestrator forwarding to self agentId={} convId={} "
+                + "(re-classification or config error; loop protection delegated to downstream-call capability)",
+                call.agentId(), current.getConversationId());
+        }
+        RemoteCallResult remoteResult = callRemoteAndCapture(call, NOOP_OBSERVER);
+        if (remoteResult.hasInterrupt()) {
+            RemoteInputRequiredException rie = remoteResult.toInputRequiredException();
+            log.info("Orchestrator forward INPUT_REQUIRED convId={} remoteTaskId={}", current.getConversationId(),
+                    rie.getRemoteTaskId());
+            saveShadowTask(current.getConversationId(), call.agentId(),
+                    cardResolver.resolveJsonRpcUrl(call.agentId()), rie.getRemoteTaskId(), "");
+            Map<String, Object> result = queryInputRequiredResult(localResponse, rie.getMessage());
+            return new QueryResponse(result, current.getConversationId());
+        }
+        if (remoteResult.hasError()) {
+            log.warn("Orchestrator forward to agent={} convId={} did not complete cleanly (error={}); "
+                + "returning local response", call.agentId(), current.getConversationId(),
+                remoteResult.error().getMessage());
+            return localResponse;
+        }
+        String remoteContent = remoteResult.answer();
+        Map<String, Object> forwardedResult = new LinkedHashMap<>();
+        forwardedResult.put("role", "assistant");
+        forwardedResult.put("content", remoteContent);
+        forwardedResult.put("response_content", remoteContent);
+        Map<?, ?> envelope = remoteResult.envelope();
+        if (envelope != null) {
+            Object remoteAgentId = envelope.get("agent_id");
+            if (remoteAgentId != null) {
+                forwardedResult.put("agent_id", remoteAgentId);
+            }
+            Object remoteIntentId = envelope.get("intent_id");
+            if (remoteIntentId != null) {
+                forwardedResult.put("intent_id", remoteIntentId);
+            }
+        }
+        return new QueryResponse(forwardedResult, current.getConversationId());
+    }
+
+    /**
+     * Executes a forward call in streaming {@code streamQuery()} mode: invokes
+     * the remote agent via {@link RemoteAgentCaller} and streams chunks to the
+     * client observer via the capturing wrapper.
+     *
+     * <p>On remote {@code INPUT_REQUIRED}, saves a shadow task (so the next
+     * resume targets the right remote task), emits a {@code TYPE_INTERRUPT}
+     * chunk carrying the {@code remote_task_id}, and completes the stream. On
+     * remote error, the capturing wrapper has already forwarded {@code onError}
+     * to the client (and set {@code terminallyNotified}); this method only
+     * calls {@code onComplete} as a defensive fallback when the wrapper did not
+     * issue a terminal signal. On success, the wrapper has already forwarded
+     * chunks and {@code onComplete}, so nothing more is done.
+     *
+     * @param call
+     *            the remote call coordinates (built by the forward strategy)
      * @param current
      *            the current serve request
      * @param observer
-     *            the client stream observer, or {@code null} for sync mode
-     * @return the forwarded response, or {@link Optional#empty()} if no
-     *         forwarding applies (caller should return the original response)
+     *            the client stream observer
      */
-    private Optional<QueryResponse> forwardIfThreeFieldResult(QueryResponse response, ServeRequest current,
-        QueryStreamObserver observer) {
-        if (!(response.getResult() instanceof Map<?, ?> resultMap)) {
-            return Optional.empty();
-        }
-        Optional<RemoteAgentCall> callOpt = buildForwardCall(resultMap, current, observer != null);
-        if (callOpt.isEmpty()) {
-            return Optional.empty();
-        }
-        RemoteAgentCall call = callOpt.get();
-
-        log.info("Orchestrator forwarding three-field result to remote agent={} convId={}",
-            call.agentId(), current.getConversationId());
-
-        if (observer == null) {
-            // Sync query mode: NOOP observer, translate captured answer into a
-            // fresh QueryResponse. On interrupt or error, fall back to the local
-            // response rather than crashing.
-            RemoteCallResult remoteResult = callRemoteAndCapture(call, NOOP_OBSERVER);
-            if (remoteResult.hasInterrupt() || remoteResult.hasError()) {
-                log.warn("Orchestrator three-field forward to agent={} convId={} did not complete cleanly "
-                    + "(interrupt={}, error={}); returning local response", call.agentId(), current.getConversationId(),
-                    remoteResult.hasInterrupt(), remoteResult.hasError() ? remoteResult.error().getMessage() : "n/a");
-                return Optional.empty();
-            }
-            String remoteContent = remoteResult.answer();
-            Map<String, Object> forwardedResult = new LinkedHashMap<>();
-            forwardedResult.put("role", "assistant");
-            forwardedResult.put("content", remoteContent);
-            forwardedResult.put("response_content", remoteContent);
-            Map<?, ?> envelope = remoteResult.envelope();
-            if (envelope != null) {
-                Object remoteAgentId = envelope.get("agent_id");
-                if (remoteAgentId != null) {
-                    forwardedResult.put("agent_id", remoteAgentId);
-                }
-                Object remoteIntentId = envelope.get("intent_id");
-                if (remoteIntentId != null) {
-                    forwardedResult.put("intent_id", remoteIntentId);
-                }
-            }
-            return Optional.of(new QueryResponse(forwardedResult, current.getConversationId()));
-        }
-
-        // Streaming mode: chunks have already been forwarded to the observer by
-        // the capturing wrapper (including any terminal signal). Nothing more
-        // to do here — the streamQuery loop returns immediately after this call.
-        callRemoteAndCapture(call, observer);
-        return Optional.of(response);
-    }
-
-    /**
-     * Builds a {@link RemoteAgentCall} from a three-field envelope, or returns
-     * {@code Optional.empty()} if the envelope should not be forwarded (missing
-     * or blank {@code agent_id}).
-     *
-     * <p>Self-forward (envelope {@code agent_id} equal to this orchestrator's
-     * own id) is intentionally NOT skipped here. Re-classification per PRD §4.6
-     * requires the downstream business runtime to forward the three-field
-     * result back to the fixed layer-1 agent, creating a new Task on the
-     * layer-1 runtime — even when that target equals the current orchestrator's
-     * own agent identity in edge configurations. Loop protection (deadline,
-     * max-jump count, repeated-path detection) is the responsibility of the
-     * runtime downstream-call capability per L2 §2.2, not this orchestrator.
-     * Silently skipping self-forward would also mask configuration errors as
-     * successful completion, violating PRD §9.1 structured-failure requirement.
-     *
-     * @param envelope  the three-field envelope ({@code agent_id} +
-     *                  {@code response_content} + optional {@code intent_id})
-     * @param current   the current serve request
-     * @param streaming whether to use streaming SDK client + observer-routed errors
-     * @return the remote call coordinates, or empty if forwarding should be skipped
-     */
-    private Optional<RemoteAgentCall> buildForwardCall(Map<?, ?> envelope, ServeRequest current, boolean streaming) {
-        Object agentIdObj = envelope.get("agent_id");
-        if (!(agentIdObj instanceof String aid) || aid.isBlank()) {
-            return Optional.empty();
-        }
-        if (aid.equals(this.agentId)) {
-            log.warn("Orchestrator forwarding three-field result to self agentId={} convId={} "
+    private void executeForwardStream(RemoteAgentCall call, ServeRequest current, QueryStreamObserver observer) {
+        log.info("Orchestrator forwarding (stream) to remote agent={} convId={}", call.agentId(),
+                current.getConversationId());
+        if (call.agentId().equals(this.agentId)) {
+            log.warn("Orchestrator forwarding to self agentId={} convId={} "
                 + "(re-classification or config error; loop protection delegated to downstream-call capability)",
-                aid, current.getConversationId());
+                call.agentId(), current.getConversationId());
         }
-        Object rc = envelope.get("response_content");
-        String rcStr = rc instanceof String s ? s : null;
-        return Optional.of(new RemoteAgentCall(aid, current, rcStr, current.getConversationId(),
-                null, current.lastUserQuery(), streaming));
+        RemoteCallResult remoteResult = callRemoteAndCapture(call, observer);
+        if (remoteResult.hasInterrupt()) {
+            RemoteInputRequiredException rie = remoteResult.toInputRequiredException();
+            log.info("Orchestrator forward INPUT_REQUIRED convId={} remoteTaskId={}", current.getConversationId(),
+                    rie.getRemoteTaskId());
+            saveShadowTask(current.getConversationId(), call.agentId(),
+                    cardResolver.resolveJsonRpcUrl(call.agentId()), rie.getRemoteTaskId(),
+                    InterruptData.STREAM_MODE_SSE);
+            if (!observer.isCancelled()) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                        "message", rie.getMessage(),
+                        "remote_task_id", rie.getRemoteTaskId() != null ? rie.getRemoteTaskId() : "")));
+                observer.onComplete();
+            }
+        } else if (remoteResult.hasError() && !remoteResult.terminallyNotified() && !observer.isCancelled()) {
+            observer.onComplete();
+        }
     }
 
     /**
@@ -768,7 +748,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             return failRemoteStream(current, data.agentName(), observer, e, false);
         }
         if (result.hasInterrupt()) {
-            return handleRemoteInputRequired(data, current, observer, result.toInputRequiredException());
+            return handleRemoteInputRequired(data.agentName(), data.streamMode(), current, observer,
+                    result.toInputRequiredException());
         }
         if (result.hasError()) {
             Throwable failure = result.error();
@@ -807,7 +788,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             return failRemoteStream(current, data.agentName(), observer, e, false);
         }
         if (result.hasInterrupt()) {
-            return handleRemoteInputRequired(data, current, observer, result.toInputRequiredException());
+            return handleRemoteInputRequired(data.agentName(), data.streamMode(), current, observer,
+                    result.toInputRequiredException());
         }
         if (result.hasError()) {
             Throwable failure = result.error();
@@ -843,12 +825,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *            the remote input required exception
      * @return {@link Optional#empty()} always, indicating the loop should stop
      */
-    private Optional<ServeRequest> handleRemoteInputRequired(InterruptData data, ServeRequest current,
+    private Optional<ServeRequest> handleRemoteInputRequired(String agentName, String streamMode, ServeRequest current,
             QueryStreamObserver observer, RemoteInputRequiredException rie) {
         log.info("Orchestrator remote INPUT_REQUIRED convId={} remoteTaskId={}", current.getConversationId(),
                 rie.getRemoteTaskId());
-        saveShadowTask(current.getConversationId(), data.agentName(), cardResolver.resolveJsonRpcUrl(data.agentName()),
-                rie.getRemoteTaskId(), data.streamMode());
+        saveShadowTask(current.getConversationId(), agentName, cardResolver.resolveJsonRpcUrl(agentName),
+                rie.getRemoteTaskId(), streamMode);
         observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", rie.getMessage())));
         observer.onComplete();
         return Optional.empty();
