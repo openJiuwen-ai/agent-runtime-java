@@ -161,7 +161,7 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void singleLocalInterruptWithToolCallIdIsForwardedWithoutRemoteDispatch() {
+    void localInterruptWithToolCallIdBypassesRemoteDispatch() {
         Map<String, Object> interrupt = Map.of(
             "type", "__interaction__",
             "toolCallId", "call-local",
@@ -205,7 +205,7 @@ class A2AEnabledServeOrchestratorTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void remoteInterruptBatchFansOutAndResumesCoreOnceWithCompleteResultMap() {
+    void remoteBatchFansOutAndResumesCoreWithCompleteResults() {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
@@ -307,7 +307,7 @@ class A2AEnabledServeOrchestratorTest {
                 observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, remoteBatch()));
                 try {
                     observer.onComplete();
-                } catch (RuntimeException ex) {
+                } catch (IllegalStateException ex) {
                     observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, Map.of("error", ex.getMessage())));
                     observer.onError(ex);
                 }

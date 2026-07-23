@@ -27,7 +27,6 @@ import org.a2aproject.sdk.server.events.EventQueueClosedException;
 import org.a2aproject.sdk.server.events.EventQueueItem;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.spec.Message;
-import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
@@ -47,7 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 class A2AAgentExecutorTest {
     @Test
     @SuppressWarnings("unchecked")
-    void nonStreamingA2aExecutionProjectsRemoteProgressThroughInternalStream() {
+    void nonStreamingA2aProjectsRemoteProgressThroughInternalStream() {
         A2AEnabledServeOrchestrator orchestrator = mock(A2AEnabledServeOrchestrator.class);
         Map<String, Object> projection = Map.of(
             "kind", "remote_agent_invocation",
@@ -73,9 +72,10 @@ class A2AAgentExecutorTest {
             .map(TaskArtifactUpdateEvent.class::cast)
             .toList();
         assertThat(artifacts).anySatisfy(event -> {
-            TextPart part = (TextPart) event.artifact().parts().get(0);
-            assertThat(part.text()).isEqualTo("running");
-            assertThat(part.metadata()).containsEntry("_remote_invocation", projection);
+            assertThat(event.artifact().parts().get(0)).isInstanceOfSatisfying(TextPart.class, part -> {
+                assertThat(part.text()).isEqualTo("running");
+                assertThat(part.metadata()).containsEntry("_remote_invocation", projection);
+            });
         });
         verify(orchestrator).streamQuery(any(), any());
         verify(orchestrator, never()).query(any());

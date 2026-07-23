@@ -123,32 +123,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             orchestrator.streamQuery(req, new QueryStreamObserver() {
                 @Override
                 public void onNext(QueryChunk chunk) {
-                    if (interrupted.get()) {
-                        return;
-                    }
-                    if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
-                        log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
-                                msgCtx.getContextId(),
-                                chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
-                        if (chunk.getData() instanceof Map<?, ?> interruptData) {
-                            emitter.requiresInput(statusMessage(interruptData));
-                        } else {
-                            emitter.requiresInput();
-                        }
-                        closeEventQueue(emitter, msgCtx.getTaskId());
-                        interrupted.set(true);
-                        return;
-                    }
-                    // Transparent passthrough: forward the AgentCore stream chunk verbatim
-                    // (the {type,index,payload} envelope), including the final answer, keeping
-                    // one uniform stream format. The envelope's own "type" field lets the
-                    // delegating caller pick out the answer to feed its LLM without this layer
-                    // rewriting the payload — see A2ARemoteAgentClient#handleArtifact.
-                    List<Part<?>> parts = chunkMapper.toParts(chunk);
-                    if (parts.isEmpty()) {
-                        return;
-                    }
-                    emitter.addArtifact(parts);
+                    handleStreamingChunk(chunk, msgCtx, emitter, interrupted);
                 }
 
                 @Override
@@ -176,6 +151,29 @@ public class A2AAgentExecutor implements AgentExecutor {
             });
         } finally {
             activeCancellations.remove(ctx.getContextId());
+        }
+    }
+
+    private void handleStreamingChunk(QueryChunk chunk, A2AMessageContext msgCtx, AgentEmitter emitter,
+            AtomicBoolean interrupted) {
+        if (interrupted.get()) {
+            return;
+        }
+        if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
+            log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
+                msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> map ? map.get("message") : null);
+            if (chunk.getData() instanceof Map<?, ?> interruptData) {
+                emitter.requiresInput(statusMessage(interruptData));
+            } else {
+                emitter.requiresInput();
+            }
+            closeEventQueue(emitter, msgCtx.getTaskId());
+            interrupted.set(true);
+            return;
+        }
+        List<Part<?>> parts = chunkMapper.toParts(chunk);
+        if (!parts.isEmpty()) {
+            emitter.addArtifact(parts);
         }
     }
 
@@ -233,14 +231,7 @@ public class A2AAgentExecutor implements AgentExecutor {
 
                 @Override
                 public void onComplete() {
-                    if (!terminal.compareAndSet(false, true)) {
-                        return;
-                    }
-                    String result = finalAnswer.get() != null ? finalAnswer.get() : content.toString();
-                    if (!result.isEmpty()) {
-                        emitter.addArtifact(List.of(new TextPart(result)));
-                    }
-                    completeAndDrain(emitter, msgCtx.getTaskId());
+                    completeQueryThroughStream(msgCtx, emitter, content, finalAnswer, terminal);
                 }
 
                 @Override
@@ -258,6 +249,18 @@ public class A2AAgentExecutor implements AgentExecutor {
             });
     }
 
+    private static void completeQueryThroughStream(A2AMessageContext msgCtx, AgentEmitter emitter,
+            StringBuilder content, AtomicReference<String> finalAnswer, AtomicBoolean terminal) {
+        if (!terminal.compareAndSet(false, true)) {
+            return;
+        }
+        String result = finalAnswer.get() != null ? finalAnswer.get() : content.toString();
+        if (!result.isEmpty()) {
+            emitter.addArtifact(List.of(new TextPart(result)));
+        }
+        completeAndDrain(emitter, msgCtx.getTaskId());
+    }
+
     private static void appendNonStreamingChunk(QueryChunk chunk, StringBuilder content,
             AtomicReference<String> finalAnswer) {
         Object data = chunk.getData();
@@ -271,9 +274,9 @@ public class A2AAgentExecutor implements AgentExecutor {
             if (text.isEmpty() && payloadMap != null) {
                 text = firstBusinessText(map);
             }
-            boolean answer = "answer".equals(map.get("type"))
+            boolean isAnswer = "answer".equals(map.get("type"))
                 || payloadMap != null && "answer".equals(payloadMap.get("result_type"));
-            if (answer) {
+            if (isAnswer) {
                 if (!text.isEmpty()) {
                     finalAnswer.set(text);
                 }

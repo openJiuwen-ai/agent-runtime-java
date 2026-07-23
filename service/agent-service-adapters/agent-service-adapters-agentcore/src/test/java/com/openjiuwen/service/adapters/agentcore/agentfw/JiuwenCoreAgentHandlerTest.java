@@ -237,10 +237,12 @@ class JiuwenCoreAgentHandlerTest {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
         OutputSchema first = interrupt(0, "call-a", "tool-a", "ask_user");
         OutputSchema second = interrupt(1, "call-b", "tool-b", "ask_user");
-        ((ToolCallInterruptRequest) ((InteractionOutput) first.getPayload()).getValue())
-            .setPayloadSchema(Map.of("type", "string"));
-        ((ToolCallInterruptRequest) ((InteractionOutput) second.getPayload()).getValue())
-            .setPayloadSchema(Map.of("type", "string"));
+        assertThat(first.getPayload()).isInstanceOfSatisfying(InteractionOutput.class,
+            output -> assertThat(output.getValue()).isInstanceOfSatisfying(ToolCallInterruptRequest.class,
+                request -> request.setPayloadSchema(Map.of("type", "string"))));
+        assertThat(second.getPayload()).isInstanceOfSatisfying(InteractionOutput.class,
+            output -> assertThat(output.getValue()).isInstanceOfSatisfying(ToolCallInterruptRequest.class,
+                request -> request.setPayloadSchema(Map.of("type", "string"))));
         Map<String, Object> rawResult = Map.of(
             "result_type", "interrupt",
             "state", List.of(first, second));
@@ -252,11 +254,9 @@ class JiuwenCoreAgentHandlerTest {
         List<Map<String, Object>> items = (List<Map<String, Object>>) interrupt.get("items");
         assertThat(items).allSatisfy(item -> {
             assertThat(item).containsEntry("type", "__interaction__").containsKey("payload");
-            assertThat(item.get("payload")).isInstanceOf(InteractionOutput.class);
-            InteractionOutput payload = (InteractionOutput) item.get("payload");
-            assertThat(payload.getValue()).isInstanceOf(ToolCallInterruptRequest.class);
-            ToolCallInterruptRequest request = (ToolCallInterruptRequest) payload.getValue();
-            assertThat(request.getPayloadSchema()).containsEntry("type", "string");
+            assertThat(item.get("payload")).isInstanceOfSatisfying(InteractionOutput.class,
+                payload -> assertThat(payload.getValue()).isInstanceOfSatisfying(ToolCallInterruptRequest.class,
+                    request -> assertThat(request.getPayloadSchema()).containsEntry("type", "string")));
         });
     }
 
@@ -286,11 +286,11 @@ class JiuwenCoreAgentHandlerTest {
         assertThat(inputs).isInstanceOf(Map.class);
         Map<String, Object> inputMap = (Map<String, Object>) inputs;
         assertThat(inputMap).containsEntry("conversation_id", "c-resume");
-        assertThat(inputMap.get("query")).isInstanceOf(InteractiveInput.class);
-        InteractiveInput interactiveInput = (InteractiveInput) inputMap.get("query");
-        assertThat(interactiveInput.getRawInputs()).isNull();
-        assertThat(interactiveInput.getUserInputs())
-            .containsOnly(Map.entry("call-a", "result-a"), Map.entry("call-b", "result-b"));
+        assertThat(inputMap.get("query")).isInstanceOfSatisfying(InteractiveInput.class, interactiveInput -> {
+            assertThat(interactiveInput.getRawInputs()).isNull();
+            assertThat(interactiveInput.getUserInputs())
+                .containsOnly(Map.entry("call-a", "result-a"), Map.entry("call-b", "result-b"));
+        });
     }
 
     @Test
@@ -309,7 +309,7 @@ class JiuwenCoreAgentHandlerTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void mixedRemoteAndLocalInterruptKindsArePreservedForCallerClassification() {
+    void mixedInterruptKindsRemainAvailableForCallerClassification() {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
         OutputSchema localInterrupt = interrupt(1, "call-b", "tool-b", "ask_user");
         Map<String, Object> rawResult = Map.of(

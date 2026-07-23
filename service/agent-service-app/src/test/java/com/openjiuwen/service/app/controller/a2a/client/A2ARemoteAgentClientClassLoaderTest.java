@@ -62,7 +62,6 @@ class A2ARemoteAgentClientClassLoaderTest {
         AgentCard card = testCard();
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
         registry.register("sync-agent", card, 30, false);
-        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
         ClientBuilder builder = mock(ClientBuilder.class);
         Client sdkClient = mock(Client.class);
         CountDownLatch entered = new CountDownLatch(1);
@@ -77,23 +76,23 @@ class A2ARemoteAgentClientClassLoaderTest {
 
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
-            Thread releaser = new Thread(() -> {
+            CompletableFuture<Void> releaser = CompletableFuture.runAsync(() -> {
                 try {
                     if (entered.await(2, TimeUnit.SECONDS)) {
                         returnedBeforeRelease.set(callReturned.await(2, TimeUnit.SECONDS));
                     }
                 } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(ex);
                 } finally {
                     release.countDown();
                 }
             });
-            releaser.start();
+            A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
             CompletableFuture<A2ARemoteAgentClient.RemoteCallOutcome> outcome = null;
             try {
                 outcome = remoteClient.callOutcome(remoteCall("sync-agent"), null, null);
                 callReturned.countDown();
-                releaser.join();
+                releaser.get(3, TimeUnit.SECONDS);
                 assertThat(returnedBeforeRelease).isTrue();
             } finally {
                 if (outcome != null) {
@@ -165,7 +164,6 @@ class A2ARemoteAgentClientClassLoaderTest {
         AgentCard card = testCard();
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
         registry.register("task-agent", card, 30, false);
-        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
         ClientBuilder builder = mock(ClientBuilder.class);
         Client sdkClient = mock(Client.class);
         Task task = Task.builder().id("remote-task").contextId("remote-context")
@@ -181,6 +179,7 @@ class A2ARemoteAgentClientClassLoaderTest {
             return null;
         }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
 
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
@@ -196,7 +195,6 @@ class A2ARemoteAgentClientClassLoaderTest {
         AgentCard card = testCard();
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
         registry.register("status-agent", card, 30, false);
-        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
         ClientBuilder builder = mock(ClientBuilder.class);
         Client sdkClient = mock(Client.class);
         Message statusMessage = Message.builder().role(Message.Role.ROLE_AGENT)
@@ -212,6 +210,7 @@ class A2ARemoteAgentClientClassLoaderTest {
             return null;
         }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
 
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
@@ -260,7 +259,6 @@ class A2ARemoteAgentClientClassLoaderTest {
         A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
         ClientBuilder builder = mock(ClientBuilder.class);
         Client sdkClient = mock(Client.class);
-        ArgumentCaptor<ClientConfig> configs = ArgumentCaptor.forClass(ClientConfig.class);
         ArgumentCaptor<MessageSendParams> params = ArgumentCaptor.forClass(MessageSendParams.class);
 
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
@@ -277,6 +275,7 @@ class A2ARemoteAgentClientClassLoaderTest {
             stream.cancel(false);
         }
 
+        ArgumentCaptor<ClientConfig> configs = ArgumentCaptor.forClass(ClientConfig.class);
         verify(builder, times(2)).clientConfig(configs.capture());
         assertThat(configs.getAllValues()).extracting(ClientConfig::isStreaming).containsExactly(false, true);
         assertThat(params.getAllValues()).allSatisfy(value -> {

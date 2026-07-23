@@ -144,12 +144,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 }
                 current = opt.get();
 
-                QueryChunk interrupt = runAgentAndCaptureInterrupt(current, observer, handle);
-                if (interrupt == null) {
+                Optional<QueryChunk> interrupt = runAgentAndCaptureInterrupt(current, observer, handle);
+                if (interrupt.isEmpty()) {
                     return;
                 }
 
-                Optional<ServeRequest> interruptResult = handleInterrupt(interrupt, current, observer);
+                Optional<ServeRequest> interruptResult = handleInterrupt(interrupt.get(), current, observer);
                 if (interruptResult.isEmpty()) {
                     return;
                 }
@@ -177,7 +177,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             try {
                 return streamBatchResolution(current, batchResume.get().get(), observer);
             } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
                 observer.onError(ex);
                 return Optional.empty();
             } catch (ExecutionException ex) {
@@ -201,9 +200,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *            the query stream observer
      * @param handle
      *            the stream cancellation handle
-     * @return the interrupt chunk, or {@code null} if the stream completed normally
+     * @return the interrupt chunk, or empty if the stream completed normally
      */
-    private QueryChunk runAgentAndCaptureInterrupt(ServeRequest current, QueryStreamObserver observer,
+    private Optional<QueryChunk> runAgentAndCaptureInterrupt(ServeRequest current, QueryStreamObserver observer,
         StreamCancellationHandle handle) {
         var interruptHolder = new java.util.concurrent.atomic.AtomicReference<QueryChunk>();
         var coreCompleted = new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -253,7 +252,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             }
             throw ex;
         }
-        return callbackFailed.get() ? null : interruptHolder.get();
+        return callbackFailed.get() ? Optional.empty() : Optional.ofNullable(interruptHolder.get());
     }
 
     /**
@@ -277,7 +276,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                     batchCoordinator.execute(rawInterrupt, current, observer).get();
                 return streamBatchResolution(current, resolution, observer);
             } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
                 observer.onError(ex);
                 return Optional.empty();
             } catch (ExecutionException ex) {
@@ -316,7 +314,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         log.info("Reset {}: {} A2A tasks cleaned", conversationId, result.tasks().size());
     }
 
-
     private record QueryResumeResult(Optional<ServeRequest> request, QueryResponse response) {
         static QueryResumeResult continueWith(ServeRequest request) {
             return new QueryResumeResult(Optional.of(request), null);
@@ -346,7 +343,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             try {
                 return queryBatchResolution(current, batchResume.get().get(), null);
             } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
                 return QueryResumeResult.stop();
             } catch (ExecutionException ex) {
                 if (isCoreResumeInFlight(ex.getCause())) {
@@ -382,7 +378,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 }
                 return batchResult.request();
             } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
                 return Optional.empty();
             } catch (ExecutionException ex) {
                 throw new IllegalStateException("Remote batch execution failed", ex.getCause());
@@ -407,7 +402,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     private Optional<ServeRequest> streamBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
-        if (resolution.readyToResume()) {
+        if (resolution.isReadyToResume()) {
             return Optional.of(buildBatchResumeRequest(current, resolution));
         }
         observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, resolution.interrupt()));
@@ -417,7 +412,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     private QueryResumeResult queryBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryResponse response) {
-        if (resolution.readyToResume()) {
+        if (resolution.isReadyToResume()) {
             return QueryResumeResult.continueWith(buildBatchResumeRequest(current, resolution));
         }
         Map<String, Object> result = new LinkedHashMap<>();
@@ -503,5 +498,4 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         result.put("_interrupt", Map.of("message", "Remote agent requires input"));
         return new QueryResponse(result, convId);
     }
-
 }

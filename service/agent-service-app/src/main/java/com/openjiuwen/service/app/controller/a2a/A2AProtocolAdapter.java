@@ -84,8 +84,8 @@ public class A2AProtocolAdapter {
     private static TextExtraction extractText(List<Part<?>> parts) {
         StringBuilder rawText = new StringBuilder();
         Map<String, StringBuilder> grouped = new LinkedHashMap<>();
-        boolean anyTargeted = false;
-        boolean allTargeted = true;
+        boolean hasTargetedPart = false;
+        boolean isEveryPartTargeted = true;
         for (Part<?> part : parts) {
             if (!(part instanceof TextPart textPart)) {
                 continue;
@@ -93,17 +93,17 @@ public class A2AProtocolAdapter {
             rawText.append(textPart.text());
             Object rawToolCallId = textPart.metadata() != null ? textPart.metadata().get("toolCallId") : null;
             if (rawToolCallId instanceof String toolCallId && !toolCallId.isBlank()) {
-                anyTargeted = true;
+                hasTargetedPart = true;
                 grouped.computeIfAbsent(toolCallId, ignored -> new StringBuilder()).append(textPart.text());
             } else {
-                allTargeted = false;
+                isEveryPartTargeted = false;
             }
         }
-        if (anyTargeted && !allTargeted) {
+        if (hasTargetedPart && !isEveryPartTargeted) {
             throw new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_MIXED");
         }
         Map<String, String> targetedInputs = new LinkedHashMap<>();
-        if (anyTargeted) {
+        if (hasTargetedPart) {
             grouped.forEach((toolCallId, text) -> targetedInputs.put(toolCallId, text.toString()));
         }
         return new TextExtraction(rawText.toString(), targetedInputs);

@@ -76,7 +76,7 @@ public class A2ARemoteAgentCardRegistry {
     /**
      * A registered remote agent entry holding the card and timeout configuration.
      */
-    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds, boolean streaming) {}
+    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds, boolean isStreaming) {}
 
     /**
      * Registers a remote agent card with a specific timeout.
@@ -95,9 +95,9 @@ public class A2ARemoteAgentCardRegistry {
      * @param name the agent name
      * @param card the agent card
      * @param timeoutSeconds the call timeout in seconds
-     * @param streaming whether Runtime should prefer a streaming remote invocation
+     * @param isStreaming whether Runtime should prefer a streaming remote invocation
      */
-    public void register(String name, AgentCard card, int timeoutSeconds, boolean streaming) {
-        entries.put(name, new RemoteAgentEntry(name, card, timeoutSeconds, streaming));
+    public void register(String name, AgentCard card, int timeoutSeconds, boolean isStreaming) {
+        entries.put(name, new RemoteAgentEntry(name, card, timeoutSeconds, isStreaming));
     }
 }

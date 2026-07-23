@@ -65,7 +65,7 @@ public class A2AProperties {
 
         private int maxQueueSize = 256;
 
-        private long queueTimeoutSeconds = 30;
+        private long queueTimeoutSeconds = 30L;
     }
 
     /**
@@ -99,6 +99,6 @@ public class A2AProperties {
 
         private int timeoutSeconds = 300;
 
-        private boolean streaming = false;
+        private boolean isStreaming = false;
     }
 }

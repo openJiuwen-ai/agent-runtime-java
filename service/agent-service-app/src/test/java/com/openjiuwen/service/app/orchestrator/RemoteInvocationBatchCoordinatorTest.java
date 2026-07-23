@@ -43,6 +43,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Verifies bounded parallel remote invocation, projection, persistence, and targeted resume behavior.
+ *
+ * @since 0.1.0
+ */
 class RemoteInvocationBatchCoordinatorTest {
     @Test
     void concurrentCompletionKeepsOriginalToolCallOrder() {
@@ -60,7 +65,7 @@ class RemoteInvocationBatchCoordinatorTest {
         outcomes.get("call-b").complete(completed("remote-b", "result-b"));
 
         RemoteInvocationBatchCoordinator.BatchResolution resolution = result.join();
-        assertThat(resolution.readyToResume()).isTrue();
+        assertThat(resolution.isReadyToResume()).isTrue();
         assertThat(resolution.results().keySet()).containsExactly("call-a", "call-b", "call-c");
         assertThat(resolution.results().values()).containsExactly("result-a", "result-b", "result-c");
     }
@@ -96,6 +101,7 @@ class RemoteInvocationBatchCoordinatorTest {
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-progress-order", "call-a"), request("parent-progress-order", Map.of()), observer);
+        assertThat(result.isDone()).isFalse();
         CountDownLatch start = new CountDownLatch(1);
         List<CompletableFuture<Void>> callbacks = new ArrayList<>();
         for (int index = 0; index < 256; index++) {
@@ -103,7 +109,6 @@ class RemoteInvocationBatchCoordinatorTest {
                 try {
                     start.await();
                 } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
                     throw new IllegalStateException(ex);
                 }
                 progressObserver.get().onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "progress"));
@@ -141,15 +146,12 @@ class RemoteInvocationBatchCoordinatorTest {
         verify(client, times(3)).callOutcome(calls.capture(), any(), any());
         assertThat(calls.getAllValues().get(calls.getAllValues().size() - 1).message()).isEqualTo("message-call-c");
         outcomes.get("call-c").complete(completed("remote-c", "result-c"));
-        assertThat(result.join().readyToResume()).isTrue();
+        assertThat(result.join().isReadyToResume()).isTrue();
     }
 
     @Test
     void queuedMemberTimesOutWithoutWaitingForRunningMemberToFinish() throws Exception {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
-        Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
-        RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(new InMemoryTaskStore(),
-            client, "test-agent", 1, 10, 1);
         CountDownLatch overloaded = new CountDownLatch(1);
         QueryStreamObserver observer = new QueryStreamObserver() {
             @Override
@@ -176,13 +178,16 @@ class RemoteInvocationBatchCoordinatorTest {
             }
         };
 
+        Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
+        RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(new InMemoryTaskStore(),
+            client, "test-agent", 1, 10, 1);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-queue-timeout", "call-a", "call-b"), request("parent-queue-timeout", Map.of()), observer);
 
-        boolean expiredBeforeSlotReleased = overloaded.await(2, TimeUnit.SECONDS);
+        boolean hasExpiredBeforeSlotReleased = overloaded.await(2, TimeUnit.SECONDS);
         outcomes.get("call-a").complete(completed("remote-a", "result-a"));
 
-        assertThat(expiredBeforeSlotReleased).isTrue();
+        assertThat(hasExpiredBeforeSlotReleased).isTrue();
         verify(client).callOutcome(any(), any(), any());
         assertThat(result.join().results().get("call-b").toString()).contains("REMOTE_OVERLOADED");
     }
@@ -242,7 +247,7 @@ class RemoteInvocationBatchCoordinatorTest {
         outcomes.get("call-c").complete(inputRequired("remote-c", "input-c"));
 
         RemoteInvocationBatchCoordinator.BatchResolution resolution = result.join();
-        assertThat(resolution.readyToResume()).isFalse();
+        assertThat(resolution.isReadyToResume()).isFalse();
         assertThat((List<Map<String, Object>>) resolution.interrupt().get("items"))
             .extracting(item -> item.get("toolCallId"))
             .containsExactly("call-b", "call-c");
@@ -290,7 +295,7 @@ class RemoteInvocationBatchCoordinatorTest {
         resumedB.complete(completed("remote-b", "result-b"));
 
         RemoteInvocationBatchCoordinator.BatchResolution resolution = resumed.orElseThrow().join();
-        assertThat(resolution.readyToResume()).isFalse();
+        assertThat(resolution.isReadyToResume()).isFalse();
         assertThat(resolution.interrupt().toString()).contains("call-c").doesNotContain("call-b");
         assertThat(projected).filteredOn(chunk -> chunk.getData() instanceof Map<?, ?> data
                 && data.get("projection") instanceof Map<?, ?> projection
@@ -379,7 +384,7 @@ class RemoteInvocationBatchCoordinatorTest {
             batch("batch-rate-limit", "call-a"), request("parent-rate-limit", Map.of()),
             mock(QueryStreamObserver.class)).join();
 
-        assertThat(resolution.readyToResume()).isTrue();
+        assertThat(resolution.isReadyToResume()).isTrue();
         assertThat(resolution.results().get("call-a").toString()).contains("REMOTE_RATE_LIMITED");
     }
 
@@ -445,7 +450,7 @@ class RemoteInvocationBatchCoordinatorTest {
 
         outcomes.get("call-a").complete(completed("remote-a", "result-a"));
 
-        assertThat(result.join().readyToResume()).isTrue();
+        assertThat(result.join().isReadyToResume()).isTrue();
         Task shadow = store.get("shadow:test-agent:parent-ready");
         assertThat(shadow).isNotNull();
         assertThat((Map<String, Object>) shadow.metadata().get("_remote_batch"))
@@ -491,7 +496,7 @@ class RemoteInvocationBatchCoordinatorTest {
         outcomes.get("call-a").complete(completed("remote-a", "result-a"));
         outcomes.get("call-b").complete(completed("remote-b", "result-b"));
         outcomes.get("call-c").complete(completed("remote-c", "result-c"));
-        assertThat(initial.join().readyToResume()).isTrue();
+        assertThat(initial.join().isReadyToResume()).isTrue();
         ServeRequest stale = request("parent-ready-stale",
             Map.of("runtime.remoteToolInputs", Map.of("call-unknown", "stale")));
 
@@ -594,6 +599,7 @@ class RemoteInvocationBatchCoordinatorTest {
     void multiMemberRemoteContextsAreIsolatedAndStableAcrossResume() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
+        assertThat(outcomes).containsKeys("call-a", "call-b", "call-c");
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
             "test-agent", 3, 10, 30);
@@ -617,13 +623,14 @@ class RemoteInvocationBatchCoordinatorTest {
             resumedOutcomes.put(id, new CompletableFuture<>());
         }
         org.mockito.Mockito.clearInvocations(client);
-        doAnswer(invocation -> resumedOutcomes.get(((RemoteCall) invocation.getArgument(0)).taskId()))
+        doAnswer(invocation -> resumedOutcomes.get(invocation.<RemoteCall>getArgument(0).taskId()))
             .when(client).callOutcome(any(), any(), any());
         ServeRequest resumeRequest = request("parent-context", Map.of("runtime.remoteToolInputs", Map.of(
             "call-a", "answer-a", "call-b", "answer-b", "call-c", "answer-c")));
 
         Optional<CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> resumed =
             coordinator.resume(resumeRequest, mock(QueryStreamObserver.class));
+        assertThat(resumed).isPresent();
 
         ArgumentCaptor<RemoteCall> resumedCalls = ArgumentCaptor.forClass(RemoteCall.class);
         verify(client, times(3)).callOutcome(resumedCalls.capture(), any(), any());
@@ -637,7 +644,7 @@ class RemoteInvocationBatchCoordinatorTest {
         resumedOutcomes.get("remote-a").complete(completed("remote-a", "result-a"));
         resumedOutcomes.get("remote-b").complete(completed("remote-b", "result-b"));
         resumedOutcomes.get("remote-c").complete(completed("remote-c", "result-c"));
-        assertThat(resumed.orElseThrow().join().readyToResume()).isTrue();
+        assertThat(resumed.orElseThrow().join().isReadyToResume()).isTrue();
     }
 
     private static RemoteInvocationBatchCoordinator coordinator(A2ARemoteAgentClient client, int maxConcurrency) {

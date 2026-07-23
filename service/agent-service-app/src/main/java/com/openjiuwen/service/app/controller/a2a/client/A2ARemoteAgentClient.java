@@ -10,6 +10,8 @@ import com.google.gson.reflect.TypeToken;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
+import jakarta.annotation.PreDestroy;
+
 import org.a2aproject.sdk.client.Client;
 import org.a2aproject.sdk.client.ClientEvent;
 import org.a2aproject.sdk.client.MessageEvent;
@@ -18,6 +20,7 @@ import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.client.config.ClientConfig;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
+import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.Message;
@@ -31,8 +34,6 @@ import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import jakarta.annotation.PreDestroy;
 
 import java.lang.reflect.Type;
 import java.util.Collections;
@@ -93,7 +94,12 @@ public class A2ARemoteAgentClient {
         this(registry, DEFAULT_IO_CONCURRENCY);
     }
 
-    /** Constructs a remote client with a bounded executor for blocking SDK calls. */
+    /**
+     * Constructs a remote client with a bounded executor for blocking SDK calls.
+     *
+     * @param registry the remote agent card registry
+     * @param ioConcurrency maximum concurrent blocking SDK calls
+     */
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency) {
         if (ioConcurrency <= 0) {
             throw new IllegalArgumentException("ioConcurrency must be greater than zero");
@@ -104,6 +110,8 @@ public class A2ARemoteAgentClient {
             new ArrayBlockingQueue<>(ioConcurrency), runnable -> {
                 Thread thread = new Thread(runnable, "a2a-remote-io-" + threadIndex.incrementAndGet());
                 thread.setDaemon(true);
+                thread.setUncaughtExceptionHandler((source, error) ->
+                    log.error("Uncaught A2A remote I/O error thread={}", source.getName(), error));
                 return thread;
             }, new ThreadPoolExecutor.AbortPolicy());
     }
@@ -154,19 +162,13 @@ public class A2ARemoteAgentClient {
             String contextId) {
     }
 
+    private record TaskOutcome(String taskId, TaskState state, String statusText, Task task) {
+    }
+
     /**
      * Resolves the remote agent entry and builds the SDK message.
      *
-     * @param agentName
-     *            the remote agent name
-     * @param message
-     *            the text payload
-     * @param contextId
-     *            the context/conversation ID
-     * @param taskId
-     *            the optional task ID for resume
-     * @param metadata
-     *            the metadata map
+     * @param call remote call coordinates
      * @return the prepared call setup
      */
     private RemoteCallSetup prepareCall(RemoteCall call) {
@@ -197,8 +199,7 @@ public class A2ARemoteAgentClient {
      * Creates or retrieves a cached SDK {@link Client} for the given card and
      * streaming mode.
      *
-     * @param card
-     *            the agent card
+     * @param entry the registered remote agent entry
      * @param isStreaming
      *            whether the client should be in streaming mode
      * @return the SDK client
@@ -207,8 +208,9 @@ public class A2ARemoteAgentClient {
         AgentCard card = entry.card();
         ClientCacheKey key = new ClientCacheKey(entry.name(), endpoint(card), isStreaming);
         return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
-                ignored -> Client.builder(card).clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
-                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig()).build()));
+                ignored -> Client.builder(card)
+                    .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
+                    .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig()).build()));
     }
 
     private static String endpoint(AgentCard card) {
@@ -249,21 +251,19 @@ public class A2ARemoteAgentClient {
             QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver) {
         A2ARemoteAgentCardRegistry.RemoteAgentEntry entry = registry.get(call.agentName())
                 .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
-        return callOutcome(call, streamObserver, remoteTaskIdObserver, entry.streaming());
+        return callOutcome(call, streamObserver, remoteTaskIdObserver, entry.isStreaming());
     }
 
     private CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
-            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver, boolean streaming) {
+            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver, boolean isStreaming) {
         var setup = prepareCall(call);
         log.info("A2A call agent={} streaming={} taskId={} contextId={} textLen={}", call.agentName(),
-                streaming,
+                isStreaming,
                 call.taskId() != null ? call.taskId() : "new", setup.contextId,
                 call.message() != null ? call.message().length() : 0);
 
-        Client client = createClient(setup.entry, streaming);
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
-        AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
         BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> {
             if (event instanceof TaskUpdateEvent tue) {
                 if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
@@ -282,6 +282,8 @@ public class A2ARemoteAgentClient {
                 log.debug("Unknown event type: {}", event.getClass().getSimpleName());
             }
         };
+        Client client = createClient(setup.entry, isStreaming);
+        AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
         try {
             Future<?> submitted = ioExecutor.submit(() -> withApplicationClassLoader(() -> {
                 client.sendMessage(setup.params, List.of(eventConsumer),
@@ -339,7 +341,8 @@ public class A2ARemoteAgentClient {
             CompletableFuture<RemoteCallOutcome> result, Consumer<String> remoteTaskIdObserver) {
         TaskState state = event.status().state();
         String statusText = event.status().message() != null ? extractText(event.status().message().parts()) : "";
-        completeTaskOutcome(event.taskId(), state, statusText, task, result, remoteTaskIdObserver);
+        completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task), result,
+            remoteTaskIdObserver);
     }
 
     private void handleOutcomeTask(TaskEvent event, CompletableFuture<RemoteCallOutcome> result,
@@ -347,25 +350,32 @@ public class A2ARemoteAgentClient {
         Task task = event.getTask();
         TaskState state = task.status().state();
         String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";
-        completeTaskOutcome(task.id(), state, statusText, task, result, remoteTaskIdObserver);
+        completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task), result, remoteTaskIdObserver);
     }
 
-    private static void completeTaskOutcome(String taskId, TaskState state, String statusText, Task task,
-            CompletableFuture<RemoteCallOutcome> result, Consumer<String> remoteTaskIdObserver) {
-        notifyRemoteTaskId(remoteTaskIdObserver, taskId, state);
+    private static void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
+            Consumer<String> remoteTaskIdObserver) {
+        notifyRemoteTaskId(remoteTaskIdObserver, outcome.taskId(), outcome.state());
         if (result.isDone()) {
             return;
         }
-        if (state.isInterrupted()) {
-            result.complete(new RemoteCallOutcome(taskId, state, resultCategory(state), null,
-                statusText.isBlank() ? "Remote agent requires input" : statusText));
-        } else if (state.isFinal()) {
-            String taskText = task == null ? "" : extractTaskResult(task);
-            String resultText = state == TaskState.TASK_STATE_COMPLETED
-                ? (taskText.isBlank() ? statusText : taskText)
-                : (statusText.isBlank() ? taskText : statusText);
-            result.complete(new RemoteCallOutcome(taskId, state, resultCategory(state), resultText, null));
+        if (outcome.state().isInterrupted()) {
+            String inputPrompt = outcome.statusText().isBlank()
+                ? "Remote agent requires input"
+                : outcome.statusText();
+            result.complete(new RemoteCallOutcome(outcome.taskId(), outcome.state(), resultCategory(outcome.state()),
+                null, inputPrompt));
+            return;
         }
+        if (!outcome.state().isFinal()) {
+            return;
+        }
+        String taskText = outcome.task() == null ? "" : extractTaskResult(outcome.task());
+        String resultText = outcome.state() == TaskState.TASK_STATE_COMPLETED
+            ? (taskText.isBlank() ? outcome.statusText() : taskText)
+            : (outcome.statusText().isBlank() ? taskText : outcome.statusText());
+        result.complete(new RemoteCallOutcome(outcome.taskId(), outcome.state(), resultCategory(outcome.state()),
+            resultText, null));
     }
 
     private void handleOutcomeMessage(MessageEvent event, CompletableFuture<RemoteCallOutcome> result,
@@ -414,7 +424,9 @@ public class A2ARemoteAgentClient {
         return text.toString();
     }
 
-    /** Closes cached SDK transports and stops the bounded I/O executor. */
+    /**
+     * Closes cached SDK transports and stops the bounded I/O executor.
+     */
     @PreDestroy
     public void shutdown() {
         ioExecutor.shutdownNow();
@@ -423,13 +435,13 @@ public class A2ARemoteAgentClient {
         clients.forEach(client -> {
             try {
                 client.close();
-            } catch (RuntimeException ex) {
+            } catch (A2AException | IllegalStateException ex) {
                 log.warn("Failed to close cached A2A client", ex);
             }
         });
     }
 
-    private record ClientCacheKey(String agentName, String endpoint, boolean streaming) {
+    private record ClientCacheKey(String agentName, String endpoint, boolean isStreaming) {
     }
 
     private static void notifyRemoteTaskId(Consumer<String> observer, String remoteTaskId, TaskState state) {
@@ -438,7 +450,7 @@ public class A2ARemoteAgentClient {
         }
         try {
             observer.accept(remoteTaskId);
-        } catch (RuntimeException ex) {
+        } catch (IllegalArgumentException | IllegalStateException ex) {
             log.warn("Remote task ID observer rejected update taskId={} state={}", remoteTaskId, state, ex);
         }
     }
@@ -544,5 +556,4 @@ public class A2ARemoteAgentClient {
         }
         return sb.toString();
     }
-
 }

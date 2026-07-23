@@ -238,6 +238,7 @@ public class A2AAutoConfiguration {
      * @param a2aClient the remote agent client
      * @param streamRegistry the active stream registry
      * @param agentId the application name used as the agent identifier for shadow task namespacing
+     * @param props A2A runtime properties
      * @return the A2A-enabled serve orchestrator
      */
     @Bean
