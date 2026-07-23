@@ -76,7 +76,7 @@ sequenceDiagram
 
 ## 快速开始
 
-以下命令在仓库根目录下的 `service` 目录执行。
+手工执行 Maven 启动命令时，需要位于仓库根目录下的 `service` Reactor 目录。smoke 脚本会自行定位该目录，可以从任意工作目录调用。
 
 ### 1. 配置大模型 API
 
@@ -148,22 +148,29 @@ curl -s http://localhost:18090/health
 Linux / Git Bash：
 
 ```bash
-bash agent-service-demo/example/a2a/smoke-a2a.sh
+bash /path/to/agent-runtime-java/service/agent-service-demo/example/a2a/smoke-a2a.sh
 ```
 
 PowerShell：
 
 ```powershell
-cd agent-service-demo\example\a2a
-.\smoke-a2a.ps1
+& "C:\path\to\agent-runtime-java\service\agent-service-demo\example\a2a\smoke-a2a.ps1"
 ```
 
-Linux/Git Bash 脚本会自动启动并清理三个 Agent；PowerShell 脚本默认校验已经启动的三个 Agent。
+Linux / Git Bash 和 PowerShell 脚本都会按 Agent C -> Agent B -> Agent A 的顺序自动启动服务、等待健康状态、执行验证，并在成功后清理进程和临时文件。启动进程提前退出时，脚本会立即失败；验证失败时会保留日志和响应文件。
+
+两个脚本的配置解析规则一致：显式设置的相对路径 `OPENJIUWEN_API_CONFIG` 相对于调用脚本时的工作目录解析；未设置时，如果存在 `service/agent-service-demo/apiconfig.json`，则自动使用该文件。脚本随后从 `service` Reactor 目录启动 Maven，因此不会因调用目录不同而加载不到配置。
 
 smoke 覆盖两条用户路径：
 
 1. 计算问题：Agent A -> Agent B，两轮确认后完成。
 2. 餐饮问题：Agent A -> Agent B -> Agent C，两轮确认后完成。
+
+### agent-core-java 730 兼容说明
+
+当前 Runtime 使用本地安装的 `agent-core-java:0.1.13`，对应 Core `730` 分支。客户端到 Agent A、Agent A 到 Agent B 可以使用 SSE；Agent B 到 Agent C 必须使用同步 A2A，`BToCDelegateRail` 因此不设置 `_stream_mode`。
+
+这是因为 Core `730` 的 DeepAgent 流式结束与会话状态回写存在时序问题，B -> C 使用 SSE 时可能在确认恢复后丢失原工具调用上下文。同步调用会在返回前完成状态回写。只有在 Core 修复该问题并通过真实的两轮 DeepAgent 恢复验证后，才应重新启用 B -> C SSE。
 
 ## 手动验证
 
@@ -278,6 +285,8 @@ curl -s -N -X POST http://localhost:18090/a2a \
 预期：恢复同一会话并返回计算结果。
 
 ### A2A SSE：餐饮问题（A -> B -> C）
+
+以下请求使用 SSE 访问 Agent A；Agent 内部的 A -> B 保持流式，而 B -> C 按上述 Core `730` 兼容约束使用同步 A2A。
 
 Round 1：
 
