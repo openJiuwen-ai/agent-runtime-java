@@ -328,7 +328,7 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void duplicateStreamingResumeReportsInFlightConflictWithoutRunningCoreTwice() throws Exception {
+    void duplicateStreamingResumeReportsInFlightConflict() throws Exception {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
@@ -370,7 +370,7 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void duplicateQueryResumeReportsInFlightConflictWithoutRunningCoreTwice() throws Exception {
+    void duplicateQueryResumeReportsInFlightConflict() throws Exception {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);

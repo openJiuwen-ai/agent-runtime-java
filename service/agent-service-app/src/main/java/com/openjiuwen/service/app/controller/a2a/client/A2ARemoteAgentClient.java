@@ -110,6 +110,8 @@ public class A2ARemoteAgentClient {
             new ArrayBlockingQueue<>(ioConcurrency), runnable -> {
                 Thread thread = new Thread(runnable, "a2a-remote-io-" + threadIndex.incrementAndGet());
                 thread.setDaemon(true);
+                thread.setUncaughtExceptionHandler((source, error) ->
+                    log.error("Uncaught A2A remote I/O error thread={}", source.getName(), error));
                 return thread;
             }, new ThreadPoolExecutor.AbortPolicy());
     }

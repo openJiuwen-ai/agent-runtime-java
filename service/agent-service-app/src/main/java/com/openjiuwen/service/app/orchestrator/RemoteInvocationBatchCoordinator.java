@@ -697,7 +697,6 @@ final class RemoteInvocationBatchCoordinator {
 
     private Batch parseBatch(Map<String, Object> interrupt, ServeRequest request, String parentTaskId,
             SerialObserver observer) {
-        String batchId = UUID.randomUUID().toString();
         List<Map<String, Object>> items = interruptItems(interrupt);
         List<Member> members = new ArrayList<>();
         Set<String> toolCallIds = new LinkedHashSet<>();
@@ -722,7 +721,7 @@ final class RemoteInvocationBatchCoordinator {
             members.add(member);
         }
         members.sort(java.util.Comparator.comparingInt(member -> member.index));
-        return new Batch(batchId, parentTaskId, request, observer, members);
+        return new Batch(UUID.randomUUID().toString(), parentTaskId, request, observer, members);
     }
 
     private Batch restoreBatch(Map<?, ?> rawBatch, ServeRequest request, String parentTaskId, SerialObserver observer) {
