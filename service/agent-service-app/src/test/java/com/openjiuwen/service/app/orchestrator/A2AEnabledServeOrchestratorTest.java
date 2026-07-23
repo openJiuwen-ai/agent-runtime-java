@@ -9,7 +9,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -124,6 +123,8 @@ class A2AEnabledServeOrchestratorTest {
         when(registry.get("hotel-agent")).thenReturn(
                 java.util.Optional.of(new A2ARemoteAgentCardRegistry.RemoteAgentEntry("hotel-agent", card, 300)));
         when(registry.resolveUrl(anyString())).thenReturn("http://remote/a2a/");
+        when(a2aClient.callSync(any())).thenThrow(
+                new A2ARemoteAgentClient.RemoteInputRequiredException("remote input required", "remote-task-1"));
 
         orchestrator.streamQuery(req("c-int"), mock(QueryStreamObserver.class));
 
@@ -133,6 +134,7 @@ class A2AEnabledServeOrchestratorTest {
         Task saved = taskCaptor.getValue();
         assertThat(saved.contextId()).isEqualTo("c-int");
         assertThat(saved.status().state()).isEqualTo(TaskState.TASK_STATE_INPUT_REQUIRED);
+        assertThat(saved.metadata()).containsEntry("_remote_task_id", "remote-task-1");
     }
 
     @Test
@@ -181,13 +183,14 @@ class A2AEnabledServeOrchestratorTest {
                 .build();
         // Deleted after a successful resume, so the second findPending sees nothing.
         when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
-        when(a2aClient.callSync(anyString(), any(), anyString(), any(), any())).thenReturn("42");
+        when(a2aClient.callSync(any())).thenReturn("42");
 
         orchestrator.streamQuery(req("c-sync"), mock(QueryStreamObserver.class));
 
         // No _stream_mode → resolve synchronously; the client observer is never handed
         // to the remote call.
-        verify(a2aClient).callSync(eq("test"), any(), eq("c-sync"), any(), any());
+        verify(a2aClient)
+                .callSync(argThat(call -> "test".equals(call.agentName()) && "c-sync".equals(call.contextId())));
         verify(a2aClient, never()).callStreaming(any(), any());
     }
 
@@ -207,7 +210,7 @@ class A2AEnabledServeOrchestratorTest {
         // _stream_mode=sse → stream the remote content to the client observer.
         verify(a2aClient).callStreaming(argThat(c -> "test".equals(c.agentName()) && "c-sse".equals(c.contextId())),
                 any());
-        verify(a2aClient, never()).callSync(anyString(), any(), anyString(), any(), any());
+        verify(a2aClient, never()).callSync(any());
     }
 
     @Test
@@ -248,11 +251,21 @@ class A2AEnabledServeOrchestratorTest {
                 .thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
                         Map.of("role", "assistant", "content", "final answer"), "c-query-sse"));
 
-        orchestrator.query(req("c-query-sse"));
+        ServeRequest request = req("c-query-sse");
+        request.setMetadata(Map.of("scope", "params"));
+        request.setMessages(
+                List.of(Map.of("role", "user", "content", "question", "metadata", Map.of("scope", "message"))));
+
+        orchestrator.query(request);
 
         verify(a2aClient).callStreaming(argThat(c -> "test".equals(c.agentName()) && "delegate".equals(c.message())
-                && "c-query-sse".equals(c.contextId())), any());
-        verify(a2aClient, never()).callSync(anyString(), any(), anyString(), any(), any());
+                && "c-query-sse".equals(c.contextId()) && "params".equals(c.metadata().get("scope"))
+                && "message".equals(c.messageMetadata().get("scope"))), any());
+        verify(a2aClient, never()).callSync(any());
+        ArgumentCaptor<ServeRequest> requestCaptor = ArgumentCaptor.forClass(ServeRequest.class);
+        verify(agentHandler, atLeastOnce()).query(requestCaptor.capture());
+        ServeRequest resumed = requestCaptor.getAllValues().get(requestCaptor.getAllValues().size() - 1);
+        assertThat(resumed.lastUserMessageMetadata()).containsExactlyEntriesOf(Map.of("scope", "message"));
     }
 
     @Test
@@ -375,7 +388,7 @@ class A2AEnabledServeOrchestratorTest {
                 .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now())).metadata(null)
                 .build();
         when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
-        when(a2aClient.callSync(anyString(), any(), anyString(), any(), any())).thenReturn("42");
+        when(a2aClient.callSync(any())).thenReturn("42");
         doAnswer(inv -> {
             QueryStreamObserver obs = inv.getArgument(1);
             obs.onComplete();
@@ -384,7 +397,8 @@ class A2AEnabledServeOrchestratorTest {
 
         orchestrator.streamQuery(req("c-pending-no-meta"), mock(QueryStreamObserver.class));
 
-        verify(a2aClient).callSync(eq(""), any(), eq("c-pending-no-meta"), eq(""), any());
+        verify(a2aClient).callSync(argThat(call -> "".equals(call.agentName())
+                && "c-pending-no-meta".equals(call.contextId()) && "".equals(call.taskId())));
     }
 
     @Test
@@ -414,6 +428,36 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
+    void querySseInterruptedSavesShadowTask() {
+        when(taskStore.get(anyString())).thenReturn(null);
+        when(registry.resolveUrl("test")).thenReturn("http://remote/a2a/");
+        CompletableFuture<String> interrupted = new CompletableFuture<>() {
+            @Override
+            public String get() throws InterruptedException {
+                throw new InterruptedException("cancelled");
+            }
+        };
+        when(a2aClient.callStreaming(any(), any())).thenReturn(interrupted);
+        when(agentHandler.query(any()))
+                .thenReturn(
+                        new com.openjiuwen.service.spec.dto.QueryResponse(
+                                Map.of("role", "assistant", "_interrupt",
+                                        Map.of("message", "delegate", "toolCallId", "call-1", "toolName",
+                                                "delegate_to_test", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                                                        "agentName", "test", "_stream_mode", "sse"))),
+                                "c-query-interrupted"));
+        boolean isInterrupted = Thread.interrupted();
+        assertThat(isInterrupted).isFalse();
+
+        orchestrator.query(req("c-query-interrupted"));
+
+        assertThat(Thread.currentThread().isInterrupted()).isFalse();
+        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
+        verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
+        assertThat(taskCaptor.getValue().metadata()).containsEntry("_stream_mode", "sse");
+    }
+
+    @Test
     void queryPendingResumeWithSseModeUsesStreamingRemoteCall() {
         String shadowId = "shadow:test-agent:c-query-pending-sse";
         Task pending = Task.builder().id(shadowId).contextId("c-query-pending-sse")
@@ -430,7 +474,7 @@ class A2AEnabledServeOrchestratorTest {
 
         verify(a2aClient).callStreaming(argThat(c -> "test".equals(c.agentName())
                 && "c-query-pending-sse".equals(c.contextId()) && "rt-1".equals(c.taskId())), any());
-        verify(a2aClient, never()).callSync(anyString(), any(), anyString(), any(), any());
+        verify(a2aClient, never()).callSync(any());
     }
 
     @Test
@@ -441,7 +485,7 @@ class A2AEnabledServeOrchestratorTest {
                 .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1"))
                 .build();
         when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
-        when(a2aClient.callSync(anyString(), any(), anyString(), any(), any())).thenReturn("remote result");
+        when(a2aClient.callSync(any())).thenReturn("remote result");
         when(agentHandler.query(any())).thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
                 Map.of("role", "assistant", "content", "final answer"), "c-query-sync-resume"));
         ServeRequest request = req("c-query-sync-resume");

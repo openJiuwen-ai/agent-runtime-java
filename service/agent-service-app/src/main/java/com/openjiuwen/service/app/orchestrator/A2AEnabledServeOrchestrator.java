@@ -205,10 +205,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             // SSE passthrough; otherwise resolve synchronously so the remote result reaches
             // the tool only.
             String content = isSse
-                    ? a2aClient.callStreaming(new A2ARemoteAgentClient.RemoteCall(agentName, current.lastUserQuery(),
-                            current.getConversationId(), remoteTaskId, current.getMetadata()), observer).get()
-                    : a2aClient.callSync(agentName, current.lastUserQuery(), current.getConversationId(), remoteTaskId,
-                            current.getMetadata());
+                    ? a2aClient.callStreaming(remoteCall(current, agentName, current.lastUserQuery(), remoteTaskId),
+                            observer).get()
+                    : a2aClient.callSync(remoteCall(current, agentName, current.lastUserQuery(), remoteTaskId));
             deleteShadowTask(pt.id());
             return Optional.of(buildResumeRequest(current, content, "", ""));
         } catch (ExecutionException e) {
@@ -364,6 +363,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         return delegateSync(data, current, observer);
     }
 
+    private static A2ARemoteAgentClient.RemoteCall remoteCall(ServeRequest request, String agentName, String message,
+            String taskId) {
+        return new A2ARemoteAgentClient.RemoteCall(agentName, message, request.getConversationId(), taskId,
+                request.getMetadata(), request.lastUserMessageMetadata());
+    }
+
     /**
      * SSE: streaming call — intermediate output forwards to observer.
      *
@@ -380,8 +385,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         log.info("Orchestrator delegating (sse) to remote agent={} convId={}", data.agentName(),
                 current.getConversationId());
         try {
-            String content = a2aClient.callStreaming(new A2ARemoteAgentClient.RemoteCall(data.agentName(),
-                    data.message(), current.getConversationId(), null, current.getMetadata()), observer).get();
+            String content = a2aClient
+                    .callStreaming(remoteCall(current, data.agentName(), data.message(), null), observer).get();
             log.info("Orchestrator remote result received ({} chars), building resume", content.length());
             return Optional.of(buildResumeRequest(current, content, data.toolCallId(), data.toolName()));
         } catch (ExecutionException e) {
@@ -421,8 +426,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         log.info("Orchestrator delegating (sync) to remote agent={} convId={}", data.agentName(),
                 current.getConversationId());
         try {
-            String content = a2aClient.callSync(data.agentName(), data.message(), current.getConversationId(), null,
-                    current.getMetadata());
+            String content = a2aClient.callSync(remoteCall(current, data.agentName(), data.message(), null));
             log.info("Orchestrator remote result received ({} chars), building resume", content.length());
             return Optional.of(buildResumeRequest(current, content, data.toolCallId(), data.toolName()));
         } catch (RemoteInputRequiredException rie) {
@@ -539,10 +543,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 current.getConversationId(), agentName, remoteTaskId, streamMode);
         try {
             String content = isSse
-                    ? a2aClient.callStreaming(new A2ARemoteAgentClient.RemoteCall(agentName, current.lastUserQuery(),
-                            current.getConversationId(), remoteTaskId, current.getMetadata()), NOOP_OBSERVER).get()
-                    : a2aClient.callSync(agentName, current.lastUserQuery(), current.getConversationId(), remoteTaskId,
-                            current.getMetadata());
+                    ? a2aClient.callStreaming(remoteCall(current, agentName, current.lastUserQuery(), remoteTaskId),
+                            NOOP_OBSERVER).get()
+                    : a2aClient.callSync(remoteCall(current, agentName, current.lastUserQuery(), remoteTaskId));
             deleteShadowTask(pt.id());
             return QueryResumeResult.continueWith(buildResumeRequest(current, content, "", ""));
         } catch (ExecutionException e) {
@@ -601,10 +604,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                     current.getConversationId());
             try {
                 String content = InterruptData.STREAM_MODE_SSE.equals(data.streamMode())
-                        ? a2aClient.callStreaming(new A2ARemoteAgentClient.RemoteCall(data.agentName(), data.message(),
-                                current.getConversationId(), null, current.getMetadata()), NOOP_OBSERVER).get()
-                        : a2aClient.callSync(data.agentName(), data.message(), current.getConversationId(), null,
-                                current.getMetadata());
+                        ? a2aClient.callStreaming(remoteCall(current, data.agentName(), data.message(), null),
+                                NOOP_OBSERVER).get()
+                        : a2aClient.callSync(remoteCall(current, data.agentName(), data.message(), null));
                 log.info("Orchestrator query remote result received ({} chars), building resume",
                         content != null ? content.length() : 0);
                 return Optional.of(buildResumeRequest(current, content, data.toolCallId(), data.toolName()));
@@ -620,6 +622,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                         data.streamMode());
             } catch (RemoteInputRequiredException rie) {
                 return remoteInputRequiredResponse(interruptData, response, current, data, rie);
+            } catch (InterruptedException e) {
+                log.error("Remote call '{}' interrupted", data.agentName(), e);
+                saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()), "",
+                        data.streamMode());
             } catch (Exception e) {
                 if (isRemoteFailure(e)) {
                     return resumeAfterRemoteFailure(data, current, e);
@@ -814,6 +820,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         Map<String, Object> userMsg = new LinkedHashMap<>();
         userMsg.put("role", "user");
         userMsg.put("content", toolContent);
+        Map<String, Object> messageMetadata = original.lastUserMessageMetadata();
+        if (!messageMetadata.isEmpty()) {
+            userMsg.put("metadata", messageMetadata);
+        }
         messages.add(userMsg);
         ServeRequest resumeReq = new ServeRequest();
         resumeReq.setConversationId(original.getConversationId());
