@@ -12,6 +12,8 @@ import com.google.gson.reflect.TypeToken;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.A2AMessage;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.SendMessageResponse;
@@ -46,8 +48,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
-
-import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * JSON-RPC controller for A2A protocol endpoints. Handles {@code SendMessage}, {@code SendStreamingMessage}, and
