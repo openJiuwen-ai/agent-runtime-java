@@ -150,6 +150,7 @@ class RemoteInvocationBatchCoordinatorTest {
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-projection-barrier", "call-a", "call-b"),
             request("parent-projection-barrier", Map.of()), observer);
+        assertThat(result).isNotDone();
         CompletableFuture<Void> blockedCallback = CompletableFuture.runAsync(() -> progressObservers.get("call-a")
             .onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "blocked-progress")));
         assertThat(projectionEntered.await(5, TimeUnit.SECONDS)).isTrue();
