@@ -5,7 +5,6 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -24,7 +23,6 @@ import java.net.InetSocketAddress;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -70,37 +68,17 @@ class A2ARemoteAgentClientStreamingLifecycleTest {
 
         String endpoint = "http://127.0.0.1:" + server.getAddress().getPort() + "/a2a";
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
-        registry.register("remote", testCard(endpoint), 30);
+        registry.register("remote", testCard(endpoint), 30, true);
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry);
 
-        CompletableFuture<String> result = client.callStreaming(
-                new A2ARemoteAgentClient.RemoteCall("remote", "hello", "ctx", null, Map.of()), NOOP_OBSERVER);
+        var result = client.callOutcome(
+                new A2ARemoteAgentClient.RemoteCall("remote", "hello", "ctx", null, Map.of()), NOOP_OBSERVER, null);
 
         Throwable thrown = catchThrowable(() -> result.get(5, TimeUnit.SECONDS));
         assertThat(thrown).isInstanceOfSatisfying(ExecutionException.class,
-                executionException -> assertThat(executionException.getCause()).isInstanceOfSatisfying(
-                        A2ARemoteAgentClient.RemoteAgentException.class, failure -> assertThat(failure.getCode())
-                                .isEqualTo(A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED)));
-    }
-
-    @Test
-    void eofAfterTerminalResultIsIgnored() {
-        CompletableFuture<String> result = CompletableFuture.completedFuture("answer");
-
-        assertThatCode(() -> assertThat(A2ARemoteAgentClient.completeOnStreamEnd("remote", result, null)).isFalse())
-                .doesNotThrowAnyException();
-        assertThat(result).isCompletedWithValue("answer");
-    }
-
-    @Test
-    void overallTimeoutUsesStructuredRemoteTimeoutCode() {
-        CompletableFuture<String> result = A2ARemoteAgentClient.applyTimeout(new CompletableFuture<>(), "remote", 0);
-
-        Throwable thrown = catchThrowable(() -> result.get(1, TimeUnit.SECONDS));
-        assertThat(thrown).isInstanceOfSatisfying(ExecutionException.class,
-                executionException -> assertThat(executionException.getCause()).isInstanceOfSatisfying(
-                        A2ARemoteAgentClient.RemoteAgentException.class,
-                        failure -> assertThat(failure.getCode()).isEqualTo(A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT)));
+                executionException -> assertThat(executionException.getCause())
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("closed the stream before a terminal event"));
     }
 
     private void closeEmptyEventStream(HttpExchange exchange) throws IOException {

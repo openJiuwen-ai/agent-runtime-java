@@ -89,7 +89,8 @@ final class A2aJsonRpcParamsParser {
                 }
                 String text = part.get("text").getAsString();
                 if (!text.isBlank()) {
-                    parts.add(new TextPart(text));
+                    Map<String, Object> metadata = parseMetadata(part, "params.message.parts[].metadata");
+                    parts.add(metadata.isEmpty() ? new TextPart(text) : new TextPart(text, metadata));
                 }
             }
         }

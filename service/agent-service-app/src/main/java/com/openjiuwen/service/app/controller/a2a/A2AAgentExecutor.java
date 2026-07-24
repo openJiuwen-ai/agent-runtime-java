@@ -4,12 +4,12 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient.RemoteAgentException;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
+import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.agentexecution.RequestContext;
@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A2A SDK {@link AgentExecutor} implementation — the sole bridge between the
@@ -107,7 +108,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             } else {
                 executeQuery(msgCtx, ctx, req, emitter);
             }
-        } catch (IllegalStateException | NullPointerException | RemoteAgentException ex) {
+        } catch (IllegalStateException | NullPointerException ex) {
             log.error("Agent execution failed for contextId={}", ctx.getContextId(), ex);
             emitter.fail();
         }
@@ -122,29 +123,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             orchestrator.streamQuery(req, new QueryStreamObserver() {
                 @Override
                 public void onNext(QueryChunk chunk) {
-                    if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
-                        log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
-                                msgCtx.getContextId(),
-                                chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
-                        if (chunk.getData() instanceof Map<?, ?> interruptData) {
-                            emitter.requiresInput(statusMessage(interruptData));
-                        } else {
-                            emitter.requiresInput();
-                        }
-                        closeEventQueue(emitter, msgCtx.getTaskId());
-                        interrupted.set(true);
-                        return;
-                    }
-                    // Transparent passthrough: forward the AgentCore stream chunk verbatim
-                    // (the {type,index,payload} envelope), including the final answer, keeping
-                    // one uniform stream format. The envelope's own "type" field lets the
-                    // delegating caller pick out the answer to feed its LLM without this layer
-                    // rewriting the payload — see A2ARemoteAgentClient#handleArtifact.
-                    List<Part<?>> parts = chunkMapper.toParts(chunk);
-                    if (parts.isEmpty()) {
-                        return;
-                    }
-                    emitter.addArtifact(parts);
+                    handleStreamingChunk(chunk, msgCtx, emitter, interrupted);
                 }
 
                 @Override
@@ -175,7 +154,34 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
+    private void handleStreamingChunk(QueryChunk chunk, A2AMessageContext msgCtx, AgentEmitter emitter,
+            AtomicBoolean interrupted) {
+        if (interrupted.get()) {
+            return;
+        }
+        if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
+            log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
+                msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> map ? map.get("message") : null);
+            if (chunk.getData() instanceof Map<?, ?> interruptData) {
+                emitter.requiresInput(statusMessage(interruptData));
+            } else {
+                emitter.requiresInput();
+            }
+            closeEventQueue(emitter, msgCtx.getTaskId());
+            interrupted.set(true);
+            return;
+        }
+        List<Part<?>> parts = chunkMapper.toParts(chunk);
+        if (!parts.isEmpty()) {
+            emitter.addArtifact(parts);
+        }
+    }
+
     private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter) {
+        if (orchestrator instanceof A2AEnabledServeOrchestrator) {
+            executeQueryThroughStream(msgCtx, req, emitter);
+            return;
+        }
         QueryResponse response = orchestrator.query(req);
         if (response.getResult() instanceof Map<?, ?> result
                 && result.get(INTERRUPT) instanceof Map<?, ?> interruptData) {
@@ -191,6 +197,103 @@ public class A2AAgentExecutor implements AgentExecutor {
         } else {
             completeAndDrain(emitter, msgCtx.getTaskId());
         }
+    }
+
+    private void executeQueryThroughStream(A2AMessageContext msgCtx, ServeRequest request, AgentEmitter emitter) {
+        StringBuilder content = new StringBuilder();
+        AtomicReference<String> finalAnswer = new AtomicReference<>();
+        AtomicBoolean terminal = new AtomicBoolean(false);
+        orchestrator.streamQuery(request, new QueryStreamObserver() {
+                @Override
+                public void onNext(QueryChunk chunk) {
+                    if (terminal.get()) {
+                        return;
+                    }
+                    if (QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType())) {
+                        List<Part<?>> parts = chunkMapper.toParts(chunk);
+                        if (!parts.isEmpty()) {
+                            emitter.addArtifact(parts);
+                        }
+                        return;
+                    }
+                    if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
+                        terminal.set(true);
+                        if (chunk.getData() instanceof Map<?, ?> interruptData) {
+                            emitter.requiresInput(statusMessage(interruptData));
+                        } else {
+                            emitter.requiresInput();
+                        }
+                        closeEventQueue(emitter, msgCtx.getTaskId());
+                        return;
+                    }
+                    appendNonStreamingChunk(chunk, content, finalAnswer);
+                }
+
+                @Override
+                public void onComplete() {
+                    completeQueryThroughStream(msgCtx, emitter, content, finalAnswer, terminal);
+                }
+
+                @Override
+                public void onError(Throwable error) {
+                    if (terminal.compareAndSet(false, true)) {
+                        log.error("A2A non-streaming internal stream failed taskId={}", msgCtx.getTaskId(), error);
+                        emitter.fail();
+                    }
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return false;
+                }
+            });
+    }
+
+    private static void completeQueryThroughStream(A2AMessageContext msgCtx, AgentEmitter emitter,
+            StringBuilder content, AtomicReference<String> finalAnswer, AtomicBoolean terminal) {
+        if (!terminal.compareAndSet(false, true)) {
+            return;
+        }
+        String result = finalAnswer.get() != null ? finalAnswer.get() : content.toString();
+        if (!result.isEmpty()) {
+            emitter.addArtifact(List.of(new TextPart(result)));
+        }
+        completeAndDrain(emitter, msgCtx.getTaskId());
+    }
+
+    private static void appendNonStreamingChunk(QueryChunk chunk, StringBuilder content,
+            AtomicReference<String> finalAnswer) {
+        Object data = chunk.getData();
+        if (data instanceof String text) {
+            content.append(text);
+            return;
+        }
+        if (data instanceof Map<?, ?> map) {
+            Map<?, ?> payloadMap = map.get("payload") instanceof Map<?, ?> payload ? payload : null;
+            String text = payloadMap == null ? firstBusinessText(map) : firstBusinessText(payloadMap);
+            if (text.isEmpty() && payloadMap != null) {
+                text = firstBusinessText(map);
+            }
+            boolean isAnswer = "answer".equals(map.get("type"))
+                || payloadMap != null && "answer".equals(payloadMap.get("result_type"));
+            if (isAnswer) {
+                if (!text.isEmpty()) {
+                    finalAnswer.set(text);
+                }
+            } else {
+                content.append(text);
+            }
+        }
+    }
+
+    private static String firstBusinessText(Map<?, ?> map) {
+        for (String key : List.of("content", "delta", "output", "response")) {
+            Object value = map.get(key);
+            if (value != null && !(value instanceof Map<?, ?>) && !(value instanceof List<?>)) {
+                return String.valueOf(value);
+            }
+        }
+        return "";
     }
 
     private static Message statusMessage(Map<?, ?> interruptData) {

@@ -4,11 +4,7 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
-import com.google.gson.Gson;
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient.RemoteAgentException;
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient.RemoteInputRequiredException;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.StreamCancellationHandle;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -21,13 +17,9 @@ import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Task;
-import org.a2aproject.sdk.spec.TaskState;
-import org.a2aproject.sdk.spec.TaskStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,8 +39,6 @@ import java.util.concurrent.ExecutionException;
  */
 public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(A2AEnabledServeOrchestrator.class);
-
-    private static final Gson GSON = new Gson();
 
     /**
      * No-op stream observer used as a sentinel in sync/query mode.
@@ -72,48 +62,40 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         }
     };
 
-    /**
-     * Prefix for orchestrator-owned shadow task ids, keeping them out of the real
-     * A2A task id space.
-     */
-    private static final String SHADOW_KEY_PREFIX = "shadow:";
+    private static final String A2A_DELEGATE_KIND = "a2a_delegate";
+
+    private static final String MIXED_INTERRUPT_ERROR = "CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED";
+
+    private static final String CORE_RESUME_IN_FLIGHT = "REMOTE_BATCH_CORE_RESUME_IN_FLIGHT";
 
     private final AgentHandler agentHandler;
 
     private final TaskStore taskStore;
 
-    private final A2ARemoteAgentClient a2aClient;
-
-    private final A2ARemoteAgentCardRegistry registry;
-
     private final ActiveStreamRegistry streamRegistry;
 
-    private final String agentId;
+    private final RemoteInvocationBatchCoordinator batchCoordinator;
 
     /**
-     * Constructs the orchestrator with required dependencies.
+     * Constructs the orchestrator with explicit remote invocation limits.
      *
-     * @param agentHandler
-     *            the local agent handler
-     * @param taskStore
-     *            the A2A task store for shadow tasks
-     * @param a2aClient
-     *            the remote A2A agent client
-     * @param registry
-     *            the remote agent card registry
-     * @param streamRegistry
-     *            the active stream registry for cancellation
-     * @param agentId
-     *            this agent's identity for shadow task key namespacing
+     * @param agentHandler local agent handler
+     * @param taskStore A2A task store
+     * @param a2aClient remote A2A client
+     * @param streamRegistry active stream registry
+     * @param agentId local agent identity
+     * @param maxConcurrency global remote invocation concurrency
+     * @param maxQueueSize global pending invocation capacity
+     * @param queueTimeoutSeconds maximum queue wait
      */
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore, A2ARemoteAgentClient a2aClient,
-            A2ARemoteAgentCardRegistry registry, ActiveStreamRegistry streamRegistry, String agentId) {
+        ActiveStreamRegistry streamRegistry, String agentId, int maxConcurrency, int maxQueueSize,
+        long queueTimeoutSeconds) {
         this.agentHandler = agentHandler;
         this.taskStore = taskStore;
-        this.a2aClient = a2aClient;
-        this.registry = registry;
         this.streamRegistry = streamRegistry;
-        this.agentId = agentId == null || agentId.isBlank() ? "agent" : agentId;
+        this.batchCoordinator = new RemoteInvocationBatchCoordinator(taskStore, a2aClient, agentId,
+            maxConcurrency, maxQueueSize, queueTimeoutSeconds);
     }
 
     @Override
@@ -130,7 +112,14 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             }
             current = resumeResult.request().get();
 
-            QueryResponse response = agentHandler.query(current);
+            QueryResponse response;
+            try {
+                response = agentHandler.query(current);
+            } catch (RuntimeException | Error ex) {
+                batchCoordinator.abortResume(current);
+                throw ex;
+            }
+            batchCoordinator.completeResume(current);
             Map<String, Object> interruptData = extractInterruptFromResponse(response);
             if (interruptData.isEmpty()) {
                 return response;
@@ -148,27 +137,28 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         log.info("Orchestrator streamQuery START conversationId={}", request.getConversationId());
         var handle = streamRegistry.register(request.getConversationId());
+        ServeRequest current = request;
         try {
-            ServeRequest current = request;
             while (!handle.isCancelled() && !observer.isCancelled()) {
-                Optional<ServeRequest> opt = tryResumePending(current, observer, handle);
+                Optional<ServeRequest> opt = tryResumePending(current, observer);
                 if (opt.isEmpty()) {
                     return;
                 }
                 current = opt.get();
 
-                QueryChunk interrupt = runAgentAndCaptureInterrupt(current, observer, handle);
-                if (interrupt == null) {
+                Optional<QueryChunk> interrupt = runAgentAndCaptureInterrupt(current, observer, handle);
+                if (interrupt.isEmpty()) {
                     return;
                 }
 
-                Optional<ServeRequest> interruptResult = handleInterrupt(interrupt, current, observer);
+                Optional<ServeRequest> interruptResult = handleInterrupt(interrupt.get(), current, observer);
                 if (interruptResult.isEmpty()) {
                     return;
                 }
                 current = interruptResult.get();
             }
         } finally {
+            batchCoordinator.abortResume(current);
             streamRegistry.unregister(request.getConversationId(), handle);
         }
     }
@@ -180,92 +170,25 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *            the current serve request
      * @param observer
      *            the query stream observer
-     * @param handle
-     *            the stream cancellation handle
      * @return the next {@link ServeRequest} to continue with, or
      *         {@link Optional#empty()} if the loop should stop
      */
-    private Optional<ServeRequest> tryResumePending(ServeRequest current, QueryStreamObserver observer,
-            StreamCancellationHandle handle) {
-        List<Task> pending = findPending(current.getConversationId());
-        if (pending.isEmpty()) {
-            return Optional.of(current);
+    private Optional<ServeRequest> tryResumePending(ServeRequest current, QueryStreamObserver observer) {
+        Optional<java.util.concurrent.CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> batchResume =
+            batchCoordinator.resume(current, observer);
+        if (batchResume.isPresent()) {
+            try {
+                return streamBatchResolution(current, batchResume.get().get(), observer);
+            } catch (InterruptedException ex) {
+                observer.onError(ex);
+                return Optional.empty();
+            } catch (ExecutionException ex) {
+                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                observer.onError(cause);
+                return Optional.empty();
+            }
         }
-
-        Task pt = pending.get(0);
-        String agentName = metadataString(pt, "_agent_name");
-        String remoteTaskId = metadataString(pt, "_remote_task_id");
-        String streamMode = metadataString(pt, "_stream_mode");
-        boolean isSse = InterruptData.STREAM_MODE_SSE.equals(streamMode);
-        log.info("Orchestrator resuming pending task convId={} agent={} remoteTaskId={} streamMode={}",
-                current.getConversationId(), agentName, remoteTaskId, streamMode);
-        try {
-            // Only pass the observer (stream the remote content to the client) when the
-            // delegation opted into
-            // SSE passthrough; otherwise resolve synchronously so the remote result reaches
-            // the tool only.
-            String content = isSse
-                    ? a2aClient.callStreaming(remoteCall(current, agentName, current.lastUserQuery(), remoteTaskId),
-                            observer).get()
-                    : a2aClient.callSync(remoteCall(current, agentName, current.lastUserQuery(), remoteTaskId));
-            deleteShadowTask(pt.id());
-            return Optional.of(buildResumeRequest(current, content, "", ""));
-        } catch (ExecutionException e) {
-            if (e.getCause() instanceof RemoteInputRequiredException rie) {
-                return refreshPendingOnRemoteInput(current, pt, rie, observer);
-            }
-            if (isRecoverableRemoteFailure(e.getCause())) {
-                return resumePendingAfterRemoteFailure(current, pt, agentName, e.getCause());
-            }
-            return failRemoteStream(current, agentName, observer, e.getCause());
-        } catch (RemoteInputRequiredException rie) {
-            // Sync resume path: remote still needs input.
-            return refreshPendingOnRemoteInput(current, pt, rie, observer);
-        } catch (InterruptedException e) {
-            return failRemoteStream(current, agentName, observer, e);
-        } catch (Exception e) {
-            if (isRecoverableRemoteFailure(e)) {
-                return resumePendingAfterRemoteFailure(current, pt, agentName, e);
-            }
-            return failRemoteStream(current, agentName, observer, e);
-        }
-    }
-
-    private Optional<ServeRequest> resumePendingAfterRemoteFailure(ServeRequest current, Task pending, String agentName,
-            Throwable failure) {
-        log.warn("Remote call '{}' failed for pending task; resuming parent with code={}", agentName,
-                remoteFailure(failure).map(RemoteAgentException::getCode)
-                        .orElse(A2ARemoteAgentClient.CODE_REMOTE_ERROR));
-        log.debug("Remote pending task failure", failure);
-        deleteShadowTask(pending.id());
-        return Optional.of(buildResumeRequest(current, remoteFailureContent(failure), "", ""));
-    }
-
-    /**
-     * Handles a remote INPUT_REQUIRED hit while resuming a pending task: refreshes
-     * the shadow task with the new remote task id (so the next resume targets the
-     * right remote task) while preserving the stream mode, then forwards the
-     * interrupt to the client. Agent name and stream mode are read from the
-     * existing task metadata.
-     *
-     * @param current
-     *            the current serve request
-     * @param pt
-     *            the existing pending shadow task
-     * @param rie
-     *            the remote input-required signal carrying the new remote task id
-     * @param observer
-     *            the query stream observer
-     * @return {@link Optional#empty()} to stop the loop with the shadow task
-     *         preserved
-     */
-    private Optional<ServeRequest> refreshPendingOnRemoteInput(ServeRequest current, Task pt,
-            RemoteInputRequiredException rie, QueryStreamObserver observer) {
-        saveShadowTask(current.getConversationId(), metadataString(pt, "_agent_name"),
-                metadataString(pt, "_remote_url"), remoteTaskIdOrExisting(rie, pt), metadataString(pt, "_stream_mode"));
-        observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", rie.getMessage())));
-        observer.onComplete();
-        return Optional.empty();
+        return Optional.of(current);
     }
 
     /**
@@ -277,12 +200,15 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *            the query stream observer
      * @param handle
      *            the stream cancellation handle
-     * @return the interrupt chunk, or {@code null} if the stream completed normally
+     * @return the interrupt chunk, or empty if the stream completed normally
      */
-    private QueryChunk runAgentAndCaptureInterrupt(ServeRequest current, QueryStreamObserver observer,
-            StreamCancellationHandle handle) {
+    private Optional<QueryChunk> runAgentAndCaptureInterrupt(ServeRequest current, QueryStreamObserver observer,
+        StreamCancellationHandle handle) {
         var interruptHolder = new java.util.concurrent.atomic.AtomicReference<QueryChunk>();
-        agentHandler.streamQuery(current, new QueryStreamObserver() {
+        var coreCompleted = new java.util.concurrent.atomic.AtomicBoolean(false);
+        var callbackFailed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        try {
+            agentHandler.streamQuery(current, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
                 if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
@@ -294,6 +220,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
             @Override
             public void onComplete() {
+                if (handle.isCancelled() || observer.isCancelled()) {
+                    batchCoordinator.abortResume(current);
+                } else {
+                    coreCompleted.set(true);
+                    batchCoordinator.completeResume(current);
+                }
                 if (interruptHolder.get() == null) {
                     observer.onComplete();
                 }
@@ -301,6 +233,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
             @Override
             public void onError(Throwable e) {
+                callbackFailed.set(true);
+                if (!coreCompleted.get()) {
+                    batchCoordinator.abortResume(current);
+                }
                 log.error("Agent stream error", e);
                 observer.onError(e);
             }
@@ -309,8 +245,14 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             public boolean isCancelled() {
                 return handle.isCancelled() || observer.isCancelled();
             }
-        });
-        return interruptHolder.get();
+            });
+        } catch (RuntimeException | Error ex) {
+            if (!coreCompleted.get()) {
+                batchCoordinator.abortResume(current);
+            }
+            throw ex;
+        }
+        return callbackFailed.get() ? Optional.empty() : Optional.ofNullable(interruptHolder.get());
     }
 
     /**
@@ -326,143 +268,32 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> handleInterrupt(QueryChunk interrupt, ServeRequest current,
-            QueryStreamObserver observer) {
-        var data = resolveInterruptData(interrupt);
-        log.info("Orchestrator interrupt kind={} agentName={} toolName={} convId={}", data.kind(), data.agentName(),
-                data.toolName(), current.getConversationId());
-        if (InterruptData.KIND_A2A_DELEGATE.equals(data.kind())) {
-            return handleA2ADelegate(data, current, observer);
+        QueryStreamObserver observer) {
+        Map<String, Object> rawInterrupt = interruptMap(interrupt);
+        if (isCoordinatorInterrupt(rawInterrupt)) {
+            try {
+                RemoteInvocationBatchCoordinator.BatchResolution resolution =
+                    batchCoordinator.execute(rawInterrupt, current, observer).get();
+                return streamBatchResolution(current, resolution, observer);
+            } catch (InterruptedException ex) {
+                observer.onError(ex);
+                return Optional.empty();
+            } catch (ExecutionException ex) {
+                observer.onError(ex.getCause() != null ? ex.getCause() : ex);
+                return Optional.empty();
+            }
+        }
+        if (hasRemoteDelegateItem(rawInterrupt)) {
+            observer.onError(new IllegalArgumentException(
+                MIXED_INTERRUPT_ERROR + ": mixed A2A and non-A2A interrupts"));
+            return Optional.empty();
+        }
+        if (isRemoteDelegate(rawInterrupt)) {
+            observer.onError(new IllegalArgumentException("CORE_INTERRUPT_CORRELATION_MISSING"));
+            return Optional.empty();
         }
         log.info("Orchestrator forwarding ask_user interrupt to client convId={}", current.getConversationId());
         observer.onNext(interrupt);
-        observer.onComplete();
-        return Optional.empty();
-    }
-
-    /**
-     * Delegates to remote agent: chooses SSE (streaming) or sync (blocking) path.
-     *
-     * @param data
-     *            the interrupt data
-     * @param current
-     *            the current serve request
-     * @param observer
-     *            the query stream observer
-     * @return the next {@link ServeRequest} to continue with, or
-     *         {@link Optional#empty()} if the loop should stop
-     */
-    private Optional<ServeRequest> handleA2ADelegate(InterruptData data, ServeRequest current,
-            QueryStreamObserver observer) {
-        if (InterruptData.STREAM_MODE_SSE.equals(data.streamMode())) {
-            return delegateSse(data, current, observer);
-        }
-        return delegateSync(data, current, observer);
-    }
-
-    private static A2ARemoteAgentClient.RemoteCall remoteCall(ServeRequest request, String agentName, String message,
-            String taskId) {
-        return new A2ARemoteAgentClient.RemoteCall(agentName, message, request.getConversationId(), taskId,
-                request.getMetadata(), request.lastUserMessageMetadata());
-    }
-
-    /**
-     * SSE: streaming call — intermediate output forwards to observer.
-     *
-     * @param data
-     *            the interrupt data
-     * @param current
-     *            the current serve request
-     * @param observer
-     *            the query stream observer
-     * @return the next {@link ServeRequest} to continue with, or
-     *         {@link Optional#empty()} if the loop should stop
-     */
-    private Optional<ServeRequest> delegateSse(InterruptData data, ServeRequest current, QueryStreamObserver observer) {
-        log.info("Orchestrator delegating (sse) to remote agent={} convId={}", data.agentName(),
-                current.getConversationId());
-        try {
-            String content = a2aClient
-                    .callStreaming(remoteCall(current, data.agentName(), data.message(), null), observer).get();
-            log.info("Orchestrator remote result received ({} chars), building resume", content.length());
-            return Optional.of(buildResumeRequest(current, content, data.toolCallId(), data.toolName()));
-        } catch (ExecutionException e) {
-            if (e.getCause() instanceof RemoteInputRequiredException rie) {
-                return handleRemoteInputRequired(data, current, observer, rie);
-            }
-            if (isRecoverableRemoteFailure(e.getCause())) {
-                return resumeAfterRemoteFailure(data, current, e.getCause());
-            }
-            return failRemoteStream(current, data.agentName(), observer, e.getCause());
-        } catch (InterruptedException e) {
-            return failRemoteStream(current, data.agentName(), observer, e);
-        } catch (Exception e) {
-            if (isRecoverableRemoteFailure(e)) {
-                return resumeAfterRemoteFailure(data, current, e);
-            }
-            return failRemoteStream(current, data.agentName(), observer, e);
-        }
-    }
-
-    /**
-     * Sync: blocking call — only final result or interrupt returned.
-     *
-     * @param data
-     *            the interrupt data
-     * @param current
-     *            the current serve request
-     * @param observer
-     *            the query stream observer
-     * @return the next {@link ServeRequest} to continue with, or
-     *         {@link Optional#empty()} if the loop should stop
-     */
-    private Optional<ServeRequest> delegateSync(InterruptData data, ServeRequest current,
-            QueryStreamObserver observer) {
-        log.info("Orchestrator delegating (sync) to remote agent={} convId={}", data.agentName(),
-                current.getConversationId());
-        try {
-            String content = a2aClient.callSync(remoteCall(current, data.agentName(), data.message(), null));
-            log.info("Orchestrator remote result received ({} chars), building resume", content.length());
-            return Optional.of(buildResumeRequest(current, content, data.toolCallId(), data.toolName()));
-        } catch (RemoteInputRequiredException rie) {
-            return handleRemoteInputRequired(data, current, observer, rie);
-        } catch (Exception e) {
-            if (isRecoverableRemoteFailure(e)) {
-                return resumeAfterRemoteFailure(data, current, e);
-            }
-            return failRemoteStream(current, data.agentName(), observer, e);
-        }
-    }
-
-    private Optional<ServeRequest> resumeAfterRemoteFailure(InterruptData data, ServeRequest current,
-            Throwable failure) {
-        log.warn("Remote call '{}' failed; resuming parent with code={}", data.agentName(), remoteFailure(failure)
-                .map(RemoteAgentException::getCode).orElse(A2ARemoteAgentClient.CODE_REMOTE_ERROR));
-        log.debug("Remote delegation failure", failure);
-        return Optional
-                .of(buildResumeRequest(current, remoteFailureContent(failure), data.toolCallId(), data.toolName()));
-    }
-
-    /**
-     * Handles remote INPUT_REQUIRED: saves shadow task, notifies client, and stops
-     * the loop.
-     *
-     * @param data
-     *            the interrupt data
-     * @param current
-     *            the current serve request
-     * @param observer
-     *            the query stream observer
-     * @param rie
-     *            the remote input required exception
-     * @return {@link Optional#empty()} always, indicating the loop should stop
-     */
-    private Optional<ServeRequest> handleRemoteInputRequired(InterruptData data, ServeRequest current,
-            QueryStreamObserver observer, RemoteInputRequiredException rie) {
-        log.info("Orchestrator remote INPUT_REQUIRED convId={} remoteTaskId={}", current.getConversationId(),
-                rie.getRemoteTaskId());
-        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()),
-                rie.getRemoteTaskId(), data.streamMode());
-        observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", rie.getMessage())));
         observer.onComplete();
         return Optional.empty();
     }
@@ -478,28 +309,18 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         agentHandler.clearSession(conversationId);
         var result = taskStore.list(ListTasksParams.builder().contextId(conversationId).build());
         for (Task t : result.tasks()) {
-            deleteShadowTask(t.id());
+            taskStore.delete(t.id());
         }
         log.info("Reset {}: {} A2A tasks cleaned", conversationId, result.tasks().size());
-    }
-
-    /**
-     * Structured interrupt data decoded from a {@code QueryChunk("interrupt")}.
-     */
-    private record InterruptData(String kind, String agentName, String message, String toolCallId, String toolName,
-            String streamMode) {
-        static final String KIND_ASK_USER = "ask_user";
-
-        static final String KIND_A2A_DELEGATE = "a2a_delegate";
-
-        static final InterruptData EMPTY = new InterruptData(KIND_ASK_USER, "", "", "", "", "");
-
-        static final String STREAM_MODE_SSE = "sse";
     }
 
     private record QueryResumeResult(Optional<ServeRequest> request, QueryResponse response) {
         static QueryResumeResult continueWith(ServeRequest request) {
             return new QueryResumeResult(Optional.of(request), null);
+        }
+
+        static QueryResumeResult stop() {
+            return new QueryResumeResult(Optional.empty(), null);
         }
 
         static QueryResumeResult respond(QueryResponse response) {
@@ -516,53 +337,18 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *         {@link Optional#empty()} if the loop should stop
      */
     private QueryResumeResult syncResumePending(ServeRequest current) {
-        List<Task> pending = findPending(current.getConversationId());
-        if (pending.isEmpty()) {
-            return QueryResumeResult.continueWith(current);
+        Optional<java.util.concurrent.CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> batchResume =
+            batchCoordinator.resume(current, NOOP_OBSERVER);
+        if (batchResume.isPresent()) {
+            try {
+                return queryBatchResolution(current, batchResume.get().get(), null);
+            } catch (InterruptedException ex) {
+                return QueryResumeResult.stop();
+            } catch (ExecutionException ex) {
+                throw new IllegalStateException("Remote batch resume failed", ex.getCause());
+            }
         }
-
-        Task pt = pending.get(0);
-        String agentName = metadataString(pt, "_agent_name");
-        String remoteTaskId = metadataString(pt, "_remote_task_id");
-        String streamMode = metadataString(pt, "_stream_mode");
-        boolean isSse = InterruptData.STREAM_MODE_SSE.equals(streamMode);
-        log.info("Orchestrator syncResumePending convId={} agent={} remoteTaskId={} streamMode={}",
-                current.getConversationId(), agentName, remoteTaskId, streamMode);
-        try {
-            String content = isSse
-                    ? a2aClient.callStreaming(remoteCall(current, agentName, current.lastUserQuery(), remoteTaskId),
-                            NOOP_OBSERVER).get()
-                    : a2aClient.callSync(remoteCall(current, agentName, current.lastUserQuery(), remoteTaskId));
-            deleteShadowTask(pt.id());
-            return QueryResumeResult.continueWith(buildResumeRequest(current, content, "", ""));
-        } catch (ExecutionException e) {
-            if (e.getCause() instanceof RemoteInputRequiredException rie) {
-                return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
-            }
-            if (isRecoverableRemoteFailure(e.getCause())) {
-                return resumePendingQueryAfterRemoteFailure(current, pt, agentName, e.getCause());
-            }
-            throw failRemoteQuery(current, agentName, e.getCause());
-        } catch (RemoteInputRequiredException rie) {
-            return pendingRemoteInputRequiredResponse(current, pt, agentName, streamMode, rie);
-        } catch (InterruptedException e) {
-            throw failRemoteQuery(current, agentName, e);
-        } catch (Exception e) {
-            if (isRecoverableRemoteFailure(e)) {
-                return resumePendingQueryAfterRemoteFailure(current, pt, agentName, e);
-            }
-            throw failRemoteQuery(current, agentName, e);
-        }
-    }
-
-    private QueryResumeResult resumePendingQueryAfterRemoteFailure(ServeRequest current, Task pending, String agentName,
-            Throwable failure) {
-        log.warn("Remote call '{}' failed for pending task; resuming parent with code={}", agentName,
-                remoteFailure(failure).map(RemoteAgentException::getCode)
-                        .orElse(A2ARemoteAgentClient.CODE_REMOTE_ERROR));
-        log.debug("Remote pending query failure", failure);
-        deleteShadowTask(pending.id());
-        return QueryResumeResult.continueWith(buildResumeRequest(current, remoteFailureContent(failure), "", ""));
+        return QueryResumeResult.continueWith(current);
     }
 
     /**
@@ -578,167 +364,29 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> handleQueryInterrupt(Map<String, Object> interruptData, ServeRequest current,
-            QueryResponse response) {
-        var data = resolveInterruptDataFromMap(interruptData);
-        log.info("Orchestrator query interrupt kind={} agentName={} convId={}", data.kind(), data.agentName(),
-                current.getConversationId());
-        if (InterruptData.KIND_A2A_DELEGATE.equals(data.kind())) {
-            log.info("Orchestrator query delegating ({}) to remote agent={} convId={}",
-                    InterruptData.STREAM_MODE_SSE.equals(data.streamMode()) ? "sse" : "sync", data.agentName(),
-                    current.getConversationId());
+        QueryResponse response) {
+        if (isCoordinatorInterrupt(interruptData)) {
             try {
-                String content = InterruptData.STREAM_MODE_SSE.equals(data.streamMode())
-                        ? a2aClient.callStreaming(remoteCall(current, data.agentName(), data.message(), null),
-                                NOOP_OBSERVER).get()
-                        : a2aClient.callSync(remoteCall(current, data.agentName(), data.message(), null));
-                log.info("Orchestrator query remote result received ({} chars), building resume",
-                        content != null ? content.length() : 0);
-                return Optional.of(buildResumeRequest(current, content, data.toolCallId(), data.toolName()));
-            } catch (ExecutionException e) {
-                if (e.getCause() instanceof RemoteInputRequiredException rie) {
-                    return remoteInputRequiredResponse(interruptData, response, current, data, rie);
+                QueryResumeResult batchResult = queryBatchResolution(current,
+                    batchCoordinator.execute(interruptData, current, NOOP_OBSERVER).get(), response);
+                if (batchResult.response() != null) {
+                    response.setResult(batchResult.response().getResult());
+                    return Optional.empty();
                 }
-                if (isRecoverableRemoteFailure(e.getCause())) {
-                    return resumeAfterRemoteFailure(data, current, e.getCause());
-                }
-                throw failRemoteQuery(current, data.agentName(), e.getCause());
-            } catch (RemoteInputRequiredException rie) {
-                return remoteInputRequiredResponse(interruptData, response, current, data, rie);
-            } catch (InterruptedException e) {
-                throw failRemoteQuery(current, data.agentName(), e);
-            } catch (Exception e) {
-                if (isRecoverableRemoteFailure(e)) {
-                    return resumeAfterRemoteFailure(data, current, e);
-                }
-                throw failRemoteQuery(current, data.agentName(), e);
+                return batchResult.request();
+            } catch (InterruptedException ex) {
+                return Optional.empty();
+            } catch (ExecutionException ex) {
+                throw new IllegalStateException("Remote batch execution failed", ex.getCause());
             }
         }
-        return Optional.empty(); // non-a2a_delegate or error → stop loop, return interrupt to caller
-    }
-
-    private static String remoteFailureContent(Throwable failure) {
-        String code = A2ARemoteAgentClient.CODE_REMOTE_ERROR;
-        String error = "remote A2A call failed";
-        Optional<RemoteAgentException> remoteFailure = remoteFailure(failure);
-        if (remoteFailure.isPresent()) {
-            code = remoteFailure.get().getCode();
-            error = remoteFailureMessage(code);
+        if (hasRemoteDelegateItem(interruptData)) {
+            throw new IllegalArgumentException(MIXED_INTERRUPT_ERROR + ": mixed A2A and non-A2A interrupts");
         }
-        if (remoteFailure.isEmpty() && unwrapFailure(failure) instanceof java.util.concurrent.TimeoutException) {
-            code = A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT;
-            error = "remote A2A call timed out";
-        }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("error", error);
-        payload.put("code", code);
-        return GSON.toJson(payload);
-    }
-
-    private static String remoteFailureMessage(String code) {
-        return switch (code) {
-            case A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT -> "remote A2A call timed out";
-            case A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED -> "remote A2A stream closed before a terminal event";
-            default -> "remote A2A call failed";
-        };
-    }
-
-    private static boolean isRecoverableRemoteFailure(Throwable failure) {
-        Throwable cause = unwrapFailure(failure);
-        if (cause instanceof java.util.concurrent.TimeoutException) {
-            return true;
-        }
-        return cause instanceof RemoteAgentException remoteAgentFailure
-                && (A2ARemoteAgentClient.CODE_REMOTE_TIMEOUT.equals(remoteAgentFailure.getCode())
-                        || A2ARemoteAgentClient.CODE_REMOTE_STREAM_CLOSED.equals(remoteAgentFailure.getCode()));
-    }
-
-    private static Optional<RemoteAgentException> remoteFailure(Throwable failure) {
-        Throwable cause = unwrapFailure(failure);
-        return cause instanceof RemoteAgentException remoteAgentFailure
-                ? Optional.of(remoteAgentFailure)
-                : Optional.empty();
-    }
-
-    private static Throwable unwrapFailure(Throwable failure) {
-        Throwable cause = failure;
-        while ((cause instanceof ExecutionException || cause instanceof java.util.concurrent.CompletionException)
-                && cause.getCause() != null) {
-            cause = cause.getCause();
-        }
-        return cause;
-    }
-
-    private Optional<ServeRequest> remoteInputRequiredResponse(Map<String, Object> interruptData,
-            QueryResponse response, ServeRequest current, InterruptData data, RemoteInputRequiredException rie) {
-        Map<String, Object> result = queryInputRequiredResult(response, rie.getMessage());
-        response.setResult(result);
-        saveShadowTask(current.getConversationId(), data.agentName(), registry.resolveUrl(data.agentName()),
-                rie.getRemoteTaskId(), data.streamMode());
-        return Optional.empty();
-    }
-
-    private QueryResumeResult pendingRemoteInputRequiredResponse(ServeRequest current, Task pending, String agentName,
-            String streamMode, RemoteInputRequiredException rie) {
-        saveShadowTask(current.getConversationId(), agentName, metadataString(pending, "_remote_url"),
-                remoteTaskIdOrExisting(rie, pending), streamMode);
-        QueryResponse response = new QueryResponse(queryInputRequiredResult(null, rie.getMessage()),
-                current.getConversationId());
-        return QueryResumeResult.respond(response);
-    }
-
-    private static String remoteTaskIdOrExisting(RemoteInputRequiredException rie, Task pending) {
-        String remoteTaskId = rie.getRemoteTaskId();
-        return remoteTaskId != null && !remoteTaskId.isBlank()
-                ? remoteTaskId
-                : metadataString(pending, "_remote_task_id");
-    }
-
-    private static Map<String, Object> queryInputRequiredResult(QueryResponse response, String message) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        if (response != null && response.getResult() instanceof Map<?, ?> resultMap) {
-            for (Map.Entry<?, ?> entry : resultMap.entrySet()) {
-                result.put(String.valueOf(entry.getKey()), entry.getValue());
-            }
-        } else {
-            result.put("role", "assistant");
-        }
-        result.put("content", message);
-        result.put("_interrupt", Map.of("message", message));
-        return result;
-    }
-
-    private Optional<ServeRequest> failRemoteStream(ServeRequest current, String agentName,
-            QueryStreamObserver observer, Throwable cause) {
-        RemoteAgentException failure = remoteFailure(agentName, cause);
-        log.error("Remote call '{}' failed for conversation_id={}", agentName, current.getConversationId(), failure);
-        deleteShadowTask(shadowTaskId(current.getConversationId()));
-        try {
-            observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, remoteFailureBody(agentName)));
-        } finally {
-            observer.onError(failure);
+        if (isRemoteDelegate(interruptData)) {
+            throw new IllegalArgumentException("CORE_INTERRUPT_CORRELATION_MISSING");
         }
         return Optional.empty();
-    }
-
-    private RemoteAgentException failRemoteQuery(ServeRequest current, String agentName, Throwable cause) {
-        RemoteAgentException failure = remoteFailure(agentName, cause);
-        log.error("Remote call '{}' failed for conversation_id={}", agentName, current.getConversationId(), failure);
-        deleteShadowTask(shadowTaskId(current.getConversationId()));
-        return failure;
-    }
-
-    private static RemoteAgentException remoteFailure(String agentName, Throwable cause) {
-        Throwable actualCause = cause != null ? cause : new IllegalStateException("Remote call failed without a cause");
-        return new RemoteAgentException("Remote agent '" + agentName + "' call failed", actualCause);
-    }
-
-    private static Map<String, Object> remoteFailureBody(String agentName) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("type", "error");
-        body.put("code", "REMOTE_A2A_CALL_FAILED");
-        body.put("error", "remote agent call failed");
-        body.put("agent", agentName);
-        return body;
     }
 
     @SuppressWarnings("unchecked")
@@ -749,154 +397,106 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         return new LinkedHashMap<>();
     }
 
+    private Optional<ServeRequest> streamBatchResolution(ServeRequest current,
+            RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
+        if (resolution.isReadyToResume()) {
+            ServeRequest resume = buildBatchResumeRequest(current, resolution);
+            if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
+                observer.onError(new IllegalStateException(CORE_RESUME_IN_FLIGHT + ": " + resolution.batchId()));
+                return Optional.empty();
+            }
+            return Optional.of(resume);
+        }
+        observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, resolution.interrupt()));
+        observer.onComplete();
+        return Optional.empty();
+    }
+
+    private QueryResumeResult queryBatchResolution(ServeRequest current,
+            RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryResponse response) {
+        if (resolution.isReadyToResume()) {
+            ServeRequest resume = buildBatchResumeRequest(current, resolution);
+            if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
+                throw new IllegalStateException(CORE_RESUME_IN_FLIGHT + ": " + resolution.batchId());
+            }
+            return QueryResumeResult.continueWith(resume);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (response != null && response.getResult() instanceof Map<?, ?> existing) {
+            existing.forEach((key, value) -> result.put(String.valueOf(key), value));
+        } else {
+            result.put("role", "assistant");
+        }
+        result.put("content", resolution.interrupt().getOrDefault("message", "Remote agent requires input"));
+        result.put("_interrupt", resolution.interrupt());
+        return QueryResumeResult.respond(new QueryResponse(result, current.getConversationId()));
+    }
+
+    private static ServeRequest buildBatchResumeRequest(ServeRequest original,
+            RemoteInvocationBatchCoordinator.BatchResolution resolution) {
+        ServeRequest resume = new ServeRequest();
+        resume.setConversationId(original.getConversationId());
+        resume.setStream(original.isStream());
+        resume.setMessages(original.getMessages());
+        resume.setUserId(original.getUserId());
+        resume.setSpaceId(original.getSpaceId());
+        resume.setTenantId(original.getTenantId());
+        Map<String, Object> metadata = new LinkedHashMap<>(original.getMetadata());
+        metadata.remove("runtime.remoteToolInputs");
+        metadata.put("runtime.remoteToolResults", new LinkedHashMap<>(resolution.results()));
+        metadata.put("runtime.remoteBatchId", resolution.batchId());
+        resume.setMetadata(metadata);
+        return resume;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> interruptMap(QueryChunk chunk) {
+        if (chunk != null && chunk.getData() instanceof Map<?, ?> map) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            map.forEach((key, value) -> result.put(String.valueOf(key), value));
+            return result;
+        }
+        return Map.of();
+    }
+
+    private static boolean isCoordinatorInterrupt(Map<String, Object> interrupt) {
+        if (interrupt.get("items") instanceof List<?> items) {
+            if (items.isEmpty()) {
+                return false;
+            }
+            for (Object item : items) {
+                if (!(item instanceof Map<?, ?> itemMap)
+                        || !(itemMap.get("context") instanceof Map<?, ?> context)
+                        || !A2A_DELEGATE_KIND.equals(context.get("_interrupt_kind"))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return "__interaction__".equals(interrupt.get("type"))
+            && isRemoteDelegate(interrupt)
+            && interrupt.get("toolCallId") instanceof String toolCallId
+            && !toolCallId.isBlank();
+    }
+
+    private static boolean isRemoteDelegate(Map<String, Object> interrupt) {
+        return interrupt.get("context") instanceof Map<?, ?> context
+            && A2A_DELEGATE_KIND.equals(context.get("_interrupt_kind"));
+    }
+
+    private static boolean hasRemoteDelegateItem(Map<String, Object> interrupt) {
+        if (!(interrupt.get("items") instanceof List<?> items)) {
+            return false;
+        }
+        return items.stream().anyMatch(item -> item instanceof Map<?, ?> itemMap
+            && itemMap.get("context") instanceof Map<?, ?> context
+            && A2A_DELEGATE_KIND.equals(context.get("_interrupt_kind")));
+    }
+
     private static QueryResponse buildInterruptQueryResponse(String convId) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
         result.put("_interrupt", Map.of("message", "Remote agent requires input"));
         return new QueryResponse(result, convId);
-    }
-
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private static InterruptData resolveInterruptDataFromMap(Map<String, Object> data) {
-        Object contextObj = data.get("context");
-        Map context = contextObj instanceof Map ? (Map) contextObj : null;
-        String kind = context != null && context.get("_interrupt_kind") instanceof String s
-                ? s
-                : data.get("agentName") instanceof String
-                        ? InterruptData.KIND_A2A_DELEGATE
-                        : InterruptData.KIND_ASK_USER;
-        String agentName = context != null && context.get("agentName") instanceof String an
-                ? an
-                : data.get("agentName") instanceof String an2 ? an2 : "";
-        String message = data.get("message") instanceof String s ? s : "";
-        String toolCallId = data.get("toolCallId") instanceof String s ? s : "";
-        String toolName = data.get("toolName") instanceof String s ? s : "";
-        String streamMode = context != null && context.get("_stream_mode") instanceof String s
-                ? s
-                : data.get("_stream_mode") instanceof String s2 ? s2 : "";
-        return new InterruptData(kind, agentName, message, toolCallId, toolName, streamMode);
-    }
-
-    private List<Task> findPending(String conversationId) {
-        // Use get() instead of list() — list() goes through transformTask()
-        // which rebuilds the Task and may drop metadata in some code paths.
-        Task task = taskStore.get(shadowTaskId(conversationId));
-        if (task != null && task.status() != null && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED) {
-            return List.of(task);
-        }
-        return List.of();
-    }
-
-    /**
-     * Builds this agent's shadow task id for a conversation. The id is namespaced
-     * by agent identity so that, when several agents share one task store (e.g. the
-     * same Redis) and the conversation id is passed through unchanged, each agent's
-     * shadow task occupies a distinct key instead of overwriting the others.
-     *
-     * @param conversationId
-     *            the passed-through conversation id
-     * @return the namespaced shadow task id
-     */
-    private String shadowTaskId(String conversationId) {
-        return SHADOW_KEY_PREFIX + agentId + ":" + conversationId;
-    }
-
-    private void deleteShadowTask(String taskId) {
-        taskStore.delete(taskId);
-    }
-
-    private void saveShadowTask(String convId, String agentName, String url) {
-        saveShadowTask(convId, agentName, url, "", "");
-    }
-
-    private void saveShadowTask(String convId, String agentName, String url, String remoteTaskId, String streamMode) {
-        log.info("Orchestrator saveShadowTask convId={} agent={} remoteTaskId={} streamMode={}", convId, agentName,
-                remoteTaskId, streamMode);
-        Map<String, Object> meta = new LinkedHashMap<>();
-        if (url != null) {
-            meta.put("_remote_url", url);
-        }
-        if (agentName != null) {
-            meta.put("_agent_name", agentName);
-        }
-        if (remoteTaskId != null && !remoteTaskId.isBlank()) {
-            meta.put("_remote_task_id", remoteTaskId);
-        }
-        if (streamMode != null && !streamMode.isBlank()) {
-            meta.put("_stream_mode", streamMode);
-        }
-        taskStore.save(Task.builder().id(shadowTaskId(convId)).contextId(convId)
-                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-                .metadata(meta.isEmpty() ? null : meta).build(), true);
-    }
-
-    private ServeRequest buildResumeRequest(ServeRequest original, String toolContent, String toolCallId,
-            String toolName) {
-        log.info("Orchestrator buildResumeRequest convId={} toolName={} toolCallId={} toolContentLen={}",
-                original.getConversationId(), toolName, toolCallId, toolContent != null ? toolContent.length() : 0);
-        List<Map<String, Object>> messages = new ArrayList<>();
-        Map<String, Object> userMsg = new LinkedHashMap<>();
-        userMsg.put("role", "user");
-        userMsg.put("content", toolContent);
-        Map<String, Object> messageMetadata = original.lastUserMessageMetadata();
-        if (!messageMetadata.isEmpty()) {
-            userMsg.put("metadata", messageMetadata);
-        }
-        messages.add(userMsg);
-        ServeRequest resumeReq = new ServeRequest();
-        resumeReq.setConversationId(original.getConversationId());
-        resumeReq.setStream(original.isStream());
-        resumeReq.setMessages(messages);
-        resumeReq.setUserId(original.getUserId());
-        resumeReq.setSpaceId(original.getSpaceId());
-        resumeReq.setTenantId(original.getTenantId());
-        resumeReq.setMetadata(original.getMetadata());
-        return resumeReq;
-    }
-
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private static InterruptData resolveInterruptData(QueryChunk chunk) {
-        if (!QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
-            return InterruptData.EMPTY;
-        }
-        Object rawObj = chunk.getData();
-        if (!(rawObj instanceof Map)) {
-            return InterruptData.EMPTY;
-        }
-        var raw = (Map) rawObj;
-        Object contextObj = raw.get("context");
-        Map context = contextObj instanceof Map ? (Map) contextObj : null;
-        String kind = context != null && context.get("_interrupt_kind") instanceof String s
-                ? s
-                : raw.get("agentName") instanceof String
-                        ? InterruptData.KIND_A2A_DELEGATE
-                        : InterruptData.KIND_ASK_USER;
-        String agentName = context != null && context.get("agentName") instanceof String an
-                ? an
-                : raw.get("agentName") instanceof String an2 ? an2 : "";
-        String message = raw.get("message") instanceof String s ? s : "";
-        String toolCallId = raw.get("toolCallId") instanceof String s ? s : "";
-        String toolName = raw.get("toolName") instanceof String s ? s : "";
-        String streamMode = context != null && context.get("_stream_mode") instanceof String s
-                ? s
-                : raw.get("_stream_mode") instanceof String s2 ? s2 : "";
-        return new InterruptData(kind, agentName, message, toolCallId, toolName, streamMode);
-    }
-
-    /**
-     * Safely extracts a string from task metadata.
-     *
-     * @param task
-     *            the task
-     * @param key
-     *            the metadata key
-     * @return the metadata value as string, or empty string if not present
-     */
-    private static String metadataString(Task task, String key) {
-        if (task == null || task.metadata() == null) {
-            return "";
-        }
-        Object value = task.metadata().get(key);
-        return value instanceof String s ? s : "";
     }
 }
