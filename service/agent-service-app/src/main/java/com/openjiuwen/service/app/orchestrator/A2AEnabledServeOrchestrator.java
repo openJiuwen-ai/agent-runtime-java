@@ -100,10 +100,21 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     @Override
     public QueryResponse query(ServeRequest request) {
+        return queryWithProgress(request, NOOP_OBSERVER);
+    }
+
+    /**
+     * Executes a synchronous query while forwarding remote-member progress to an internal observer.
+     *
+     * @param request the serve request
+     * @param progressObserver observer for remote-member progress
+     * @return the original synchronous query response
+     */
+    public QueryResponse queryWithProgress(ServeRequest request, QueryStreamObserver progressObserver) {
         log.info("Orchestrator query START conversationId={}", request.getConversationId());
         ServeRequest current = request;
         while (true) {
-            QueryResumeResult resumeResult = syncResumePending(current);
+            QueryResumeResult resumeResult = syncResumePending(current, progressObserver);
             if (resumeResult.response() != null) {
                 return resumeResult.response();
             }
@@ -125,7 +136,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 return response;
             }
 
-            Optional<ServeRequest> interruptResult = handleQueryInterrupt(interruptData, current, response);
+            Optional<ServeRequest> interruptResult = handleQueryInterrupt(interruptData, current, response,
+                progressObserver);
             if (interruptResult.isEmpty()) {
                 return response;
             }
@@ -333,12 +345,14 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *
      * @param current
      *            the current serve request
+     * @param progressObserver
+     *            observer for remote-member progress
      * @return the next {@link ServeRequest} to continue with, or
      *         {@link Optional#empty()} if the loop should stop
      */
-    private QueryResumeResult syncResumePending(ServeRequest current) {
+    private QueryResumeResult syncResumePending(ServeRequest current, QueryStreamObserver progressObserver) {
         Optional<java.util.concurrent.CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> batchResume =
-            batchCoordinator.resume(current, NOOP_OBSERVER);
+            batchCoordinator.resume(current, progressObserver);
         if (batchResume.isPresent()) {
             try {
                 return queryBatchResolution(current, batchResume.get().get(), null);
@@ -360,15 +374,17 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *            the current serve request
      * @param response
      *            the query response
+     * @param progressObserver
+     *            observer for remote-member progress
      * @return the next {@link ServeRequest} to continue with, or
      *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> handleQueryInterrupt(Map<String, Object> interruptData, ServeRequest current,
-        QueryResponse response) {
+        QueryResponse response, QueryStreamObserver progressObserver) {
         if (isCoordinatorInterrupt(interruptData)) {
             try {
                 QueryResumeResult batchResult = queryBatchResolution(current,
-                    batchCoordinator.execute(interruptData, current, NOOP_OBSERVER).get(), response);
+                    batchCoordinator.execute(interruptData, current, progressObserver).get(), response);
                 if (batchResult.response() != null) {
                     response.setResult(batchResult.response().getResult());
                     return Optional.empty();
