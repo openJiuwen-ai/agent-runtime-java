@@ -365,10 +365,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     /**
      * Handles a2a_delegate interrupt in query mode: forwards once to the remote
-     * agent. When {@code data.resume()} is {@code true} (tool-call path), the
-     * remote's answer is fed back to the parent handler as a tool result. When
-     * {@code false} (intent-workflow path), the remote's answer is this layer's
-     * final answer and is returned directly without re-invoking the agent.
+     * agent. When {@code resolution.resume()} is {@code true} (tool-call path),
+     * the remote's answer is fed back to the parent handler as a tool result.
+     * When {@code false} (intent-workflow path), the remote's answer is this
+     * layer's final answer and is returned directly without re-invoking the
+     * agent.
      *
      * @param interruptData
      *            the interrupt data map
@@ -415,6 +416,13 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private Optional<ServeRequest> streamBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
         if (resolution.isReadyToResume()) {
+            if (!resolution.resume()) {
+                if (!observer.isCancelled()) {
+                    observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, joinRemoteAnswers(resolution)));
+                    observer.onComplete();
+                }
+                return Optional.empty();
+            }
             ServeRequest resume = buildBatchResumeRequest(current, resolution);
             if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
                 observer.onError(new IllegalStateException(CORE_RESUME_IN_FLIGHT + ": " + resolution.batchId()));
@@ -430,6 +438,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private QueryResumeResult queryBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryResponse response) {
         if (resolution.isReadyToResume()) {
+            if (!resolution.resume()) {
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("role", "assistant");
+                result.put("content", joinRemoteAnswers(resolution));
+                return QueryResumeResult.respond(new QueryResponse(result, current.getConversationId()));
+            }
             ServeRequest resume = buildBatchResumeRequest(current, resolution);
             if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
                 throw new IllegalStateException(CORE_RESUME_IN_FLIGHT + ": " + resolution.batchId());
@@ -445,6 +459,27 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         result.put("content", resolution.interrupt().getOrDefault("message", "Remote agent requires input"));
         result.put("_interrupt", resolution.interrupt());
         return QueryResumeResult.respond(new QueryResponse(result, current.getConversationId()));
+    }
+
+    private static String joinRemoteAnswers(RemoteInvocationBatchCoordinator.BatchResolution resolution) {
+        if (resolution.results().isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        resolution.results().values().forEach(value -> {
+            if (value == null) {
+                return;
+            }
+            String text = value instanceof Map<?, ?> map && map.get("ok") instanceof Boolean ok && !ok
+                ? "" : String.valueOf(value);
+            if (!text.isEmpty()) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(text);
+            }
+        });
+        return sb.toString();
     }
 
     private static ServeRequest buildBatchResumeRequest(ServeRequest original,

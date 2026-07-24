@@ -257,6 +257,129 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void resumeFalseStreamingReturnsRemoteAnswerWithoutReInvokingAgent() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            RemoteCall call = invocation.getArgument(0);
+            return CompletableFuture.completedFuture(new RemoteCallOutcome(
+                "remote-" + call.agentName(),
+                TaskState.TASK_STATE_COMPLETED,
+                "COMPLETED",
+                "intent-answer",
+                null));
+        });
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (localRuns.getAndIncrement() == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                    "type", "__interaction__",
+                    "toolCallId", "call-intent",
+                    "toolName", "intent-tool",
+                    "message", "go",
+                    "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "intent-agent",
+                        "resume", false))));
+            }
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        ServeRequest request = req("c-intent");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-intent"));
+
+        orchestrator.streamQuery(request, observer);
+
+        assertThat(localRuns.get()).isEqualTo(1);
+        verify(a2aClient, times(1)).callOutcome(any(), any(), any());
+        verify(observer).onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "intent-answer"));
+        verify(observer).onComplete();
+        verify(observer, never()).onNext(argThat(chunk -> chunk != null
+            && QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())));
+        assertThat(taskStore.get("shadow:test-agent:parent-intent")).isNull();
+    }
+
+    @Test
+    void resumeFalseQueryReturnsRemoteAnswerAsContentWithoutReInvokingAgent() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            RemoteCall call = invocation.getArgument(0);
+            return CompletableFuture.completedFuture(new RemoteCallOutcome(
+                "remote-" + call.agentName(),
+                TaskState.TASK_STATE_COMPLETED,
+                "COMPLETED",
+                "intent-answer",
+                null));
+        });
+        AtomicInteger localRuns = new AtomicInteger();
+        when(agentHandler.query(any())).thenAnswer(invocation -> {
+            if (localRuns.getAndIncrement() == 0) {
+                return new QueryResponse(Map.of(
+                    "_interrupt", Map.of(
+                        "type", "__interaction__",
+                        "toolCallId", "call-intent",
+                        "toolName", "intent-tool",
+                        "message", "go",
+                        "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "intent-agent",
+                            "resume", false))),
+                    "c-intent-query");
+            }
+            throw new IllegalStateException("agent must not be re-invoked when resume=false");
+        });
+        ServeRequest request = req("c-intent-query");
+        request.setStream(false);
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-intent-query"));
+
+        QueryResponse response = orchestrator.query(request);
+
+        assertThat(localRuns.get()).isEqualTo(1);
+        assertThat(response.getResult()).isInstanceOf(Map.class);
+        Map<String, Object> result = (Map<String, Object>) response.getResult();
+        assertThat(result.get("role")).isEqualTo("assistant");
+        assertThat(result.get("content")).isEqualTo("intent-answer");
+        assertThat(result.get("_interrupt")).isNull();
+        assertThat(taskStore.get("shadow:test-agent:parent-intent-query")).isNull();
+    }
+
+    @Test
+    void mixedResumeFlagsInBatchAreRejected() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        List<Map<String, Object>> items = List.of(
+            Map.of(
+                "toolCallId", "call-keep",
+                "toolName", "tool-keep",
+                "message", "go",
+                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-a", "resume", true)),
+            Map.of(
+                "toolCallId", "call-intent",
+                "toolName", "tool-intent",
+                "message", "go",
+                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-b", "resume", false)));
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("items", items)));
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        ServeRequest request = req("c-mixed");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-mixed"));
+
+        orchestrator.streamQuery(request, observer);
+
+        verify(observer).onError(argThat(error ->
+            error instanceof IllegalArgumentException
+                && "CORE_INTERRUPT_RESUME_MIXED_UNSUPPORTED".equals(error.getMessage())));
+        verify(a2aClient, never()).callOutcome(any(), any(), any());
+    }
+
+    @Test
     void coreResumeFailureKeepsReadyShadowForRetry() {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
