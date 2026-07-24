@@ -739,12 +739,11 @@ final class RemoteInvocationBatchCoordinator {
                 throw new IllegalArgumentException("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED");
             }
             boolean isMemberResume = !(context.get("resume") instanceof Boolean isResumeFlag) || isResumeFlag;
+            if (isBatchResume != null && isBatchResume != isMemberResume) {
+                throw new IllegalArgumentException("CORE_INTERRUPT_RESUME_MIXED_UNSUPPORTED");
+            }
             if (isBatchResume == null) {
                 isBatchResume = isMemberResume;
-            } else if (isBatchResume != isMemberResume) {
-                throw new IllegalArgumentException("CORE_INTERRUPT_RESUME_MIXED_UNSUPPORTED");
-            } else {
-                // same resume flag across members: nothing to merge
             }
             int index = item.get("index") instanceof Number number ? number.intValue() : i;
             Member member = new Member(index, toolCallId, stringValue(item.get("toolName")),
