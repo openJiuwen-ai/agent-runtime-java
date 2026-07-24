@@ -19,8 +19,6 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
-import com.openjiuwen.service.app.orchestrator.NoopServeForwardStrategy;
-import com.openjiuwen.service.app.orchestrator.ServeForwardStrategy;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -210,8 +208,7 @@ public class A2AAutoConfiguration {
 
     /**
      * Creates the default {@link RemoteAgentCaller} bean. Deployments may
-     * override with an {@code A2AGatewayRemoteAgentCaller} or
-     * {@code InProcessRemoteAgentCaller}.
+     * override with an {@code A2AGatewayRemoteAgentCaller}.
      *
      * @param registry the remote agent card registry
      * @return the default remote agent caller
@@ -239,19 +236,6 @@ public class A2AAutoConfiguration {
     }
 
     /**
-     * Creates the default {@link ServeForwardStrategy} bean. Deployment modules
-     * (e.g. {@code versatile-intent-boot}'s {@code ThreeFieldForwardStrategy})
-     * may override with a forwarding implementation.
-     *
-     * @return the noop forward strategy
-     */
-    @Bean
-    @ConditionalOnMissingBean(ServeForwardStrategy.class)
-    public ServeForwardStrategy serveForwardStrategy() {
-        return new NoopServeForwardStrategy();
-    }
-
-    /**
      * Creates the A2A-enabled serve orchestrator bean as the default orchestrator.
      *
      * @param agentHandler the agent handler
@@ -260,16 +244,15 @@ public class A2AAutoConfiguration {
      * @param cardResolver the remote agent card resolver SPI
      * @param streamRegistry the active stream registry
      * @param agentId the application name used as the agent identifier for shadow task namespacing
-     * @param forwardStrategy the forward-decision strategy
      * @return the A2A-enabled serve orchestrator
      */
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
             RemoteAgentCaller remoteAgentCaller, RemoteAgentCardResolver cardResolver, ActiveStreamRegistry streamRegistry,
-            @Value("${spring.application.name:agent}") String agentId, ServeForwardStrategy forwardStrategy) {
+            @Value("${spring.application.name:agent}") String agentId) {
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, cardResolver,
-                streamRegistry, agentId, forwardStrategy);
+                streamRegistry, agentId);
     }
 
     /**

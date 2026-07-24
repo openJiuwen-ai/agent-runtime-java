@@ -45,7 +45,11 @@ import java.util.concurrent.atomic.AtomicReference;
  * Detects {@code "interrupt"} chunks from the agent handler, routes
  * {@code a2a_delegate} interrupts to a remote agent via
  * {@link RemoteAgentCaller}, and resumes the local agent with the remote
- * result. Other interrupts are forwarded as {@code INPUT_REQUIRED}.
+ * result. The {@code a2a_delegate} interrupt payload may carry a
+ * {@code responseContent} field; when present, it is forwarded to
+ * {@link RemoteAgentCaller} as the current layer's assistant output so the
+ * remote agent receives it as an appended {@code messages} entry. Other
+ * interrupts are forwarded as {@code INPUT_REQUIRED}.
  *
  * @since 0.1.0
  */
@@ -300,8 +304,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     private final String agentId;
 
-    private final ServeForwardStrategy forwardStrategy;
-
     /**
      * Constructs the orchestrator with required dependencies.
      *
@@ -317,20 +319,16 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *            the active stream registry for cancellation
      * @param agentId
      *            this agent's identity for shadow task key namespacing
-     * @param forwardStrategy
-     *            the forward-decision strategy; {@link NoopServeForwardStrategy}
-     *            preserves legacy behaviour when no deployment-module strategy is active
      */
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
         RemoteAgentCaller remoteAgentCaller, RemoteAgentCardResolver cardResolver, ActiveStreamRegistry streamRegistry,
-        String agentId, ServeForwardStrategy forwardStrategy) {
+        String agentId) {
         this.agentHandler = agentHandler;
         this.taskStore = taskStore;
         this.remoteAgentCaller = remoteAgentCaller;
         this.cardResolver = cardResolver;
         this.streamRegistry = streamRegistry;
         this.agentId = agentId == null || agentId.isBlank() ? "agent" : agentId;
-        this.forwardStrategy = forwardStrategy != null ? forwardStrategy : new NoopServeForwardStrategy();
     }
 
     @Override
@@ -350,10 +348,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             QueryResponse response = agentHandler.query(current);
             Map<String, Object> interruptData = extractInterruptFromResponse(response);
             if (interruptData.isEmpty()) {
-                Optional<RemoteAgentCall> forward = forwardStrategy.evaluateForward(response, current);
-                if (forward.isPresent()) {
-                    return executeForwardSync(forward.get(), response, current);
-                }
                 return response;
             }
 
@@ -378,12 +372,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 }
                 current = opt.get();
 
-                ForwardDetection detection = runAgentAndDetectForward(current, observer, handle);
-                if (detection.forwardCall() != null) {
-                    executeForwardStream(detection.forwardCall(), current, observer);
-                    return;
-                }
-                QueryChunk interrupt = detection.interrupt();
+                QueryChunk interrupt = runAgentAndCaptureInterrupt(current, observer, handle);
                 if (interrupt == null) {
                     return;
                 }
@@ -492,30 +481,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     }
 
     /**
-     * Outcome of running the local agent: either an interrupt chunk (for the
-     * classic {@code a2a_delegate}/{@code ask_user} path) or a forward call
-     * returned by the {@link ServeForwardStrategy} (e.g. a three-field envelope
-     * detected by the deployment module's strategy). At most one of the two is
-     * non-null.
-     */
-    private record ForwardDetection(QueryChunk interrupt, RemoteAgentCall forwardCall) {
-    }
-
-    /**
-     * Runs the local agent and captures either an interrupt chunk (for the
-     * classic {@code a2a_delegate}/{@code ask_user} path) or a forward call
-     * returned by the {@link ServeForwardStrategy}. At most one of the two is
-     * non-null.
-     *
-     * <p>For each non-interrupt chunk, the strategy's
-     * {@link ServeForwardStrategy#interceptStreamEnvelope} is invoked; when it
-     * returns a {@link RemoteAgentCall}, the chunk is captured (not forwarded
-     * to the client) and subsequent chunks are suppressed. Interrupts are
-     * captured for the caller to translate into a
-     * {@link RemoteInputRequiredException}; normal chunks are forwarded to
-     * {@code observer}. The wrapper suppresses {@code observer.onComplete()}
-     * when an interrupt or forward call was captured so that the caller
-     * retains sole responsibility for terminal signalling.
+     * Runs the agent and captures any interrupt chunk.
      *
      * @param current
      *            the current serve request
@@ -523,12 +489,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *            the query stream observer
      * @param handle
      *            the stream cancellation handle
-     * @return the run outcome (interrupt chunk and/or forward call)
+     * @return the interrupt chunk, or {@code null} if the stream completed normally
      */
-    private ForwardDetection runAgentAndDetectForward(ServeRequest current, QueryStreamObserver observer,
-        StreamCancellationHandle handle) {
+    private QueryChunk runAgentAndCaptureInterrupt(ServeRequest current, QueryStreamObserver observer,
+            StreamCancellationHandle handle) {
         AtomicReference<QueryChunk> interruptHolder = new AtomicReference<>();
-        AtomicReference<RemoteAgentCall> forwardCallHolder = new AtomicReference<>();
         agentHandler.streamQuery(current, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
@@ -536,17 +501,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                     interruptHolder.set(chunk);
                     return;
                 }
-                Optional<RemoteAgentCall> forward = forwardStrategy.interceptStreamEnvelope(chunk, current);
-                if (forward.isPresent()) {
-                    forwardCallHolder.set(forward.get());
-                    return;
-                }
                 observer.onNext(chunk);
             }
 
             @Override
             public void onComplete() {
-                if (interruptHolder.get() == null && forwardCallHolder.get() == null) {
+                if (interruptHolder.get() == null) {
                     observer.onComplete();
                 }
             }
@@ -562,119 +522,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
                 return handle.isCancelled() || observer.isCancelled();
             }
         });
-        return new ForwardDetection(interruptHolder.get(), forwardCallHolder.get());
-    }
-
-    /**
-     * Executes a forward call in sync {@code query()} mode: invokes the remote
-     * agent via {@link RemoteAgentCaller}, captures the outcome, and translates
-     * it into a {@link QueryResponse}.
-     *
-     * <p>On remote {@code INPUT_REQUIRED}, saves a shadow task (so the next
-     * resume targets the right remote task) and returns a response carrying
-     * {@code _interrupt}. On remote error, falls back to the local response.
-     * On success, wraps the remote answer into a fresh {@link QueryResponse}
-     * with {@code role=assistant} + {@code response_content} and transparently
-     * propagates the remote envelope's {@code agent_id}/{@code intent_id}.
-     *
-     * @param call
-     *            the remote call coordinates (built by the forward strategy)
-     * @param localResponse
-     *            the local agent's response, used as fallback on error
-     * @param current
-     *            the current serve request
-     * @return the forwarded response, or the local response on recoverable error
-     */
-    private QueryResponse executeForwardSync(RemoteAgentCall call, QueryResponse localResponse,
-            ServeRequest current) {
-        log.info("Orchestrator forwarding (sync) to remote agent={} convId={}", call.agentId(),
-                current.getConversationId());
-        if (call.agentId().equals(this.agentId)) {
-            log.warn("Orchestrator forwarding to self agentId={} convId={} "
-                + "(re-classification or config error; loop protection delegated to downstream-call capability)",
-                call.agentId(), current.getConversationId());
-        }
-        RemoteCallResult remoteResult = callRemoteAndCapture(call, NOOP_OBSERVER);
-        if (remoteResult.hasInterrupt()) {
-            RemoteInputRequiredException rie = remoteResult.toInputRequiredException();
-            log.info("Orchestrator forward INPUT_REQUIRED convId={} remoteTaskId={}", current.getConversationId(),
-                    rie.getRemoteTaskId());
-            saveShadowTask(current.getConversationId(), call.agentId(),
-                    cardResolver.resolveJsonRpcUrl(call.agentId()), rie.getRemoteTaskId(), "");
-            Map<String, Object> result = queryInputRequiredResult(localResponse, rie.getMessage());
-            return new QueryResponse(result, current.getConversationId());
-        }
-        if (remoteResult.hasError()) {
-            log.warn("Orchestrator forward to agent={} convId={} did not complete cleanly (error={}); "
-                + "returning local response", call.agentId(), current.getConversationId(),
-                remoteResult.error().getMessage());
-            return localResponse;
-        }
-        String remoteContent = remoteResult.answer();
-        Map<String, Object> forwardedResult = new LinkedHashMap<>();
-        forwardedResult.put("role", "assistant");
-        forwardedResult.put("content", remoteContent);
-        forwardedResult.put("response_content", remoteContent);
-        Map<?, ?> envelope = remoteResult.envelope();
-        if (envelope != null) {
-            Object remoteAgentId = envelope.get("agent_id");
-            if (remoteAgentId != null) {
-                forwardedResult.put("agent_id", remoteAgentId);
-            }
-            Object remoteIntentId = envelope.get("intent_id");
-            if (remoteIntentId != null) {
-                forwardedResult.put("intent_id", remoteIntentId);
-            }
-        }
-        return new QueryResponse(forwardedResult, current.getConversationId());
-    }
-
-    /**
-     * Executes a forward call in streaming {@code streamQuery()} mode: invokes
-     * the remote agent via {@link RemoteAgentCaller} and streams chunks to the
-     * client observer via the capturing wrapper.
-     *
-     * <p>On remote {@code INPUT_REQUIRED}, saves a shadow task (so the next
-     * resume targets the right remote task), emits a {@code TYPE_INTERRUPT}
-     * chunk carrying the {@code remote_task_id}, and completes the stream. On
-     * remote error, the capturing wrapper has already forwarded {@code onError}
-     * to the client (and set {@code terminallyNotified}); this method only
-     * calls {@code onComplete} as a defensive fallback when the wrapper did not
-     * issue a terminal signal. On success, the wrapper has already forwarded
-     * chunks and {@code onComplete}, so nothing more is done.
-     *
-     * @param call
-     *            the remote call coordinates (built by the forward strategy)
-     * @param current
-     *            the current serve request
-     * @param observer
-     *            the client stream observer
-     */
-    private void executeForwardStream(RemoteAgentCall call, ServeRequest current, QueryStreamObserver observer) {
-        log.info("Orchestrator forwarding (stream) to remote agent={} convId={}", call.agentId(),
-                current.getConversationId());
-        if (call.agentId().equals(this.agentId)) {
-            log.warn("Orchestrator forwarding to self agentId={} convId={} "
-                + "(re-classification or config error; loop protection delegated to downstream-call capability)",
-                call.agentId(), current.getConversationId());
-        }
-        RemoteCallResult remoteResult = callRemoteAndCapture(call, observer);
-        if (remoteResult.hasInterrupt()) {
-            RemoteInputRequiredException rie = remoteResult.toInputRequiredException();
-            log.info("Orchestrator forward INPUT_REQUIRED convId={} remoteTaskId={}", current.getConversationId(),
-                    rie.getRemoteTaskId());
-            saveShadowTask(current.getConversationId(), call.agentId(),
-                    cardResolver.resolveJsonRpcUrl(call.agentId()), rie.getRemoteTaskId(),
-                    InterruptData.STREAM_MODE_SSE);
-            if (!observer.isCancelled()) {
-                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
-                        "message", rie.getMessage(),
-                        "remote_task_id", rie.getRemoteTaskId() != null ? rie.getRemoteTaskId() : "")));
-                observer.onComplete();
-            }
-        } else if (remoteResult.hasError() && !remoteResult.terminallyNotified() && !observer.isCancelled()) {
-            observer.onComplete();
-        }
+        return interruptHolder.get();
     }
 
     /**
@@ -741,7 +589,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         RemoteCallResult result;
         try {
             result = callRemoteAndCapture(new RemoteAgentCall(
-                    data.agentName(), current, null, current.getConversationId(), null,
+                    data.agentName(), current, data.responseContent(), current.getConversationId(), null,
                     data.message(), true), observer);
         } catch (Exception e) {
             log.error("Remote call '{}' failed (sse)", data.agentName(), e);
@@ -781,7 +629,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         RemoteCallResult result;
         try {
             result = callRemoteAndCapture(new RemoteAgentCall(
-                    data.agentName(), current, null, current.getConversationId(), null,
+                    data.agentName(), current, data.responseContent(), current.getConversationId(), null,
                     data.message(), false), null);
         } catch (Exception e) {
             log.error("Remote call '{}' failed (sync)", data.agentName(), e);
@@ -854,14 +702,27 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     /**
      * Structured interrupt data decoded from a {@code QueryChunk("interrupt")}.
+     *
+     * <p>For {@code a2a_delegate}, {@code responseContent} carries the current
+     * layer's assistant output (e.g. a Versatile intent-workflow
+     * {@code response_content}); the orchestrator forwards it to
+     * {@link RemoteAgentCaller} so the remote agent receives it as an appended
+     * {@code messages} entry. Empty string means "no assistant content to
+     * forward".
+     *
+     * <p>The orchestrator forwards once and resumes the parent handler with
+     * the remote's answer. Multi-hop chains (L1→L2→downstream) are handled by
+     * each layer's own orchestrator: the remote runtime's orchestrator
+     * processes its own a2a_delegate locally, so the parent only sees the
+     * final plain answer.
      */
     private record InterruptData(String kind, String agentName, String message, String toolCallId, String toolName,
-            String streamMode) {
+            String streamMode, String responseContent) {
         static final String KIND_ASK_USER = "ask_user";
 
         static final String KIND_A2A_DELEGATE = "a2a_delegate";
 
-        static final InterruptData EMPTY = new InterruptData(KIND_ASK_USER, "", "", "", "", "");
+        static final InterruptData EMPTY = new InterruptData(KIND_ASK_USER, "", "", "", "", "", "");
 
         static final String STREAM_MODE_SSE = "sse";
     }
@@ -931,7 +792,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     }
 
     /**
-     * Handles a2a_delegate interrupt in query mode.
+     * Handles a2a_delegate interrupt in query mode: forwards once to the remote
+     * agent and resumes the parent handler with the remote's answer. Multi-hop
+     * chains are handled by each layer's own orchestrator — the remote runtime
+     * processes its own a2a_delegate locally before returning a plain answer.
      *
      * @param interruptData
      *            the interrupt data map
@@ -954,7 +818,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             RemoteCallResult result;
             try {
                 result = callRemoteAndCapture(new RemoteAgentCall(
-                        data.agentName(), current, null, current.getConversationId(), null,
+                        data.agentName(), current, data.responseContent(), current.getConversationId(), null,
                         data.message(), false), null);
             } catch (Exception e) {
                 log.error("Remote call '{}' failed", data.agentName(), e);
@@ -1141,7 +1005,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         String streamMode = context != null && context.get("_stream_mode") instanceof String s
                 ? s
                 : data.get("_stream_mode") instanceof String s2 ? s2 : "";
-        return new InterruptData(kind, agentName, message, toolCallId, toolName, streamMode);
+        String responseContent = data.get("responseContent") instanceof String s ? s : "";
+        return new InterruptData(kind, agentName, message, toolCallId, toolName, streamMode, responseContent);
     }
 
     private List<Task> findPending(String conversationId) {
@@ -1247,8 +1112,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         String streamMode = context != null && context.get("_stream_mode") instanceof String s
                 ? s
                 : raw.get("_stream_mode") instanceof String s2 ? s2 : "";
-        return new InterruptData(kind, agentName, message, toolCallId, toolName, streamMode);
+        String responseContent = raw.get("responseContent") instanceof String s ? s : "";
+        return new InterruptData(kind, agentName, message, toolCallId, toolName, streamMode, responseContent);
     }
+
 
     /**
      * Safely extracts a string from task metadata.

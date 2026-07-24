@@ -17,8 +17,6 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
  *   <li>{@code A2AGatewayRemoteAgentCaller} (deployment module) —
  *       {@code gatewayBaseUrl + "/" + agentId + jsonRpcPath} routing; consumes
  *       {@code responseContent} to append an assistant message to {@code messages}.</li>
- *   <li>{@code InProcessRemoteAgentCaller} (deployment module, dev scope) —
- *       direct {@code AgentHandler} bean lookup; consumes {@code responseContent}.</li>
  * </ul>
  *
  * <p>The caller of this SPI is {@code A2AEnabledServeOrchestrator} (runtime core);

@@ -71,7 +71,7 @@ class A2AEnabledServeOrchestratorTest {
         streamRegistry = mock(ActiveStreamRegistry.class);
         when(streamRegistry.register(anyString())).thenReturn(mock(StreamCancellationHandle.class));
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, cardResolver,
-            streamRegistry, "test-agent", new NoopServeForwardStrategy());
+            streamRegistry, "test-agent");
     }
 
     /**
@@ -576,6 +576,55 @@ class A2AEnabledServeOrchestratorTest {
         r.setConversationId(convId);
         r.setStream(true);
         return r;
+    }
+
+    @Test
+    void queryA2aDelegateForwardsResponseContentToRemoteCaller() {
+        when(taskStore.get(anyString())).thenReturn(null);
+        when(cardResolver.resolveJsonRpcUrl("L2-agent")).thenReturn("http://remote/a2a/");
+        stubRemoteAnswer("remote final");
+        when(agentHandler.query(any())).thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
+            Map.of("role", "assistant", "_interrupt",
+                Map.of("message", "user query", "responseContent", "L1 assistant output", "context",
+                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", ""))),
+            "c-response-content"))
+            .thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
+                Map.of("role", "assistant", "content", "final answer"), "c-response-content"));
+
+        orchestrator.query(req("c-response-content"));
+
+        // a2a_delegate interrupt carrying responseContent → RemoteAgentCall must
+        // propagate it so the caller can append it as an assistant message.
+        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "L2-agent".equals(c.agentId())
+            && "L1 assistant output".equals(c.responseContent())
+            && "user query".equals(c.message())), any());
+    }
+
+    @Test
+    void streamA2aDelegateForwardsResponseContentToRemoteCaller() {
+        when(taskStore.get(anyString())).thenReturn(null);
+        when(cardResolver.resolveJsonRpcUrl("L2-agent")).thenReturn("http://remote/a2a/");
+        stubRemoteAnswer("remote final");
+        java.util.concurrent.atomic.AtomicBoolean firstCall = new java.util.concurrent.atomic.AtomicBoolean(true);
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            if (firstCall.compareAndSet(true, false)) {
+                obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                    "message", "user query",
+                    "responseContent", "L1 streaming output",
+                    "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", "sse"))));
+            } else {
+                obs.onNext(new QueryChunk("chunk", "done"));
+                obs.onComplete();
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+
+        orchestrator.streamQuery(req("c-stream-response"), mock(QueryStreamObserver.class));
+
+        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "L2-agent".equals(c.agentId())
+            && "L1 streaming output".equals(c.responseContent())
+            && c.streaming()), any());
     }
 
     private static AgentCard testCard() {
