@@ -585,11 +585,9 @@ class A2AEnabledServeOrchestratorTest {
         stubRemoteAnswer("remote final");
         when(agentHandler.query(any())).thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
             Map.of("role", "assistant", "_interrupt",
-                Map.of("message", "user query", "responseContent", "L1 assistant output", "context",
+                Map.of("message", "user query", "responseContent", "L1 assistant output", "resume", false, "context",
                     Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", ""))),
-            "c-response-content"))
-            .thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
-                Map.of("role", "assistant", "content", "final answer"), "c-response-content"));
+            "c-response-content"));
 
         orchestrator.query(req("c-response-content"));
 
@@ -598,6 +596,32 @@ class A2AEnabledServeOrchestratorTest {
         verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "L2-agent".equals(c.agentId())
             && "L1 assistant output".equals(c.responseContent())
             && "user query".equals(c.message())), any());
+        // resume=false → orchestrator must NOT re-invoke the agent with the remote answer.
+        verify(agentHandler).query(any());
+    }
+
+    @Test
+    void queryA2aDelegateResumeReinvokesAgentWithRemoteAnswer() {
+        when(taskStore.get(anyString())).thenReturn(null);
+        when(cardResolver.resolveJsonRpcUrl("L2-agent")).thenReturn("http://remote/a2a/");
+        stubRemoteAnswer("remote final");
+        when(agentHandler.query(any())).thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
+            Map.of("role", "assistant", "_interrupt",
+                // No "resume" field → defaults to true (tool-call path).
+                Map.of("message", "user query", "responseContent", "L1 tool output", "context",
+                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", ""))),
+            "c-resume"))
+            .thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
+                Map.of("role", "assistant", "content", "final answer"), "c-resume"));
+
+        com.openjiuwen.service.spec.dto.QueryResponse response = orchestrator.query(req("c-resume"));
+
+        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "L2-agent".equals(c.agentId())
+            && "L1 tool output".equals(c.responseContent())), any());
+        // resume=true → orchestrator re-invokes the agent with the remote answer as a tool result.
+        verify(agentHandler, atLeastOnce()).query(any());
+        assertThat(response.getResult()).isInstanceOf(java.util.Map.class);
+        assertThat(((java.util.Map<?, ?>) response.getResult()).get("content")).isEqualTo("final answer");
     }
 
     @Test
@@ -605,18 +629,13 @@ class A2AEnabledServeOrchestratorTest {
         when(taskStore.get(anyString())).thenReturn(null);
         when(cardResolver.resolveJsonRpcUrl("L2-agent")).thenReturn("http://remote/a2a/");
         stubRemoteAnswer("remote final");
-        java.util.concurrent.atomic.AtomicBoolean firstCall = new java.util.concurrent.atomic.AtomicBoolean(true);
         doAnswer(inv -> {
             QueryStreamObserver obs = inv.getArgument(1);
-            if (firstCall.compareAndSet(true, false)) {
-                obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
-                    "message", "user query",
-                    "responseContent", "L1 streaming output",
-                    "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", "sse"))));
-            } else {
-                obs.onNext(new QueryChunk("chunk", "done"));
-                obs.onComplete();
-            }
+            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                "message", "user query",
+                "responseContent", "L1 streaming output",
+                "resume", false,
+                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", "sse"))));
             return null;
         }).when(agentHandler).streamQuery(any(), any());
 
@@ -625,6 +644,38 @@ class A2AEnabledServeOrchestratorTest {
         verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "L2-agent".equals(c.agentId())
             && "L1 streaming output".equals(c.responseContent())
             && c.streaming()), any());
+        // resume=false → agent handler invoked only once.
+        verify(agentHandler).streamQuery(any(), any());
+    }
+
+    @Test
+    void streamA2aDelegateResumeReinvokesAgentWithRemoteAnswer() {
+        when(taskStore.get(anyString())).thenReturn(null);
+        when(cardResolver.resolveJsonRpcUrl("L2-agent")).thenReturn("http://remote/a2a/");
+        stubRemoteAnswer("remote final");
+        AtomicBoolean firstCall = new AtomicBoolean(true);
+        doAnswer(inv -> {
+            QueryStreamObserver obs = inv.getArgument(1);
+            if (firstCall.compareAndSet(true, false)) {
+                obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                    "message", "user query",
+                    "responseContent", "L1 streaming output",
+                    // No "resume" field → defaults to true (tool-call path).
+                    "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", "sse"))));
+            } else {
+                obs.onNext(new QueryChunk("chunk", "done"));
+                obs.onComplete();
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+
+        orchestrator.streamQuery(req("c-stream-resume"), mock(QueryStreamObserver.class));
+
+        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "L2-agent".equals(c.agentId())
+            && "L1 streaming output".equals(c.responseContent())
+            && c.streaming()), any());
+        // resume=true → orchestrator re-invokes the agent with the remote answer.
+        verify(agentHandler, atLeastOnce()).streamQuery(any(), any());
     }
 
     private static AgentCard testCard() {
