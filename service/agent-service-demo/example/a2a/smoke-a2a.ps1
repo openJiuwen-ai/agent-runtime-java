@@ -53,7 +53,7 @@ function Invoke-Utf8JsonRequest {
         $request.Headers.Accept.Add(
             [System.Net.Http.Headers.MediaTypeWithQualityHeaderValue]::new("application/json")
         )
-        if ($null -ne $Body) {
+        if ($Method -eq "POST" -and $PSBoundParameters.ContainsKey("Body")) {
             $request.Content = [System.Net.Http.StringContent]::new(
                 $Body,
                 [System.Text.Encoding]::UTF8,
@@ -278,7 +278,7 @@ try {
     $interruptMessage1 = [string]$r1.result._interrupt.message
     $lowerInterrupt1 = $interruptMessage1.ToLowerInvariant()
     if ($lowerInterrupt1 -notmatch "agent c" -or `
-            ($lowerInterrupt1 -notmatch "confirm" -and $lowerInterrupt1 -notmatch "确认")) {
+            ($lowerInterrupt1 -notmatch "confirm" -and $lowerInterrupt1 -notmatch "\u786e\u8ba4")) {
         throw "A->B->C Round 1 interrupt message did not come from Agent C confirmation: $payload1"
     }
     Write-Host "A->B->C Round 1 interrupt: $($interruptMessage1.Substring(0, [Math]::Min(300, $interruptMessage1.Length)))"
@@ -295,7 +295,7 @@ try {
     $content2 = [string]$r2.result.content
     if (-not $content2) { throw "A->B->C Round 2 empty response" }
     $lowerContent2 = $content2.ToLowerInvariant()
-    $hasRecommendation = $content2.Contains("宫保鸡丁") -or $lowerContent2.Contains("kung pao")
+    $hasRecommendation = $content2 -match "\u5bab\u4fdd\u9e21\u4e01" -or $lowerContent2.Contains("kung pao")
     $failurePattern = "unavailable|unable|failed|failure|error|remote_"
     if (-not $lowerContent2.Contains("agent c") -or -not $hasRecommendation -or `
             $lowerContent2 -match $failurePattern) {
