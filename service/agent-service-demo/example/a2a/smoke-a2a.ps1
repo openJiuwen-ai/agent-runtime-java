@@ -7,6 +7,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Net.Http
 $callerDirectory = (Get-Location).ProviderPath
 $serviceDirectory = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "../../..")).ProviderPath
 $defaultApiConfig = Join-Path (Join-Path $serviceDirectory "agent-service-demo") "apiconfig.json"
@@ -25,6 +26,63 @@ function Write-Step {
 function Write-Pass {
     param([string]$Message)
     Write-Host "PASS $Message" -ForegroundColor Green
+}
+
+function Invoke-Utf8JsonRequest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+        [ValidateSet("GET", "POST")]
+        [string]$Method = "GET",
+        [AllowNull()]
+        [string]$Body = $null,
+        [ValidateRange(1, 2147483647)]
+        [int]$TimeoutSec = 30
+    )
+
+    $client = $null
+    $request = $null
+    $response = $null
+    try {
+        $client = [System.Net.Http.HttpClient]::new()
+        $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSec)
+        $request = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::new($Method),
+            $Uri
+        )
+        $request.Headers.Accept.Add(
+            [System.Net.Http.Headers.MediaTypeWithQualityHeaderValue]::new("application/json")
+        )
+        if ($null -ne $Body) {
+            $request.Content = [System.Net.Http.StringContent]::new(
+                $Body,
+                [System.Text.Encoding]::UTF8,
+                "application/json"
+            )
+        }
+
+        $response = $client.SendAsync($request).GetAwaiter().GetResult()
+        $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        # Windows PowerShell 5.1 misdecodes charset-less UTF-8 JSON when Invoke-RestMethod is used.
+        $responseText = [System.Text.Encoding]::UTF8.GetString($bytes)
+        if (-not $response.IsSuccessStatusCode) {
+            throw "HTTP $([int]$response.StatusCode) $($response.ReasonPhrase) from ${Uri}: $responseText"
+        }
+        if ([string]::IsNullOrWhiteSpace($responseText)) {
+            return $null
+        }
+        return $responseText | ConvertFrom-Json
+    } finally {
+        if ($null -ne $response) {
+            $response.Dispose()
+        }
+        if ($null -ne $request) {
+            $request.Dispose()
+        }
+        if ($null -ne $client) {
+            $client.Dispose()
+        }
+    }
 }
 
 function Save-JsonResponse {
@@ -97,7 +155,7 @@ function Wait-ForHealth {
             throw "$($AgentRun.Label) exited before becoming healthy (exit code $($AgentRun.Process.ExitCode)); logs: $($AgentRun.StdoutLog), $($AgentRun.StderrLog)"
         }
         try {
-            $health = Invoke-RestMethod -Uri "$Url/health" -Method Get -TimeoutSec 2
+            $health = Invoke-Utf8JsonRequest -Uri "$Url/health" -Method GET -TimeoutSec 2
             if ($health.status -eq "healthy") {
                 return
             }
@@ -161,9 +219,9 @@ try {
     Write-Pass "Agent A healthy on $BaseUrlA"
 
     Write-Step "1" "GET Agent Cards"
-    $cardA = Invoke-RestMethod -Uri "$BaseUrlA/.well-known/agent-card.json" -Method Get
-    $cardB = Invoke-RestMethod -Uri "$BaseUrlB/.well-known/agent-card.json" -Method Get
-    $cardC = Invoke-RestMethod -Uri "$BaseUrlC/.well-known/agent-card.json" -Method Get
+    $cardA = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/.well-known/agent-card.json" -Method GET
+    $cardB = Invoke-Utf8JsonRequest -Uri "$BaseUrlB/.well-known/agent-card.json" -Method GET
+    $cardC = Invoke-Utf8JsonRequest -Uri "$BaseUrlC/.well-known/agent-card.json" -Method GET
     Save-JsonResponse $cardA "card-a.json"
     Save-JsonResponse $cardB "card-b.json"
     Save-JsonResponse $cardC "card-c.json"
@@ -179,8 +237,7 @@ try {
         message = "What is 1+1? Use Agent B's ordinary calc path."
         stream = $false
     } | ConvertTo-Json -Compress
-    $rb1 = Invoke-RestMethod -Uri "$BaseUrlA/v1/query" -Method Post -Body $bodyB1 `
-        -ContentType "application/json"
+    $rb1 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/v1/query" -Method POST -Body $bodyB1
     Save-JsonResponse $rb1 "round-b-1.json"
     $payloadB1 = $rb1 | ConvertTo-Json -Depth 20
     if (-not $rb1.result._interrupt) {
@@ -196,8 +253,7 @@ try {
 
     Write-Step "2b" "Round 2: resume original A->B calc path"
     $bodyB2 = @{ conversation_id = $convIdB; message = "2"; stream = $false } | ConvertTo-Json -Compress
-    $rb2 = Invoke-RestMethod -Uri "$BaseUrlA/v1/query" -Method Post -Body $bodyB2 `
-        -ContentType "application/json"
+    $rb2 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/v1/query" -Method POST -Body $bodyB2
     Save-JsonResponse $rb2 "round-b-2.json"
     $contentB2 = [string]$rb2.result.content
     if (-not $contentB2) { throw "A->B Round 2 empty response" }
@@ -213,8 +269,7 @@ try {
         message = "Recommend a dish for a team lunch. Let Agent C provide the food recommendation after confirmation."
         stream = $false
     } | ConvertTo-Json -Compress
-    $r1 = Invoke-RestMethod -Uri "$BaseUrlA/v1/query" -Method Post -Body $body1 `
-        -ContentType "application/json"
+    $r1 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/v1/query" -Method POST -Body $body1
     Save-JsonResponse $r1 "round1.json"
     $payload1 = $r1 | ConvertTo-Json -Depth 20
     if (-not $r1.result._interrupt) {
@@ -231,8 +286,7 @@ try {
 
     Write-Step "3b" "Round 2: resume A->B->C delegation"
     $body2 = @{ conversation_id = $ConvId; message = "ok, confirmed"; stream = $false } | ConvertTo-Json -Compress
-    $r2 = Invoke-RestMethod -Uri "$BaseUrlA/v1/query" -Method Post -Body $body2 `
-        -ContentType "application/json"
+    $r2 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/v1/query" -Method POST -Body $body2
     Save-JsonResponse $r2 "round2.json"
     $payload2 = $r2 | ConvertTo-Json -Depth 20
     if ($r2.result._interrupt) {
