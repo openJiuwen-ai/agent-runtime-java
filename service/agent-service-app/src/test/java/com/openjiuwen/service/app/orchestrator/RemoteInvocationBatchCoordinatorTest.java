@@ -137,28 +137,15 @@ class RemoteInvocationBatchCoordinatorTest {
         });
         CountDownLatch projectionEntered = new CountDownLatch(1);
         CountDownLatch releaseProjection = new CountDownLatch(1);
-        QueryStreamObserver observer = new QueryStreamObserver() {
-            @Override
-            public void onNext(QueryChunk chunk) {
-                if (chunk.getData() instanceof Map<?, ?> data && "blocked-progress".equals(data.get("content"))) {
-                    projectionEntered.countDown();
-                    try {
-                        releaseProjection.await(5, TimeUnit.SECONDS);
-                    } catch (InterruptedException ex) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException(ex);
-                    }
-                }
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> {
+            QueryChunk chunk = invocation.getArgument(0);
+            if (chunk.getData() instanceof Map<?, ?> data && "blocked-progress".equals(data.get("content"))) {
+                projectionEntered.countDown();
+                releaseProjection.await(5, TimeUnit.SECONDS);
             }
-
-            @Override
-            public void onComplete() {
-            }
-
-            @Override
-            public void onError(Throwable error) {
-            }
-        };
+            return null;
+        }).when(observer).onNext(any());
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 2);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-projection-barrier", "call-a", "call-b"),
@@ -166,6 +153,7 @@ class RemoteInvocationBatchCoordinatorTest {
         CompletableFuture<Void> blockedCallback = CompletableFuture.runAsync(() -> progressObservers.get("call-a")
             .onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "blocked-progress")));
         assertThat(projectionEntered.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(blockedCallback).isNotDone();
 
         CountDownLatch remoteCompletionStarted = new CountDownLatch(1);
         CompletableFuture<Void> remoteCompletions = CompletableFuture.runAsync(() -> {

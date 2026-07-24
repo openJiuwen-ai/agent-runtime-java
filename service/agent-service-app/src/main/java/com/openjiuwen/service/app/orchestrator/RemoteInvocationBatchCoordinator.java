@@ -1071,18 +1071,14 @@ final class RemoteInvocationBatchCoordinator {
         }
 
         private void awaitDrained() {
-            boolean interrupted = false;
             synchronized (pending) {
                 while (isDraining) {
                     try {
                         pending.wait();
                     } catch (InterruptedException ex) {
-                        interrupted = true;
+                        throw new IllegalStateException("Interrupted while waiting for remote projections", ex);
                     }
                 }
-            }
-            if (interrupted) {
-                Thread.currentThread().interrupt();
             }
         }
 
