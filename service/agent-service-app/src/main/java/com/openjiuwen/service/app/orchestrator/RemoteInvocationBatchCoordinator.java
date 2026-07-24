@@ -345,6 +345,10 @@ final class RemoteInvocationBatchCoordinator {
             return;
         }
         Map<String, Object> metadata = outboundMetadata(batch.request.getMetadata());
+        String userId = batch.request.getUserId();
+        if (userId != null && !userId.isBlank() && !metadata.containsKey("userId")) {
+            metadata.put("userId", userId);
+        }
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
             optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata());
         QueryStreamObserver progressObserver = memberProgressObserver(batch, member);
