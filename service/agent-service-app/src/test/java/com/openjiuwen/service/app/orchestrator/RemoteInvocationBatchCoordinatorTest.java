@@ -125,6 +125,68 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     @Test
+    void batchDoesNotResolveBeforeQueuedProjectionsAreDelivered() throws Exception {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = new LinkedHashMap<>();
+        Map<String, QueryStreamObserver> progressObservers = new LinkedHashMap<>();
+        when(client.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            RemoteCall call = invocation.getArgument(0);
+            String id = call.message().substring("message-".length());
+            progressObservers.put(id, invocation.getArgument(1));
+            return outcomes.computeIfAbsent(id, ignored -> new CompletableFuture<>());
+        });
+        CountDownLatch projectionEntered = new CountDownLatch(1);
+        CountDownLatch releaseProjection = new CountDownLatch(1);
+        QueryStreamObserver observer = new QueryStreamObserver() {
+            @Override
+            public void onNext(QueryChunk chunk) {
+                if (chunk.getData() instanceof Map<?, ?> data && "blocked-progress".equals(data.get("content"))) {
+                    projectionEntered.countDown();
+                    try {
+                        releaseProjection.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(ex);
+                    }
+                }
+            }
+
+            @Override
+            public void onComplete() {
+            }
+
+            @Override
+            public void onError(Throwable error) {
+            }
+        };
+        RemoteInvocationBatchCoordinator coordinator = coordinator(client, 2);
+        CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
+            batch("batch-projection-barrier", "call-a", "call-b"),
+            request("parent-projection-barrier", Map.of()), observer);
+        CompletableFuture<Void> blockedCallback = CompletableFuture.runAsync(() -> progressObservers.get("call-a")
+            .onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "blocked-progress")));
+        assertThat(projectionEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        CountDownLatch remoteCompletionStarted = new CountDownLatch(1);
+        CompletableFuture<Void> remoteCompletions = CompletableFuture.runAsync(() -> {
+            remoteCompletionStarted.countDown();
+            outcomes.get("call-a").complete(completed("remote-a", "result-a"));
+            outcomes.get("call-b").complete(completed("remote-b", "result-b"));
+        });
+        assertThat(remoteCompletionStarted.await(5, TimeUnit.SECONDS)).isTrue();
+        try {
+            assertThatThrownBy(() -> result.get(200, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+        } finally {
+            releaseProjection.countDown();
+        }
+
+        remoteCompletions.get(5, TimeUnit.SECONDS);
+        blockedCallback.get(5, TimeUnit.SECONDS);
+        assertThat(result.get(5, TimeUnit.SECONDS).isReadyToResume()).isTrue();
+    }
+
+    @Test
     void maxConcurrencyOneStartsQueuedMembersInFifoOrder() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);

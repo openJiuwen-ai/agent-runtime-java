@@ -479,6 +479,7 @@ final class RemoteInvocationBatchCoordinator {
         }
         try {
             BatchResolution resolution = resolveSettledBatch(batch);
+            batch.observer.awaitDrained();
             synchronized (lock) {
                 activeByParent.remove(batch.parentTaskId, batch);
             }
@@ -1052,10 +1053,36 @@ final class RemoteInvocationBatchCoordinator {
                     next = pending.pollFirst();
                     if (next == null) {
                         isDraining = false;
+                        pending.notifyAll();
                         return;
                     }
                 }
-                delegate.onNext(next);
+                try {
+                    delegate.onNext(next);
+                } catch (RuntimeException | Error ex) {
+                    synchronized (pending) {
+                        pending.clear();
+                        isDraining = false;
+                        pending.notifyAll();
+                    }
+                    throw ex;
+                }
+            }
+        }
+
+        private void awaitDrained() {
+            boolean interrupted = false;
+            synchronized (pending) {
+                while (isDraining) {
+                    try {
+                        pending.wait();
+                    } catch (InterruptedException ex) {
+                        interrupted = true;
+                    }
+                }
+            }
+            if (interrupted) {
+                Thread.currentThread().interrupt();
             }
         }
 
