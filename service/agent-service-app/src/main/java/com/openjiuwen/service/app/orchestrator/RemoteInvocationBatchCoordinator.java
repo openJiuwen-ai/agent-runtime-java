@@ -506,9 +506,9 @@ final class RemoteInvocationBatchCoordinator {
         if (hasWaitingMember) {
             Map<String, Object> interrupt = publicInterrupt(batch);
             saveShadow(batch, "WAITING_INPUT");
-            return new BatchResolution(batch.batchId, false, Map.of(), interrupt, batch.resume);
+            return new BatchResolution(batch.batchId, false, Map.of(), interrupt, batch.shouldResume);
         }
-        if (batch.resume) {
+        if (batch.shouldResume) {
             saveShadow(batch, "READY_TO_RESUME");
         } else {
             deleteShadow(batch.parentTaskId);
@@ -519,7 +519,7 @@ final class RemoteInvocationBatchCoordinator {
     private void deleteShadow(String parentTaskId) {
         try {
             taskStore.delete(shadowTaskId(parentTaskId));
-        } catch (RuntimeException ex) {
+        } catch (IllegalStateException ex) {
             log.warn("Failed to delete shadow task parentTaskId={}", parentTaskId, ex);
         }
     }
@@ -528,7 +528,7 @@ final class RemoteInvocationBatchCoordinator {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("batchId", batch.batchId);
         snapshot.put("parentTaskId", batch.parentTaskId);
-        snapshot.put("resume", batch.resume);
+        snapshot.put("resume", batch.shouldResume);
         snapshot.put("state", state);
         List<Map<String, Object>> members = new ArrayList<>();
         for (Member member : batch.members) {
@@ -722,7 +722,7 @@ final class RemoteInvocationBatchCoordinator {
         List<Map<String, Object>> items = interruptItems(interrupt);
         List<Member> members = new ArrayList<>();
         Set<String> toolCallIds = new LinkedHashSet<>();
-        Boolean batchResume = null;
+        Boolean isBatchResume = null;
         for (int i = 0; i < items.size(); i++) {
             Map<String, Object> item = items.get(i);
             String toolCallId = stringValue(item.get("toolCallId"));
@@ -738,11 +738,13 @@ final class RemoteInvocationBatchCoordinator {
             if (!"a2a_delegate".equals(stringValue(context.get("_interrupt_kind")))) {
                 throw new IllegalArgumentException("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED");
             }
-            boolean memberResume = !(context.get("resume") instanceof Boolean b) || b;
-            if (batchResume == null) {
-                batchResume = memberResume;
-            } else if (batchResume != memberResume) {
+            boolean isMemberResume = !(context.get("resume") instanceof Boolean isResumeFlag) || isResumeFlag;
+            if (isBatchResume == null) {
+                isBatchResume = isMemberResume;
+            } else if (isBatchResume != isMemberResume) {
                 throw new IllegalArgumentException("CORE_INTERRUPT_RESUME_MIXED_UNSUPPORTED");
+            } else {
+                // same resume flag across members: nothing to merge
             }
             int index = item.get("index") instanceof Number number ? number.intValue() : i;
             Member member = new Member(index, toolCallId, stringValue(item.get("toolName")),
@@ -751,7 +753,7 @@ final class RemoteInvocationBatchCoordinator {
         }
         members.sort(java.util.Comparator.comparingInt(member -> member.index));
         return new Batch(UUID.randomUUID().toString(), parentTaskId, request, observer, members,
-            batchResume == null || batchResume);
+            isBatchResume == null || isBatchResume);
     }
 
     private Batch restoreBatch(Map<?, ?> rawBatch, ServeRequest request, String parentTaskId, SerialObserver observer) {
@@ -783,8 +785,8 @@ final class RemoteInvocationBatchCoordinator {
         }
         members.sort(java.util.Comparator.comparingInt(member -> member.index));
         String batchId = stringValue(rawBatch.get("batchId"));
-        boolean resume = !(rawBatch.get("resume") instanceof Boolean b) || b;
-        return new Batch(batchId, parentTaskId, request, observer, members, resume);
+        boolean shouldResume = !(rawBatch.get("resume") instanceof Boolean isResumeFlag) || isResumeFlag;
+        return new Batch(batchId, parentTaskId, request, observer, members, shouldResume);
     }
 
     private static List<Map<String, Object>> interruptItems(Map<String, Object> interrupt) {
@@ -844,11 +846,11 @@ final class RemoteInvocationBatchCoordinator {
         boolean hasWaitingMember = batch.members.stream()
             .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
         if (hasWaitingMember) {
-            return new BatchResolution(batch.batchId, false, Map.of(), publicInterrupt(batch), batch.resume);
+            return new BatchResolution(batch.batchId, false, Map.of(), publicInterrupt(batch), batch.shouldResume);
         }
         Map<String, Object> results = new LinkedHashMap<>();
         batch.members.forEach(member -> results.put(member.toolCallId, toolResult(member)));
-        return new BatchResolution(batch.batchId, true, results, Map.of(), batch.resume);
+        return new BatchResolution(batch.batchId, true, results, Map.of(), batch.shouldResume);
     }
 
     boolean claimCoreResume(ServeRequest request, String batchId) {
@@ -968,13 +970,13 @@ final class RemoteInvocationBatchCoordinator {
      * @param isReadyToResume   whether every member settled and the parent agent can resume
      * @param results           per-toolCallId tool results, populated when {@code isReadyToResume}
      * @param interrupt         input-required interrupt to forward to the client, populated otherwise
-     * @param resume            whether the parent agent should be re-invoked with the remote answers
+     * @param shouldResume      whether the parent agent should be re-invoked with the remote answers
      *                          as tool results ({@code true}, tool-call path) or whether the remote
      *                          answer is this layer's terminal output ({@code false}, intent-workflow
      *                          path). Defaults to {@code true} when the interrupt payload omits it.
      */
     record BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
-            Map<String, Object> interrupt, boolean resume) {
+            Map<String, Object> interrupt, boolean shouldResume) {
     }
 
     private enum MemberState {
@@ -997,20 +999,20 @@ final class RemoteInvocationBatchCoordinator {
 
         private final List<Member> members;
 
-        private final boolean resume;
+        private final boolean shouldResume;
 
         private final CompletableFuture<BatchResolution> completion = new CompletableFuture<>();
 
         private boolean isResolved;
 
         private Batch(String batchId, String parentTaskId, ServeRequest request, SerialObserver observer,
-                List<Member> members, boolean resume) {
+                List<Member> members, boolean shouldResume) {
             this.batchId = batchId;
             this.parentTaskId = parentTaskId;
             this.request = request;
             this.observer = observer;
             this.members = members;
-            this.resume = resume;
+            this.shouldResume = shouldResume;
         }
     }
 

@@ -56,6 +56,8 @@ public class RemoteAgentException extends RuntimeException {
     }
 
     /**
+     * Returns the structured code categorising this remote call failure.
+     *
      * @return the structured remote failure code
      */
     public String getCode() {

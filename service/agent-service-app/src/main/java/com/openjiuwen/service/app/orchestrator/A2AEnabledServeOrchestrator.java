@@ -69,9 +69,6 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     private static final String CORE_RESUME_IN_FLIGHT = "REMOTE_BATCH_CORE_RESUME_IN_FLIGHT";
 
-
-
-
     private final AgentHandler agentHandler;
 
     private final TaskStore taskStore;
@@ -365,7 +362,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     /**
      * Handles a2a_delegate interrupt in query mode: forwards once to the remote
-     * agent. When {@code resolution.resume()} is {@code true} (tool-call path),
+     * agent. When {@code resolution.shouldResume()} is {@code true} (tool-call path),
      * the remote's answer is fed back to the parent handler as a tool result.
      * When {@code false} (intent-workflow path), the remote's answer is this
      * layer's final answer and is returned directly without re-invoking the
@@ -416,7 +413,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private Optional<ServeRequest> streamBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
         if (resolution.isReadyToResume()) {
-            if (!resolution.resume()) {
+            if (!resolution.shouldResume()) {
                 if (!observer.isCancelled()) {
                     observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, joinRemoteAnswers(resolution)));
                     observer.onComplete();
@@ -438,7 +435,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private QueryResumeResult queryBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryResponse response) {
         if (resolution.isReadyToResume()) {
-            if (!resolution.resume()) {
+            if (!resolution.shouldResume()) {
                 Map<String, Object> result = new LinkedHashMap<>();
                 result.put("role", "assistant");
                 result.put("content", joinRemoteAnswers(resolution));
@@ -470,7 +467,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             if (value == null) {
                 return;
             }
-            String text = value instanceof Map<?, ?> map && map.get("ok") instanceof Boolean ok && !ok
+            String text = value instanceof Map<?, ?> map && map.get("ok") instanceof Boolean isOk && !isOk
                 ? "" : String.valueOf(value);
             if (!text.isEmpty()) {
                 if (sb.length() > 0) {

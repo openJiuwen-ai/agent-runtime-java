@@ -31,6 +31,8 @@ public class RemoteInputRequiredException extends RuntimeException {
     }
 
     /**
+     * Returns the remote task id needed to resume the suspended conversation.
+     *
      * @return the remote task id, or empty string if the upstream did not provide one
      */
     public String getRemoteTaskId() {
