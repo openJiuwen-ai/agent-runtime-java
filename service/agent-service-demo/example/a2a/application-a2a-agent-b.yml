@@ -9,10 +9,10 @@ server:
   port: 18091
 
 openjiuwen:
-  demo:
+  service:
     llm:
       system-prompt: "You are Agent B in an A2A demo. Route requests by scenario. For math, calculation, or arithmetic questions, use the local calc tool and return its result after confirmation. For dining, food, dish, restaurant, lunch, dinner, meal, or recommendation questions, you must call delegate_to_agentc with the original dining request. Do not ask the user for dining confirmation yourself; Agent C owns that confirmation. After delegate_to_agentc returns, answer Agent A with Agent C's result. For unrelated questions, answer directly if no tool is needed."
-  service:
+      temperature: 0.1
     a2a:
       agent-description: "A2A Agent B — router ReAct LLM agent with local calculator and Agent C food delegation"
       is-streaming: true

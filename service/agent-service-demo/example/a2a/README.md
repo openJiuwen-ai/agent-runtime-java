@@ -12,9 +12,9 @@
 | Agent B | 18091 | 区分问题类型：计算走本地工具，餐饮转交 Agent C |
 | Agent C | 18092 | 餐饮推荐助手，返回推荐前触发确认            |
 
-> 端到端 smoke 需要真实大模型 API，因为示例依赖 Agent A 和 Agent B 自主选择工具调用。单元测试与编译不需要真实 LLM。
+> 运行本示例需要配置真实的大模型 API，因为 Agent A 和 Agent B 会根据请求自主选择工具。
 
-## 场景设计
+## 示例场景
 
 ### 场景一：计算问题，只触发 Agent A -> Agent B
 
@@ -41,7 +41,7 @@ sequenceDiagram
     A-->>U: 最终答案
 ```
 
-这一场景只验证 A 到 B 的原有能力：Agent B 本地触发确认，确认后返回结果。
+Agent B 会在执行计算前请求用户确认，确认后返回计算结果。
 
 ### 场景二：餐饮问题，触发 Agent A -> Agent B -> Agent C
 
@@ -76,11 +76,9 @@ sequenceDiagram
 
 ## 快速开始
 
-以下命令在仓库根目录下的 `service` 目录执行。
-
 ### 1. 配置大模型 API
 
-任选一种方式配置三个 Agent 共享的大模型 API。
+任选一种方式配置三个 Agent 共享的大模型 API。使用本地配置文件时，请在仓库的 `service` 目录执行命令。
 
 **方式 A：本地配置文件**
 
@@ -110,9 +108,34 @@ export OPENJIUWEN_SERVICE_LLM_API_BASE=...
 export OPENJIUWEN_SERVICE_LLM_MODEL_NAME=...
 ```
 
-### 2. 启动三个 Agent
+### 2. 运行 smoke 脚本
 
-建议按 **Agent C -> Agent B -> Agent A** 的顺序启动。
+smoke 脚本会自动启动 Agent C、Agent B 和 Agent A，完成验证后关闭服务。运行脚本前不需要手动启动 Agent。
+
+Linux / Git Bash：
+
+```bash
+bash /path/to/agent-runtime-java/service/agent-service-demo/example/a2a/smoke-a2a.sh
+```
+
+PowerShell：
+
+```powershell
+& "C:\path\to\agent-runtime-java\service\agent-service-demo\example\a2a\smoke-a2a.ps1"
+```
+
+两个脚本都可以从任意工作目录调用。显式设置相对路径 `OPENJIUWEN_API_CONFIG` 时，路径相对于调用脚本时的工作目录解析；未设置时，脚本会自动使用仓库内已有的 `service/agent-service-demo/apiconfig.json`。
+
+脚本按 Agent C -> Agent B -> Agent A 的顺序启动服务，等待健康状态，验证 Agent Card 和以下两条路径：
+
+1. 计算问题：Agent A -> Agent B，两轮确认后完成。
+2. 餐饮问题：Agent A -> Agent B -> Agent C，两轮确认后完成。
+
+验证成功后，脚本会清理进程和临时文件；验证失败时会输出并保留日志目录。
+
+## 手动启动
+
+如需逐步调试示例，请在仓库的 `service` 目录打开三个终端，并按 Agent C -> Agent B -> Agent A 的顺序启动。
 
 终端 1：
 
@@ -142,28 +165,6 @@ curl -s http://localhost:18092/health
 curl -s http://localhost:18091/health
 curl -s http://localhost:18090/health
 ```
-
-### 3. 运行 smoke 脚本
-
-Linux / Git Bash：
-
-```bash
-bash agent-service-demo/example/a2a/smoke-a2a.sh
-```
-
-PowerShell：
-
-```powershell
-cd agent-service-demo\example\a2a
-.\smoke-a2a.ps1
-```
-
-Linux/Git Bash 脚本会自动启动并清理三个 Agent；PowerShell 脚本默认校验已经启动的三个 Agent。
-
-smoke 覆盖两条用户路径：
-
-1. 计算问题：Agent A -> Agent B，两轮确认后完成。
-2. 餐饮问题：Agent A -> Agent B -> Agent C，两轮确认后完成。
 
 ## 手动验证
 
@@ -279,6 +280,8 @@ curl -s -N -X POST http://localhost:18090/a2a \
 
 ### A2A SSE：餐饮问题（A -> B -> C）
 
+以下请求通过 SSE 访问 Agent A，并完成三 Agent 协作。
+
 Round 1：
 
 ```bash
@@ -323,14 +326,14 @@ curl -s -N -X POST http://localhost:18090/a2a \
 
 默认使用内存存储。若希望跨进程保留会话和任务状态，可以启用 Redis。
 
-创建本地 overlay：
+在仓库的 `service` 目录创建本地配置：
 
 ```bash
 cp agent-service-demo/example/a2a/application-a2a-redis.example.yml \
    agent-service-demo/example/a2a/application-a2a-redis.local.yml
 ```
 
-编辑 `application-a2a-redis.local.yml`，按单机 Redis 填写 `host` / `port` / 密码，或按 Redis Cluster 填写 `type: cluster` 和 `nodes`。该文件为本地配置，不会提交。
+编辑 `application-a2a-redis.local.yml`，按单机 Redis 填写 `host` / `port` / 密码，或按 Redis Cluster 填写 `type: cluster` 和 `nodes`。三个 Agent 启动时会自动加载该配置。
 
 启动后可用以下命令观察任务 key：
 

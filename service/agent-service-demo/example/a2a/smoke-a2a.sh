@@ -5,6 +5,9 @@ BASE_URL_A="${BASE_URL_A:-http://localhost:18090}"
 BASE_URL_B="${BASE_URL_B:-http://localhost:18091}"
 BASE_URL_C="${BASE_URL_C:-http://localhost:18092}"
 CONV_ID="${CONV_ID:-a2a-demo-$(date +%Y%m%d%H%M%S)-$$}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SERVICE_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd -P)"
+DEFAULT_API_CONFIG="$SERVICE_DIR/agent-service-demo/apiconfig.json"
 TMP_DIR="$(mktemp -d)"
 AGENT_A_PID=""
 AGENT_B_PID=""
@@ -46,11 +49,49 @@ fail() {
   exit 1
 }
 
+resolve_api_config() {
+  local configured="$1"
+  local candidate="$configured"
+  if [[ "$candidate" != /* ]]; then
+    candidate="$(pwd)/$candidate"
+  fi
+  if [ ! -f "$candidate" ] || [ ! -r "$candidate" ]; then
+    fail "OPENJIUWEN_API_CONFIG does not reference a readable regular file: $candidate"
+  fi
+  local directory
+  directory="$(cd "$(dirname "$candidate")" && pwd -P)"
+  printf '%s/%s\n' "$directory" "$(basename "$candidate")"
+}
+
+if [ -n "${OPENJIUWEN_API_CONFIG:-}" ]; then
+  OPENJIUWEN_API_CONFIG="$(resolve_api_config "$OPENJIUWEN_API_CONFIG")"
+  export OPENJIUWEN_API_CONFIG
+elif [ -r "$DEFAULT_API_CONFIG" ]; then
+  OPENJIUWEN_API_CONFIG="$DEFAULT_API_CONFIG"
+  export OPENJIUWEN_API_CONFIG
+fi
+
+# Maven module selection is relative to the service reactor, not the caller's
+# working directory. Resolve caller-relative configuration first, then run all
+# Maven commands from the reactor root so this script works from any directory.
+cd "$SERVICE_DIR"
+
 wait_for_health() {
   local url="$1"
   local label="$2"
+  local pid="$3"
+  local log_file="$4"
   local max=45
   for i in $(seq 1 $max); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      local exit_code
+      if wait "$pid"; then
+        exit_code=0
+      else
+        exit_code=$?
+      fi
+      fail "$label exited before becoming healthy (exit code $exit_code; log: $log_file)"
+    fi
     if curl -s "$url/health" 2>/dev/null | grep -q '"status":"healthy"'; then
       return 0
     fi
@@ -60,30 +101,31 @@ wait_for_health() {
 }
 
 start_agent() {
-  local label="$1"
-  local main_class="$2"
-  local log_file="$3"
-  OPENJIUWEN_API_CONFIG="${OPENJIUWEN_API_CONFIG:-agent-service-demo/apiconfig.json}" \
-    mvn -pl agent-service-demo/example/a2a -am spring-boot:run -q \
+  local main_class="$1"
+  local log_file="$2"
+  mvn -pl agent-service-demo/example/a2a -am spring-boot:run -q \
     -Dspring-boot.run.main-class="$main_class" \
     >"$log_file" 2>&1 &
-  echo $!
+  LAST_AGENT_PID=$!
 }
 
 # ---- Step 0: start agents ----
 print_step "0a" "Starting Agent C (DeepAgent, port 18092) ..."
-AGENT_C_PID=$(start_agent "Agent C" "com.openjiuwen.service.demo.example.a2a.A2aAgentCDemoApplication" "$TMP_DIR/agent-c.log")
-wait_for_health "$BASE_URL_C" "Agent C"
+start_agent "com.openjiuwen.service.demo.example.a2a.A2aAgentCDemoApplication" "$TMP_DIR/agent-c.log"
+AGENT_C_PID=$LAST_AGENT_PID
+wait_for_health "$BASE_URL_C" "Agent C" "$AGENT_C_PID" "$TMP_DIR/agent-c.log"
 pass "Agent C healthy on $BASE_URL_C"
 
 print_step "0b" "Starting Agent B (port 18091) ..."
-AGENT_B_PID=$(start_agent "Agent B" "com.openjiuwen.service.demo.example.a2a.A2aAgentBDemoApplication" "$TMP_DIR/agent-b.log")
-wait_for_health "$BASE_URL_B" "Agent B"
+start_agent "com.openjiuwen.service.demo.example.a2a.A2aAgentBDemoApplication" "$TMP_DIR/agent-b.log"
+AGENT_B_PID=$LAST_AGENT_PID
+wait_for_health "$BASE_URL_B" "Agent B" "$AGENT_B_PID" "$TMP_DIR/agent-b.log"
 pass "Agent B healthy on $BASE_URL_B"
 
 print_step "0c" "Starting Agent A (port 18090) ..."
-AGENT_A_PID=$(start_agent "Agent A" "com.openjiuwen.service.demo.example.a2a.A2aAgentADemoApplication" "$TMP_DIR/agent-a.log")
-wait_for_health "$BASE_URL_A" "Agent A"
+start_agent "com.openjiuwen.service.demo.example.a2a.A2aAgentADemoApplication" "$TMP_DIR/agent-a.log"
+AGENT_A_PID=$LAST_AGENT_PID
+wait_for_health "$BASE_URL_A" "Agent A" "$AGENT_A_PID" "$TMP_DIR/agent-a.log"
 pass "Agent A healthy on $BASE_URL_A"
 
 # ---- Step 1: Agent Cards ----
@@ -223,7 +265,9 @@ if not isinstance(content, str) or not content.strip():
     sys.exit(1)
 combined = content.lower()
 failure_markers = ["unavailable", "unable", "failed", "failure", "error", "remote_"]
-if "agent c" not in combined or any(marker in combined for marker in failure_markers):
+recommendation_markers = ["宫保鸡丁", "kung pao"]
+if ("agent c" not in combined or not any(marker in combined for marker in recommendation_markers)
+        or any(marker in combined for marker in failure_markers)):
     print("FAIL: A->B->C Round 2 did not return a successful Agent C result", file=sys.stderr)
     print(json.dumps(data, ensure_ascii=False)[:1000], file=sys.stderr)
     sys.exit(1)
