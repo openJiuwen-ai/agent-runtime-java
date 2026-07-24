@@ -5,11 +5,9 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.openjiuwen.service.spec.dto.QueryChunk;
-import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -25,10 +23,8 @@ import java.net.InetSocketAddress;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Regression tests for the SDK's null-on-EOF streaming callback contract.
@@ -36,6 +32,25 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 0.1.0
  */
 class A2ARemoteAgentClientStreamingLifecycleTest {
+    private static final QueryStreamObserver NOOP_OBSERVER = new QueryStreamObserver() {
+        @Override
+        public void onNext(QueryChunk chunk) {
+        }
+
+        @Override
+        public void onComplete() {
+        }
+
+        @Override
+        public void onError(Throwable error) {
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false;
+        }
+    };
+
     private HttpServer server;
 
     @AfterEach
@@ -53,40 +68,17 @@ class A2ARemoteAgentClientStreamingLifecycleTest {
 
         String endpoint = "http://127.0.0.1:" + server.getAddress().getPort() + "/a2a";
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
-        registry.register("remote", testCard(endpoint), 30);
+        registry.register("remote", testCard(endpoint), 30, true);
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
-        QueryStreamObserver observer = capturingObserver(errorRef);
-        ServeRequest request = new ServeRequest();
-        request.setMessages(List.of(Map.of("role", "user", "content", "hello")));
-        RemoteAgentCall call = new RemoteAgentCall("remote", request, null, "ctx", null, "hello");
+        var result = client.callOutcome(
+                new RemoteCall("remote", "hello", "ctx", null, Map.of()), NOOP_OBSERVER, null);
 
-        client.call(call, observer);
-
-        assertThat(errorRef.get()).isInstanceOfSatisfying(RemoteAgentException.class,
-                failure -> assertThat(failure.getCode())
-                        .isEqualTo(RemoteAgentException.CODE_REMOTE_STREAM_CLOSED));
-    }
-
-    @Test
-    void eofAfterTerminalResultIsIgnored() {
-        CompletableFuture<String> result = CompletableFuture.completedFuture("answer");
-
-        assertThatCode(() -> assertThat(A2ARemoteAgentClient.completeOnStreamEnd("remote", result, null)).isFalse())
-                .doesNotThrowAnyException();
-        assertThat(result).isCompletedWithValue("answer");
-    }
-
-    @Test
-    void overallTimeoutUsesStructuredRemoteTimeoutCode() {
-        CompletableFuture<String> result = A2ARemoteAgentClient.applyTimeout(new CompletableFuture<>(), "remote", 0);
-
-        Throwable thrown = catchThrowable(() -> result.get(1, TimeUnit.SECONDS));
+        Throwable thrown = catchThrowable(() -> result.get(5, TimeUnit.SECONDS));
         assertThat(thrown).isInstanceOfSatisfying(ExecutionException.class,
-                executionException -> assertThat(executionException.getCause()).isInstanceOfSatisfying(
-                        RemoteAgentException.class,
-                        failure -> assertThat(failure.getCode()).isEqualTo(RemoteAgentException.CODE_REMOTE_TIMEOUT)));
+                executionException -> assertThat(executionException.getCause())
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("closed the stream before a terminal event"));
     }
 
     private void closeEmptyEventStream(HttpExchange exchange) throws IOException {
@@ -95,28 +87,6 @@ class A2ARemoteAgentClientStreamingLifecycleTest {
         exchange.sendResponseHeaders(200, 0);
         exchange.getResponseBody().close();
         exchange.close();
-    }
-
-    private static QueryStreamObserver capturingObserver(AtomicReference<Throwable> errorRef) {
-        return new QueryStreamObserver() {
-            @Override
-            public void onNext(QueryChunk chunk) {
-            }
-
-            @Override
-            public void onComplete() {
-            }
-
-            @Override
-            public void onError(Throwable error) {
-                errorRef.set(error);
-            }
-
-            @Override
-            public boolean isCancelled() {
-                return false;
-            }
-        };
     }
 
     private static AgentCard testCard(String endpoint) {

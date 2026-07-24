@@ -6,12 +6,10 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.openjiuwen.service.spec.dto.ServeRequest;
 import org.a2aproject.sdk.spec.MessageSendParams;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -24,20 +22,12 @@ class A2ARemoteAgentClientMetadataTest {
     void buildsIndependentParamsAndMessageMetadata() {
         Map<String, Object> paramsMetadata = new LinkedHashMap<>(Map.of("scope", "params"));
         Map<String, Object> messageMetadata = new LinkedHashMap<>(Map.of("scope", "message", "trace-id", "trace-1"));
-
-        ServeRequest request = new ServeRequest();
-        request.setMetadata(paramsMetadata);
-        Map<String, Object> userMessage = new LinkedHashMap<>();
-        userMessage.put("role", "user");
-        userMessage.put("content", "hello");
-        userMessage.put("metadata", messageMetadata);
-        request.setMessages(List.of(userMessage));
-
-        RemoteAgentCall call = new RemoteAgentCall("remote", request, null, "ctx-original", "task-1");
-        MessageSendParams params = A2ARemoteAgentClient.buildSendParams(call, "hello", "ctx-resolved");
-        // Mutate the source maps after buildSendParams — it must have taken immutable snapshots.
+        var call = new RemoteCall("remote", "hello", "ctx-original", "task-1", paramsMetadata,
+                messageMetadata);
         paramsMetadata.put("late", "params-change");
         messageMetadata.put("late", "message-change");
+
+        MessageSendParams params = A2ARemoteAgentClient.buildSendParams(call, "ctx-resolved");
 
         assertThat(params.metadata()).containsExactlyEntriesOf(Map.of("scope", "params"));
         assertThat(params.message().metadata()).containsEntry("scope", "message").containsEntry("trace-id", "trace-1")
@@ -47,25 +37,15 @@ class A2ARemoteAgentClientMetadataTest {
     }
 
     @Test
-    void emptyMetadataProducesEmptyParamsAndMessageMetadata() {
-        ServeRequest request = new ServeRequest();
-        request.setMetadata(Map.of("scope", "params"));
-        Map<String, Object> userMessage = new LinkedHashMap<>();
-        userMessage.put("role", "user");
-        userMessage.put("content", "hello");
-        request.setMessages(List.of(userMessage));
+    void compatibilityCallDoesNotPromoteParamsMetadataToMessage() {
+        var call = new RemoteCall("remote", "hello", "ctx", null, Map.of("scope", "params"));
+        var callWithoutMetadata = new RemoteCall("remote", "hello", "ctx", null, null);
 
-        ServeRequest emptyRequest = new ServeRequest();
-
-        RemoteAgentCall call = new RemoteAgentCall("remote", request, null, "ctx", null);
-        RemoteAgentCall emptyCall = new RemoteAgentCall("remote", emptyRequest, null, "ctx", null);
-
-        MessageSendParams params = A2ARemoteAgentClient.buildSendParams(call, "hello", "ctx");
-        MessageSendParams emptyParams = A2ARemoteAgentClient.buildSendParams(emptyCall, "hello", "ctx");
+        MessageSendParams params = A2ARemoteAgentClient.buildSendParams(call, "ctx");
 
         assertThat(params.metadata()).containsExactlyEntriesOf(Map.of("scope", "params"));
         assertThat(params.message().metadata()).isEmpty();
-        assertThat(emptyParams.metadata()).isEmpty();
-        assertThat(emptyParams.message().metadata()).isEmpty();
+        assertThat(callWithoutMetadata.metadata()).isEmpty();
+        assertThat(callWithoutMetadata.messageMetadata()).isEmpty();
     }
 }

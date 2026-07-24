@@ -6,71 +6,67 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
 /**
- * SPI for invoking a remote agent identified by {@code agentId}.
+ * SPI for invoking a remote agent identified by {@code agentName}.
  *
  * <p>Implementations:
  * <ul>
  *   <li>{@link A2ARemoteAgentClient} — baseline, A2A SDK via
  *       {@code Client.builder(card).withTransport(JSONRPCTransport.class, config)};
- *       ignores {@link RemoteAgentCall#responseContent()}; no {@code messages} append.</li>
+ *       taps the remote answer artifact and routes intermediate chunks to the
+ *       observer.</li>
  *   <li>{@code A2AGatewayRemoteAgentCaller} (deployment module) —
- *       {@code gatewayBaseUrl + "/" + agentId + jsonRpcPath} routing; consumes
+ *       {@code gatewayBaseUrl + "/" + agentName + jsonRpcPath} routing; consumes
  *       {@code responseContent} to append an assistant message to {@code messages}.</li>
  * </ul>
  *
- * <p>The caller of this SPI is {@code A2AEnabledServeOrchestrator} (runtime core);
- * it is NOT the Versatile Adapter.
+ * <p>The primary consumer is {@code RemoteInvocationBatchCoordinator}, which
+ * fans out parallel {@link #callOutcome} invocations and aggregates their
+ * {@link RemoteCallOutcome}s into a single batch resolution. The coordinator
+ * depends solely on this SPI, so deployments that swap the caller bean
+ * (e.g. gateway routing) automatically affect batch execution.
  *
  * @since 0.1.0
  */
 public interface RemoteAgentCaller {
     /**
-     * Invoke the remote agent, branching on {@link RemoteAgentCall#streaming()}
-     * to preserve the legacy {@code callStreaming} / {@code callSync} split.
+     * Invokes the remote agent asynchronously and returns a structured outcome.
      *
-     * <p><b>Streaming mode</b> ({@link RemoteAgentCall#streaming()} is
-     * {@code true}) — implementations MUST:
+     * <p>Implementations MUST:
      * <ul>
-     *   <li>use a streaming SDK client</li>
-     *   <li>forward each {@code QueryChunk("chunk", ...)} to {@code observer}
-     *       (the final answer is tapped, not consumed)</li>
-     *   <li>map remote INPUT_REQUIRED to {@code QueryChunk("interrupt", ...)}
-     *       on the observer, then {@code observer.onComplete()}</li>
-     *   <li>map remote failure / timeout to {@code observer.onError(...)} with
-     *       a {@link RemoteAgentException} (no subsequent {@code onComplete})</li>
+     *   <li>resolve the remote agent entry by {@link RemoteCall#agentName()}</li>
+     *   <li>forward intermediate chunks (streaming artifacts, progress events)
+     *       to {@code streamObserver} when non-null</li>
+     *   <li>notify {@code remoteTaskIdObserver} of the remote task id as soon as
+     *       it is known, so the batch coordinator can persist it for resume</li>
+     *   <li>complete the returned future with a {@link RemoteCallOutcome} on
+     *       terminal remote state (COMPLETED / FAILED / INPUT_REQUIRED / etc.),
+     *       or complete it exceptionally on transport failure / timeout</li>
      * </ul>
      *
-     * <p><b>Sync mode</b> ({@link RemoteAgentCall#streaming()} is
-     * {@code false}) — implementations MUST:
-     * <ul>
-     *   <li>use a non-streaming SDK client</li>
-     *   <li>emit a final {@code QueryChunk("chunk", answer)} whose payload is
-     *       the raw {@code task.artifacts()} text, then {@code observer.onComplete()}</li>
-     *   <li>throw {@link RemoteInputRequiredException} on INPUT_REQUIRED (no
-     *       observer notification)</li>
-     *   <li>throw {@link RemoteAgentException} on failure / timeout (no
-     *       observer notification)</li>
-     * </ul>
+     * <p>The future MUST be cancelable — the coordinator cancels it when the
+     * caller cancels the batch.
      *
-     * <p>The orchestrator's capturing observer extracts the answer from the
-     * final chunk in both modes (envelope-extracted text for streaming, raw
-     * artifact text for sync).
-     *
-     * @param call     the remote call coordinates
-     * @param observer the observer for streaming chunks; never {@code null}
+     * @param call                 the remote call coordinates
+     * @param streamObserver       observer for intermediate streaming chunks; may be {@code null}
+     * @param remoteTaskIdObserver observer for the remote task id; may be {@code null}
+     * @return a future completing with the structured remote outcome
      */
-    void call(RemoteAgentCall call, QueryStreamObserver observer);
+    CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, QueryStreamObserver streamObserver,
+            Consumer<String> remoteTaskIdObserver);
 
     /**
-     * Whether this caller supports routing to {@code agentId}.
+     * Whether this caller supports routing to {@code agentName}.
      *
      * <p>Used when multiple Caller beans coexist (e.g. Default + A2AGateway). The
      * auto-configuration selects a single primary Caller by {@code @Primary} or
      * {@code @Order}; this method is a fallback for runtime selection in mixed deployments.
      *
-     * @param agentId the target agent id
-     * @return true if this caller can route to {@code agentId}
+     * @param agentName the target agent name
+     * @return true if this caller can route to {@code agentName}
      */
-    boolean supported(String agentId);
+    boolean supported(String agentName);
 }

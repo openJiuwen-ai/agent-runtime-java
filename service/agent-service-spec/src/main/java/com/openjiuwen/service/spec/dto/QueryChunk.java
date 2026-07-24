@@ -22,6 +22,9 @@ public class QueryChunk {
     /** Error chunk type. */
     public static final String TYPE_ERROR = "error";
 
+    /** Runtime-internal remote member progress used for parent Task projection. */
+    public static final String TYPE_REMOTE_AGENT_PROGRESS = "remote_agent_progress";
+
     private String type = TYPE_CHUNK;
 
     private Object data;

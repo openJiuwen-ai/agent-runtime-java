@@ -10,41 +10,43 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCall;
+import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
-import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
-import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentException;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.StreamCancellationHandle;
 import com.openjiuwen.service.spec.dto.QueryChunk;
+import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
+import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
 import org.a2aproject.sdk.server.tasks.TaskStore;
-import org.a2aproject.sdk.spec.AgentCapabilities;
-import org.a2aproject.sdk.spec.AgentCard;
-import org.a2aproject.sdk.spec.AgentInterface;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Unit tests for the A2A-enabled serve orchestrator.
@@ -54,11 +56,9 @@ class A2AEnabledServeOrchestratorTest {
 
     private TaskStore taskStore;
 
-    private RemoteAgentCardResolver cardResolver;
-
     private ActiveStreamRegistry streamRegistry;
 
-    private RemoteAgentCaller remoteAgentCaller;
+    private RemoteAgentCaller a2aClient;
 
     private A2AEnabledServeOrchestrator orchestrator;
 
@@ -66,80 +66,11 @@ class A2AEnabledServeOrchestratorTest {
     void setUp() {
         agentHandler = mock(AgentHandler.class);
         taskStore = mock(TaskStore.class);
-        remoteAgentCaller = mock(RemoteAgentCaller.class);
-        cardResolver = mock(RemoteAgentCardResolver.class);
+        a2aClient = mock(A2ARemoteAgentClient.class);
         streamRegistry = mock(ActiveStreamRegistry.class);
         when(streamRegistry.register(anyString())).thenReturn(mock(StreamCancellationHandle.class));
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, cardResolver,
-            streamRegistry, "test-agent");
-    }
-
-    /**
-     * Stubs the remote caller to emit a single answer-envelope chunk and complete,
-     * producing the captured answer text {@code answer}.
-     */
-    private void stubRemoteAnswer(String answer) {
-        String envelope = "{\"type\":\"answer\",\"payload\":{\"content\":" + jsonQuote(answer) + "}}";
-        doAnswer(inv -> {
-            QueryStreamObserver obs = inv.getArgument(1);
-            obs.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, envelope));
-            obs.onComplete();
-            return null;
-        }).when(remoteAgentCaller).call(any(RemoteAgentCall.class), any(QueryStreamObserver.class));
-    }
-
-    /**
-     * Stubs the remote caller to emit an INPUT_REQUIRED interrupt carrying the given
-     * remote task id, then complete.
-     */
-    private void stubRemoteInputRequired(String message, String remoteTaskId) {
-        doAnswer(inv -> {
-            QueryStreamObserver obs = inv.getArgument(1);
-            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT,
-                Map.of("message", message, "remote_task_id", remoteTaskId)));
-            obs.onComplete();
-            return null;
-        }).when(remoteAgentCaller).call(any(RemoteAgentCall.class), any(QueryStreamObserver.class));
-    }
-
-    /**
-     * Stubs the remote caller to signal an error via {@code observer.onError}.
-     */
-    private void stubRemoteFailure(Throwable err) {
-        doAnswer(inv -> {
-            QueryStreamObserver obs = inv.getArgument(1);
-            obs.onError(err);
-            return null;
-        }).when(remoteAgentCaller).call(any(RemoteAgentCall.class), any(QueryStreamObserver.class));
-    }
-
-    private static String jsonQuote(String s) {
-        if (s == null) {
-            return "null";
-        }
-        StringBuilder sb = new StringBuilder("\"");
-        for (char c : s.toCharArray()) {
-            switch (c) {
-                case '"':
-                    sb.append("\\\"");
-                    break;
-                case '\\':
-                    sb.append("\\\\");
-                    break;
-                case '\n':
-                    sb.append("\\n");
-                    break;
-                case '\r':
-                    sb.append("\\r");
-                    break;
-                case '\t':
-                    sb.append("\\t");
-                    break;
-                default:
-                    sb.append(c);
-            }
-        }
-        return sb.append('"').toString();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
     }
 
     @Test
@@ -178,29 +109,392 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void a2aDelegateRemoteFailureDeletesShadowAndSignalsError() {
-        when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of()));
-
-        // Setup: agent produces a2a_interrupt chunk
-        doAnswer(inv -> {
-            QueryStreamObserver obs = inv.getArgument(1);
-            obs.onNext(
-                new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("agentName", "hotel-agent", "toolName", "search")));
-            obs.onComplete();
+    void multipleLocalInterruptsAreForwardedWithoutRemoteDispatch() {
+        Map<String, Object> interrupt = Map.of("items", List.of(
+            Map.of("toolCallId", "call-a", "message", "question-a",
+                "context", Map.of("_interrupt_kind", "ask_user")),
+            Map.of("toolCallId", "call-b", "message", "question-b",
+                "context", Map.of("_interrupt_kind", "ask_user"))));
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, interrupt));
+            observer.onComplete();
             return null;
         }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
 
-        when(cardResolver.resolveJsonRpcUrl(anyString())).thenReturn("http://remote/a2a/");
-        // Remote delegation fails → orchestrator must delete any shadow task
-        // and signal the error to the client observer.
-        stubRemoteFailure(new IllegalStateException("remote unavailable"));
+        orchestrator.streamQuery(req("c-local-interrupts"), observer);
+
+        verify(observer).onNext(argThat(chunk -> QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())
+            && interrupt.equals(chunk.getData())));
+        verify(observer).onComplete();
+        verify(a2aClient, never()).callOutcome(any(), any(), any());
+    }
+
+    @Test
+    void mixedRemoteAndLocalInterruptBatchIsRejectedInStreamingMode() {
+        Map<String, Object> interrupt = mixedInterruptBatch();
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, interrupt));
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        orchestrator.streamQuery(req("c-mixed-stream"), observer);
+
+        verify(observer).onError(argThat(error -> error instanceof IllegalArgumentException
+            && error.getMessage().contains("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED")));
+        verify(a2aClient, never()).callOutcome(any(), any(), any());
+    }
+
+    @Test
+    void mixedRemoteAndLocalInterruptBatchIsRejectedInQueryMode() {
+        Map<String, Object> result = Map.of(
+            "role", "assistant",
+            "content", "interaction batch",
+            "_interrupt", mixedInterruptBatch());
+        when(agentHandler.query(any())).thenReturn(new QueryResponse(result, "c-mixed-query"));
+
+        assertThatThrownBy(() -> orchestrator.query(req("c-mixed-query")))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED");
+        verify(a2aClient, never()).callOutcome(any(), any(), any());
+    }
+
+    @Test
+    void localInterruptWithToolCallIdBypassesRemoteDispatch() {
+        Map<String, Object> interrupt = Map.of(
+            "type", "__interaction__",
+            "toolCallId", "call-local",
+            "message", "question",
+            "context", Map.of("_interrupt_kind", "ask_user"));
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, interrupt));
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        orchestrator.streamQuery(req("c-local-interrupt"), observer);
+
+        verify(observer).onNext(argThat(chunk -> QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())
+            && interrupt.equals(chunk.getData())));
+        verify(observer).onComplete();
+        verify(a2aClient, never()).callOutcome(any(), any(), any());
+    }
+
+    @Test
+    void remoteInterruptWithoutToolCallIdIsRejected() {
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                "type", "__interaction__",
+                "message", "legacy remote request",
+                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "legacy-agent"))));
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        orchestrator.streamQuery(req("c-missing-tool-call-id"), observer);
+
+        verify(observer).onError(argThat(error -> error instanceof IllegalArgumentException
+            && error.getMessage().contains("CORE_INTERRUPT_CORRELATION_MISSING")));
+        verify(a2aClient, never()).callOutcome(any(), any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void remoteBatchFansOutAndResumesCoreWithCompleteResults() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            RemoteCall call = invocation.getArgument(0);
+            String id = call.message().substring("message-".length());
+            return CompletableFuture.completedFuture(new RemoteCallOutcome(
+                "remote-" + id,
+                TaskState.TASK_STATE_COMPLETED,
+                "COMPLETED",
+                "result-" + id,
+                null));
+        });
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            ServeRequest request = invocation.getArgument(0);
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (localRuns.getAndIncrement() == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, remoteBatch()));
+            } else {
+                Task readyShadow = taskStore.get("shadow:test-agent:parent-batch");
+                assertThat(readyShadow).isNotNull();
+                assertThat((Map<String, Object>) readyShadow.metadata().get("_remote_batch"))
+                    .containsEntry("state", "READY_TO_RESUME");
+                Map<String, Object> results = (Map<String, Object>) request.getMetadata()
+                    .get("runtime.remoteToolResults");
+                assertThat(results).containsOnly(
+                    Map.entry("call-a", "result-call-a"),
+                    Map.entry("call-b", "result-call-b"),
+                    Map.entry("call-c", "result-call-c"));
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "final"));
+            }
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        ServeRequest request = req("c-batch");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-batch"));
+
+        orchestrator.streamQuery(request, observer);
+
+        verify(a2aClient, times(3)).callOutcome(any(), any(), any());
+        assertThat(localRuns.get()).isEqualTo(2);
+        assertThat(taskStore.get("shadow:test-agent:parent-batch")).isNull();
+        verify(observer).onComplete();
+    }
+
+    @Test
+    void coreResumeFailureKeepsReadyShadowForRetry() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            RemoteCall call = invocation.getArgument(0);
+            String id = call.message().substring("message-".length());
+            return CompletableFuture.completedFuture(new RemoteCallOutcome(
+                "remote-" + id, TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + id, null));
+        });
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (localRuns.getAndIncrement() == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, remoteBatch()));
+                observer.onComplete();
+            } else {
+                observer.onError(new IllegalStateException("core resume failed"));
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        ServeRequest request = req("c-batch-failure");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-batch-failure"));
+
+        orchestrator.streamQuery(request, mock(QueryStreamObserver.class));
+
+        Task readyShadow = taskStore.get("shadow:test-agent:parent-batch-failure");
+        assertThat(readyShadow).isNotNull();
+        @SuppressWarnings("unchecked") Map<String, Object> snapshot =
+            (Map<String, Object>) readyShadow.metadata().get("_remote_batch");
+        assertThat(snapshot).containsEntry("state", "READY_TO_RESUME");
+    }
+
+    @Test
+    void shadowCleanupFailureStopsBeforeHandlingCapturedNextInterrupt() {
+        taskStore = spy(new InMemoryTaskStore());
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            RemoteCall call = invocation.getArgument(0);
+            return CompletableFuture.completedFuture(new RemoteCallOutcome(
+                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+        });
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (localRuns.getAndIncrement() == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, remoteBatch()));
+                observer.onComplete();
+            } else {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, remoteBatch()));
+                try {
+                    observer.onComplete();
+                } catch (IllegalStateException ex) {
+                    observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, Map.of("error", ex.getMessage())));
+                    observer.onError(ex);
+                }
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        doThrow(new IllegalStateException("shadow delete failed"))
+            .when(taskStore).delete("shadow:test-agent:parent-cleanup-failure");
+        ServeRequest request = req("c-cleanup-failure");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-cleanup-failure"));
 
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
-        orchestrator.streamQuery(req("c-int"), observer);
+        orchestrator.streamQuery(request, observer);
 
-        verify(taskStore, atLeastOnce()).delete(eq("shadow:test-agent:c-int"));
-        verify(observer).onNext(any(QueryChunk.class));
-        verify(observer).onError(any(Throwable.class));
+        assertThat(localRuns.get()).isEqualTo(2);
+        assertThat(taskStore.get("shadow:test-agent:parent-cleanup-failure")).isNotNull();
+        verify(observer, times(1)).onError(any());
+    }
+
+    @Test
+    void duplicateStreamingResumeReportsInFlightConflict() throws Exception {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            RemoteCall call = invocation.getArgument(0);
+            return CompletableFuture.completedFuture(new RemoteCallOutcome(
+                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+        });
+        CountDownLatch resumeEntered = new CountDownLatch(1);
+        CountDownLatch allowResume = new CountDownLatch(1);
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (localRuns.getAndIncrement() == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, remoteBatch()));
+                observer.onComplete();
+            } else {
+                resumeEntered.countDown();
+                assertThat(allowResume.await(5, TimeUnit.SECONDS)).isTrue();
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "final"));
+                observer.onComplete();
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        ServeRequest request = req("c-duplicate-resume");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-duplicate-resume"));
+        QueryStreamObserver secondObserver = mock(QueryStreamObserver.class);
+
+        CompletableFuture<Void> first = CompletableFuture.runAsync(
+            () -> orchestrator.streamQuery(request, mock(QueryStreamObserver.class)));
+        assertThat(resumeEntered.await(5, TimeUnit.SECONDS)).isTrue();
+        orchestrator.streamQuery(request, secondObserver);
+        allowResume.countDown();
+        first.get(5, TimeUnit.SECONDS);
+
+        assertThat(localRuns.get()).isEqualTo(2);
+        verify(secondObserver).onError(argThat(error -> error instanceof IllegalStateException
+            && error.getMessage().contains("REMOTE_BATCH_CORE_RESUME_IN_FLIGHT")));
+    }
+
+    @Test
+    void duplicateQueryResumeReportsInFlightConflict() throws Exception {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            RemoteCall call = invocation.getArgument(0);
+            return CompletableFuture.completedFuture(new RemoteCallOutcome(
+                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+        });
+        CountDownLatch resumeEntered = new CountDownLatch(1);
+        CountDownLatch allowResume = new CountDownLatch(1);
+        AtomicInteger localRuns = new AtomicInteger();
+        when(agentHandler.query(any())).thenAnswer(invocation -> {
+            int run = localRuns.getAndIncrement();
+            if (run == 0) {
+                return new QueryResponse(Map.of("_interrupt", remoteBatch()), "c-duplicate-query-resume");
+            }
+            resumeEntered.countDown();
+            assertThat(allowResume.await(5, TimeUnit.SECONDS)).isTrue();
+            return new QueryResponse(Map.of("content", "final"), "c-duplicate-query-resume");
+        });
+        ServeRequest request = req("c-duplicate-query-resume");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-duplicate-query-resume"));
+
+        CompletableFuture<QueryResponse> first = CompletableFuture.supplyAsync(() -> orchestrator.query(request));
+        assertThat(resumeEntered.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThatThrownBy(() -> orchestrator.query(request))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("REMOTE_BATCH_CORE_RESUME_IN_FLIGHT");
+        allowResume.countDown();
+        assertThat(first.get(5, TimeUnit.SECONDS).getResult()).isEqualTo(Map.of("content", "final"));
+        assertThat(localRuns.get()).isEqualTo(2);
+    }
+
+    @Test
+    void synchronousCoreResumeFailureReleasesClaimForRetry() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            RemoteCall call = invocation.getArgument(0);
+            return CompletableFuture.completedFuture(new RemoteCallOutcome(
+                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+        });
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            int run = localRuns.getAndIncrement();
+            if (run == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, remoteBatch()));
+                observer.onComplete();
+            } else if (run == 1) {
+                throw new IllegalStateException("synchronous core failure");
+            } else {
+                observer.onComplete();
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        ServeRequest request = req("c-sync-core-failure");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-sync-core-failure"));
+
+        assertThatThrownBy(() -> orchestrator.streamQuery(request, mock(QueryStreamObserver.class)))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("synchronous core failure");
+        orchestrator.streamQuery(request, mock(QueryStreamObserver.class));
+
+        assertThat(localRuns.get()).isEqualTo(3);
+        assertThat(taskStore.get("shadow:test-agent:parent-sync-core-failure")).isNull();
+    }
+
+    @Test
+    void cancelledRequestAfterReadyResultReleasesClaimForRetry() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+            "test-agent", 16, 256, 30);
+        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            RemoteCall call = invocation.getArgument(0);
+            return CompletableFuture.completedFuture(new RemoteCallOutcome(
+                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+        });
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (localRuns.getAndIncrement() == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, remoteBatch()));
+            }
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        AtomicBoolean cancelled = new AtomicBoolean();
+        QueryStreamObserver cancellingObserver = new QueryStreamObserver() {
+            @Override
+            public void onNext(QueryChunk chunk) {
+                if (QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType())
+                        && chunk.getData() instanceof Map<?, ?> data
+                        && data.get("projection") instanceof Map<?, ?> projection
+                        && "COMPLETED".equals(projection.get("phase"))) {
+                    cancelled.set(true);
+                }
+            }
+
+            @Override
+            public void onComplete() {
+            }
+
+            @Override
+            public void onError(Throwable error) {
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return cancelled.get();
+            }
+        };
+        ServeRequest request = req("c-cancelled-ready");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-cancelled-ready"));
+
+        orchestrator.streamQuery(request, cancellingObserver);
+        orchestrator.streamQuery(request, mock(QueryStreamObserver.class));
+
+        assertThat(localRuns.get()).isEqualTo(2);
+        assertThat(taskStore.get("shadow:test-agent:parent-cancelled-ready")).isNull();
     }
 
     @Test
@@ -217,318 +511,6 @@ class A2AEnabledServeOrchestratorTest {
 
         verify(taskStore, never()).save(any(), anyBoolean());
     }
-
-    @Test
-    void pendingTaskRoutesToResume() {
-        // Shadow tasks are namespaced by agent identity (see
-        // A2AEnabledServeOrchestrator#shadowTaskId).
-        String shadowId = "shadow:test-agent:c-pending";
-        Task pending = Task.builder()
-            .id(shadowId)
-            .contextId("c-pending")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id",
-                "remote-task-123"))
-            .build();
-        when(taskStore.get(shadowId)).thenReturn(pending);
-
-        orchestrator.streamQuery(req("c-pending"), mock(QueryStreamObserver.class));
-
-        // Verify pending check was made via get() on the namespaced shadow key; remote
-        // call
-        // attempts but may fail in unit test
-        verify(taskStore).get(shadowId);
-    }
-
-    @Test
-    void pendingResumeWithoutSseModeUsesSyncCallNoPassthrough() {
-        String shadowId = "shadow:test-agent:c-sync";
-        Task pending = Task.builder()
-            .id(shadowId)
-            .contextId("c-sync")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1"))
-            .build();
-        // Deleted after a successful resume, so the second findPending sees nothing.
-        when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
-        stubRemoteAnswer("42");
-
-        QueryStreamObserver observer = mock(QueryStreamObserver.class);
-        orchestrator.streamQuery(req("c-sync"), observer);
-
-        // No _stream_mode → resolve synchronously. The caller always receives a
-        // wrapper observer (used to capture the answer text), but in sync mode the
-        // wrapper's passthrough is null so the client observer never sees remote
-        // chunks. Verify the caller was invoked with the right coordinates and that
-        // the client observer received no chunks.
-        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "test".equals(c.agentId())
-            && "c-sync".equals(c.contextId()) && "rt-1".equals(c.taskId())), any());
-        verify(observer, never()).onNext(any());
-    }
-
-    @Test
-    void pendingResumeWithSseModeStreamsThroughObserver() {
-        String shadowId = "shadow:test-agent:c-sse";
-        Task pending = Task.builder()
-            .id(shadowId)
-            .contextId("c-sse")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1",
-                "_stream_mode", "sse"))
-            .build();
-        when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
-        stubRemoteAnswer("42");
-
-        orchestrator.streamQuery(req("c-sse"), mock(QueryStreamObserver.class));
-
-        // _stream_mode=sse → stream the remote content to the client observer
-        // (passthrough non-null).
-        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "test".equals(c.agentId())
-            && "c-sse".equals(c.contextId())), argThat(o -> o != null));
-    }
-
-    @Test
-    void resumeInputRequiredCompletesObserver() throws Exception {
-        String shadowId = "shadow:test-agent:c-multi";
-        Task pending = Task.builder()
-            .id(shadowId)
-            .contextId("c-multi")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-old",
-                "_stream_mode", "sse"))
-            .build();
-        when(taskStore.get(shadowId)).thenReturn(pending);
-        // Remote still needs input on resume, carrying a fresh remote task id.
-        stubRemoteInputRequired("need more", "rt-new");
-        QueryStreamObserver observer = mock(QueryStreamObserver.class);
-
-        orchestrator.streamQuery(req("c-multi"), observer);
-
-        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
-        Task resaved = taskCaptor.getValue();
-        assertThat(resaved.metadata()).containsEntry("_remote_task_id", "rt-new");
-        assertThat(resaved.metadata()).containsEntry("_stream_mode", "sse");
-        verify(observer).onNext(argThat(chunk -> QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())));
-        verify(observer).onComplete();
-    }
-
-    @Test
-    void queryDelegateWithSseModeUsesStreamingRemoteCall() {
-        when(taskStore.get(anyString())).thenReturn(null);
-        when(cardResolver.resolveJsonRpcUrl("test")).thenReturn("http://remote/a2a/");
-        stubRemoteAnswer("remote result");
-        when(agentHandler.query(any())).thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
-                Map.of("role", "assistant", "_interrupt",
-                    Map.of("message", "delegate", "toolCallId", "call-1", "toolName", "delegate_to_test", "context",
-                        Map.of("_interrupt_kind", "a2a_delegate", "agentName", "test", "_stream_mode", "sse"))),
-                "c-query-sse"))
-            .thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
-                Map.of("role", "assistant", "content", "final answer"), "c-query-sse"));
-
-        orchestrator.query(req("c-query-sse"));
-
-        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "test".equals(c.agentId())
-            && "delegate".equals(c.message()) && "c-query-sse".equals(c.contextId())), any());
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void queryRemoteInputRequiredUsesRemoteMessageAsContent() {
-        when(taskStore.get(anyString())).thenReturn(null);
-        when(cardResolver.resolveJsonRpcUrl("test")).thenReturn("http://remote/a2a/");
-        stubRemoteInputRequired("remote needs confirmation", "rt-remote");
-        when(agentHandler.query(any())).thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
-            Map.of("role", "assistant", "content", "internal delegate prompt", "_interrupt",
-                Map.of("message", "internal delegate prompt", "toolCallId", "call-1", "toolName", "delegate_to_test",
-                    "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "test", "_stream_mode", "sse"))),
-            "c-query-remote-input"));
-
-        var response = orchestrator.query(req("c-query-remote-input"));
-
-        Map<String, Object> result = (Map<String, Object>) response.getResult();
-        assertThat(result).containsEntry("content", "remote needs confirmation");
-        assertThat((Map<String, Object>) result.get("_interrupt")).containsEntry("message",
-            "remote needs confirmation");
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void queryPendingResumeInputRequiredUsesRemoteMessageAsContent() {
-        String shadowId = "shadow:test-agent:c-query-pending-input";
-        Task pending = Task.builder()
-            .id(shadowId)
-            .contextId("c-query-pending-input")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1",
-                "_stream_mode", "sse"))
-            .build();
-        when(taskStore.get(shadowId)).thenReturn(pending);
-        stubRemoteInputRequired("please provide order id", "rt-2");
-
-        var response = orchestrator.query(req("c-query-pending-input"));
-
-        Map<String, Object> result = (Map<String, Object>) response.getResult();
-        assertThat(result).containsEntry("content", "please provide order id");
-        assertThat((Map<String, Object>) result.get("_interrupt")).containsEntry("message", "please provide order id");
-    }
-
-    @Test
-    void queryPendingInputKeepsOldRemoteTaskId() {
-        String shadowId = "shadow:test-agent:c-query-pending-input-empty-id";
-        Task pending = Task.builder()
-            .id(shadowId)
-            .contextId("c-query-pending-input-empty-id")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1",
-                "_stream_mode", "sse"))
-            .build();
-        when(taskStore.get(shadowId)).thenReturn(pending);
-        // Remote returns INPUT_REQUIRED with an empty remote task id → orchestrator
-        // must keep the previous rt-1.
-        stubRemoteInputRequired("please provide order id", "");
-
-        orchestrator.query(req("c-query-pending-input-empty-id"));
-
-        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, atLeastOnce()).save(taskCaptor.capture(), anyBoolean());
-        Task resaved = taskCaptor.getValue();
-        assertThat(resaved.metadata()).containsEntry("_remote_task_id", "rt-1");
-        assertThat(resaved.metadata()).containsEntry("_stream_mode", "sse");
-    }
-
-    @Test
-    void pendingResumeFailureDeletesShadowAndFailsStream() {
-        String shadowId = "shadow:test-agent:c-pending-fail";
-        Task pending = Task.builder()
-            .id(shadowId)
-            .contextId("c-pending-fail")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1",
-                "_stream_mode", "sse"))
-            .build();
-        when(taskStore.get(shadowId)).thenReturn(pending);
-        stubRemoteFailure(new IllegalStateException("remote failed"));
-
-        QueryStreamObserver observer = mock(QueryStreamObserver.class);
-        orchestrator.streamQuery(req("c-pending-fail"), observer);
-
-        verify(taskStore, atLeastOnce()).delete(eq(shadowId));
-        verify(observer).onError(any(Throwable.class));
-    }
-
-    @Test
-    void pendingResumeWithMissingMetadataDoesNotCrash() {
-        String shadowId = "shadow:test-agent:c-pending-no-meta";
-        Task pending = Task.builder()
-            .id(shadowId)
-            .contextId("c-pending-no-meta")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(null)
-            .build();
-        when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
-        stubRemoteAnswer("42");
-        doAnswer(inv -> {
-            QueryStreamObserver obs = inv.getArgument(1);
-            obs.onComplete();
-            return null;
-        }).when(agentHandler).streamQuery(any(), any());
-
-        // Empty agent name makes RemoteAgentCall construction invalid; the
-        // orchestrator must catch the failure, delete the shadow task, and
-        // signal the error without crashing.
-        QueryStreamObserver observer = mock(QueryStreamObserver.class);
-        orchestrator.streamQuery(req("c-pending-no-meta"), observer);
-
-        verify(remoteAgentCaller, never()).call(any(RemoteAgentCall.class), any());
-        verify(taskStore, atLeastOnce()).delete(eq(shadowId));
-        verify(observer).onError(any(Throwable.class));
-    }
-
-    @Test
-    void sseDelegateFailureDeletesShadowAndFailsStream() {
-        when(taskStore.get(anyString())).thenReturn(null);
-        when(cardResolver.resolveJsonRpcUrl("test")).thenReturn("http://remote/a2a/");
-        stubRemoteFailure(new IllegalStateException("remote failed"));
-        doAnswer(inv -> {
-            QueryStreamObserver obs = inv.getArgument(1);
-            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("message", "delegate", "context",
-                Map.of("_interrupt_kind", "a2a_delegate", "agentName", "test", "_stream_mode", "sse"))));
-            return null;
-        }).when(agentHandler).streamQuery(any(), any());
-
-        QueryStreamObserver observer = mock(QueryStreamObserver.class);
-        orchestrator.streamQuery(req("c-delegate-fail"), observer);
-
-        verify(taskStore, atLeastOnce()).delete(eq("shadow:test-agent:c-delegate-fail"));
-        verify(observer).onError(any(Throwable.class));
-    }
-
-    @Test
-    void querySseInterruptedDeletesShadowAndThrows() {
-        when(taskStore.get(anyString())).thenReturn(null);
-        when(cardResolver.resolveJsonRpcUrl("test")).thenReturn("http://remote/a2a/");
-        // Simulate remote failure (legacy InterruptedException mapped to onError).
-        stubRemoteFailure(new IllegalStateException("remote failed"));
-        when(agentHandler.query(any())).thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
-            Map.of("role", "assistant", "_interrupt",
-                Map.of("message", "delegate", "toolCallId", "call-1", "toolName", "delegate_to_test", "context",
-                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "test", "_stream_mode", "sse"))),
-            "c-query-interrupted"));
-        boolean isInterrupted = Thread.interrupted();
-        assertThat(isInterrupted).isFalse();
-
-        assertThatThrownBy(() -> orchestrator.query(req("c-query-interrupted")))
-            .isInstanceOf(RemoteAgentException.class);
-
-        assertThat(Thread.currentThread().isInterrupted()).isFalse();
-        verify(taskStore, atLeastOnce()).delete(eq("shadow:test-agent:c-query-interrupted"));
-    }
-
-    @Test
-    void queryPendingResumeWithSseModeUsesStreamingRemoteCall() {
-        String shadowId = "shadow:test-agent:c-query-pending-sse";
-        Task pending = Task.builder()
-            .id(shadowId)
-            .contextId("c-query-pending-sse")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1",
-                "_stream_mode", "sse"))
-            .build();
-        when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
-        stubRemoteAnswer("remote result");
-        when(agentHandler.query(any())).thenReturn(
-            new com.openjiuwen.service.spec.dto.QueryResponse(Map.of("role", "assistant", "content", "final answer"),
-                "c-query-pending-sse"));
-
-        orchestrator.query(req("c-query-pending-sse"));
-
-        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "test".equals(c.agentId())
-            && "c-query-pending-sse".equals(c.contextId()) && "rt-1".equals(c.taskId())), any());
-    }
-
-    @Test
-    void queryPendingResumePreservesOriginalStreamFlag() {
-        String shadowId = "shadow:test-agent:c-query-sync-resume";
-        Task pending = Task.builder()
-            .id(shadowId)
-            .contextId("c-query-sync-resume")
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(Map.of("_remote_url", "http://remote/a2a/", "_agent_name", "test", "_remote_task_id", "rt-1"))
-            .build();
-        when(taskStore.get(shadowId)).thenReturn(pending).thenReturn(null);
-        stubRemoteAnswer("remote result");
-        when(agentHandler.query(any())).thenReturn(
-            new com.openjiuwen.service.spec.dto.QueryResponse(Map.of("role", "assistant", "content", "final answer"),
-                "c-query-sync-resume"));
-        ServeRequest request = req("c-query-sync-resume");
-        request.setStream(false);
-
-        orchestrator.query(request);
-
-        verify(agentHandler).query(argThat(resume -> !resume.isStream()));
-    }
-
     @Test
     void noPendingTaskDelegatesToAgent() {
         when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of()));
@@ -578,120 +560,28 @@ class A2AEnabledServeOrchestratorTest {
         return r;
     }
 
-    @Test
-    void queryA2aDelegateForwardsResponseContentToRemoteCaller() {
-        when(taskStore.get(anyString())).thenReturn(null);
-        when(cardResolver.resolveJsonRpcUrl("L2-agent")).thenReturn("http://remote/a2a/");
-        stubRemoteAnswer("remote final");
-        when(agentHandler.query(any())).thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
-            Map.of("role", "assistant", "_interrupt",
-                Map.of("message", "user query", "responseContent", "L1 assistant output", "resume", false, "context",
-                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", ""))),
-            "c-response-content"));
-
-        orchestrator.query(req("c-response-content"));
-
-        // a2a_delegate interrupt carrying responseContent → RemoteAgentCall must
-        // propagate it so the caller can append it as an assistant message.
-        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "L2-agent".equals(c.agentId())
-            && "L1 assistant output".equals(c.responseContent())
-            && "user query".equals(c.message())), any());
-        // resume=false → orchestrator must NOT re-invoke the agent with the remote answer.
-        verify(agentHandler).query(any());
+    private static Map<String, Object> remoteBatch() {
+        List<Map<String, Object>> items = List.of("call-a", "call-b", "call-c").stream()
+            .map(id -> Map.<String, Object>of(
+                "toolCallId", id,
+                "toolName", "tool-" + id,
+                "message", "message-" + id,
+                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-" + id)))
+            .toList();
+        return Map.of("batchId", "batch-1", "items", items);
     }
 
-    @Test
-    void queryA2aDelegateResumeReinvokesAgentWithRemoteAnswer() {
-        when(taskStore.get(anyString())).thenReturn(null);
-        when(cardResolver.resolveJsonRpcUrl("L2-agent")).thenReturn("http://remote/a2a/");
-        stubRemoteAnswer("remote final");
-        when(agentHandler.query(any())).thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
-            Map.of("role", "assistant", "_interrupt",
-                // No "resume" field → defaults to true (tool-call path).
-                Map.of("message", "user query", "responseContent", "L1 tool output", "context",
-                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", ""))),
-            "c-resume"))
-            .thenReturn(new com.openjiuwen.service.spec.dto.QueryResponse(
-                Map.of("role", "assistant", "content", "final answer"), "c-resume"));
-
-        com.openjiuwen.service.spec.dto.QueryResponse response = orchestrator.query(req("c-resume"));
-
-        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "L2-agent".equals(c.agentId())
-            && "L1 tool output".equals(c.responseContent())), any());
-        // resume=true → orchestrator re-invokes the agent with the remote answer as a tool result.
-        verify(agentHandler, atLeastOnce()).query(any());
-        assertThat(response.getResult()).isInstanceOf(java.util.Map.class);
-        assertThat(((java.util.Map<?, ?>) response.getResult()).get("content")).isEqualTo("final answer");
-    }
-
-    @Test
-    void streamA2aDelegateForwardsResponseContentToRemoteCaller() {
-        when(taskStore.get(anyString())).thenReturn(null);
-        when(cardResolver.resolveJsonRpcUrl("L2-agent")).thenReturn("http://remote/a2a/");
-        stubRemoteAnswer("remote final");
-        doAnswer(inv -> {
-            QueryStreamObserver obs = inv.getArgument(1);
-            obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
-                "message", "user query",
-                "responseContent", "L1 streaming output",
-                "resume", false,
-                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", "sse"))));
-            return null;
-        }).when(agentHandler).streamQuery(any(), any());
-
-        orchestrator.streamQuery(req("c-stream-response"), mock(QueryStreamObserver.class));
-
-        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "L2-agent".equals(c.agentId())
-            && "L1 streaming output".equals(c.responseContent())
-            && c.streaming()), any());
-        // resume=false → agent handler invoked only once.
-        verify(agentHandler).streamQuery(any(), any());
-    }
-
-    @Test
-    void streamA2aDelegateResumeReinvokesAgentWithRemoteAnswer() {
-        when(taskStore.get(anyString())).thenReturn(null);
-        when(cardResolver.resolveJsonRpcUrl("L2-agent")).thenReturn("http://remote/a2a/");
-        stubRemoteAnswer("remote final");
-        AtomicBoolean firstCall = new AtomicBoolean(true);
-        doAnswer(inv -> {
-            QueryStreamObserver obs = inv.getArgument(1);
-            if (firstCall.compareAndSet(true, false)) {
-                obs.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
-                    "message", "user query",
-                    "responseContent", "L1 streaming output",
-                    // No "resume" field → defaults to true (tool-call path).
-                    "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "L2-agent", "_stream_mode", "sse"))));
-            } else {
-                obs.onNext(new QueryChunk("chunk", "done"));
-                obs.onComplete();
-            }
-            return null;
-        }).when(agentHandler).streamQuery(any(), any());
-
-        orchestrator.streamQuery(req("c-stream-resume"), mock(QueryStreamObserver.class));
-
-        verify(remoteAgentCaller).call(argThat((RemoteAgentCall c) -> "L2-agent".equals(c.agentId())
-            && "L1 streaming output".equals(c.responseContent())
-            && c.streaming()), any());
-        // resume=true → orchestrator re-invokes the agent with the remote answer.
-        verify(agentHandler, atLeastOnce()).streamQuery(any(), any());
-    }
-
-    private static AgentCard testCard() {
-        return AgentCard.builder()
-            .name("test-agent")
-            .description("test")
-            .version("1.0")
-            .capabilities(new AgentCapabilities(true, false, false, List.of()))
-            .defaultInputModes(List.of())
-            .defaultOutputModes(List.of())
-            .skills(List.of())
-            .securitySchemes(Map.of())
-            .securityRequirements(List.of())
-            .supportedInterfaces(List.of(new AgentInterface("jsonrpc", "http://remote/a2a/", null, "1.0")))
-            .signatures(List.of())
-            .additionalInterfaces(List.of())
-            .build();
+    private static Map<String, Object> mixedInterruptBatch() {
+        return Map.of("message", "interaction batch", "items", List.of(
+            Map.of(
+                "type", "__interaction__",
+                "toolCallId", "call-remote",
+                "message", "remote request",
+                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "remote-agent")),
+            Map.of(
+                "type", "__interaction__",
+                "toolCallId", "call-local",
+                "message", "local question",
+                "context", Map.of("_interrupt_kind", "ask_user"))));
     }
 }

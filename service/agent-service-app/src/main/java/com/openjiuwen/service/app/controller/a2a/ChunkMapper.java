@@ -10,7 +10,9 @@ import com.openjiuwen.service.spec.dto.QueryChunk;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.TextPart;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Lightweight QueryChunk → List{@code <Part<?>>} mapper. Protocol-layer conversion only — no filtering or business
@@ -32,6 +34,14 @@ public class ChunkMapper {
             return List.of();
         }
         Object data = chunk.getData();
+        if (QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType()) && data instanceof Map<?, ?> progress
+                && progress.get("projection") instanceof Map<?, ?> rawProjection) {
+            Map<String, Object> projection = new LinkedHashMap<>();
+            rawProjection.forEach((key, value) -> projection.put(String.valueOf(key), value));
+            Object content = progress.get("content");
+            String text = content instanceof String value ? value : GSON.toJson(content);
+            return List.of(new TextPart(text, Map.of("_remote_invocation", projection)));
+        }
         if (data instanceof String s) {
             return List.of(new TextPart(s));
         }
