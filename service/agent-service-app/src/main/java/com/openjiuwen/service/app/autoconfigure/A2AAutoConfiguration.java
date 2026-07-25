@@ -10,7 +10,9 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
+import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.HttpPushNotificationSender;
+import com.openjiuwen.service.app.controller.a2a.InMemoryA2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
 import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
@@ -123,6 +125,12 @@ public class A2AAutoConfiguration {
     public PushNotificationSender a2aPushNotificationSender(PushNotificationConfigStore pushConfigStore,
             A2AProperties properties) {
         return new HttpPushNotificationSender(pushConfigStore, properties.getPushNotification());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public A2aPushNotificationCallbackStore a2aPushNotificationCallbackStore() {
+        return new InMemoryA2aPushNotificationCallbackStore();
     }
 
     /**

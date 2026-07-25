@@ -28,6 +28,9 @@ public final class A2AServicePaths {
     /** Compatible Python a2a_service mount prefix */
     public static final String A2A_WELL_KNOWN_CARD = "/a2a/.well-known/agent-card.json";
 
+    /** Fixed A2A push notification callback receiver path */
+    public static final String A2A_PUSH_NOTIFICATION_CALLBACK = "/a2a/push-notifications/callback";
+
     private A2AServicePaths() {
     }
 }
