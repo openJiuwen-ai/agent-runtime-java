@@ -116,7 +116,8 @@ class RemoteAgentAnswerExtractorTest {
     void plainA2aArtifactIsReturnedWhenCompletedStatusArrives() throws Exception {
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
-                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class);
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                boolean.class);
         statusMethod.setAccessible(true);
         for (String expected : List.of("balance=100", "{\"balance\":\"100\"}")) {
             CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
@@ -129,7 +130,7 @@ class RemoteAgentAnswerExtractorTest {
                     new TaskStatusUpdateEvent("remote-task", new TaskStatus(TaskState.TASK_STATE_COMPLETED, null, null),
                             "remote-context", Map.of()),
                     task, result, (java.util.function.Consumer<String>) ignored -> {
-                    });
+                    }, false);
 
             assertThat(result.getNow(null).result()).isEqualTo(expected);
         }
@@ -139,7 +140,8 @@ class RemoteAgentAnswerExtractorTest {
     void workflowFinalArtifactIsUnwrappedWhenCompletedStatusArrives() throws Exception {
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
-                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class);
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                boolean.class);
         statusMethod.setAccessible(true);
         String expected = "Agent D expense review completed";
         Artifact artifact = new Artifact("artifact-workflow-final", null, null,
@@ -153,7 +155,7 @@ class RemoteAgentAnswerExtractorTest {
                 client, new TaskStatusUpdateEvent("remote-task",
                         new TaskStatus(TaskState.TASK_STATE_COMPLETED, null, null), "remote-context", Map.of()),
                 task, result, (java.util.function.Consumer<String>) ignored -> {
-                });
+                }, false);
 
         assertThat(result.getNow(null).result()).isEqualTo(expected);
     }
@@ -179,12 +181,13 @@ class RemoteAgentAnswerExtractorTest {
         Task failedTask = Task.builder().id("remote-task").contextId("remote-context")
                 .status(new TaskStatus(TaskState.TASK_STATE_FAILED, failure, null)).artifacts(List.of(answer)).build();
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
-                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class);
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                boolean.class);
         statusMethod.setAccessible(true);
         statusMethod.invoke(client,
                 new TaskStatusUpdateEvent("remote-task", failedTask.status(), "remote-context", Map.of()), failedTask,
                 result, (java.util.function.Consumer<String>) ignored -> {
-                });
+                }, false);
 
         assertThat(result.getNow(null).remoteState()).isEqualTo(TaskState.TASK_STATE_FAILED);
         assertThat(result.getNow(null).result()).isEqualTo("declined");
@@ -222,12 +225,13 @@ class RemoteAgentAnswerExtractorTest {
                 .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(artifact)).build();
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
-                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class);
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                boolean.class);
         statusMethod.setAccessible(true);
 
         statusMethod.invoke(client, new TaskStatusUpdateEvent("remote-task", task.status(), "remote-context", Map.of()),
                 task, result, (java.util.function.Consumer<String>) ignored -> {
-                });
+                }, false);
 
         assertThat(result.getNow(null).result()).isEqualTo("business");
     }
