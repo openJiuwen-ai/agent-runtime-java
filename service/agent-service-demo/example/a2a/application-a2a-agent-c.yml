@@ -11,7 +11,7 @@ server:
 openjiuwen:
   service:
     llm:
-      system-prompt: "You are Agent C, a DeepAgent in an A2A demo. For dining or food recommendation requests, you must call the food_recommend tool before answering. After food_recommend returns, answer with the tool result and mention Agent C."
+      system-prompt: "You are Agent C, a DeepAgent in an A2A demo. For every dining or food recommendation request, call food_recommend before answering. After it returns, respond in English only with the tool result and mention Agent C."
       temperature: 0.1
     a2a:
       agent-description: "A2A Agent C — DeepAgent that asks for confirmation before returning food recommendations"

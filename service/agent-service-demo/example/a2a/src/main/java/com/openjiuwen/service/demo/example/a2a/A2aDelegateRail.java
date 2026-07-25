@@ -28,7 +28,8 @@ import java.util.Map;
 public class A2aDelegateRail extends BaseInterruptRail {
     private static final Gson GSON = new Gson();
 
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
+    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
+    }.getType();
 
     private static final String TOOL_NAME = "delegate_to_agentb";
 
@@ -36,15 +37,7 @@ public class A2aDelegateRail extends BaseInterruptRail {
 
     public A2aDelegateRail() {
         super(List.of(TOOL_NAME));
-        ToolCard card = ToolCard.builder()
-            .id(TOOL_NAME)
-            .name(TOOL_NAME)
-            .description("Delegate a task to Agent B for processing")
-            .inputParams(Map.of("type", "object", "properties",
-                Map.of("message", Map.of("type", "string", "description", "The request to forward to Agent B's LLM")),
-                "required", List.of("message")))
-            .build();
-        getTools().add(card);
+        getTools().add(delegateCard(TOOL_NAME, "Delegate a task to the configured Agent B route"));
     }
 
     @Override
@@ -64,10 +57,17 @@ public class A2aDelegateRail extends BaseInterruptRail {
         } catch (JsonSyntaxException ignored) {
             // arguments parse failed; fall through to AGENT_NAME
         }
-        var request = InterruptRequest.builder()
-            .message(userQuery != null ? userQuery : AGENT_NAME)
-            .context(Map.of("agentName", AGENT_NAME, "_interrupt_kind", "a2a_delegate", "_stream_mode", "sse"))
-            .build();
+        var request = InterruptRequest.builder().message(userQuery != null ? userQuery : AGENT_NAME)
+                .context(Map.of("agentName", AGENT_NAME, "_interrupt_kind", "a2a_delegate")).build();
         return interrupt(request);
+    }
+
+    private static ToolCard delegateCard(String toolName, String description) {
+        return ToolCard.builder().id(toolName).name(toolName).description(description)
+                .inputParams(Map.of("type", "object", "properties",
+                        Map.of("message",
+                                Map.of("type", "string", "description", "The request to forward to Agent B's LLM")),
+                        "required", List.of("message")))
+                .build();
     }
 }

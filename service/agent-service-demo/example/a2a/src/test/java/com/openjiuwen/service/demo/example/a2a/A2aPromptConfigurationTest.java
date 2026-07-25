@@ -60,8 +60,11 @@ class A2aPromptConfigurationTest {
     private static Stream<Arguments> agentPrompts() {
         return Stream.of(
                 Arguments.of("application-a2a-agent-a.yml",
-                        List.of("Agent A", "delegate_to_agentb", "Do not answer directly")),
-                Arguments.of("application-a2a-agent-b.yml", List.of("Agent B", "calc", "delegate_to_agentc")),
-                Arguments.of("application-a2a-agent-c.yml", List.of("Agent C", "food_recommend", "before answering")));
+                        List.of("Agent A", "delegate_to_agentb", "do not answer directly", "verbatim")),
+                Arguments.of("application-a2a-agent-b.yml",
+                        List.of("Agent B", "delegate_to_agentc_streaming", "delegate_to_agentc_nonstreaming",
+                                "review_expense_streaming", "review_expense_nonstreaming", "verbatim")),
+                Arguments.of("application-a2a-agent-c.yml",
+                        List.of("Agent C", "food_recommend", "before answering", "English only")));
     }
 }
