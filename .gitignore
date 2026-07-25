@@ -1,5 +1,6 @@
 target/
 **/target/
+.mvn/
 
 # flatten-maven-plugin output (regenerated each build; removed on `mvn clean`)
 **/.flattened-pom.xml
