@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallback;
+import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.StreamCancellationHandle;
@@ -38,7 +40,7 @@ import java.util.concurrent.ExecutionException;
  *
  * @since 0.1.0
  */
-public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
+public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNotificationCallbackHandler {
     private static final Logger log = LoggerFactory.getLogger(A2AEnabledServeOrchestrator.class);
 
     /**
@@ -143,6 +145,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             }
             current = interruptResult.get();
         }
+    }
+
+    @Override
+    public boolean onAccepted(A2aPushNotificationCallback callback) {
+        return callback != null && batchCoordinator.recoverCallback(callback.task());
     }
 
     @Override

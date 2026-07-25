@@ -10,6 +10,8 @@ import com.google.gson.JsonParser;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
+import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
+import org.a2aproject.sdk.spec.Task;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -31,8 +33,12 @@ public class A2aPushNotificationCallbackController {
 
     private final A2aPushNotificationCallbackStore callbackStore;
 
-    public A2aPushNotificationCallbackController(A2aPushNotificationCallbackStore callbackStore) {
+    private final A2aPushNotificationCallbackHandler callbackHandler;
+
+    public A2aPushNotificationCallbackController(A2aPushNotificationCallbackStore callbackStore,
+            A2aPushNotificationCallbackHandler callbackHandler) {
         this.callbackStore = callbackStore;
+        this.callbackHandler = callbackHandler;
     }
 
     @PostMapping(value = A2AServicePaths.A2A_PUSH_NOTIFICATION_CALLBACK, consumes = MediaType.APPLICATION_JSON_VALUE,
@@ -59,10 +65,19 @@ public class A2aPushNotificationCallbackController {
         if (!isJsonRpcResult(body)) {
             return badRequest("callback body must contain a JSON-RPC result");
         }
+        Task task;
+        try {
+            task = callbackTask(body);
+        } catch (RuntimeException e) {
+            return badRequest("callback result.task is required");
+        }
         A2aPushNotificationCallbackStore.SaveResult result = callbackStore.saveIfAbsent(notificationId,
                 sha256(body.toString()));
         if (result == A2aPushNotificationCallbackStore.SaveResult.CONFLICT) {
             return status(HttpStatus.CONFLICT, "conflict", notificationId);
+        }
+        if (result == A2aPushNotificationCallbackStore.SaveResult.CREATED) {
+            callbackHandler.onAccepted(new A2aPushNotificationCallback(notificationId, task));
         }
         return status(HttpStatus.OK, "accepted", notificationId);
     }
@@ -71,6 +86,23 @@ public class A2aPushNotificationCallbackController {
         JsonElement version = body.get("jsonrpc");
         return version != null && version.isJsonPrimitive() && "2.0".equals(version.getAsString())
                 && body.get("result") != null && body.get("result").isJsonObject();
+    }
+
+    private static Task callbackTask(JsonObject body) {
+        JsonElement task = body.getAsJsonObject("result").get("task");
+        if (task == null || !task.isJsonObject()) {
+            throw new IllegalArgumentException("callback result.task is required");
+        }
+        Task parsed;
+        try {
+            parsed = JsonUtil.fromJson(task.toString(), Task.class);
+        } catch (org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
+            throw new IllegalArgumentException("callback result.task is invalid", e);
+        }
+        if (parsed == null || parsed.id() == null || parsed.id().isBlank()) {
+            throw new IllegalArgumentException("callback result.task.id is required");
+        }
+        return parsed;
     }
 
     private static String stringMember(JsonObject body, String memberName) {

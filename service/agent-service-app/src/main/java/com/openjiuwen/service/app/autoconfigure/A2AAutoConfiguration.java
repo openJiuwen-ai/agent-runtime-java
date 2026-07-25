@@ -10,6 +10,7 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
+import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.HttpPushNotificationSender;
 import com.openjiuwen.service.app.controller.a2a.InMemoryA2aPushNotificationCallbackStore;
@@ -264,6 +265,12 @@ public class A2AAutoConfiguration {
         A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId,
             limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public A2aPushNotificationCallbackHandler a2aPushNotificationCallbackHandler() {
+        return callback -> false;
     }
 
     /**

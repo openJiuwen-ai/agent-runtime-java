@@ -14,6 +14,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
 /**
  * Tests fixed A2A push notification callback receiver behavior.
  */
@@ -44,6 +47,43 @@ class A2aPushNotificationCallbackControllerTest {
         assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(JsonParser.parseString(second.getBody()).getAsJsonObject().get("notificationId").getAsString())
                 .isEqualTo("notif-1");
+    }
+
+    @Test
+    void firstAcceptedCallbackIsHandedToRecoveryHandlerOnce() {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<String> remoteTaskId = new AtomicReference<>();
+        A2aPushNotificationCallbackController controller = new A2aPushNotificationCallbackController(
+                new InMemoryA2aPushNotificationCallbackStore(), callback -> {
+                    calls.incrementAndGet();
+                    remoteTaskId.set(callback.task().id());
+                    return true;
+                });
+        MockHttpServletRequest request = request("notif-1");
+        String body = callbackBody("notif-1", "task-1");
+
+        controller.handleCallback(body, request);
+        controller.handleCallback(body, request);
+
+        assertThat(calls).hasValue(1);
+        assertThat(remoteTaskId).hasValue("task-1");
+    }
+
+    @Test
+    void rejectsCallbackWithoutResultTask() {
+        String body = """
+                {
+                  "jsonrpc": "2.0",
+                  "result": {},
+                  "notificationId": "notif-1"
+                }
+                """;
+
+        ResponseEntity<String> response = controller().handleCallback(body, request("notif-1"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(JsonParser.parseString(response.getBody()).getAsJsonObject().get("error").getAsString())
+                .contains("result.task");
     }
 
     @Test
@@ -80,7 +120,8 @@ class A2aPushNotificationCallbackControllerTest {
     }
 
     private static A2aPushNotificationCallbackController controller() {
-        return new A2aPushNotificationCallbackController(new InMemoryA2aPushNotificationCallbackStore());
+        return new A2aPushNotificationCallbackController(new InMemoryA2aPushNotificationCallbackStore(),
+                callback -> false);
     }
 
     private static MockHttpServletRequest request(String notificationId) {
