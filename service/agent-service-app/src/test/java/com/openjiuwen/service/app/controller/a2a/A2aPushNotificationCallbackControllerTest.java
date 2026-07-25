@@ -8,12 +8,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.openjiuwen.service.app.config.A2AProperties;
 
+import org.a2aproject.sdk.server.tasks.InMemoryPushNotificationConfigStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -53,12 +56,13 @@ class A2aPushNotificationCallbackControllerTest {
     void firstAcceptedCallbackIsHandedToRecoveryHandlerOnce() {
         AtomicInteger calls = new AtomicInteger();
         AtomicReference<String> remoteTaskId = new AtomicReference<>();
+        A2aPushNotificationCallbackHandler handler = callback -> {
+            calls.incrementAndGet();
+            remoteTaskId.set(callback.task().id());
+            return true;
+        };
         A2aPushNotificationCallbackController controller = new A2aPushNotificationCallbackController(
-                new InMemoryA2aPushNotificationCallbackStore(), callback -> {
-                    calls.incrementAndGet();
-                    remoteTaskId.set(callback.task().id());
-                    return true;
-                });
+                new InMemoryA2aPushNotificationCallbackStore(), handler, enabledGate(handler));
         MockHttpServletRequest request = request("notif-1");
         String body = callbackBody("notif-1", "task-1");
 
@@ -67,6 +71,43 @@ class A2aPushNotificationCallbackControllerTest {
 
         assertThat(calls).hasValue(1);
         assertThat(remoteTaskId).hasValue("task-1");
+    }
+
+    @Test
+    void disabledCapabilityGateRejectsBeforeStoreOrHandler() {
+        AtomicInteger storeCalls = new AtomicInteger();
+        AtomicInteger handlerCalls = new AtomicInteger();
+        A2aPushNotificationCallbackStore store = (notificationId, payloadHash) -> {
+            storeCalls.incrementAndGet();
+            return A2aPushNotificationCallbackStore.SaveResult.CREATED;
+        };
+        A2aPushNotificationCallbackController controller = new A2aPushNotificationCallbackController(store,
+                callback -> {
+                    handlerCalls.incrementAndGet();
+                    return true;
+                }, disabledGate());
+
+        ResponseEntity<String> response = controller.handleCallback(callbackBody("notif-1", "task-1"),
+                request("notif-1"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_IMPLEMENTED);
+        assertThat(storeCalls).hasValue(0);
+        assertThat(handlerCalls).hasValue(0);
+    }
+
+    @Test
+    void bindingNotFoundReturnsNotFound() {
+        A2aPushNotificationCallbackHandler handler = callback -> false;
+        A2aPushNotificationCallbackController controller = new A2aPushNotificationCallbackController(
+                new InMemoryA2aPushNotificationCallbackStore(), handler, enabledGate(handler));
+
+        ResponseEntity<String> response = controller.handleCallback(callbackBody("notif-1", "task-1"),
+                request("notif-1"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonObject body = JsonParser.parseString(response.getBody()).getAsJsonObject();
+        assertThat(body.get("error").getAsString()).contains("binding not found");
+        assertThat(body.get("notificationId").getAsString()).isEqualTo("notif-1");
     }
 
     @Test
@@ -120,8 +161,27 @@ class A2aPushNotificationCallbackControllerTest {
     }
 
     private static A2aPushNotificationCallbackController controller() {
-        return new A2aPushNotificationCallbackController(new InMemoryA2aPushNotificationCallbackStore(),
-                callback -> false);
+        A2aPushNotificationCallbackHandler handler = callback -> true;
+        return new A2aPushNotificationCallbackController(new InMemoryA2aPushNotificationCallbackStore(), handler,
+                enabledGate(handler));
+    }
+
+    private static A2aPushNotificationCapabilityGate enabledGate(A2aPushNotificationCallbackHandler callbackHandler) {
+        A2AProperties properties = new A2AProperties();
+        properties.setPushNotifications(true);
+        properties.getPushNotification().setTrustedCallbackHosts(List.of("caller.example"));
+        return new A2aPushNotificationCapabilityGate(properties,
+                new HttpPushNotificationSender(new InMemoryPushNotificationConfigStore(),
+                        properties.getPushNotification()), new InMemoryA2aPushNotificationCallbackStore(),
+                callbackHandler);
+    }
+
+    private static A2aPushNotificationCapabilityGate disabledGate() {
+        A2AProperties properties = new A2AProperties();
+        return new A2aPushNotificationCapabilityGate(properties,
+                new HttpPushNotificationSender(new InMemoryPushNotificationConfigStore(),
+                        properties.getPushNotification()), new InMemoryA2aPushNotificationCallbackStore(),
+                callback -> true);
     }
 
     private static MockHttpServletRequest request(String notificationId) {

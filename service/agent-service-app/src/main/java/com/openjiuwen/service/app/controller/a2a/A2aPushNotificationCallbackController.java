@@ -38,10 +38,13 @@ public class A2aPushNotificationCallbackController {
 
     private final A2aPushNotificationCallbackHandler callbackHandler;
 
+    private final A2aPushNotificationCapabilityGate capabilityGate;
+
     public A2aPushNotificationCallbackController(A2aPushNotificationCallbackStore callbackStore,
-            A2aPushNotificationCallbackHandler callbackHandler) {
+            A2aPushNotificationCallbackHandler callbackHandler, A2aPushNotificationCapabilityGate capabilityGate) {
         this.callbackStore = callbackStore;
         this.callbackHandler = callbackHandler;
+        this.capabilityGate = capabilityGate;
     }
 
     @PostMapping(value = A2AServicePaths.A2A_PUSH_NOTIFICATION_CALLBACK, consumes = MediaType.APPLICATION_JSON_VALUE,
@@ -49,6 +52,9 @@ public class A2aPushNotificationCallbackController {
     @AuthorizedResource(resource = "a2a-push-callback", action = "receive")
     public ResponseEntity<String> handleCallback(@RequestBody(required = false) String rawBody,
             jakarta.servlet.http.HttpServletRequest request) {
+        if (!capabilityGate.isPushNotificationsEnabled()) {
+            return status(HttpStatus.NOT_IMPLEMENTED, "push notification callback is not enabled", null);
+        }
         JsonObject body;
         try {
             body = JsonParser.parseString(rawBody == null ? "" : rawBody).getAsJsonObject();
@@ -80,7 +86,10 @@ public class A2aPushNotificationCallbackController {
             return status(HttpStatus.CONFLICT, "conflict", notificationId);
         }
         if (result == A2aPushNotificationCallbackStore.SaveResult.CREATED) {
-            callbackHandler.onAccepted(new A2aPushNotificationCallback(notificationId, task));
+            boolean handled = callbackHandler.onAccepted(new A2aPushNotificationCallback(notificationId, task));
+            if (!handled) {
+                return status(HttpStatus.NOT_FOUND, "callback binding not found", notificationId);
+            }
         }
         return status(HttpStatus.OK, "accepted", notificationId);
     }

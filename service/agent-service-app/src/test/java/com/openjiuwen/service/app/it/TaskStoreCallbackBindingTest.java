@@ -26,7 +26,11 @@ import java.util.Map;
 /**
  * Verifies that inline callback configuration is bound to the task created by the real A2A entrypoint.
  */
-@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = {
+        "openjiuwen.service.a2a.push-notifications=true",
+        "openjiuwen.service.a2a.push-notification.trusted-callback-hosts[0]=127.0.0.1"
+    })
 @AutoConfigureTestRestTemplate
 class TaskStoreCallbackBindingTest {
     @Autowired
@@ -40,7 +44,7 @@ class TaskStoreCallbackBindingTest {
     @Test
     @SuppressWarnings("unchecked")
     void sendMessageBindsInlinePushConfigToCreatedTaskId() throws Exception {
-        String callbackUrl = "https://caller.example/a2a/push-notifications/callback";
+        String callbackUrl = "http://127.0.0.1/a2a/push-notifications/callback";
         Map<String, Object> request = Map.of(
             "jsonrpc", "2.0",
             "id", "callback-binding",

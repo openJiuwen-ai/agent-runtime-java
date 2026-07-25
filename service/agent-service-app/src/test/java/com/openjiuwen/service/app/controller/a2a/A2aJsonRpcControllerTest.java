@@ -14,8 +14,10 @@ import static org.mockito.Mockito.when;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.openjiuwen.service.app.config.A2AProperties;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
+import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
 import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.DataPart;
@@ -23,7 +25,10 @@ import org.a2aproject.sdk.spec.InvalidParamsError;
 import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.StreamingEventKind;
+import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskIdParams;
+import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -32,6 +37,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Flow;
 
@@ -102,7 +108,7 @@ class A2aJsonRpcControllerTest {
             }
         });
         when(requestHandler.onSubscribeToTask(any(TaskIdParams.class), any())).thenReturn(publisher);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler, new A2AProperties());
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
         String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\""
                 + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
@@ -154,7 +160,7 @@ class A2aJsonRpcControllerTest {
     @Test
     void unsupportedPushCrudMethodsReturnMethodNotFoundWithoutCallingSdkHandler() {
         RequestHandler requestHandler = mock(RequestHandler.class);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler, new A2AProperties());
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
 
         for (String method : UNSUPPORTED_PUSH_CRUD_METHODS) {
@@ -167,6 +173,71 @@ class A2aJsonRpcControllerTest {
             assertThat(body.getAsJsonObject("error").get("message").getAsString()).contains(method);
         }
         verifyNoInteractions(requestHandler);
+    }
+
+    @Test
+    void untrustedInlinePushConfigIsRejectedBeforeCallingSdkHandler() {
+        RequestHandler requestHandler = mock(RequestHandler.class);
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler,
+                propertiesWithTrustedHosts(List.of("trusted.example")));
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
+
+        ResponseEntity<?> response = controller.handleJsonRpc("""
+                {
+                  "jsonrpc": "2.0",
+                  "id": "req-1",
+                  "method": "SendMessage",
+                  "params": {
+                    "message": {
+                      "role": "ROLE_USER",
+                      "messageId": "msg-1",
+                      "contextId": "ctx-1",
+                      "parts": [{"kind": "text", "text": "hello"}]
+                    },
+                    "pushNotificationConfig": {
+                      "id": "push-1",
+                      "callbackUrl": "https://evil.example/a2a/push-notifications/callback"
+                    }
+                  }
+                }
+                """, servletRequest);
+
+        JsonObject body = JsonParser.parseString((String) response.getBody()).getAsJsonObject();
+        assertThat(body.getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32602);
+        verifyNoInteractions(requestHandler);
+    }
+
+    @Test
+    void trustedInlinePushConfigReachesSdkHandler() {
+        RequestHandler requestHandler = mock(RequestHandler.class);
+        when(requestHandler.onMessageSend(org.mockito.ArgumentMatchers.any(MessageSendParams.class),
+                org.mockito.ArgumentMatchers.any(ServerCallContext.class))).thenReturn(completedTask());
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler,
+                propertiesWithTrustedHosts(List.of("trusted.example")));
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
+
+        controller.handleJsonRpc("""
+                {
+                  "jsonrpc": "2.0",
+                  "id": "req-1",
+                  "method": "SendMessage",
+                  "params": {
+                    "message": {
+                      "role": "ROLE_USER",
+                      "messageId": "msg-1",
+                      "contextId": "ctx-1",
+                      "parts": [{"kind": "text", "text": "hello"}]
+                    },
+                    "pushNotificationConfig": {
+                      "id": "push-1",
+                      "callbackUrl": "https://trusted.example/a2a/push-notifications/callback"
+                    }
+                  }
+                }
+                """, servletRequest);
+
+        verify(requestHandler).onMessageSend(org.mockito.ArgumentMatchers.any(MessageSendParams.class),
+                org.mockito.ArgumentMatchers.any(ServerCallContext.class));
     }
 
     @Test
@@ -229,5 +300,16 @@ class A2aJsonRpcControllerTest {
                 + "\"role\":\"ROLE_USER\",\"messageId\":\"msg-1\",\"contextId\":\"ctx-1\","
                 + "\"parts\":[{\"kind\":\"text\",\"text\":\"hello\"}],\"metadata\":" + messageMetadata + "}}}";
         return JsonParser.parseString(json).getAsJsonObject();
+    }
+
+    private static A2AProperties propertiesWithTrustedHosts(List<String> trustedHosts) {
+        A2AProperties properties = new A2AProperties();
+        properties.getPushNotification().setTrustedCallbackHosts(trustedHosts);
+        return properties;
+    }
+
+    private static Task completedTask() {
+        return Task.builder().id("task-1").contextId("ctx-1")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
     }
 }

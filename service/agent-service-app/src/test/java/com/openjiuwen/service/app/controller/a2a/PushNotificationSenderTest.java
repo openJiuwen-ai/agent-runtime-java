@@ -20,6 +20,9 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -79,6 +82,28 @@ class PushNotificationSenderTest {
             assertThat(record.attempts()).isEqualTo(1);
             assertThat(record.success()).isTrue();
         });
+    }
+
+    @Test
+    void senderCallbackBodyIsAcceptedByReceiver() {
+        A2AProperties.PushNotificationProperties pushProperties = trustedLocalhost();
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(
+                new InMemoryPushNotificationConfigStore(), pushProperties);
+        A2aPushNotificationCallbackHandler handler = callback -> true;
+        A2AProperties properties = new A2AProperties();
+        properties.setPushNotifications(true);
+        properties.setPushNotification(pushProperties);
+        A2aPushNotificationCallbackController receiver = new A2aPushNotificationCallbackController(
+                new InMemoryA2aPushNotificationCallbackStore(), handler,
+                new A2aPushNotificationCapabilityGate(properties, sender,
+                        new InMemoryA2aPushNotificationCallbackStore(), handler));
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/a2a/push-notifications/callback");
+        request.addHeader("X-A2A-Notification-Id", "notif-sender-receiver");
+
+        ResponseEntity<String> response = receiver.handleCallback(sender.callbackBody("notif-sender-receiver",
+                completedTask("task-1")), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test

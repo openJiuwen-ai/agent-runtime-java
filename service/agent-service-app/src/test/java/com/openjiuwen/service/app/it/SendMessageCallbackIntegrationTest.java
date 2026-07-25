@@ -28,7 +28,11 @@ import java.util.Map;
 /**
  * Integration journey for SendMessage with inline push callback configuration.
  */
-@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = {
+        "openjiuwen.service.a2a.push-notifications=true",
+        "openjiuwen.service.a2a.push-notification.trusted-callback-hosts[0]=127.0.0.1"
+    })
 @AutoConfigureTestRestTemplate
 class SendMessageCallbackIntegrationTest {
     @Autowired
@@ -42,7 +46,7 @@ class SendMessageCallbackIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void sendMessageWithInlineCallbackConfigCreatesQueryableTaskAndBindsCallbackConfig() throws Exception {
-        String callbackUrl = "https://caller.example/a2a/push-notifications/callback";
+        String callbackUrl = "http://127.0.0.1/a2a/push-notifications/callback";
         Map<String, Object> request = rpc("SendMessage", "send-callback-journey", Map.of(
             "message", Map.of(
                 "role", "ROLE_USER",

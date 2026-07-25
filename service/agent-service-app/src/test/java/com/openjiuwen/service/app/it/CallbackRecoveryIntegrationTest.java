@@ -30,7 +30,11 @@ import java.util.Map;
  * Integration journey for remote callback recovery through the HTTP receiver.
  */
 @SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = "spring.application.name=recovery-it")
+    properties = {
+        "spring.application.name=recovery-it",
+        "openjiuwen.service.a2a.push-notifications=true",
+        "openjiuwen.service.a2a.push-notification.trusted-callback-hosts[0]=127.0.0.1"
+    })
 @AutoConfigureTestRestTemplate
 class CallbackRecoveryIntegrationTest {
     private static final String CALLBACK_PATH = "/a2a/push-notifications/callback";

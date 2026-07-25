@@ -8,11 +8,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -24,7 +29,11 @@ import java.util.Map;
 /**
  * Integration journey for the fixed A2A push notification callback receiver.
  */
-@SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(classes = {TestServiceApplication.class, PushNotificationCallbackIntegrationTest.CallbackTestConfig.class},
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+            "openjiuwen.service.a2a.push-notifications=true",
+            "openjiuwen.service.a2a.push-notification.trusted-callback-hosts[0]=127.0.0.1"
+        })
 @AutoConfigureTestRestTemplate
 class PushNotificationCallbackIntegrationTest {
     private static final String CALLBACK_PATH = "/a2a/push-notifications/callback";
@@ -134,5 +143,14 @@ class PushNotificationCallbackIntegrationTest {
                   }%s
                 }
                 """.formatted(taskId, notification);
+    }
+
+    @TestConfiguration
+    static class CallbackTestConfig {
+        @Bean
+        @Primary
+        A2aPushNotificationCallbackHandler callbackHandler() {
+            return callback -> true;
+        }
     }
 }

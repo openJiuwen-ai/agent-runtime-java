@@ -69,14 +69,15 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         if (config.isEmpty() || config.get().url() == null || config.get().url().isBlank()) {
             return;
         }
-        URI callbackUri = URI.create(config.get().url());
+        Optional<URI> callbackUri = A2aPushNotificationTrustPolicy.trustedCallbackUri(config.get().url(), properties);
         String notificationId = notificationId(task.id(), config.get().id(), event == null ? null : event.kind());
-        if (!isTrusted(callbackUri)) {
+        if (callbackUri.isEmpty()) {
             record(notificationId, task.id(), config.get().id(), false, "untrusted callback host");
-            log.warn("Rejected A2A push notification for untrusted callback host {}", callbackUri.getHost());
+            log.warn("Rejected A2A push notification for untrusted callback URL {}", config.get().url());
             return;
         }
-        HttpRequest request = request(callbackUri, notificationId, config.get(), callbackBody(notificationId, task));
+        HttpRequest request = request(callbackUri.get(), notificationId, config.get(), callbackBody(notificationId,
+                task));
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             boolean success = response.statusCode() >= 200 && response.statusCode() < 300;
@@ -104,11 +105,6 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         return configs == null || configs.isEmpty() ? Optional.empty() : Optional.of(configs.get(0));
     }
 
-    private boolean isTrusted(URI callbackUri) {
-        List<String> trustedHosts = properties.getTrustedCallbackHosts();
-        return callbackUri.getHost() != null && trustedHosts != null && trustedHosts.contains(callbackUri.getHost());
-    }
-
     private HttpRequest request(URI callbackUri, String notificationId, TaskPushNotificationConfig config, String body) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(callbackUri).POST(HttpRequest.BodyPublishers.ofString(body,
                 StandardCharsets.UTF_8)).header("Content-Type", "application/json")
@@ -131,7 +127,7 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         return Optional.of(authentication.scheme() + " " + authentication.credentials());
     }
 
-    private String callbackBody(String notificationId, Task task) {
+    String callbackBody(String notificationId, Task task) {
         try {
             return JsonUtil.toJson(Map.of("jsonrpc", "2.0", "result", task, "notificationId", notificationId));
         } catch (JsonProcessingException e) {
