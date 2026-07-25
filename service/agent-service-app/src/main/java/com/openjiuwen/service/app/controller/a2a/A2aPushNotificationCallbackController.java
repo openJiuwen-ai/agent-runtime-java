@@ -12,6 +12,8 @@ import com.openjiuwen.service.spec.security.AuthorizedResource;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskStatus;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Map;
 
 /**
  * Fixed receiver for runtime-to-runtime A2A push notification callbacks.
@@ -95,7 +98,7 @@ public class A2aPushNotificationCallbackController {
         }
         Task parsed;
         try {
-            parsed = JsonUtil.fromJson(task.toString(), Task.class);
+            parsed = normalizeState(JsonUtil.fromJson(task.toString(), Task.class), task.getAsJsonObject());
         } catch (org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
             throw new IllegalArgumentException("callback result.task is invalid", e);
         }
@@ -103,6 +106,59 @@ public class A2aPushNotificationCallbackController {
             throw new IllegalArgumentException("callback result.task.id is required");
         }
         return parsed;
+    }
+
+    private static Task normalizeState(Task task, JsonObject rawTask) {
+        if (task == null || task.status() == null
+                || (task.status().state() != null && task.status().state() != TaskState.UNRECOGNIZED)) {
+            return task;
+        }
+        TaskState state = rawState(rawTask);
+        if (state == null) {
+            return task;
+        }
+        TaskStatus status = new TaskStatus(state, task.status().message(), task.status().timestamp());
+        return Task.builder(task).status(status).build();
+    }
+
+    private static TaskState rawState(JsonObject rawTask) {
+        JsonElement state = findState(rawTask);
+        if (state == null || !state.isJsonPrimitive()) {
+            return null;
+        }
+        String value = state.getAsString();
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim().toUpperCase(java.util.Locale.ROOT).replace('-', '_');
+        if (!normalized.startsWith("TASK_STATE_")) {
+            normalized = "TASK_STATE_" + normalized;
+        }
+        try {
+            return TaskState.valueOf(normalized);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static JsonElement findState(JsonObject object) {
+        if (object == null) {
+            return null;
+        }
+        JsonElement direct = object.get("state");
+        if (direct != null) {
+            return direct;
+        }
+        for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
+            JsonElement value = entry.getValue();
+            if (value != null && value.isJsonObject()) {
+                JsonElement nested = findState(value.getAsJsonObject());
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
     }
 
     private static String stringMember(JsonObject body, String memberName) {

@@ -539,11 +539,14 @@ final class RemoteInvocationBatchCoordinator {
         TaskStatus status = task.status();
         TaskState state = status == null ? null : status.state();
         String statusText = status == null || status.message() == null ? "" : extractText(status.message().parts());
+        String taskText = extractTaskResult(task);
+        if (isResultBearingNonTerminalState(state) && (!taskText.isBlank() || !statusText.isBlank())) {
+            state = TaskState.TASK_STATE_COMPLETED;
+        }
         if (state == TaskState.TASK_STATE_INPUT_REQUIRED || state == TaskState.TASK_STATE_AUTH_REQUIRED) {
             String inputPrompt = statusText.isBlank() ? "Remote agent requires input" : statusText;
             return new RemoteCallOutcome(task.id(), state, resultCategory(state), null, inputPrompt);
         }
-        String taskText = extractTaskResult(task);
         String resultText = state == TaskState.TASK_STATE_COMPLETED
             ? (taskText.isBlank() ? statusText : taskText)
             : (statusText.isBlank() ? taskText : statusText);
@@ -561,6 +564,13 @@ final class RemoteInvocationBatchCoordinator {
             case TASK_STATE_FAILED -> "REMOTE_BUSINESS_FAILURE";
             default -> "REMOTE_PROTOCOL_ERROR";
         };
+    }
+
+    private static boolean isResultBearingNonTerminalState(TaskState state) {
+        return state == null
+            || state == TaskState.UNRECOGNIZED
+            || state == TaskState.TASK_STATE_SUBMITTED
+            || state == TaskState.TASK_STATE_WORKING;
     }
 
     private static String shadowState(Batch batch) {

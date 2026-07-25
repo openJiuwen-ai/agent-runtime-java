@@ -61,14 +61,14 @@ class SendMessageCallbackIntegrationTest {
         assertThat(sendBody).containsEntry("jsonrpc", "2.0").containsEntry("id", "send-callback-journey");
         assertThat(taskId).isNotBlank();
         assertThat(task.get("contextId")).isEqualTo("ctx-send-callback-journey");
-        assertThat(((Map<String, Object>) task.get("status")).get("state")).isEqualTo("TASK_STATE_COMPLETED");
-        assertThat(firstArtifactText(task)).contains("turn1:send callback journey");
+        assertThat(((Map<String, Object>) task.get("status")).get("state"))
+            .isIn("TASK_STATE_WORKING", "TASK_STATE_COMPLETED");
         assertBoundConfig(taskId, callbackUrl);
 
-        Map<String, Object> getBody = json(postA2a(rpc("GetTask", "get-callback-journey", Map.of("id", taskId))));
+        Map<String, Object> getBody = awaitTaskCompleted(taskId);
         Map<String, Object> storedTask = taskFrom(getBody);
 
-        assertThat(getBody).containsEntry("jsonrpc", "2.0").containsEntry("id", "get-callback-journey");
+        assertThat(getBody).containsEntry("jsonrpc", "2.0");
         assertThat(storedTask.get("id")).isEqualTo(taskId);
         assertThat(storedTask.get("contextId")).isEqualTo("ctx-send-callback-journey");
         assertThat(firstArtifactText(storedTask)).contains("turn1:send callback journey");
@@ -88,6 +88,23 @@ class SendMessageCallbackIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         return rest.postForEntity("/a2a/", new HttpEntity<>(body, headers), String.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> awaitTaskCompleted(String taskId) throws Exception {
+        AssertionError last = null;
+        for (int attempt = 0; attempt < 20; attempt++) {
+            Map<String, Object> body = json(postA2a(rpc("GetTask", "get-callback-journey-" + attempt,
+                Map.of("id", taskId))));
+            Map<String, Object> task = taskFrom(body);
+            Object state = ((Map<String, Object>) task.get("status")).get("state");
+            if ("TASK_STATE_COMPLETED".equals(state)) {
+                return body;
+            }
+            last = new AssertionError("task was not completed, state=" + state);
+            Thread.sleep(100);
+        }
+        throw last;
     }
 
     private static Map<String, Object> rpc(String method, Object id, Map<String, Object> params) {
