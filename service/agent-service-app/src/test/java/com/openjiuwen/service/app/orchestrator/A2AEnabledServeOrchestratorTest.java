@@ -112,7 +112,6 @@ class A2AEnabledServeOrchestratorTest {
             "runtime.parentTaskId", "task-client-tool-stream",
             "runtime.remoteToolInputs", Map.of("call-a", "page body"),
             "_interrupt", clientToolInterrupt("call-a", "readCurrentPage")));
-        Map<String, Object> expectedMetadata = new java.util.LinkedHashMap<>(metadata);
         request.setMetadata(metadata);
         doAnswer(invocation -> {
             ServeRequest actual = invocation.getArgument(0);
@@ -123,6 +122,7 @@ class A2AEnabledServeOrchestratorTest {
             return null;
         }).when(agentHandler).streamQuery(any(), any());
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        Map<String, Object> expectedMetadata = new java.util.LinkedHashMap<>(metadata);
 
         orchestrator.streamQuery(request, observer);
 
