@@ -9,10 +9,10 @@ server:
   port: 18090
 
 openjiuwen:
-  demo:
+  service:
     llm:
       system-prompt: "You are Agent A in an A2A demo. Your job is to receive user questions and delegate every user request to Agent B using the delegate_to_agentb tool. Do not answer directly. Agent B is responsible for deciding whether to use its local calculator or forward the request to Agent C."
-  service:
+      temperature: 0.1
     a2a:
       agent-description: "A2A Agent A — entry ReAct LLM agent that delegates user requests to remote Agent B"
       is-streaming: true

@@ -29,7 +29,6 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A2A SDK {@link AgentExecutor} implementation — the sole bridge between the
@@ -108,7 +107,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             } else {
                 executeQuery(msgCtx, ctx, req, emitter);
             }
-        } catch (IllegalStateException | NullPointerException ex) {
+        } catch (IllegalArgumentException | IllegalStateException | NullPointerException ex) {
             log.error("Agent execution failed for contextId={}", ctx.getContextId(), ex);
             emitter.fail();
         }
@@ -178,11 +177,9 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter) {
-        if (orchestrator instanceof A2AEnabledServeOrchestrator) {
-            executeQueryThroughStream(msgCtx, req, emitter);
-            return;
-        }
-        QueryResponse response = orchestrator.query(req);
+        QueryResponse response = orchestrator instanceof A2AEnabledServeOrchestrator a2aOrchestrator
+            ? a2aOrchestrator.queryWithProgress(req, remoteProgressObserver(emitter))
+            : orchestrator.query(req);
         if (response.getResult() instanceof Map<?, ?> result
                 && result.get(INTERRUPT) instanceof Map<?, ?> interruptData) {
             log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
@@ -199,101 +196,27 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
-    private void executeQueryThroughStream(A2AMessageContext msgCtx, ServeRequest request, AgentEmitter emitter) {
-        StringBuilder content = new StringBuilder();
-        AtomicReference<String> finalAnswer = new AtomicReference<>();
-        AtomicBoolean terminal = new AtomicBoolean(false);
-        orchestrator.streamQuery(request, new QueryStreamObserver() {
-                @Override
-                public void onNext(QueryChunk chunk) {
-                    if (terminal.get()) {
-                        return;
-                    }
-                    if (QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType())) {
-                        List<Part<?>> parts = chunkMapper.toParts(chunk);
-                        if (!parts.isEmpty()) {
-                            emitter.addArtifact(parts);
-                        }
-                        return;
-                    }
-                    if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
-                        terminal.set(true);
-                        if (chunk.getData() instanceof Map<?, ?> interruptData) {
-                            emitter.requiresInput(statusMessage(interruptData));
-                        } else {
-                            emitter.requiresInput();
-                        }
-                        closeEventQueue(emitter, msgCtx.getTaskId());
-                        return;
-                    }
-                    appendNonStreamingChunk(chunk, content, finalAnswer);
+    private QueryStreamObserver remoteProgressObserver(AgentEmitter emitter) {
+        return new QueryStreamObserver() {
+            @Override
+            public void onNext(QueryChunk chunk) {
+                if (!QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType())) {
+                    return;
                 }
-
-                @Override
-                public void onComplete() {
-                    completeQueryThroughStream(msgCtx, emitter, content, finalAnswer, terminal);
+                List<Part<?>> parts = chunkMapper.toParts(chunk);
+                if (!parts.isEmpty()) {
+                    emitter.addArtifact(parts);
                 }
-
-                @Override
-                public void onError(Throwable error) {
-                    if (terminal.compareAndSet(false, true)) {
-                        log.error("A2A non-streaming internal stream failed taskId={}", msgCtx.getTaskId(), error);
-                        emitter.fail();
-                    }
-                }
-
-                @Override
-                public boolean isCancelled() {
-                    return false;
-                }
-            });
-    }
-
-    private static void completeQueryThroughStream(A2AMessageContext msgCtx, AgentEmitter emitter,
-            StringBuilder content, AtomicReference<String> finalAnswer, AtomicBoolean terminal) {
-        if (!terminal.compareAndSet(false, true)) {
-            return;
-        }
-        String result = finalAnswer.get() != null ? finalAnswer.get() : content.toString();
-        if (!result.isEmpty()) {
-            emitter.addArtifact(List.of(new TextPart(result)));
-        }
-        completeAndDrain(emitter, msgCtx.getTaskId());
-    }
-
-    private static void appendNonStreamingChunk(QueryChunk chunk, StringBuilder content,
-            AtomicReference<String> finalAnswer) {
-        Object data = chunk.getData();
-        if (data instanceof String text) {
-            content.append(text);
-            return;
-        }
-        if (data instanceof Map<?, ?> map) {
-            Map<?, ?> payloadMap = map.get("payload") instanceof Map<?, ?> payload ? payload : null;
-            String text = payloadMap == null ? firstBusinessText(map) : firstBusinessText(payloadMap);
-            if (text.isEmpty() && payloadMap != null) {
-                text = firstBusinessText(map);
             }
-            boolean isAnswer = "answer".equals(map.get("type"))
-                || payloadMap != null && "answer".equals(payloadMap.get("result_type"));
-            if (isAnswer) {
-                if (!text.isEmpty()) {
-                    finalAnswer.set(text);
-                }
-            } else {
-                content.append(text);
-            }
-        }
-    }
 
-    private static String firstBusinessText(Map<?, ?> map) {
-        for (String key : List.of("content", "delta", "output", "response")) {
-            Object value = map.get(key);
-            if (value != null && !(value instanceof Map<?, ?>) && !(value instanceof List<?>)) {
-                return String.valueOf(value);
+            @Override
+            public void onComplete() {
             }
-        }
-        return "";
+
+            @Override
+            public void onError(Throwable error) {
+            }
+        };
     }
 
     private static Message statusMessage(Map<?, ?> interruptData) {
