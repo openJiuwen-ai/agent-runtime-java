@@ -94,6 +94,7 @@ final class A2aJsonRpcParamsParser {
             if (inlinePushConfig != null && !inlinePushConfig.isJsonNull()) {
                 builder.taskPushNotificationConfig(parseTaskPushNotificationConfig(inlinePushConfig,
                         "params.pushNotificationConfig"));
+                builder.returnImmediately(true);
             }
             return builder.build();
         } catch (InvalidParamsError e) {

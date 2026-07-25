@@ -195,6 +195,7 @@ class A2aJsonRpcControllerTest {
         MessageSendParams params = A2aJsonRpcParamsParser.parseMessageSendParams(request);
 
         assertThat(params.configuration()).isNotNull();
+        assertThat(params.configuration().returnImmediately()).isTrue();
         assertThat(params.configuration().taskPushNotificationConfig()).satisfies(config -> {
             assertThat(config.id()).isEqualTo("push-1");
             assertThat(config.url()).isEqualTo("https://caller.example/a2a/push-notifications/callback");
