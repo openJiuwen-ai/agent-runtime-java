@@ -212,8 +212,9 @@ public class A2AAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter) {
-        return new A2AAgentExecutor(orchestrator, adapter);
+    public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
+            PushNotificationSender pushNotificationSender, PushNotificationConfigStore pushConfigStore) {
+        return new A2AAgentExecutor(orchestrator, adapter, pushNotificationSender, pushConfigStore);
     }
 
     /**

@@ -13,9 +13,13 @@ import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.agentexecution.RequestContext;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
+import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
+import org.a2aproject.sdk.server.tasks.PushNotificationSender;
+import org.a2aproject.sdk.spec.MessageSendConfiguration;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskPushNotificationConfig;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
@@ -25,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.time.OffsetDateTime;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -63,13 +68,29 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private final A2AProtocolAdapter adapter;
 
+    private final PushNotificationSender pushNotificationSender;
+
+    private final PushNotificationConfigStore pushNotificationConfigStore;
+
     private final ChunkMapper chunkMapper = new ChunkMapper();
 
     private final ConcurrentMap<String, AtomicBoolean> activeCancellations = new ConcurrentHashMap<>();
 
     public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter) {
+        this(orchestrator, adapter, null, null);
+    }
+
+    public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
+            PushNotificationSender pushNotificationSender) {
+        this(orchestrator, adapter, pushNotificationSender, null);
+    }
+
+    public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
+            PushNotificationSender pushNotificationSender, PushNotificationConfigStore pushNotificationConfigStore) {
         this.orchestrator = orchestrator;
         this.adapter = adapter;
+        this.pushNotificationSender = pushNotificationSender;
+        this.pushNotificationConfigStore = pushNotificationConfigStore;
     }
 
     @Override
@@ -108,7 +129,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             }
         } catch (IllegalArgumentException | IllegalStateException | NullPointerException ex) {
             log.error("Agent execution failed for contextId={}", ctx.getContextId(), ex);
-            emitter.fail();
+            failAndDrain(emitter, msgCtx, ctx, ex, pushNotificationSender, pushNotificationConfigStore);
         }
     }
 
@@ -273,6 +294,57 @@ public class A2AAgentExecutor implements AgentExecutor {
         } catch (ReflectiveOperationException | SecurityException e) {
             log.debug("A2A completeAndDrain: eventQueue unavailable taskId={}", taskId, e);
         }
+    }
+
+    private static void failAndDrain(AgentEmitter emitter, A2AMessageContext msgCtx, RequestContext ctx,
+            RuntimeException error, PushNotificationSender pushNotificationSender,
+            PushNotificationConfigStore pushNotificationConfigStore) {
+        emitter.fail();
+        String taskId = msgCtx.getTaskId();
+        try {
+            Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
+            queue.ifPresent(q -> awaitInFlightDrained(q, taskId));
+            log.info("A2A eventQueue drained after FAILED taskId={}", taskId);
+        } catch (ReflectiveOperationException | SecurityException e) {
+            log.debug("A2A failAndDrain: eventQueue unavailable taskId={}", taskId, e);
+        }
+        sendFailureNotification(msgCtx, ctx, error, pushNotificationSender, pushNotificationConfigStore);
+    }
+
+    private static void sendFailureNotification(A2AMessageContext msgCtx, RequestContext ctx, RuntimeException error,
+            PushNotificationSender pushNotificationSender, PushNotificationConfigStore pushNotificationConfigStore) {
+        if (pushNotificationSender == null || msgCtx.getTaskId() == null || msgCtx.getTaskId().isBlank()) {
+            return;
+        }
+        try {
+            bindFailurePushConfig(msgCtx.getTaskId(), ctx.getConfiguration(), pushNotificationConfigStore);
+            Message message = Message.builder().role(Message.Role.ROLE_AGENT)
+                .parts(List.of(new TextPart(error.getMessage() == null ? "Agent execution failed"
+                    : error.getMessage())))
+                .build();
+            Task failedTask = Task.builder()
+                .id(msgCtx.getTaskId())
+                .contextId(msgCtx.getContextId())
+                .status(new org.a2aproject.sdk.spec.TaskStatus(TaskState.TASK_STATE_FAILED, message,
+                    OffsetDateTime.now()))
+                .build();
+            pushNotificationSender.sendNotification(null, failedTask);
+        } catch (RuntimeException notificationError) {
+            log.warn("A2A failure push notification failed taskId={}", msgCtx.getTaskId(), notificationError);
+        }
+    }
+
+    private static void bindFailurePushConfig(String taskId, MessageSendConfiguration configuration,
+            PushNotificationConfigStore pushNotificationConfigStore) {
+        if (pushNotificationConfigStore == null || configuration == null
+                || configuration.taskPushNotificationConfig() == null) {
+            return;
+        }
+        TaskPushNotificationConfig config = TaskPushNotificationConfig
+            .builder(configuration.taskPushNotificationConfig())
+            .taskId(taskId)
+            .build();
+        pushNotificationConfigStore.setInfo(config);
     }
 
     private static Optional<org.a2aproject.sdk.server.events.EventQueue> emitterEventQueue(AgentEmitter emitter)

@@ -70,6 +70,8 @@ final class RemoteInvocationBatchCoordinator {
         REMOTE_BATCH_ID,
         "runtime.remoteToolResults");
 
+    private static final int MAX_EARLY_CALLBACKS = 256;
+
     private static final QueryStreamObserver NOOP_OBSERVER = new QueryStreamObserver() {
         @Override
         public void onNext(QueryChunk chunk) {
@@ -108,6 +110,8 @@ final class RemoteInvocationBatchCoordinator {
     private final Map<String, Batch> activeByParent = new LinkedHashMap<>();
 
     private final Map<String, String> coreResumeClaims = new LinkedHashMap<>();
+
+    private final Map<String, Task> earlyCallbacksByRemoteTaskId = new LinkedHashMap<>();
 
     private int activeCount;
 
@@ -241,7 +245,18 @@ final class RemoteInvocationBatchCoordinator {
                 return true;
             }
         }
+        rememberEarlyCallback(task);
         return false;
+    }
+
+    private void rememberEarlyCallback(Task task) {
+        synchronized (lock) {
+            earlyCallbacksByRemoteTaskId.put(task.id(), task);
+            while (earlyCallbacksByRemoteTaskId.size() > MAX_EARLY_CALLBACKS) {
+                String eldest = earlyCallbacksByRemoteTaskId.keySet().iterator().next();
+                earlyCallbacksByRemoteTaskId.remove(eldest);
+            }
+        }
     }
 
     private boolean recoverShadow(Task shadow, Map<?, ?> rawBatch, Task task) {
@@ -703,6 +718,35 @@ final class RemoteInvocationBatchCoordinator {
             .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
             .metadata(Map.of(REMOTE_BATCH, snapshot))
             .build(), true);
+        replayEarlyCallbacks(batch);
+    }
+
+    private void replayEarlyCallbacks(Batch batch) {
+        List<Task> callbacks = new ArrayList<>();
+        synchronized (lock) {
+            for (Member member : batch.members) {
+                if (member.remoteTaskId == null || member.remoteTaskId.isBlank()) {
+                    continue;
+                }
+                Task callback = earlyCallbacksByRemoteTaskId.remove(member.remoteTaskId);
+                if (callback != null) {
+                    callbacks.add(callback);
+                }
+            }
+        }
+        if (callbacks.isEmpty()) {
+            return;
+        }
+        Task shadow = taskStore.get(shadowTaskId(batch.parentTaskId));
+        for (Task callback : callbacks) {
+            if (!isBatchShadow(shadow)) {
+                return;
+            }
+            Map<?, ?> rawBatch = (Map<?, ?>) shadow.metadata().get(REMOTE_BATCH);
+            if (recoverShadow(shadow, rawBatch, callback)) {
+                shadow = taskStore.get(shadowTaskId(batch.parentTaskId));
+            }
+        }
     }
 
     void completeResume(ServeRequest request) {

@@ -28,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -93,21 +94,54 @@ class PushNotificationSenderIntegrationTest {
         assertThat((Map<String, Object>) task.get("status")).containsEntry("state", "TASK_STATE_COMPLETED");
     }
 
+    @Test
+    void springConfiguredSenderRejectsUntrustedCallbackHostWithoutPosting() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/a2a/push-notifications/callback", exchange -> {
+            requests.incrementAndGet();
+            respond(exchange, 202, "{\"status\":\"accepted\"}");
+        });
+        server.start();
+        pushConfigStore.setInfo(TaskPushNotificationConfig.builder()
+            .id("push-untrusted-runtime")
+            .taskId("task-untrusted-runtime")
+            .url(untrustedCallbackUrl())
+            .token("runtime-token")
+            .build());
+
+        sender.sendNotification(completedEvent("task-untrusted-runtime"), completedTask("task-untrusted-runtime"));
+
+        assertThat(requests.get()).isZero();
+    }
+
     private String callbackUrl() {
         return "http://127.0.0.1:" + server.getAddress().getPort() + "/a2a/push-notifications/callback";
     }
 
+    private String untrustedCallbackUrl() {
+        return "http://localhost:" + server.getAddress().getPort() + "/a2a/push-notifications/callback";
+    }
+
     private static Task completedTask() {
+        return completedTask("task-runtime-to-runtime");
+    }
+
+    private static Task completedTask(String taskId) {
         return Task.builder()
-            .id("task-runtime-to-runtime")
+            .id(taskId)
             .contextId("ctx-runtime-to-runtime")
             .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
             .build();
     }
 
     private static TaskStatusUpdateEvent completedEvent() {
+        return completedEvent("task-runtime-to-runtime");
+    }
+
+    private static TaskStatusUpdateEvent completedEvent(String taskId) {
         return TaskStatusUpdateEvent.builder()
-            .taskId("task-runtime-to-runtime")
+            .taskId(taskId)
             .contextId("ctx-runtime-to-runtime")
             .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
             .build();
