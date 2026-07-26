@@ -242,6 +242,27 @@ function Read-SyncTask {
     return [pscustomobject]@{ TaskId = [string]$task.id; State = $ExpectedState; Payload = $payload }
 }
 
+function Assert-CalculationResult {
+    param(
+        [object]$Response,
+        [string]$ExpectedResult
+    )
+    $texts = @(
+        foreach ($artifact in @($Response.result.task.artifacts)) {
+            foreach ($part in @($artifact.parts)) {
+                if ($null -ne $part.text) { [string]$part.text }
+            }
+        }
+    )
+    if ($texts | Where-Object { $_.Trim().ToLowerInvariant() -eq "ok" }) {
+        throw "calculator returned the confirmation text instead of a result"
+    }
+    $escapedResult = [regex]::Escape($ExpectedResult)
+    if (-not ($texts | Where-Object { $_ -match "(?:^|\D)$escapedResult(?:\D|$)" })) {
+        throw "calculator artifacts did not contain result $ExpectedResult"
+    }
+}
+
 function Assert-LogContains {
     param([string]$LogFile, [string]$Expected)
     if (-not (Select-String -LiteralPath $LogFile -SimpleMatch $Expected -Quiet)) {
@@ -402,19 +423,20 @@ try {
     $calcContext = "$ConvId-calc"
     Write-Step "2a" "Round 1: trigger A->B calculator through SendMessage"
     $calcBody1 = New-A2aRequestBody "SendMessage" "calc-1" $calcContext "" `
-        "Calculate 1+1 through Agent B. Use the calc tool and ask for confirmation."
+        "Please calculate 1+1 through Agent B."
     $calcResponse1 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/a2a/" -Method POST `
         -Body $calcBody1 -TimeoutSec 300
     Save-JsonResponse $calcResponse1 "calc-response-1.json"
-    $calcTask1 = Read-SyncTask $calcResponse1 "TASK_STATE_INPUT_REQUIRED" "confirm"
+    $calcTask1 = Read-SyncTask $calcResponse1 "TASK_STATE_INPUT_REQUIRED" "reply yes or no"
     Write-Pass "A->B calculator reached confirmation (taskId=$($calcTask1.TaskId))"
 
     Write-Step "2b" "Round 2: resume the same A->B calculator task"
-    $calcBody2 = New-A2aRequestBody "SendMessage" "calc-2" $calcContext $calcTask1.TaskId "2"
+    $calcBody2 = New-A2aRequestBody "SendMessage" "calc-2" $calcContext $calcTask1.TaskId "ok"
     $calcResponse2 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/a2a/" -Method POST `
         -Body $calcBody2 -TimeoutSec 300
     Save-JsonResponse $calcResponse2 "calc-response-2.json"
-    $calcTask2 = Read-SyncTask $calcResponse2 "TASK_STATE_COMPLETED" "2"
+    $calcTask2 = Read-SyncTask $calcResponse2 "TASK_STATE_COMPLETED"
+    Assert-CalculationResult $calcResponse2 "2"
     if ($calcTask2.TaskId -ne $calcTask1.TaskId) {
         throw "A->B calculator resume changed taskId from $($calcTask1.TaskId) to $($calcTask2.TaskId)"
     }

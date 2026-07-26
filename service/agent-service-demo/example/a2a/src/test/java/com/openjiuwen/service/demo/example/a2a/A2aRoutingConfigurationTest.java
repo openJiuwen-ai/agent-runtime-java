@@ -31,8 +31,10 @@ class A2aRoutingConfigurationTest {
     void agentAUsesConfiguredStreamingAgentBRoute() throws IOException {
         A2AProperties properties = bind("application-a2a-agent-a.yml");
 
-        assertThat(properties.getRemoteAgents()).extracting(A2AProperties.RemoteAgentProperties::getName,
-                A2AProperties.RemoteAgentProperties::isStreaming).containsExactly(tuple("agentb", true));
+        assertThat(properties.getRemoteAgents())
+                .extracting(A2AProperties.RemoteAgentProperties::getName, A2AProperties.RemoteAgentProperties::getUrl,
+                        A2AProperties.RemoteAgentProperties::isStreaming)
+                .containsExactly(tuple("agentb", "http://localhost:18091/", true));
         assertThat(properties.getSkills()).extracting(A2AProperties.SkillProperties::getId)
                 .contains("delegate_to_agentb").doesNotContain("delegate_to_agentb_sync");
     }
@@ -42,10 +44,12 @@ class A2aRoutingConfigurationTest {
         A2AProperties properties = bind("application-a2a-agent-b.yml");
 
         assertThat(properties.getRemoteAgents())
-                .extracting(A2AProperties.RemoteAgentProperties::getName,
+                .extracting(A2AProperties.RemoteAgentProperties::getName, A2AProperties.RemoteAgentProperties::getUrl,
                         A2AProperties.RemoteAgentProperties::isStreaming)
-                .containsExactly(tuple("agentc-streaming", true), tuple("agentc-nonstreaming", false),
-                        tuple("agentd-streaming", true), tuple("agentd-nonstreaming", false));
+                .containsExactly(tuple("agentc-streaming", "http://localhost:18092/", true),
+                        tuple("agentc-nonstreaming", "http://localhost:18092/", false),
+                        tuple("agentd-streaming", "http://localhost:18093/", true),
+                        tuple("agentd-nonstreaming", "http://localhost:18093/", false));
         assertThat(properties.getSkills()).extracting(A2AProperties.SkillProperties::getId).contains(
                 "delegate_to_agentc_streaming", "delegate_to_agentc_nonstreaming", "review_expense_streaming",
                 "review_expense_nonstreaming");

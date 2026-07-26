@@ -64,11 +64,11 @@ Agent B 为 Agent C 和 Agent D 分别配置了流式和非流式远端路由。
 
 ### 计算场景
 
-用户只访问 Agent A。Agent A 将请求委派给 Agent B，Agent B 调用本地 `calc` 工具并中断等待确认；用户再次调用 Agent A 恢复同一个外层任务。
+用户只访问 Agent A。Agent A 将计算请求委派给 Agent B，Agent B 调用本地 `calc` 工具；工具先说明待计算的表达式并中断等待确认。用户肯定答复后再次调用 Agent A 恢复同一个外层任务，`calc` 才执行计算并将结果经 Agent B、Agent A 返回。
 
 ```text
-User -> Agent A -> Agent B -> calc -> confirmation
-User -> Agent A -------- resume task --------> Agent B -> result -> Agent A -> User
+User -> Agent A -> Agent B -> calc -> ask whether to calculate -> INPUT_REQUIRED
+User -> Agent A -------- resume task --------> Agent B -> calc -> result -> Agent A -> User
 ```
 
 ### Agent C 餐饮推荐场景
@@ -186,7 +186,7 @@ curl -sS -X POST http://localhost:18090/a2a/ \
       "role": "ROLE_USER",
       "contextId": "manual-calc-001",
       "parts": [
-        {"text": "Calculate 1+1 through Agent B. Use the calc tool and ask for confirmation."}
+        {"text": "Please calculate 1+1 through Agent B."}
       ]
     }
   }
@@ -194,7 +194,7 @@ curl -sS -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
-使用相同的 `contextId` 和返回的 `taskId` 恢复任务：
+首轮响应应为 `TASK_STATE_INPUT_REQUIRED`，确认信息中应包含待计算表达式 `1+1`。使用相同的 `contextId` 和返回的 `taskId`，以 `ok` 肯定答复并恢复任务：
 
 ```bash
 curl -sS -X POST http://localhost:18090/a2a/ \
@@ -210,7 +210,7 @@ curl -sS -X POST http://localhost:18090/a2a/ \
       "contextId": "manual-calc-001",
       "taskId": "TASK_ID_FROM_FIRST_RESPONSE",
       "parts": [
-        {"text": "2"}
+        {"text": "ok"}
       ]
     }
   }
@@ -218,7 +218,7 @@ curl -sS -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
-最终状态应为 `TASK_STATE_COMPLETED`，结果应包含 `2`。
+最终状态应为 `TASK_STATE_COMPLETED`，最终 artifact 应返回计算结果 `2`，而不是用户的确认文本 `ok`。模型可能将工具结果自然表述为 `2` 或包含 `1+1 = 2` 的短句。
 
 ### 场景 2：A -> B -> C 流式确认与恢复
 

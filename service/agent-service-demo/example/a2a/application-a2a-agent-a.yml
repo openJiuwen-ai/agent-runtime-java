@@ -20,7 +20,7 @@ openjiuwen:
       default-output-modes: [ text, text/plain ]
       remote-agents:
         - name: agentb
-          url: http://localhost:18091/a2a/
+          url: http://localhost:18091/
           timeout-seconds: 300
           streaming: true
       skills:

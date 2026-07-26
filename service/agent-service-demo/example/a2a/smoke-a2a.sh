@@ -224,6 +224,31 @@ print(task_id)
 PY
 }
 
+assert_calculation_result() {
+  local response_file="$1"
+  local expected_result="$2"
+  "$PYTHON" - "$response_file" "$expected_result" <<'PY'
+import json, re, sys
+
+response_file, expected_result = sys.argv[1:]
+with open(response_file, encoding="utf-8") as stream:
+    response = json.load(stream)
+task = ((response.get("result") or {}).get("task") or {})
+texts = []
+for artifact in task.get("artifacts") or []:
+    for part in artifact.get("parts") or []:
+        text = part.get("text")
+        if text is not None:
+            texts.append(str(text).strip())
+if any(text.lower() == "ok" for text in texts):
+    raise SystemExit("calculator returned the confirmation text instead of a result")
+result_pattern = re.compile(rf"(?:^|\D){re.escape(expected_result)}(?:\D|$)")
+if not any(result_pattern.search(text) for text in texts):
+    print(json.dumps(response, ensure_ascii=False)[:4000], file=sys.stderr)
+    raise SystemExit(f"calculator artifacts did not contain result {expected_result}")
+PY
+}
+
 assert_log_contains() {
   local log_file="$1"
   local expected="$2"
@@ -287,19 +312,20 @@ print_step "2a" "Round 1: trigger A->B calculator through SendMessage"
 calc_request1="$TMP_DIR/calc-request-1.json"
 calc_response1="$TMP_DIR/calc-response-1.json"
 write_a2a_request "SendMessage" "calc-1" "$CALC_CONTEXT" "" \
-  "Calculate 1+1 through Agent B. Use the calc tool and ask for confirmation." "$calc_request1"
+  "Please calculate 1+1 through Agent B." "$calc_request1"
 curl -sS -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
   --data-binary "@$calc_request1" >"$calc_response1"
-calc_task_id="$(assert_sync_task "$calc_response1" "TASK_STATE_INPUT_REQUIRED" "confirm")"
+calc_task_id="$(assert_sync_task "$calc_response1" "TASK_STATE_INPUT_REQUIRED" "reply yes or no")"
 pass "A->B calculator reached confirmation (taskId=$calc_task_id)"
 
 print_step "2b" "Round 2: resume the same A->B calculator task"
 calc_request2="$TMP_DIR/calc-request-2.json"
 calc_response2="$TMP_DIR/calc-response-2.json"
-write_a2a_request "SendMessage" "calc-2" "$CALC_CONTEXT" "$calc_task_id" "2" "$calc_request2"
+write_a2a_request "SendMessage" "calc-2" "$CALC_CONTEXT" "$calc_task_id" "ok" "$calc_request2"
 curl -sS -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
   --data-binary "@$calc_request2" >"$calc_response2"
-calc_resumed_task_id="$(assert_sync_task "$calc_response2" "TASK_STATE_COMPLETED" "2")"
+calc_resumed_task_id="$(assert_sync_task "$calc_response2" "TASK_STATE_COMPLETED")"
+assert_calculation_result "$calc_response2" "2"
 if [ "$calc_resumed_task_id" != "$calc_task_id" ]; then
   fail "A->B calculator resume changed taskId from $calc_task_id to $calc_resumed_task_id"
 fi
