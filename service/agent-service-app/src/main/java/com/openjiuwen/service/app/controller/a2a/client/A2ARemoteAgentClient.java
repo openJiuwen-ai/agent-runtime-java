@@ -73,13 +73,13 @@ import java.util.function.Supplier;
  * @since 0.1.0
  */
 public class A2ARemoteAgentClient implements RemoteAgentCaller {
-    private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
-
     static final String CALLBACK_URL_METADATA = "runtime.a2a.callbackUrl";
 
     static final String CALLBACK_TOKEN_METADATA = "runtime.a2a.callbackToken";
 
     static final String CALLBACK_ID_METADATA = "runtime.a2a.callbackId";
+
+    private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
     private static final int DEFAULT_IO_CONCURRENCY = 16;
 
     private final A2ARemoteAgentCardRegistry registry;

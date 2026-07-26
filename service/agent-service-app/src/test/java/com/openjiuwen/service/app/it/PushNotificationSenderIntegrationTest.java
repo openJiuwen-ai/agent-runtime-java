@@ -58,19 +58,7 @@ class PushNotificationSenderIntegrationTest {
     @Test
     @SuppressWarnings("unchecked")
     void springConfiguredSenderPostsJsonRpcCallbackWithAuthorization() throws Exception {
-        CountDownLatch received = new CountDownLatch(1);
-        AtomicReference<String> notificationIdHeader = new AtomicReference<>();
-        AtomicReference<String> authorizationHeader = new AtomicReference<>();
-        AtomicReference<String> body = new AtomicReference<>();
-        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/a2a/push-notifications/callback", exchange -> {
-            notificationIdHeader.set(exchange.getRequestHeaders().getFirst("X-A2A-Notification-Id"));
-            authorizationHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
-            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            respond(exchange, 202, "{\"status\":\"accepted\"}");
-            received.countDown();
-        });
-        server.start();
+        CallbackCapture capture = startCallbackServer();
         pushConfigStore.setInfo(TaskPushNotificationConfig.builder()
             .id("push-runtime-to-runtime")
             .taskId("task-runtime-to-runtime")
@@ -80,12 +68,12 @@ class PushNotificationSenderIntegrationTest {
 
         sender.sendNotification(completedEvent(), completedTask());
 
-        assertThat(received.await(2, TimeUnit.SECONDS)).isTrue();
-        assertThat(notificationIdHeader.get()).isNotBlank();
-        assertThat(authorizationHeader.get()).isEqualTo("Bearer runtime-token");
-        Map<String, Object> json = mapper.readValue(body.get(), Map.class);
+        assertThat(capture.received.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(capture.notificationId()).isNotBlank();
+        assertThat(capture.authorization()).isEqualTo("Bearer runtime-token");
+        Map<String, Object> json = mapper.readValue(capture.body(), Map.class);
         assertThat(json).containsEntry("jsonrpc", "2.0");
-        assertThat(json.get("notificationId")).isEqualTo(notificationIdHeader.get());
+        assertThat(json.get("notificationId")).isEqualTo(capture.notificationId());
         Map<String, Object> result = (Map<String, Object>) json.get("result");
         Map<String, Object> task = (Map<String, Object>) result.get("task");
         assertThat(task).containsEntry("id", "task-runtime-to-runtime").containsEntry("contextId",
@@ -119,6 +107,15 @@ class PushNotificationSenderIntegrationTest {
         return "http://127.0.0.1:" + server.getAddress().getPort() + "/a2a/push-notifications/callback";
     }
 
+    private CallbackCapture startCallbackServer() throws IOException {
+        CallbackCapture capture = new CallbackCapture(new CountDownLatch(1), new AtomicReference<>(),
+            new AtomicReference<>(), new AtomicReference<>());
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/a2a/push-notifications/callback", capture::accept);
+        server.start();
+        return capture;
+    }
+
     private static Task completedTask() {
         return completedTask("task-runtime-to-runtime");
     }
@@ -148,5 +145,28 @@ class PushNotificationSenderIntegrationTest {
         exchange.sendResponseHeaders(status, bytes.length);
         exchange.getResponseBody().write(bytes);
         exchange.close();
+    }
+
+    private record CallbackCapture(CountDownLatch received, AtomicReference<String> notificationIdRef,
+            AtomicReference<String> authorizationRef, AtomicReference<String> bodyRef) {
+        void accept(HttpExchange exchange) throws IOException {
+            notificationIdRef.set(exchange.getRequestHeaders().getFirst("X-A2A-Notification-Id"));
+            authorizationRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            bodyRef.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 202, "{\"status\":\"accepted\"}");
+            received.countDown();
+        }
+
+        String notificationId() {
+            return notificationIdRef.get();
+        }
+
+        String authorization() {
+            return authorizationRef.get();
+        }
+
+        String body() {
+            return bodyRef.get();
+        }
     }
 }
