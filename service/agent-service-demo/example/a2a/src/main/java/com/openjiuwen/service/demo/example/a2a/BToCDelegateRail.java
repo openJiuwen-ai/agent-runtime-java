@@ -26,14 +26,14 @@ import java.util.Map;
  * @since 0.1.0
  */
 public class BToCDelegateRail extends BaseInterruptRail {
+    static final String STREAMING_TOOL_NAME = "delegate_to_agentc_streaming";
+
+    static final String NON_STREAMING_TOOL_NAME = "delegate_to_agentc_nonstreaming";
+
     private static final Gson GSON = new Gson();
 
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
     }.getType();
-
-    static final String STREAMING_TOOL_NAME = "delegate_to_agentc_streaming";
-
-    static final String NON_STREAMING_TOOL_NAME = "delegate_to_agentc_nonstreaming";
 
     private static final String STREAMING_AGENT_NAME = "agentc-streaming";
 

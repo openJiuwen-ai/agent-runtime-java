@@ -18,6 +18,7 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
+
 import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.agentexecution.RequestContext;
 import org.a2aproject.sdk.server.events.EventQueue;
@@ -25,8 +26,8 @@ import org.a2aproject.sdk.server.events.EventQueueClosedException;
 import org.a2aproject.sdk.server.events.EventQueueItem;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.spec.Message;
-import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
@@ -53,15 +54,9 @@ class A2AAgentExecutorTest {
         new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
 
         List<TaskArtifactUpdateEvent> artifacts = queue.events.stream()
-            .filter(TaskArtifactUpdateEvent.class::isInstance)
-            .map(TaskArtifactUpdateEvent.class::cast)
-            .toList();
-        List<String> texts = artifacts.stream()
-            .flatMap(event -> event.artifact().parts().stream())
-            .filter(TextPart.class::isInstance)
-            .map(TextPart.class::cast)
-            .map(TextPart::text)
-            .toList();
+                .filter(TaskArtifactUpdateEvent.class::isInstance).map(TaskArtifactUpdateEvent.class::cast).toList();
+        List<String> texts = artifacts.stream().flatMap(event -> event.artifact().parts().stream())
+                .filter(TextPart.class::isInstance).map(TextPart.class::cast).map(TextPart::text).toList();
         assertThat(texts).containsExactly("done");
         verify(orchestrator).query(any());
         verify(orchestrator, never()).streamQuery(any(), any());

@@ -8,6 +8,8 @@ import com.openjiuwen.service.app.controller.a2a.AgentCoreEnvelopeText;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
+import jakarta.annotation.PreDestroy;
+
 import org.a2aproject.sdk.client.Client;
 import org.a2aproject.sdk.client.ClientEvent;
 import org.a2aproject.sdk.client.MessageEvent;
@@ -51,8 +53,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-
-import jakarta.annotation.PreDestroy;
 
 /**
  * A2A remote agent caller using the official SDK {@code
@@ -335,7 +335,9 @@ public class A2ARemoteAgentClient {
             for (Part<?> part : artifact.parts()) {
                 if (part instanceof TextPart textPart && !textPart.text().isEmpty()) {
                     streamObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, textPart.text()));
-                } else if (part instanceof DataPart dataPart) {
+                    continue;
+                }
+                if (part instanceof DataPart dataPart) {
                     streamObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, dataPart.data()));
                 }
             }

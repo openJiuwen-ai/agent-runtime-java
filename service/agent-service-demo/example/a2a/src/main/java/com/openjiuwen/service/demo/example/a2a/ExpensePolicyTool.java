@@ -11,6 +11,7 @@ import com.openjiuwen.core.foundation.tool.ToolCard;
 import com.openjiuwen.core.foundation.tool.function.LocalFunction;
 
 import java.lang.reflect.Type;
+import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -27,8 +28,8 @@ public final class ExpensePolicyTool extends LocalFunction {
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
     }.getType();
 
-    private static final Map<String, Double> LIMITS = Map.of("hotel", 600.0D, "meal", 300.0D, "transport", 1000.0D,
-            "other", 1000.0D);
+    private static final Map<String, BigDecimal> LIMITS = Map.of("hotel", new BigDecimal("600.0"), "meal",
+            new BigDecimal("300.0"), "transport", new BigDecimal("1000.0"), "other", new BigDecimal("1000.0"));
 
     public ExpensePolicyTool() {
         super(card(), ExpensePolicyTool::review);
@@ -36,28 +37,28 @@ public final class ExpensePolicyTool extends LocalFunction {
 
     static Map<String, Object> review(Map<String, Object> inputs) {
         Map<String, Object> claim = parseClaim(String.valueOf(inputs.getOrDefault("query", "{}")));
-        String claimId = stringValue(claim, "claim_id", "UNKNOWN-CLAIM");
         String category = stringValue(claim, "category", "other").toLowerCase(Locale.ROOT);
         if (!LIMITS.containsKey(category)) {
             category = "other";
         }
-        double unitPrice = numberValue(claim, "unit_price", 0.0D);
-        double quantity = numberValue(claim, "quantity", 1.0D);
-        double total = numberValue(claim, "total", unitPrice * quantity);
+        BigDecimal unitPrice = numberValue(claim, "unit_price", BigDecimal.ZERO);
+        BigDecimal quantity = numberValue(claim, "quantity", BigDecimal.ONE);
+        BigDecimal total = numberValue(claim, "total", unitPrice.multiply(quantity));
+        BigDecimal limit = LIMITS.get(category);
+        boolean isApprovalRequired = unitPrice.compareTo(limit) > 0;
+        String claimId = stringValue(claim, "claim_id", "UNKNOWN-CLAIM");
         String currency = stringValue(claim, "currency", "CNY");
-        double limit = LIMITS.get(category);
-        boolean requiresApproval = unitPrice > limit;
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("claim_id", claimId);
         result.put("category", category);
-        result.put("unit_price", unitPrice);
-        result.put("quantity", quantity);
-        result.put("total", total);
+        result.put("unit_price", unitPrice.doubleValue());
+        result.put("quantity", quantity.doubleValue());
+        result.put("total", total.doubleValue());
         result.put("currency", currency);
-        result.put("limit", limit);
-        result.put("requires_approval", requiresApproval);
-        result.put("policy_status", requiresApproval ? "OVER_LIMIT" : "COMPLIANT");
+        result.put("limit", limit.doubleValue());
+        result.put("requires_approval", isApprovalRequired);
+        result.put("policy_status", isApprovalRequired ? "OVER_LIMIT" : "COMPLIANT");
         result.put("summary",
                 String.format(Locale.ROOT, "claim %s: %s unit price %.2f %s, policy limit %.2f %s, total %.2f %s",
                         claimId, category, unitPrice, currency, limit, currency, total, currency));
@@ -87,8 +88,8 @@ public final class ExpensePolicyTool extends LocalFunction {
         return value instanceof String text && !text.isBlank() ? text : fallback;
     }
 
-    private static double numberValue(Map<String, Object> values, String key, double fallback) {
+    private static BigDecimal numberValue(Map<String, Object> values, String key, BigDecimal fallback) {
         Object value = values.get(key);
-        return value instanceof Number number ? number.doubleValue() : fallback;
+        return value instanceof Number number ? new BigDecimal(number.toString()) : fallback;
     }
 }

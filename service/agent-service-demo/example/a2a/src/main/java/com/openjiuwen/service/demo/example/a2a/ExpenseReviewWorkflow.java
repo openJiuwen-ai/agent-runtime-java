@@ -40,6 +40,12 @@ public final class ExpenseReviewWorkflow {
     private ExpenseReviewWorkflow() {
     }
 
+    /**
+     * Builds the expense review workflow with the configured final-response model.
+     *
+     * @param llmConfig resolved model configuration for the final report
+     * @return the configured expense review workflow
+     */
     public static Workflow build(ResolvedLlmConfig llmConfig) {
         WorkflowCard card = WorkflowCard.builder().id(WORKFLOW_ID).name("Agent D Expense Review").version("1.0")
                 .description("Validate an expense claim against policy and request approval when it exceeds the limit")
@@ -119,5 +125,4 @@ public final class ExpenseReviewWorkflow {
                 .build();
         return new LocalFunction(card, inputs -> Map.of("decision", "auto-approved"));
     }
-
 }

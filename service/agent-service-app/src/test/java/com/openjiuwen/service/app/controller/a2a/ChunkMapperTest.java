@@ -70,7 +70,7 @@ class ChunkMapperTest {
         Map<String, Object> content = envelope("llm_output", Map.of("content", "working"));
         Map<String, Object> progress = Map.of("projection", projection, "content", content);
 
-        DataPart part = (DataPart) partValue(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_PROGRESS, progress));
+        DataPart part = dataPart(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_PROGRESS, progress));
 
         assertThat(part.data()).isEqualTo(content);
         assertThat(part.metadata()).containsEntry("_remote_invocation", projection);
@@ -81,11 +81,23 @@ class ChunkMapperTest {
     }
 
     private TextPart part(QueryChunk chunk) {
-        return (TextPart) mapper.toParts(chunk).get(0);
+        Part<?> value = partValue(chunk);
+        if (value instanceof TextPart textPart) {
+            return textPart;
+        }
+        throw new AssertionError("Expected TextPart but got " + value.getClass().getSimpleName());
     }
 
     private Object data(QueryChunk chunk) {
-        return ((DataPart) partValue(chunk)).data();
+        return dataPart(chunk).data();
+    }
+
+    private DataPart dataPart(QueryChunk chunk) {
+        Part<?> value = partValue(chunk);
+        if (value instanceof DataPart dataPart) {
+            return dataPart;
+        }
+        throw new AssertionError("Expected DataPart but got " + value.getClass().getSimpleName());
     }
 
     private Part<?> partValue(QueryChunk chunk) {

@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonParseException;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 
 import org.a2aproject.sdk.spec.DataPart;
@@ -63,7 +64,7 @@ public class ChunkMapper {
         try {
             Object value = GSON.fromJson(text, Object.class);
             return value instanceof Map || value instanceof List ? Optional.of(value) : Optional.empty();
-        } catch (RuntimeException e) {
+        } catch (JsonParseException e) {
             return Optional.empty();
         }
     }
