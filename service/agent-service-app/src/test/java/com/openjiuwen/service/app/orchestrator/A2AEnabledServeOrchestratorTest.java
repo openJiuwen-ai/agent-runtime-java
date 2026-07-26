@@ -161,12 +161,13 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void queryWithProgressKeepsSynchronousHandlerAndProjectsRemoteMembers() {
+    void queryKeepsSynchronousHandlerAndDisablesRemoteStreaming() {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
         when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
             A2ARemoteAgentClient.RemoteCall call = invocation.getArgument(0);
+            assertThat(call.isCallerStreaming()).isFalse();
             QueryStreamObserver remoteObserver = invocation.getArgument(1);
             remoteObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "remote-progress"));
             return CompletableFuture.completedFuture(new A2ARemoteAgentClient.RemoteCallOutcome(
@@ -179,17 +180,13 @@ class A2AEnabledServeOrchestratorTest {
             }
             return new QueryResponse(Map.of("content", "final"), "c-query-progress");
         });
-        QueryStreamObserver progressObserver = mock(QueryStreamObserver.class);
         ServeRequest request = req("c-query-progress");
+        request.setStream(false);
         request.setMetadata(Map.of("runtime.parentTaskId", "parent-query-progress"));
 
-        QueryResponse response = orchestrator.queryWithProgress(request, progressObserver);
+        QueryResponse response = orchestrator.query(request);
 
         assertThat(response.getResult()).isEqualTo(Map.of("content", "final"));
-        verify(progressObserver, times(3)).onNext(argThat(chunk ->
-            QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType())
-                && chunk.getData() instanceof Map<?, ?> data
-                && "remote-progress".equals(data.get("content"))));
         verify(agentHandler, times(2)).query(any());
         verify(agentHandler, never()).streamQuery(any(), any());
     }
@@ -245,6 +242,7 @@ class A2AEnabledServeOrchestratorTest {
             "test-agent", 16, 256, 30);
         when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
             A2ARemoteAgentClient.RemoteCall call = invocation.getArgument(0);
+            assertThat(call.isCallerStreaming()).isTrue();
             String id = call.message().substring("message-".length());
             return CompletableFuture.completedFuture(new A2ARemoteAgentClient.RemoteCallOutcome(
                 "remote-" + id,

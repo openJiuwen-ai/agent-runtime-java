@@ -100,21 +100,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     @Override
     public QueryResponse query(ServeRequest request) {
-        return queryWithProgress(request, NOOP_OBSERVER);
-    }
-
-    /**
-     * Executes a synchronous query while forwarding remote-member progress to an internal observer.
-     *
-     * @param request the serve request
-     * @param progressObserver observer for remote-member progress
-     * @return the original synchronous query response
-     */
-    public QueryResponse queryWithProgress(ServeRequest request, QueryStreamObserver progressObserver) {
         log.info("Orchestrator query START conversationId={}", request.getConversationId());
         ServeRequest current = request;
         while (true) {
-            QueryResumeResult resumeResult = syncResumePending(current, progressObserver);
+            QueryResumeResult resumeResult = syncResumePending(current, NOOP_OBSERVER);
             if (resumeResult.response() != null) {
                 return resumeResult.response();
             }
@@ -137,7 +126,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             }
 
             Optional<ServeRequest> interruptResult = handleQueryInterrupt(interruptData, current, response,
-                progressObserver);
+                NOOP_OBSERVER);
             if (interruptResult.isEmpty()) {
                 return response;
             }

@@ -200,6 +200,9 @@ function Read-SseTask {
     }
     $payload = $events | ConvertTo-Json -Depth 50 -Compress
     $lowerPayload = $payload.ToLowerInvariant()
+    if (-not $lowerPayload.Contains("_remote_invocation")) {
+        throw "SSE response did not contain remote-agent progress"
+    }
     foreach ($expected in @($ExpectedText, $SecondExpectedText, $ThirdExpectedText)) {
         if ($expected -and -not $lowerPayload.Contains($expected.ToLowerInvariant())) {
             throw "SSE response did not contain expected text: $expected"
@@ -228,6 +231,9 @@ function Read-SyncTask {
     }
     $payload = $Response | ConvertTo-Json -Depth 50 -Compress
     $lowerPayload = $payload.ToLowerInvariant()
+    if ($lowerPayload.Contains("_remote_invocation")) {
+        throw "synchronous response unexpectedly contained remote-agent progress"
+    }
     foreach ($expected in @($ExpectedText, $SecondExpectedText, $ThirdExpectedText)) {
         if ($expected -and -not $lowerPayload.Contains($expected.ToLowerInvariant())) {
             throw "synchronous response did not contain expected text: $expected"
@@ -512,6 +518,7 @@ try {
     Write-Pass "Agent D non-streaming route resumed through the final LLM and completed"
 
     Assert-LogContains $agentA.StdoutLog "A2A call agent=agentb streaming=true"
+    Assert-LogContains $agentA.StdoutLog "A2A call agent=agentb streaming=false"
     Assert-LogContains $agentB.StdoutLog "A2A call agent=agentc-streaming streaming=true"
     Assert-LogContains $agentB.StdoutLog "A2A call agent=agentc-nonstreaming streaming=false"
     Assert-LogContains $agentB.StdoutLog "A2A call agent=agentd-streaming streaming=true"

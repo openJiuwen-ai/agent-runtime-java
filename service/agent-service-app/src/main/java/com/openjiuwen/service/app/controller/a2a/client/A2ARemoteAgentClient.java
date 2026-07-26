@@ -127,17 +127,23 @@ public class A2ARemoteAgentClient {
      *            remote task ID to resume, or null for a new task
      * @param metadata params-level metadata
      * @param messageMetadata message-level metadata
+     * @param isCallerStreaming whether the current inbound request is streaming
      */
     public record RemoteCall(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata, Map<String, Object> messageMetadata) {
+            Map<String, Object> metadata, Map<String, Object> messageMetadata, boolean isCallerStreaming) {
         public RemoteCall {
             metadata = immutableMetadata(metadata);
             messageMetadata = immutableMetadata(messageMetadata);
         }
 
         public RemoteCall(String agentName, String message, String contextId, String taskId,
+                Map<String, Object> metadata, Map<String, Object> messageMetadata) {
+            this(agentName, message, contextId, taskId, metadata, messageMetadata, false);
+        }
+
+        public RemoteCall(String agentName, String message, String contextId, String taskId,
                 Map<String, Object> metadata) {
-            this(agentName, message, contextId, taskId, metadata, null);
+            this(agentName, message, contextId, taskId, metadata, null, false);
         }
     }
 
@@ -248,7 +254,8 @@ public class A2ARemoteAgentClient {
             Consumer<String> remoteTaskIdObserver) {
         A2ARemoteAgentCardRegistry.RemoteAgentEntry entry = registry.get(call.agentName())
                 .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
-        return callOutcome(call, streamObserver, remoteTaskIdObserver, entry.isStreaming());
+        boolean isStreaming = entry.isStreaming() && call.isCallerStreaming();
+        return callOutcome(call, streamObserver, remoteTaskIdObserver, isStreaming);
     }
 
     private CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, QueryStreamObserver streamObserver,

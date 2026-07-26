@@ -9,7 +9,6 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
-import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.agentexecution.RequestContext;
@@ -177,9 +176,7 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter) {
-        QueryResponse response = orchestrator instanceof A2AEnabledServeOrchestrator a2aOrchestrator
-            ? a2aOrchestrator.queryWithProgress(req, remoteProgressObserver(emitter))
-            : orchestrator.query(req);
+        QueryResponse response = orchestrator.query(req);
         if (response.getResult() instanceof Map<?, ?> result
                 && result.get(INTERRUPT) instanceof Map<?, ?> interruptData) {
             log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
@@ -194,29 +191,6 @@ public class A2AAgentExecutor implements AgentExecutor {
         } else {
             completeAndDrain(emitter, msgCtx.getTaskId());
         }
-    }
-
-    private QueryStreamObserver remoteProgressObserver(AgentEmitter emitter) {
-        return new QueryStreamObserver() {
-            @Override
-            public void onNext(QueryChunk chunk) {
-                if (!QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType())) {
-                    return;
-                }
-                List<Part<?>> parts = chunkMapper.toParts(chunk);
-                if (!parts.isEmpty()) {
-                    emitter.addArtifact(parts);
-                }
-            }
-
-            @Override
-            public void onComplete() {
-            }
-
-            @Override
-            public void onError(Throwable error) {
-            }
-        };
     }
 
     private static Message statusMessage(Map<?, ?> interruptData) {

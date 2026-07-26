@@ -178,6 +178,9 @@ if not task_ids or len(set(task_ids)) != 1:
     raise SystemExit(f"SSE response did not contain one stable taskId: {task_ids}")
 
 combined = json.dumps(events, ensure_ascii=False).lower()
+if "_remote_invocation" not in combined:
+    print(combined[:4000], file=sys.stderr)
+    raise SystemExit("SSE response did not contain remote-agent progress")
 for expected in (expected_text, second_expected_text, third_expected_text):
     if expected and expected.lower() not in combined:
         print(combined[:4000], file=sys.stderr)
@@ -210,6 +213,9 @@ task_id = task.get("id")
 if not task_id:
     raise SystemExit("synchronous response did not contain task.id")
 combined = json.dumps(response, ensure_ascii=False).lower()
+if "_remote_invocation" in combined:
+    print(combined[:4000], file=sys.stderr)
+    raise SystemExit("synchronous response unexpectedly contained remote-agent progress")
 for expected in (expected_text, second_expected_text, third_expected_text):
     if expected and expected.lower() not in combined:
         print(combined[:4000], file=sys.stderr)
@@ -409,9 +415,10 @@ if [ "$d_nonstream_resumed_task_id" != "$d_nonstream_task_id" ]; then
 fi
 pass "Agent D non-streaming route resumed through the final LLM and completed"
 
-# The caller-to-Agent-A response mode and the configured remote-hop mode are
-# independent. Assert the authoritative remote client log for every route.
+# A remote hop streams only when both the inbound request and route configuration
+# enable streaming. Assert both effective modes and every configured downstream route.
 assert_log_contains "$TMP_DIR/agent-a.log" "A2A call agent=agentb streaming=true"
+assert_log_contains "$TMP_DIR/agent-a.log" "A2A call agent=agentb streaming=false"
 assert_log_contains "$TMP_DIR/agent-b.log" "A2A call agent=agentc-streaming streaming=true"
 assert_log_contains "$TMP_DIR/agent-b.log" "A2A call agent=agentc-nonstreaming streaming=false"
 assert_log_contains "$TMP_DIR/agent-b.log" "A2A call agent=agentd-streaming streaming=true"
