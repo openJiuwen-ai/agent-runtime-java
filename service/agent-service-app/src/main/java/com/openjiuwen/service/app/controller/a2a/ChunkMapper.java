@@ -7,16 +7,18 @@ package com.openjiuwen.service.app.controller.a2a;
 import com.google.gson.Gson;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 
+import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.TextPart;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * Lightweight QueryChunk → List{@code <Part<?>>} mapper. Protocol-layer conversion only — no filtering or business
- * interpretation.
+ * Lightweight QueryChunk → List{@code <Part<?>>} mapper. Terminal AgentCore envelopes are projected as user-facing
+ * text; structured intermediate chunks remain JSON objects in {@link DataPart}.
  *
  * @since 0.1.0
  */
@@ -38,13 +40,31 @@ public class ChunkMapper {
                 && progress.get("projection") instanceof Map<?, ?> rawProjection) {
             Map<String, Object> projection = new LinkedHashMap<>();
             rawProjection.forEach((key, value) -> projection.put(String.valueOf(key), value));
-            Object content = progress.get("content");
-            String text = content instanceof String value ? value : GSON.toJson(content);
-            return List.of(new TextPart(text, Map.of("_remote_invocation", projection)));
+            return List.of(toPart(progress.get("content"), Map.of("_remote_invocation", projection)));
         }
-        if (data instanceof String s) {
-            return List.of(new TextPart(s));
+        return List.of(toPart(data, null));
+    }
+
+    private static Part<?> toPart(Object data, Map<String, Object> metadata) {
+        Optional<String> terminalText = AgentCoreEnvelopeText.terminalText(data);
+        if (terminalText.isPresent()) {
+            return metadata == null ? new TextPart(terminalText.get()) : new TextPart(terminalText.get(), metadata);
         }
-        return List.of(new TextPart(GSON.toJson(data)));
+        Object structured = data instanceof String text ? parseStructuredJson(text).orElse(null) : data;
+        if (structured instanceof Map || structured instanceof List || structured instanceof Number
+                || structured instanceof Boolean) {
+            return metadata == null ? new DataPart(structured) : new DataPart(structured, metadata);
+        }
+        String text = data instanceof String value ? value : GSON.toJson(data);
+        return metadata == null ? new TextPart(text) : new TextPart(text, metadata);
+    }
+
+    private static Optional<Object> parseStructuredJson(String text) {
+        try {
+            Object value = GSON.fromJson(text, Object.class);
+            return value instanceof Map || value instanceof List ? Optional.of(value) : Optional.empty();
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
     }
 }

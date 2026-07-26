@@ -350,6 +350,8 @@ curl -sS -N -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
+首轮应进入 `TASK_STATE_INPUT_REQUIRED`，审批提示应包含 `WF-STREAM-001`、超出费用政策以及如何批准或拒绝该申请，而不是笼统的 `Input required`。
+
 批准费用并恢复同一个 SSE 任务：
 
 ```bash
@@ -375,7 +377,7 @@ curl -sS -N -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
-恢复后应进入 `TASK_STATE_COMPLETED`，结果应包含 `Agent D expense review completed`、`WF-STREAM-001`、`OVER_LIMIT`、`approved` 和 `llm_report=`。
+恢复后应进入 `TASK_STATE_COMPLETED`。结构化中间事件位于 `parts.data`，最终 `parts.text` 为普通业务文本，不再包含转义后的 AgentCore JSON 信封；结果应包含 `Agent D expense review completed`、`WF-STREAM-001`、`OVER_LIMIT`、`approved` 和 `llm_report=`。
 
 ### 场景 5：A -> B -> D 非流式人工审批与恢复
 
@@ -401,6 +403,8 @@ curl -sS -X POST http://localhost:18090/a2a/ \
 }
 JSON
 ```
+
+首轮应进入 `TASK_STATE_INPUT_REQUIRED`，审批提示应包含 `WF-NONSTREAM-001`、超出费用政策以及如何批准或拒绝该申请。
 
 恢复请求：
 

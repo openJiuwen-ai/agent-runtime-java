@@ -242,6 +242,31 @@ function Read-SyncTask {
     return [pscustomobject]@{ TaskId = [string]$task.id; State = $ExpectedState; Payload = $payload }
 }
 
+function Assert-PlainTerminalArtifacts {
+    param(
+        [object[]]$Artifacts,
+        [string]$RawResponse = ""
+    )
+    if ($RawResponse.Contains("\u003d")) {
+        throw "response contains HTML-escaped equals signs (\u003d)"
+    }
+    foreach ($artifact in $Artifacts) {
+        foreach ($part in @($artifact.parts)) {
+            if ($null -eq $part.text) {
+                continue
+            }
+            try {
+                $envelope = [string]$part.text | ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                continue
+            }
+            if ($envelope -is [System.Management.Automation.PSCustomObject] -or $envelope -is [array]) {
+                throw "structured JSON leaked into parts.text instead of parts.data"
+            }
+        }
+    }
+}
+
 function Assert-CalculationResult {
     param(
         [object]$Response,
@@ -498,7 +523,8 @@ try {
         $dStreamContext "" $dStreamMessage
     $dStreamResponse1 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" -Body $dStreamBody1
     $dStreamResponse1 | Set-Content -LiteralPath (Join-Path $tmp "d-stream-response-1.txt") -Encoding utf8
-    $dStreamTask1 = Read-SseTask $dStreamResponse1 "TASK_STATE_INPUT_REQUIRED"
+    $dStreamTask1 = Read-SseTask $dStreamResponse1 "TASK_STATE_INPUT_REQUIRED" `
+        "manual approval" $dStreamClaim
     Write-Pass "Agent D streaming route reached manual approval (taskId=$($dStreamTask1.TaskId))"
 
     Write-Step "5b" "Round 2: approve and resume the same Agent D streaming task"
@@ -508,6 +534,15 @@ try {
     $dStreamResponse2 | Set-Content -LiteralPath (Join-Path $tmp "d-stream-response-2.txt") -Encoding utf8
     $dStreamTask2 = Read-SseTask $dStreamResponse2 "TASK_STATE_COMPLETED" `
         "agent d expense review completed" $dStreamClaim "llm_report="
+    $dStreamArtifacts = @(
+        foreach ($line in ($dStreamResponse2 -split "`r?`n")) {
+            if ($line.StartsWith("data:")) {
+                $event = $line.Substring(5).Trim() | ConvertFrom-Json
+                if ($event.result.artifactUpdate) { $event.result.artifactUpdate.artifact }
+            }
+        }
+    )
+    Assert-PlainTerminalArtifacts $dStreamArtifacts $dStreamResponse2
     if ($dStreamTask2.TaskId -ne $dStreamTask1.TaskId) {
         throw "Agent D streaming resume changed taskId from $($dStreamTask1.TaskId) to $($dStreamTask2.TaskId)"
     }
@@ -523,17 +558,20 @@ try {
     $dNonstreamResponse1 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/a2a/" -Method POST `
         -Body $dNonstreamBody1 -TimeoutSec 300
     Save-JsonResponse $dNonstreamResponse1 "d-nonstream-response-1.json"
-    $dNonstreamTask1 = Read-SyncTask $dNonstreamResponse1 "TASK_STATE_INPUT_REQUIRED"
+    $dNonstreamTask1 = Read-SyncTask $dNonstreamResponse1 "TASK_STATE_INPUT_REQUIRED" `
+        "manual approval" $dNonstreamClaim
     Write-Pass "Agent D non-streaming route reached manual approval (taskId=$($dNonstreamTask1.TaskId))"
 
     Write-Step "6b" "Round 2: approve and resume the same Agent D non-streaming task"
     $dNonstreamBody2 = New-A2aRequestBody "SendMessage" "d-nonstream-2" `
         $dNonstreamContext $dNonstreamTask1.TaskId "approved"
-    $dNonstreamResponse2 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/a2a/" -Method POST `
-        -Body $dNonstreamBody2 -TimeoutSec 300
+    $dNonstreamRawResponse2 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" `
+        -Body $dNonstreamBody2 -Accept "application/json" -TimeoutSec 300
+    $dNonstreamResponse2 = $dNonstreamRawResponse2 | ConvertFrom-Json
     Save-JsonResponse $dNonstreamResponse2 "d-nonstream-response-2.json"
     $dNonstreamTask2 = Read-SyncTask $dNonstreamResponse2 "TASK_STATE_COMPLETED" `
         "agent d expense review completed" $dNonstreamClaim "llm_report="
+    Assert-PlainTerminalArtifacts @($dNonstreamResponse2.result.task.artifacts) $dNonstreamRawResponse2
     if ($dNonstreamTask2.TaskId -ne $dNonstreamTask1.TaskId) {
         throw "Agent D non-streaming resume changed taskId from $($dNonstreamTask1.TaskId) to $($dNonstreamTask2.TaskId)"
     }

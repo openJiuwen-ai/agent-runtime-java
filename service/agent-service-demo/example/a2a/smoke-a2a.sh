@@ -224,6 +224,44 @@ print(task_id)
 PY
 }
 
+assert_plain_terminal_artifacts() {
+  local response_file="$1"
+  local response_kind="$2"
+  "$PYTHON" - "$response_file" "$response_kind" <<'PY'
+import json, sys
+
+response_file, response_kind = sys.argv[1:]
+with open(response_file, encoding="utf-8") as stream:
+    raw = stream.read()
+if "\\u003d" in raw.lower():
+    raise SystemExit("response contains HTML-escaped equals signs (\\u003d)")
+
+if response_kind == "sse":
+    responses = [json.loads(line[5:].strip()) for line in raw.splitlines() if line.startswith("data:")]
+    artifacts = [
+        (response.get("result") or {}).get("artifactUpdate", {}).get("artifact", {})
+        for response in responses
+        if (response.get("result") or {}).get("artifactUpdate")
+    ]
+else:
+    response = json.loads(raw)
+    task = ((response.get("result") or {}).get("task") or {})
+    artifacts = task.get("artifacts") or []
+
+for artifact in artifacts:
+    for part in artifact.get("parts") or []:
+        text = part.get("text")
+        if not isinstance(text, str):
+            continue
+        try:
+            envelope = json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(envelope, (dict, list)):
+            raise SystemExit("structured JSON leaked into parts.text instead of parts.data")
+PY
+}
+
 assert_calculation_result() {
   local response_file="$1"
   local expected_result="$2"
@@ -396,7 +434,8 @@ write_a2a_request "SendStreamingMessage" "d-stream-1" "$D_STREAM_CONTEXT" "" \
   "$D_STREAM_MESSAGE" "$d_stream_request1"
 curl -sS -N -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' --data-binary "@$d_stream_request1" >"$d_stream_response1"
-d_stream_task_id="$(assert_sse_task "$d_stream_response1" "TASK_STATE_INPUT_REQUIRED")"
+d_stream_task_id="$(assert_sse_task "$d_stream_response1" "TASK_STATE_INPUT_REQUIRED" \
+  "manual approval" "$D_STREAM_CLAIM")"
 pass "Agent D streaming route reached manual approval (taskId=$d_stream_task_id)"
 
 print_step "5b" "Round 2: approve and resume the same Agent D streaming task"
@@ -408,6 +447,7 @@ curl -sS -N -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' --data-binary "@$d_stream_request2" >"$d_stream_response2"
 d_stream_resumed_task_id="$(assert_sse_task "$d_stream_response2" "TASK_STATE_COMPLETED" \
   "agent d expense review completed" "$D_STREAM_CLAIM" "llm_report=")"
+assert_plain_terminal_artifacts "$d_stream_response2" "sse"
 if [ "$d_stream_resumed_task_id" != "$d_stream_task_id" ]; then
   fail "Agent D streaming resume changed taskId from $d_stream_task_id to $d_stream_resumed_task_id"
 fi
@@ -424,7 +464,8 @@ write_a2a_request "SendMessage" "d-nonstream-1" "$D_NONSTREAM_CONTEXT" "" \
   "$D_NONSTREAM_MESSAGE" "$d_nonstream_request1"
 curl -sS -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
   --data-binary "@$d_nonstream_request1" >"$d_nonstream_response1"
-d_nonstream_task_id="$(assert_sync_task "$d_nonstream_response1" "TASK_STATE_INPUT_REQUIRED")"
+d_nonstream_task_id="$(assert_sync_task "$d_nonstream_response1" "TASK_STATE_INPUT_REQUIRED" \
+  "manual approval" "$D_NONSTREAM_CLAIM")"
 pass "Agent D non-streaming route reached manual approval (taskId=$d_nonstream_task_id)"
 
 print_step "6b" "Round 2: approve and resume the same Agent D non-streaming task"
@@ -436,6 +477,7 @@ curl -sS -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
   --data-binary "@$d_nonstream_request2" >"$d_nonstream_response2"
 d_nonstream_resumed_task_id="$(assert_sync_task "$d_nonstream_response2" "TASK_STATE_COMPLETED" \
   "agent d expense review completed" "$D_NONSTREAM_CLAIM" "llm_report=")"
+assert_plain_terminal_artifacts "$d_nonstream_response2" "sync"
 if [ "$d_nonstream_resumed_task_id" != "$d_nonstream_task_id" ]; then
   fail "Agent D non-streaming resume changed taskId from $d_nonstream_task_id to $d_nonstream_resumed_task_id"
 fi

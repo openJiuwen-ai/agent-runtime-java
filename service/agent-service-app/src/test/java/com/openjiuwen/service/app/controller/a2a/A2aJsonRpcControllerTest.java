@@ -14,12 +14,16 @@ import static org.mockito.Mockito.when;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
 import org.a2aproject.sdk.spec.A2AMethods;
+import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.InvalidParamsError;
 import org.a2aproject.sdk.spec.MessageSendParams;
+import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.TaskIdParams;
+import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
@@ -105,6 +109,38 @@ class A2aJsonRpcControllerTest {
         verify(requestHandler).onSubscribeToTask(paramsCaptor.capture(), any());
         assertThat(paramsCaptor.getValue().id()).isEqualTo("task-1");
         assertThat(paramsCaptor.getValue().tenant()).isEqualTo("tenant-1");
+    }
+
+    @Test
+    void serializesTextWithoutHtmlSafeUnicodeEscapes() throws Exception {
+        String json = A2aJsonRpcController.serializeA2aJson(new TextPart("claim=WF-001; decision=approved"));
+
+        assertThat(json).contains("claim=WF-001; decision=approved").doesNotContain("\\u003d");
+    }
+
+    @Test
+    void serializesStructuredChunksAsJsonDataInsteadOfEscapedText() throws Exception {
+        String json = A2aJsonRpcController
+                .serializeA2aJson(new DataPart(Map.of("type", "llm_output", "payload", Map.of("content", "working"))));
+        JsonObject part = JsonParser.parseString(json).getAsJsonObject();
+
+        assertThat(part.has("text")).isFalse();
+        assertThat(part.getAsJsonObject("data").get("type").getAsString()).isEqualTo("llm_output");
+        assertThat(part.getAsJsonObject("data").getAsJsonObject("payload").get("content").getAsString())
+                .isEqualTo("working");
+    }
+
+    @Test
+    void structuredPartRoundTripsThroughStandardA2aSdkJsonMapper() throws Exception {
+        String json = A2aJsonRpcController
+                .serializeA2aJson(new DataPart(Map.of("type", "llm_output", "payload", Map.of("content", "working"))));
+
+        Part<?> decoded = JsonUtil.fromJson(json, Part.class);
+
+        assertThat(decoded).isInstanceOfSatisfying(DataPart.class, part -> {
+            assertThat(part.data()).isInstanceOf(Map.class);
+            assertThat(((Map<?, ?>) part.data()).get("type")).isEqualTo("llm_output");
+        });
     }
 
     private static JsonObject requestWithMetadata(String paramsMetadata, String messageMetadata) {

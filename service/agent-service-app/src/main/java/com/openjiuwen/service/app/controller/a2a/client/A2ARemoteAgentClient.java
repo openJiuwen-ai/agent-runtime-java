@@ -4,13 +4,9 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
-import com.google.gson.reflect.TypeToken;
+import com.openjiuwen.service.app.controller.a2a.AgentCoreEnvelopeText;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
-
-import jakarta.annotation.PreDestroy;
 
 import org.a2aproject.sdk.client.Client;
 import org.a2aproject.sdk.client.ClientEvent;
@@ -23,6 +19,7 @@ import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.Artifact;
+import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.MessageSendConfiguration;
 import org.a2aproject.sdk.spec.MessageSendParams;
@@ -35,7 +32,6 @@ import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Type;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -56,6 +52,8 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import jakarta.annotation.PreDestroy;
+
 /**
  * A2A remote agent caller using the official SDK {@code
  * Client.builder(card).withTransport(JSONRPCTransport.class, config)} pattern.
@@ -64,14 +62,6 @@ import java.util.function.Supplier;
  */
 public class A2ARemoteAgentClient {
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
-
-    private static final Gson GSON = new Gson();
-
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
-    }.getType();
-
-    /** AgentCore stream-envelope types that carry a terminal business result. */
-    private static final Set<String> FINAL_ENVELOPE_TYPES = Set.of("answer", "workflow_final");
 
     private static final int DEFAULT_IO_CONCURRENCY = 16;
 
@@ -341,12 +331,14 @@ public class A2ARemoteAgentClient {
         if (artifact == null || artifact.parts() == null) {
             return;
         }
-        String raw = extractText(artifact.parts());
-        if (raw.isEmpty()) {
-            return;
-        }
         if (streamObserver != null) {
-            streamObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, raw));
+            for (Part<?> part : artifact.parts()) {
+                if (part instanceof TextPart textPart && !textPart.text().isEmpty()) {
+                    streamObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, textPart.text()));
+                } else if (part instanceof DataPart dataPart) {
+                    streamObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, dataPart.data()));
+                }
+            }
         }
     }
 
@@ -489,25 +481,7 @@ public class A2ARemoteAgentClient {
      * @return the terminal business text, or empty if this is not a final envelope
      */
     static Optional<String> answerText(String raw) {
-        return parseEnvelope(raw)
-                .filter(envelope -> envelope.get("type") instanceof String type && FINAL_ENVELOPE_TYPES.contains(type))
-                .map(envelope -> extractBusinessText(envelope).orElse(raw));
-    }
-
-    /**
-     * Parses a JSON object string into a map, or returns empty if it is not a JSON
-     * object (e.g. plain text or a JSON null).
-     *
-     * @param raw
-     *            the candidate JSON string
-     * @return the parsed map, or empty
-     */
-    private static Optional<Map<String, Object>> parseEnvelope(String raw) {
-        try {
-            return Optional.ofNullable(GSON.fromJson(raw, MAP_TYPE));
-        } catch (JsonSyntaxException e) {
-            return Optional.empty();
-        }
+        return AgentCoreEnvelopeText.terminalText(raw);
     }
 
     /**
@@ -519,38 +493,7 @@ public class A2ARemoteAgentClient {
      * @return the business text, or empty if the chunk carries no text field
      */
     static Optional<String> extractBusinessText(Object data) {
-        if (data instanceof String s) {
-            return s.isBlank() ? Optional.empty() : Optional.of(s);
-        }
-        if (!(data instanceof Map<?, ?> map)) {
-            return Optional.empty();
-        }
-        Optional<String> fromPayload = map.get("payload") instanceof Map<?, ?> payload
-                ? firstText(payload)
-                : Optional.empty();
-        return fromPayload.isPresent() ? fromPayload : firstText(map);
-    }
-
-    /**
-     * Returns the first non-blank scalar value among the known text keys
-     * ({@code content}, {@code delta}, {@code output}, {@code response}).
-     *
-     * @param map
-     *            the map to scan
-     * @return the first text value, or empty if none present
-     */
-    private static Optional<String> firstText(Map<?, ?> map) {
-        for (String key : List.of("content", "delta", "output", "response")) {
-            Object value = map.get(key);
-            if (value == null || value instanceof Map || value instanceof List) {
-                continue;
-            }
-            String text = String.valueOf(value);
-            if (!text.isBlank()) {
-                return Optional.of(text);
-            }
-        }
-        return Optional.empty();
+        return AgentCoreEnvelopeText.businessText(data);
     }
 
     private static String extractText(List<Part<?>> parts) {

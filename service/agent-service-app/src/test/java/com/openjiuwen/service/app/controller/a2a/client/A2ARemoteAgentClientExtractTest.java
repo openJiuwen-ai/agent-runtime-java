@@ -6,12 +6,15 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import com.google.gson.Gson;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient.RemoteCallOutcome;
+import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.spec.Artifact;
+import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
@@ -22,6 +25,7 @@ import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
@@ -183,6 +187,27 @@ class A2ARemoteAgentClientExtractTest {
 
         assertThat(result.getNow(null).remoteState()).isEqualTo(TaskState.TASK_STATE_FAILED);
         assertThat(result.getNow(null).result()).isEqualTo("declined");
+    }
+
+    @Test
+    void structuredArtifactIsForwardedAsStructuredQueryChunk() throws Exception {
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        Map<String, Object> data = envelope("llm_output", Map.of("content", "working"));
+        Artifact artifact = new Artifact("artifact-data", null, null, List.<Part<?>>of(new DataPart(data)), Map.of(),
+                List.of());
+        Method artifactMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeArtifact",
+                TaskArtifactUpdateEvent.class, CompletableFuture.class, QueryStreamObserver.class);
+        artifactMethod.setAccessible(true);
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        artifactMethod.invoke(client,
+                new TaskArtifactUpdateEvent("remote-task", artifact, "remote-context", false, true, Map.of()), result,
+                observer);
+
+        ArgumentCaptor<QueryChunk> chunkCaptor = ArgumentCaptor.forClass(QueryChunk.class);
+        verify(observer).onNext(chunkCaptor.capture());
+        assertThat(chunkCaptor.getValue().getData()).isEqualTo(data);
     }
 
     @Test
