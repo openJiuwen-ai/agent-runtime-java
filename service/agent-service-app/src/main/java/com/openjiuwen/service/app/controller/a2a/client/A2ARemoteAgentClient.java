@@ -70,11 +70,8 @@ public class A2ARemoteAgentClient {
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
     }.getType();
 
-    /**
-     * AgentCore stream-envelope {@code type} value that marks the final answer
-     * chunk.
-     */
-    private static final String ANSWER_ENVELOPE_TYPE = "answer";
+    /** AgentCore stream-envelope types that carry a terminal business result. */
+    private static final Set<String> FINAL_ENVELOPE_TYPES = Set.of("answer", "workflow_final");
 
     private static final int DEFAULT_IO_CONCURRENCY = 16;
 
@@ -107,13 +104,13 @@ public class A2ARemoteAgentClient {
         this.registry = registry;
         AtomicInteger threadIndex = new AtomicInteger();
         this.ioExecutor = new ThreadPoolExecutor(ioConcurrency, ioConcurrency, 0L, TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(ioConcurrency), runnable -> {
-                Thread thread = new Thread(runnable, "a2a-remote-io-" + threadIndex.incrementAndGet());
-                thread.setDaemon(true);
-                thread.setUncaughtExceptionHandler((source, error) ->
-                    log.error("Uncaught A2A remote I/O error thread={}", source.getName(), error));
-                return thread;
-            }, new ThreadPoolExecutor.AbortPolicy());
+                new ArrayBlockingQueue<>(ioConcurrency), runnable -> {
+                    Thread thread = new Thread(runnable, "a2a-remote-io-" + threadIndex.incrementAndGet());
+                    thread.setDaemon(true);
+                    thread.setUncaughtExceptionHandler((source, error) -> log
+                            .error("Uncaught A2A remote I/O error thread={}", source.getName(), error));
+                    return thread;
+                }, new ThreadPoolExecutor.AbortPolicy());
     }
 
     /**
@@ -209,8 +206,8 @@ public class A2ARemoteAgentClient {
         ClientCacheKey key = new ClientCacheKey(entry.name(), endpoint(card), isStreaming);
         return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
                 ignored -> Client.builder(card)
-                    .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
-                    .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig()).build()));
+                        .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
+                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig()).build()));
     }
 
     private static String endpoint(AgentCard card) {
@@ -247,25 +244,24 @@ public class A2ARemoteAgentClient {
      * @param remoteTaskIdObserver observer for remote task IDs used by batch persistence
      * @return structured remote outcome
      */
-    public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
-            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver) {
+    public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, QueryStreamObserver streamObserver,
+            Consumer<String> remoteTaskIdObserver) {
         A2ARemoteAgentCardRegistry.RemoteAgentEntry entry = registry.get(call.agentName())
                 .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
         return callOutcome(call, streamObserver, remoteTaskIdObserver, entry.isStreaming());
     }
 
-    private CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
-            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver, boolean isStreaming) {
+    private CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, QueryStreamObserver streamObserver,
+            Consumer<String> remoteTaskIdObserver, boolean isStreaming) {
         var setup = prepareCall(call);
-        log.info("A2A call agent={} streaming={} taskId={} contextId={} textLen={}", call.agentName(),
-                isStreaming,
+        log.info("A2A call agent={} streaming={} taskId={} contextId={} textLen={}", call.agentName(), isStreaming,
                 call.taskId() != null ? call.taskId() : "new", setup.contextId,
                 call.message() != null ? call.message().length() : 0);
 
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
-        BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) ->
-                handleClientEvent(event, result, streamObserver, remoteTaskIdObserver);
+        BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> handleClientEvent(event, result,
+                streamObserver, remoteTaskIdObserver);
         Client client = createClient(setup.entry, isStreaming);
         AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
         try {
@@ -351,8 +347,7 @@ public class A2ARemoteAgentClient {
             CompletableFuture<RemoteCallOutcome> result, Consumer<String> remoteTaskIdObserver) {
         TaskState state = event.status().state();
         String statusText = event.status().message() != null ? extractText(event.status().message().parts()) : "";
-        completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task), result,
-            remoteTaskIdObserver);
+        completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task), result, remoteTaskIdObserver);
     }
 
     private void handleOutcomeTask(TaskEvent event, CompletableFuture<RemoteCallOutcome> result,
@@ -370,11 +365,9 @@ public class A2ARemoteAgentClient {
             return;
         }
         if (outcome.state().isInterrupted()) {
-            String inputPrompt = outcome.statusText().isBlank()
-                ? "Remote agent requires input"
-                : outcome.statusText();
+            String inputPrompt = outcome.statusText().isBlank() ? "Remote agent requires input" : outcome.statusText();
             result.complete(new RemoteCallOutcome(outcome.taskId(), outcome.state(), resultCategory(outcome.state()),
-                null, inputPrompt));
+                    null, inputPrompt));
             return;
         }
         if (!outcome.state().isFinal()) {
@@ -382,10 +375,10 @@ public class A2ARemoteAgentClient {
         }
         String taskText = outcome.task() == null ? "" : extractTaskResult(outcome.task());
         String resultText = outcome.state() == TaskState.TASK_STATE_COMPLETED
-            ? (taskText.isBlank() ? outcome.statusText() : taskText)
-            : (outcome.statusText().isBlank() ? taskText : outcome.statusText());
+                ? (taskText.isBlank() ? outcome.statusText() : taskText)
+                : (outcome.statusText().isBlank() ? taskText : outcome.statusText());
         result.complete(new RemoteCallOutcome(outcome.taskId(), outcome.state(), resultCategory(outcome.state()),
-            resultText, null));
+                resultText, null));
     }
 
     private void handleOutcomeMessage(MessageEvent event, CompletableFuture<RemoteCallOutcome> result,
@@ -396,7 +389,7 @@ public class A2ARemoteAgentClient {
         Message message = event.getMessage();
         notifyRemoteTaskId(remoteTaskIdObserver, message.taskId(), TaskState.TASK_STATE_COMPLETED);
         result.complete(new RemoteCallOutcome(message.taskId(), TaskState.TASK_STATE_COMPLETED, "COMPLETED",
-            extractBusinessParts(message.parts()), null));
+                extractBusinessParts(message.parts()), null));
     }
 
     private static String extractTaskResult(Task task) {
@@ -479,19 +472,18 @@ public class A2ARemoteAgentClient {
     }
 
     /**
-     * Interprets an artifact's raw text as an AgentCore stream envelope: if it is
-     * the final answer ({@code type == "answer"}), returns the unwrapped business
-     * text (falling back to the raw text when the payload carries no recognizable
-     * text field); otherwise returns empty so the caller forwards it as a streaming
-     * chunk.
+     * Interprets an artifact's raw text as an AgentCore terminal stream envelope.
+     * Recognized final types are unwrapped to their business text, falling back to
+     * the raw text when the payload carries no recognizable text field. Other
+     * envelope types return empty so callers can preserve them as streaming chunks.
      *
      * @param raw
      *            the artifact's concatenated text (a JSON envelope, or plain text)
-     * @return the answer's business text, or empty if this is not an answer
-     *         envelope
+     * @return the terminal business text, or empty if this is not a final envelope
      */
     static Optional<String> answerText(String raw) {
-        return parseEnvelope(raw).filter(envelope -> ANSWER_ENVELOPE_TYPE.equals(envelope.get("type")))
+        return parseEnvelope(raw)
+                .filter(envelope -> envelope.get("type") instanceof String type && FINAL_ENVELOPE_TYPES.contains(type))
                 .map(envelope -> extractBusinessText(envelope).orElse(raw));
     }
 
