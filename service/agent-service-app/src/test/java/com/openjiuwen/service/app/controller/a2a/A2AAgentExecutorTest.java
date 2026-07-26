@@ -165,8 +165,6 @@ class A2AAgentExecutorTest {
     void failurePathBindsPushConfigAndSendsFailedTaskNotification() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenThrow(new IllegalStateException("remote boom"));
-        A2AProtocolAdapter adapter = requestAdapter(false, Map.of());
-        InMemoryPushNotificationConfigStore store = new InMemoryPushNotificationConfigStore();
         AtomicReference<Task> pushedTask = new AtomicReference<>();
         PushNotificationSender sender = new PushNotificationSender() {
             @Override
@@ -183,6 +181,8 @@ class A2AAgentExecutorTest {
                 .build())
             .build());
 
+        A2AProtocolAdapter adapter = requestAdapter(false, Map.of());
+        InMemoryPushNotificationConfigStore store = new InMemoryPushNotificationConfigStore();
         new A2AAgentExecutor(orchestrator, adapter, sender, store).execute(context,
             new AgentEmitter(context, new CapturingEventQueue()));
 

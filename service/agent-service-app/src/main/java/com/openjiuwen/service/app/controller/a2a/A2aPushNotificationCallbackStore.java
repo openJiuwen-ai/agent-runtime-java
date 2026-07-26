@@ -6,6 +6,8 @@ package com.openjiuwen.service.app.controller.a2a;
 
 /**
  * Stores received push notification payloads for idempotency.
+ *
+ * @since 0.1.0
  */
 public interface A2aPushNotificationCallbackStore {
     /**
@@ -17,6 +19,9 @@ public interface A2aPushNotificationCallbackStore {
      */
     SaveResult saveIfAbsent(String notificationId, String payloadHash);
 
+    /**
+     * Result of saving an idempotency record.
+     */
     enum SaveResult {
         CREATED,
         DUPLICATE,

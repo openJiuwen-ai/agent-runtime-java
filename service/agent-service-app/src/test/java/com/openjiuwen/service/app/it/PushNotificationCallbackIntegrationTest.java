@@ -29,7 +29,10 @@ import java.util.Map;
 /**
  * Integration journey for the fixed A2A push notification callback receiver.
  */
-@SpringBootTest(classes = {TestServiceApplication.class, PushNotificationCallbackIntegrationTest.CallbackTestConfig.class},
+@SpringBootTest(classes = {
+    TestServiceApplication.class,
+    PushNotificationCallbackIntegrationTest.CallbackTestConfig.class
+},
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
             "openjiuwen.service.a2a.push-notifications=true",
             "openjiuwen.service.a2a.push-notification.trusted-callback-hosts[0]=127.0.0.1"

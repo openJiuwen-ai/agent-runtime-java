@@ -9,6 +9,8 @@ import java.util.concurrent.ConcurrentMap;
 
 /**
  * In-memory push notification callback idempotency store.
+ *
+ * @since 0.1.0
  */
 public class InMemoryA2aPushNotificationCallbackStore implements A2aPushNotificationCallbackStore {
     private final ConcurrentMap<String, String> payloadHashes = new ConcurrentHashMap<>();

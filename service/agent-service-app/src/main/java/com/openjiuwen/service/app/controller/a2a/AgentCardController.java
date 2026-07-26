@@ -46,6 +46,7 @@ public class AgentCardController {
      * @param a2aProperties the A2A configuration properties
      * @param identity the agent service identity
      * @param serviceProperties the service properties
+     * @param pushNotificationCapabilityGate the push notification capability gate
      */
     public AgentCardController(A2AProperties a2aProperties, AgentServiceIdentity identity,
         ServiceProperties serviceProperties, A2aPushNotificationCapabilityGate pushNotificationCapabilityGate) {
@@ -112,8 +113,9 @@ public class AgentCardController {
         return new AgentCard(identity.getAppName(), a2aProperties.getAgentDescription(),
             new AgentProvider(providerOrg, providerUrl), serviceProperties.getVersion(),
             a2aProperties.getDocumentationUrl(),
-            new AgentCapabilities(a2aProperties.isStreaming(), pushNotificationCapabilityGate.isPushNotificationsEnabled(),
-                a2aProperties.isExtendedAgentCard(), List.of()), a2aProperties.getDefaultInputModes(),
+            new AgentCapabilities(a2aProperties.isStreaming(),
+                pushNotificationCapabilityGate.isPushNotificationsEnabled(), a2aProperties.isExtendedAgentCard(),
+                List.of()), a2aProperties.getDefaultInputModes(),
             a2aProperties.getDefaultOutputModes(), skills, Map.of(), List.of(), a2aProperties.getIconUrl(),
             List.of(new AgentInterface("JSONRPC", jsonRpcUrl, null, "1.0")), List.of(), jsonRpcUrl, "JSONRPC",
             List.of());

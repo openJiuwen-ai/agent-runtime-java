@@ -29,16 +29,16 @@ import java.util.Map;
 class A2AEnabledServeOrchestratorCallbackRecoveryTest {
     @Test
     @SuppressWarnings("unchecked")
-    void completedCallbackTaskUpdatesMatchingShadowMemberAndMarksBatchReady() {
+    void completedCallbackMarksBatchReady() {
         InMemoryTaskStore taskStore = new InMemoryTaskStore();
         taskStore.save(shadowTask("parent-callback", "remote-task-1"), true);
         A2AEnabledServeOrchestrator orchestrator = new A2AEnabledServeOrchestrator(mock(AgentHandler.class),
             taskStore, mock(A2ARemoteAgentClient.class), mock(ActiveStreamRegistry.class), "test-agent", 16, 256, 30);
 
-        boolean recovered = orchestrator.onAccepted(new A2aPushNotificationCallback("notif-1",
+        boolean isRecovered = orchestrator.onAccepted(new A2aPushNotificationCallback("notif-1",
             completedTask("remote-task-1", "callback-result")));
 
-        assertThat(recovered).isTrue();
+        assertThat(isRecovered).isTrue();
         Task shadow = taskStore.get("shadow:test-agent:parent-callback");
         Map<String, Object> batch = (Map<String, Object>) shadow.metadata().get("_remote_batch");
         List<Map<String, Object>> members = (List<Map<String, Object>>) batch.get("members");
@@ -58,10 +58,10 @@ class A2AEnabledServeOrchestratorCallbackRecoveryTest {
         A2AEnabledServeOrchestrator orchestrator = new A2AEnabledServeOrchestrator(mock(AgentHandler.class),
             taskStore, mock(A2ARemoteAgentClient.class), mock(ActiveStreamRegistry.class), "test-agent", 16, 256, 30);
 
-        boolean recovered = orchestrator.onAccepted(new A2aPushNotificationCallback("notif-working-state",
+        boolean isRecovered = orchestrator.onAccepted(new A2aPushNotificationCallback("notif-working-state",
             resultTask("remote-task-working-state", TaskState.TASK_STATE_WORKING, "callback text with working state")));
 
-        assertThat(recovered).isTrue();
+        assertThat(isRecovered).isTrue();
         Task shadow = taskStore.get("shadow:test-agent:parent-working-state");
         Map<String, Object> batch = (Map<String, Object>) shadow.metadata().get("_remote_batch");
         List<Map<String, Object>> members = (List<Map<String, Object>>) batch.get("members");

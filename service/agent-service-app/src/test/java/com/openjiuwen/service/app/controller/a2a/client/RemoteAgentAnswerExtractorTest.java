@@ -216,7 +216,6 @@ class RemoteAgentAnswerExtractorTest {
 
     @Test
     void internalProjectionPartsAreExcludedFromCompletedResult() throws Exception {
-        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         Artifact artifact = new Artifact("artifact-business", null, null,
                 List.<Part<?>>of(new TextPart("internal", Map.of("_remote_invocation", Map.of("toolCallId", "call-a"))),
                         new TextPart("business")),
@@ -229,6 +228,7 @@ class RemoteAgentAnswerExtractorTest {
                 boolean.class);
         statusMethod.setAccessible(true);
 
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         statusMethod.invoke(client, new TaskStatusUpdateEvent("remote-task", task.status(), "remote-context", Map.of()),
                 task, result, (java.util.function.Consumer<String>) ignored -> {
                 }, false);

@@ -80,7 +80,7 @@ class PushNotificationSenderTest {
         assertThat(json.getAsJsonObject("result").getAsJsonObject("task").get("id").getAsString()).isEqualTo("task-1");
         assertThat(sender.deliveryRecord(expectedNotificationId)).hasValueSatisfying(record -> {
             assertThat(record.attempts()).isEqualTo(1);
-            assertThat(record.success()).isTrue();
+            assertThat(record.isSuccess()).isTrue();
         });
     }
 
@@ -130,7 +130,7 @@ class PushNotificationSenderTest {
                         .get(0), event);
         assertThat(sender.deliveryRecord(notificationId)).hasValueSatisfying(record -> {
             assertThat(record.attempts()).isEqualTo(1);
-            assertThat(record.success()).isFalse();
+            assertThat(record.isSuccess()).isFalse();
             assertThat(record.message()).contains("untrusted");
         });
     }
@@ -166,7 +166,7 @@ class PushNotificationSenderTest {
         assertThat(secondNotificationId.get()).isEqualTo(firstNotificationId.get());
         assertThat(sender.deliveryRecord(firstNotificationId.get())).hasValueSatisfying(record -> {
             assertThat(record.attempts()).isEqualTo(2);
-            assertThat(record.success()).isTrue();
+            assertThat(record.isSuccess()).isTrue();
             assertThat(record.message()).isEqualTo("HTTP 202");
         });
     }

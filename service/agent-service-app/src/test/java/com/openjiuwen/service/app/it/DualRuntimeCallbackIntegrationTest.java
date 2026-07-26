@@ -305,7 +305,7 @@ class DualRuntimeCallbackIntegrationTest {
             try {
                 Thread.sleep(500);
             } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
+                throw new IllegalStateException("callee sleep interrupted", ex);
             }
             return response(request, "callee result:" + request.lastUserQuery());
         }

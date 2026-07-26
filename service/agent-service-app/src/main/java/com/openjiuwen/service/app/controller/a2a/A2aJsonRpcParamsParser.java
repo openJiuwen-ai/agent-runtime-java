@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Parses and validates method-specific A2A JSON-RPC parameters before they are passed to the SDK.
@@ -55,10 +56,10 @@ final class A2aJsonRpcParamsParser {
                 throw invalid("params.message.parts must contain at least one non-blank text part");
             }
             Message message = buildMessage(messageObject, parts);
-            MessageSendConfiguration configuration = parseConfiguration(params);
-
-            return MessageSendParams.builder().message(message).configuration(configuration)
-                    .metadata(parseMetadata(params, "params.metadata")).build();
+            MessageSendParams.Builder builder = MessageSendParams.builder().message(message)
+                    .metadata(parseMetadata(params, "params.metadata"));
+            parseConfiguration(params).ifPresent(builder::configuration);
+            return builder.build();
         } catch (InvalidParamsError e) {
             throw e;
         } catch (JsonParseException | ClassCastException | IllegalStateException | IllegalArgumentException
@@ -68,11 +69,11 @@ final class A2aJsonRpcParamsParser {
         }
     }
 
-    private static MessageSendConfiguration parseConfiguration(JsonObject params) {
+    private static Optional<MessageSendConfiguration> parseConfiguration(JsonObject params) {
         JsonElement inlinePushConfig = params.get("pushNotificationConfig");
         JsonElement configuration = params.get("configuration");
         if (inlinePushConfig == null && (configuration == null || configuration.isJsonNull())) {
-            return null;
+            return Optional.empty();
         }
         try {
             MessageSendConfiguration.Builder builder = MessageSendConfiguration.builder();
@@ -82,7 +83,7 @@ final class A2aJsonRpcParamsParser {
                 }
                 JsonObject configurationObject = configuration.getAsJsonObject();
                 optionalInteger(configurationObject, "historyLength", "params.configuration.historyLength")
-                        .ifPresent(builder::historyLength);
+                        .ifPresent(value -> builder.historyLength(value));
                 optionalBoolean(configurationObject, "returnImmediately", "params.configuration.returnImmediately")
                         .ifPresent(builder::returnImmediately);
                 JsonElement nestedPushConfig = configurationObject.get("taskPushNotificationConfig");
@@ -96,7 +97,7 @@ final class A2aJsonRpcParamsParser {
                         "params.pushNotificationConfig"));
                 builder.returnImmediately(true);
             }
-            return builder.build();
+            return Optional.of(builder.build());
         } catch (InvalidParamsError e) {
             throw e;
         } catch (RuntimeException e) {
@@ -110,28 +111,32 @@ final class A2aJsonRpcParamsParser {
             throw invalid(path + " must be an object");
         }
         JsonObject config = value.getAsJsonObject();
-        String id = optionalNonBlankString(config, "id", path + ".id").orElse(null);
-        String taskId = optionalNonBlankString(config, "taskId", path + ".taskId").orElse(null);
+        TaskPushNotificationConfig.Builder builder = TaskPushNotificationConfig.builder();
+        optionalNonBlankString(config, "id", path + ".id").ifPresent(builder::id);
+        optionalNonBlankString(config, "taskId", path + ".taskId").ifPresent(builder::taskId);
         String url = optionalNonBlankString(config, "callbackUrl", path + ".callbackUrl")
-                .or(() -> optionalNonBlankString(config, "url", path + ".url")).orElse(null);
-        String token = optionalNonBlankString(config, "token", path + ".token").orElse(null);
-        AuthenticationInfo authentication = parseAuthentication(config.get("authentication"), path + ".authentication");
-        String tenant = optionalNonBlankString(config, "tenant", path + ".tenant").orElse(null);
-        return TaskPushNotificationConfig.builder().id(id).taskId(taskId).url(url).token(token)
-                .authentication(authentication).tenant(tenant).build();
+                .or(() -> optionalNonBlankString(config, "url", path + ".url"))
+                .orElseThrow(() -> invalid(path + ".callbackUrl is required and must be a non-blank string"));
+        builder.url(url);
+        optionalNonBlankString(config, "token", path + ".token").ifPresent(builder::token);
+        parseAuthentication(config.get("authentication"), path + ".authentication").ifPresent(builder::authentication);
+        optionalNonBlankString(config, "tenant", path + ".tenant").ifPresent(builder::tenant);
+        return builder.build();
     }
 
-    private static AuthenticationInfo parseAuthentication(JsonElement value, String path) {
+    private static Optional<AuthenticationInfo> parseAuthentication(JsonElement value, String path) {
         if (value == null || value.isJsonNull()) {
-            return null;
+            return Optional.empty();
         }
         if (!value.isJsonObject()) {
             throw invalid(path + " must be an object");
         }
         JsonObject auth = value.getAsJsonObject();
-        String scheme = optionalNonBlankString(auth, "scheme", path + ".scheme").orElse(null);
-        String credentials = optionalNonBlankString(auth, "credentials", path + ".credentials").orElse(null);
-        return new AuthenticationInfo(scheme, credentials);
+        Optional<String> scheme = optionalNonBlankString(auth, "scheme", path + ".scheme");
+        Optional<String> credentials = optionalNonBlankString(auth, "credentials", path + ".credentials");
+        return scheme.isPresent() && credentials.isPresent()
+                ? Optional.of(new AuthenticationInfo(scheme.get(), credentials.get()))
+                : Optional.empty();
     }
 
     static TaskQueryParams parseTaskQueryParams(JsonObject request) {
@@ -223,15 +228,15 @@ final class A2aJsonRpcParamsParser {
                 .orElseThrow(() -> invalid(path + " is required and must be a non-blank string"));
     }
 
-    private static Optional<Integer> optionalInteger(JsonObject parent, String memberName, String path) {
+    private static OptionalInt optionalInteger(JsonObject parent, String memberName, String path) {
         JsonElement value = parent.get(memberName);
         if (value == null || value.isJsonNull()) {
-            return Optional.empty();
+            return OptionalInt.empty();
         }
         if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) {
             throw invalid(path + " must be a number");
         }
-        return Optional.of(value.getAsInt());
+        return OptionalInt.of(value.getAsInt());
     }
 
     private static Optional<Boolean> optionalBoolean(JsonObject parent, String memberName, String path) {

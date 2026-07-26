@@ -6,6 +6,8 @@ package com.openjiuwen.service.app.controller.a2a;
 
 /**
  * Handles first-seen A2A push notification callbacks after receiver validation and idempotency checks.
+ *
+ * @since 0.1.0
  */
 public interface A2aPushNotificationCallbackHandler {
     /**

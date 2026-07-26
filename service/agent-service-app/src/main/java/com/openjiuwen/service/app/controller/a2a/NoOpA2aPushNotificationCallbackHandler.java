@@ -6,6 +6,8 @@ package com.openjiuwen.service.app.controller.a2a;
 
 /**
  * Fallback callback handler used when no orchestrator supports callback recovery.
+ *
+ * @since 0.1.0
  */
 public class NoOpA2aPushNotificationCallbackHandler implements A2aPushNotificationCallbackHandler {
     @Override

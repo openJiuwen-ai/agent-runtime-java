@@ -158,7 +158,7 @@ class A2aJsonRpcControllerTest {
     }
 
     @Test
-    void unsupportedPushCrudMethodsReturnMethodNotFoundWithoutCallingSdkHandler() {
+    void unsupportedPushCrudMethodsReturnMethodNotFound() {
         RequestHandler requestHandler = mock(RequestHandler.class);
         A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler, new A2AProperties());
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
@@ -168,7 +168,7 @@ class A2aJsonRpcControllerTest {
                     {"jsonrpc":"2.0","id":"req-1","method":"%s","params":{}}
                     """.formatted(method), servletRequest);
 
-            JsonObject body = JsonParser.parseString((String) response.getBody()).getAsJsonObject();
+            JsonObject body = jsonBody(response);
             assertThat(body.getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32601);
             assertThat(body.getAsJsonObject("error").get("message").getAsString()).contains(method);
         }
@@ -202,7 +202,7 @@ class A2aJsonRpcControllerTest {
                 }
                 """, servletRequest);
 
-        JsonObject body = JsonParser.parseString((String) response.getBody()).getAsJsonObject();
+        JsonObject body = jsonBody(response);
         assertThat(body.getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32602);
         verifyNoInteractions(requestHandler);
     }
@@ -300,6 +300,14 @@ class A2aJsonRpcControllerTest {
                 + "\"role\":\"ROLE_USER\",\"messageId\":\"msg-1\",\"contextId\":\"ctx-1\","
                 + "\"parts\":[{\"kind\":\"text\",\"text\":\"hello\"}],\"metadata\":" + messageMetadata + "}}}";
         return JsonParser.parseString(json).getAsJsonObject();
+    }
+
+    private static JsonObject jsonBody(ResponseEntity<?> response) {
+        Object body = response.getBody();
+        if (body instanceof String text) {
+            return JsonParser.parseString(text).getAsJsonObject();
+        }
+        throw new AssertionError("JSON-RPC response body is not a string: " + body);
     }
 
     private static A2AProperties propertiesWithTrustedHosts(List<String> trustedHosts) {

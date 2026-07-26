@@ -45,7 +45,7 @@ class SendMessageCallbackIntegrationTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void sendMessageWithInlineCallbackConfigCreatesQueryableTaskAndBindsCallbackConfig() throws Exception {
+    void inlineCallbackConfigBindsQueryableTask() throws Exception {
         String callbackUrl = "http://127.0.0.1/a2a/push-notifications/callback";
         Map<String, Object> request = rpc("SendMessage", "send-callback-journey", Map.of(
             "message", Map.of(

@@ -129,7 +129,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             }
         } catch (IllegalArgumentException | IllegalStateException | NullPointerException ex) {
             log.error("Agent execution failed for contextId={}", ctx.getContextId(), ex);
-            failAndDrain(emitter, msgCtx, ctx, ex, pushNotificationSender, pushNotificationConfigStore);
+            failAndDrain(emitter, msgCtx, ctx, ex);
         }
     }
 
@@ -296,9 +296,8 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
-    private static void failAndDrain(AgentEmitter emitter, A2AMessageContext msgCtx, RequestContext ctx,
-            RuntimeException error, PushNotificationSender pushNotificationSender,
-            PushNotificationConfigStore pushNotificationConfigStore) {
+    private void failAndDrain(AgentEmitter emitter, A2AMessageContext msgCtx, RequestContext ctx,
+            RuntimeException error) {
         emitter.fail();
         String taskId = msgCtx.getTaskId();
         try {
@@ -308,11 +307,10 @@ public class A2AAgentExecutor implements AgentExecutor {
         } catch (ReflectiveOperationException | SecurityException e) {
             log.debug("A2A failAndDrain: eventQueue unavailable taskId={}", taskId, e);
         }
-        sendFailureNotification(msgCtx, ctx, error, pushNotificationSender, pushNotificationConfigStore);
+        sendFailureNotification(msgCtx, ctx, error);
     }
 
-    private static void sendFailureNotification(A2AMessageContext msgCtx, RequestContext ctx, RuntimeException error,
-            PushNotificationSender pushNotificationSender, PushNotificationConfigStore pushNotificationConfigStore) {
+    private void sendFailureNotification(A2AMessageContext msgCtx, RequestContext ctx, RuntimeException error) {
         if (pushNotificationSender == null || msgCtx.getTaskId() == null || msgCtx.getTaskId().isBlank()) {
             return;
         }
@@ -329,7 +327,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                     OffsetDateTime.now()))
                 .build();
             pushNotificationSender.sendNotification(null, failedTask);
-        } catch (RuntimeException notificationError) {
+        } catch (IllegalArgumentException | IllegalStateException | NullPointerException notificationError) {
             log.warn("A2A failure push notification failed taskId={}", msgCtx.getTaskId(), notificationError);
         }
     }

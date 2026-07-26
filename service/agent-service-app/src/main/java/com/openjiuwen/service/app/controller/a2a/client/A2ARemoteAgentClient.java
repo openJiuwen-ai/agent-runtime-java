@@ -260,10 +260,10 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
-        boolean callbackMode = setup.params.configuration() != null
+        boolean isCallbackMode = setup.params.configuration() != null
                 && setup.params.configuration().taskPushNotificationConfig() != null;
         BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) ->
-                handleClientEvent(event, result, streamObserver, remoteTaskIdObserver, callbackMode);
+                handleClientEvent(event, result, streamObserver, remoteTaskIdObserver, isCallbackMode);
         Client client = createClient(setup.entry, isStreaming);
         AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
         try {
@@ -302,18 +302,18 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     private void handleClientEvent(ClientEvent event, CompletableFuture<RemoteCallOutcome> result,
-            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver, boolean callbackMode) {
+            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver, boolean isCallbackMode) {
         if (event instanceof TaskUpdateEvent tue) {
             if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
                 notifyRemoteTaskId(remoteTaskIdObserver, aue.taskId(), tue.getTask().status().state());
                 handleOutcomeArtifact(aue, result, streamObserver);
             } else if (tue.getUpdateEvent() instanceof TaskStatusUpdateEvent sue) {
-                handleOutcomeStatus(sue, tue.getTask(), result, remoteTaskIdObserver, callbackMode);
+                handleOutcomeStatus(sue, tue.getTask(), result, remoteTaskIdObserver, isCallbackMode);
             } else {
                 log.debug("Unknown update event type: {}", tue.getUpdateEvent().getClass().getSimpleName());
             }
         } else if (event instanceof TaskEvent te) {
-            handleOutcomeTask(te, result, remoteTaskIdObserver, callbackMode);
+            handleOutcomeTask(te, result, remoteTaskIdObserver, isCallbackMode);
         } else if (event instanceof MessageEvent me) {
             handleOutcomeMessage(me, result, remoteTaskIdObserver);
         } else {
@@ -355,20 +355,21 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     private void handleOutcomeStatus(TaskStatusUpdateEvent event, Task task,
-            CompletableFuture<RemoteCallOutcome> result, Consumer<String> remoteTaskIdObserver, boolean callbackMode) {
+            CompletableFuture<RemoteCallOutcome> result, Consumer<String> remoteTaskIdObserver,
+            boolean isCallbackMode) {
         TaskState state = event.status().state();
         String statusText = event.status().message() != null ? extractText(event.status().message().parts()) : "";
         completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task), result,
-            remoteTaskIdObserver, callbackMode);
+            remoteTaskIdObserver, isCallbackMode);
     }
 
     private void handleOutcomeTask(TaskEvent event, CompletableFuture<RemoteCallOutcome> result,
-            Consumer<String> remoteTaskIdObserver, boolean callbackMode) {
+            Consumer<String> remoteTaskIdObserver, boolean isCallbackMode) {
         Task task = event.getTask();
         TaskState state = task.status().state();
         String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";
         completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task), result,
-            remoteTaskIdObserver, callbackMode);
+            remoteTaskIdObserver, isCallbackMode);
     }
 
     private static void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
@@ -377,12 +378,12 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     private static void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
-            Consumer<String> remoteTaskIdObserver, boolean callbackMode) {
+            Consumer<String> remoteTaskIdObserver, boolean isCallbackMode) {
         notifyRemoteTaskId(remoteTaskIdObserver, outcome.taskId(), outcome.state());
         if (result.isDone()) {
             return;
         }
-        if (callbackMode && !outcome.state().isFinal()) {
+        if (isCallbackMode && !outcome.state().isFinal()) {
             result.complete(new RemoteCallOutcome(outcome.taskId(), TaskState.TASK_STATE_INPUT_REQUIRED,
                     "INPUT_REQUIRED", null, "Remote callback pending"));
             return;

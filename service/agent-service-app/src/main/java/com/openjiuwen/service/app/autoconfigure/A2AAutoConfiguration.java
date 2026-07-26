@@ -121,6 +121,8 @@ public class A2AAutoConfiguration {
     /**
      * Creates a no-op push notification sender bean (push notifications disabled by default).
      *
+     * @param pushConfigStore the push notification config store
+     * @param properties the A2A configuration properties
      * @return the no-op push notification sender
      */
     @Bean
@@ -130,12 +132,26 @@ public class A2AAutoConfiguration {
         return new HttpPushNotificationSender(pushConfigStore, properties.getPushNotification());
     }
 
+    /**
+     * Creates the push notification callback idempotency store bean.
+     *
+     * @return the callback idempotency store
+     */
     @Bean
     @ConditionalOnMissingBean
     public A2aPushNotificationCallbackStore a2aPushNotificationCallbackStore() {
         return new InMemoryA2aPushNotificationCallbackStore();
     }
 
+    /**
+     * Creates the push notification capability gate bean.
+     *
+     * @param properties the A2A configuration properties
+     * @param pushNotificationSender the push notification sender
+     * @param callbackStore the callback idempotency store
+     * @param callbackHandler the callback handler
+     * @return the push notification capability gate
+     */
     @Bean
     @ConditionalOnMissingBean
     public A2aPushNotificationCapabilityGate a2aPushNotificationCapabilityGate(A2AProperties properties,
@@ -208,6 +224,8 @@ public class A2AAutoConfiguration {
      *
      * @param orchestrator the serve orchestrator
      * @param adapter the A2A protocol adapter
+     * @param pushNotificationSender the push notification sender
+     * @param pushConfigStore the push notification config store
      * @return the A2A agent executor
      */
     @Bean
@@ -279,6 +297,11 @@ public class A2AAutoConfiguration {
             limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds());
     }
 
+    /**
+     * Creates the default no-op push notification callback handler bean.
+     *
+     * @return the no-op callback handler
+     */
     @Bean
     @ConditionalOnMissingBean
     public A2aPushNotificationCallbackHandler a2aPushNotificationCallbackHandler() {

@@ -10,6 +10,8 @@ import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 
 /**
  * Computes the externally advertised A2A push-notification capability.
+ *
+ * @since 0.1.0
  */
 public class A2aPushNotificationCapabilityGate {
     private final A2AProperties properties;

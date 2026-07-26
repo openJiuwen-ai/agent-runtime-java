@@ -26,9 +26,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Fixed receiver for runtime-to-runtime A2A push notification callbacks.
+ *
+ * @since 0.1.0
  */
 @RestController
 public class A2aPushNotificationCallbackController {
@@ -47,6 +50,13 @@ public class A2aPushNotificationCallbackController {
         this.capabilityGate = capabilityGate;
     }
 
+    /**
+     * Receives and deduplicates runtime-to-runtime push notification callbacks.
+     *
+     * @param rawBody the raw JSON callback body
+     * @param request the HTTP servlet request
+     * @return the callback acceptance response
+     */
     @PostMapping(value = A2AServicePaths.A2A_PUSH_NOTIFICATION_CALLBACK, consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     @AuthorizedResource(resource = "a2a-push-callback", action = "receive")
@@ -58,17 +68,20 @@ public class A2aPushNotificationCallbackController {
         JsonObject body;
         try {
             body = JsonParser.parseString(rawBody == null ? "" : rawBody).getAsJsonObject();
-        } catch (RuntimeException e) {
+        } catch (IllegalStateException | com.google.gson.JsonParseException e) {
             return badRequest("callback body must be a JSON object");
         }
-        String headerNotificationId = trimToNull(request.getHeader(NOTIFICATION_ID_HEADER));
-        String bodyNotificationId = stringMember(body, "notificationId");
-        String notificationId = headerNotificationId != null ? headerNotificationId : bodyNotificationId;
+        Optional<String> headerNotificationId = trimToEmpty(request.getHeader(NOTIFICATION_ID_HEADER));
+        Optional<String> bodyNotificationId = stringMember(body, "notificationId");
+        String notificationId = headerNotificationId.or(() -> bodyNotificationId).orElse("");
         if (notificationId == null) {
             return badRequest("notificationId is required");
         }
-        if (headerNotificationId != null && bodyNotificationId != null && !headerNotificationId.equals(
-                bodyNotificationId)) {
+        if (notificationId.isBlank()) {
+            return badRequest("notificationId is required");
+        }
+        if (headerNotificationId.isPresent() && bodyNotificationId.isPresent()
+                && !headerNotificationId.get().equals(bodyNotificationId.get())) {
             return badRequest("notificationId mismatch between header and body");
         }
         if (!isJsonRpcResult(body)) {
@@ -77,7 +90,7 @@ public class A2aPushNotificationCallbackController {
         Task task;
         try {
             task = callbackTask(body);
-        } catch (RuntimeException e) {
+        } catch (IllegalArgumentException e) {
             return badRequest("callback result.task is required");
         }
         A2aPushNotificationCallbackStore.SaveResult result = callbackStore.saveIfAbsent(notificationId,
@@ -86,8 +99,8 @@ public class A2aPushNotificationCallbackController {
             return status(HttpStatus.CONFLICT, "conflict", notificationId);
         }
         if (result == A2aPushNotificationCallbackStore.SaveResult.CREATED) {
-            boolean handled = callbackHandler.onAccepted(new A2aPushNotificationCallback(notificationId, task));
-            if (!handled) {
+            boolean isHandled = callbackHandler.onAccepted(new A2aPushNotificationCallback(notificationId, task));
+            if (!isHandled) {
                 return status(HttpStatus.NOT_FOUND, "callback binding not found", notificationId);
             }
         }
@@ -122,70 +135,68 @@ public class A2aPushNotificationCallbackController {
                 || (task.status().state() != null && task.status().state() != TaskState.UNRECOGNIZED)) {
             return task;
         }
-        TaskState state = rawState(rawTask);
-        if (state == null) {
-            return task;
-        }
-        TaskStatus status = new TaskStatus(state, task.status().message(), task.status().timestamp());
-        return Task.builder(task).status(status).build();
+        return rawState(rawTask)
+                .map(state -> new TaskStatus(state, task.status().message(), task.status().timestamp()))
+                .map(status -> Task.builder(task).status(status).build())
+                .orElse(task);
     }
 
-    private static TaskState rawState(JsonObject rawTask) {
-        JsonElement state = findState(rawTask);
-        if (state == null || !state.isJsonPrimitive()) {
-            return null;
+    private static Optional<TaskState> rawState(JsonObject rawTask) {
+        Optional<JsonElement> state = findState(rawTask);
+        if (state.isEmpty() || !state.get().isJsonPrimitive()) {
+            return Optional.empty();
         }
-        String value = state.getAsString();
+        String value = state.get().getAsString();
         if (value == null || value.isBlank()) {
-            return null;
+            return Optional.empty();
         }
         String normalized = value.trim().toUpperCase(java.util.Locale.ROOT).replace('-', '_');
         if (!normalized.startsWith("TASK_STATE_")) {
             normalized = "TASK_STATE_" + normalized;
         }
         try {
-            return TaskState.valueOf(normalized);
+            return Optional.of(TaskState.valueOf(normalized));
         } catch (IllegalArgumentException e) {
-            return null;
+            return Optional.empty();
         }
     }
 
-    private static JsonElement findState(JsonObject object) {
+    private static Optional<JsonElement> findState(JsonObject object) {
         if (object == null) {
-            return null;
+            return Optional.empty();
         }
         JsonElement direct = object.get("state");
         if (direct != null) {
-            return direct;
+            return Optional.of(direct);
         }
         for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
             JsonElement value = entry.getValue();
             if (value != null && value.isJsonObject()) {
-                JsonElement nested = findState(value.getAsJsonObject());
-                if (nested != null) {
+                Optional<JsonElement> nested = findState(value.getAsJsonObject());
+                if (nested.isPresent()) {
                     return nested;
                 }
             }
         }
-        return null;
+        return Optional.empty();
     }
 
-    private static String stringMember(JsonObject body, String memberName) {
+    private static Optional<String> stringMember(JsonObject body, String memberName) {
         JsonElement value = body.get(memberName);
         if (value == null || value.isJsonNull()) {
-            return null;
+            return Optional.empty();
         }
         if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
-            return null;
+            return Optional.empty();
         }
-        return trimToNull(value.getAsString());
+        return trimToEmpty(value.getAsString());
     }
 
-    private static String trimToNull(String value) {
+    private static Optional<String> trimToEmpty(String value) {
         if (value == null || value.isBlank()) {
-            return null;
+            return Optional.empty();
         }
-        return value.trim();
+        return Optional.of(value.trim());
     }
 
     private static String sha256(String value) {

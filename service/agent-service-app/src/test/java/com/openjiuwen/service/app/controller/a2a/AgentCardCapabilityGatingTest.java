@@ -54,7 +54,7 @@ class AgentCardCapabilityGatingTest {
     }
 
     @Test
-    void pushNotificationsAreAdvertisedOnlyWhenRuntimeCallbackPathIsComplete() {
+    void pushNotificationsAdvertisedWhenCallbackPathComplete() {
         A2AProperties properties = properties(true, List.of("callback.example.com"));
 
         AgentCard card = card(properties, httpSender(properties), new InMemoryA2aPushNotificationCallbackStore(),
@@ -83,9 +83,9 @@ class AgentCardCapabilityGatingTest {
         return controller.getStandardCard(new MockHttpServletRequest("GET", "/.well-known/agent-card.json"));
     }
 
-    private static A2AProperties properties(boolean pushNotifications, List<String> trustedHosts) {
+    private static A2AProperties properties(boolean isPushNotifications, List<String> trustedHosts) {
         A2AProperties properties = new A2AProperties();
-        properties.setPushNotifications(pushNotifications);
+        properties.setPushNotifications(isPushNotifications);
         properties.getPushNotification().setTrustedCallbackHosts(trustedHosts);
         return properties;
     }

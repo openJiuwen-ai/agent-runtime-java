@@ -46,9 +46,9 @@ final class A2aPushNotificationTrustPolicy {
             return Optional.empty();
         }
         String normalizedHost = host.toLowerCase(Locale.ROOT);
-        boolean trusted = trustedHosts.stream().filter(candidate -> candidate != null && !candidate.isBlank())
+        boolean isTrusted = trustedHosts.stream().filter(candidate -> candidate != null && !candidate.isBlank())
                 .map(candidate -> candidate.toLowerCase(Locale.ROOT)).anyMatch(normalizedHost::equals);
-        return trusted ? uri : Optional.empty();
+        return isTrusted ? uri : Optional.empty();
     }
 
     private static Optional<URI> parseCallbackUri(String callbackUrl) {

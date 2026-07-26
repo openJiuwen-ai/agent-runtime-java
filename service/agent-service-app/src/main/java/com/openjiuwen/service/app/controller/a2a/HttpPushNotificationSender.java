@@ -36,6 +36,8 @@ import java.util.concurrent.ConcurrentMap;
 
 /**
  * Sends A2A task terminal notifications to a trusted callback receiver.
+ *
+ * @since 0.1.0
  */
 public class HttpPushNotificationSender implements PushNotificationSender {
     private static final Logger log = LoggerFactory.getLogger(HttpPushNotificationSender.class);
@@ -80,13 +82,12 @@ public class HttpPushNotificationSender implements PushNotificationSender {
                 task));
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            boolean success = response.statusCode() >= 200 && response.statusCode() < 300;
-            record(notificationId, task.id(), config.get().id(), success, "HTTP " + response.statusCode());
+            boolean isSuccess = response.statusCode() >= 200 && response.statusCode() < 300;
+            record(notificationId, task.id(), config.get().id(), isSuccess, "HTTP " + response.statusCode());
         } catch (IOException e) {
             record(notificationId, task.id(), config.get().id(), false, e.getClass().getSimpleName());
             log.warn("A2A push notification delivery failed for task {}", task.id(), e);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             record(notificationId, task.id(), config.get().id(), false, "interrupted");
         }
     }
@@ -100,14 +101,16 @@ public class HttpPushNotificationSender implements PushNotificationSender {
     }
 
     private Optional<TaskPushNotificationConfig> firstConfig(String taskId) {
-        List<TaskPushNotificationConfig> configs = configStore.getInfo(new ListTaskPushNotificationConfigsParams(taskId))
-                .configs();
+        ListTaskPushNotificationConfigsParams params = new ListTaskPushNotificationConfigsParams(taskId);
+        List<TaskPushNotificationConfig> configs = configStore.getInfo(params).configs();
         return configs == null || configs.isEmpty() ? Optional.empty() : Optional.of(configs.get(0));
     }
 
-    private HttpRequest request(URI callbackUri, String notificationId, TaskPushNotificationConfig config, String body) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder(callbackUri).POST(HttpRequest.BodyPublishers.ofString(body,
-                StandardCharsets.UTF_8)).header("Content-Type", "application/json")
+    private HttpRequest request(URI callbackUri, String notificationId, TaskPushNotificationConfig config,
+            String body) {
+        HttpRequest.BodyPublisher publisher = HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8);
+        HttpRequest.Builder builder = HttpRequest.newBuilder(callbackUri).POST(publisher)
+                .header("Content-Type", "application/json")
                 .header("X-A2A-Notification-Id", notificationId);
         authorizationHeader(config).ifPresent(value -> builder.header("Authorization", value));
         return builder.build();
@@ -138,22 +141,23 @@ public class HttpPushNotificationSender implements PushNotificationSender {
     private String notificationId(String taskId, String configId, String eventKind) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            String source = taskId + ":" + (configId == null ? "" : configId) + ":" + (eventKind == null ? "" :
-                    eventKind);
+            String configPart = configId == null ? "" : configId;
+            String eventPart = eventKind == null ? "" : eventKind;
+            String source = taskId + ":" + configPart + ":" + eventPart;
             return HexFormat.of().formatHex(digest.digest(source.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is not available", e);
         }
     }
 
-    private void record(String notificationId, String taskId, String configId, boolean success, String message) {
+    private void record(String notificationId, String taskId, String configId, boolean isSuccess, String message) {
         deliveryRecords.compute(notificationId, (key, previous) -> {
             int attempts = previous == null ? 1 : previous.attempts() + 1;
-            return new DeliveryRecord(notificationId, taskId, configId, attempts, success, message, Instant.now());
+            return new DeliveryRecord(notificationId, taskId, configId, attempts, isSuccess, message, Instant.now());
         });
     }
 
-    record DeliveryRecord(String notificationId, String taskId, String configId, int attempts, boolean success,
+    record DeliveryRecord(String notificationId, String taskId, String configId, int attempts, boolean isSuccess,
             String message, Instant updatedAt) {
     }
 }
