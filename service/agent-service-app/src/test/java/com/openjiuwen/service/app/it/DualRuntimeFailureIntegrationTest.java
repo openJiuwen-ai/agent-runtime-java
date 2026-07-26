@@ -56,8 +56,7 @@ import java.util.Map;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
         "spring.application.name=caller-failure-it",
-        "openjiuwen.service.a2a.push-notifications=true",
-        "openjiuwen.service.a2a.push-notification.trusted-callback-hosts[0]=127.0.0.1"
+        "openjiuwen.service.a2a.push-notifications=true"
     })
 @AutoConfigureTestRestTemplate
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -88,8 +87,7 @@ class DualRuntimeFailureIntegrationTest {
             .properties(
                 "server.port=0",
                 "spring.application.name=callee-failure-it",
-                "openjiuwen.service.a2a.push-notifications=true",
-                "openjiuwen.service.a2a.push-notification.trusted-callback-hosts[0]=127.0.0.1")
+                "openjiuwen.service.a2a.push-notifications=true")
             .run();
         registry.register("failing-callee", card(calleePort()), 5, false);
     }

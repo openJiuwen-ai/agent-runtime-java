@@ -16,7 +16,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -169,18 +168,17 @@ class A2aPushNotificationCallbackControllerTest {
     private static A2aPushNotificationCapabilityGate enabledGate(A2aPushNotificationCallbackHandler callbackHandler) {
         A2AProperties properties = new A2AProperties();
         properties.setPushNotifications(true);
-        properties.getPushNotification().setTrustedCallbackHosts(List.of("caller.example"));
         return new A2aPushNotificationCapabilityGate(properties,
-                new HttpPushNotificationSender(new InMemoryPushNotificationConfigStore(),
-                        properties.getPushNotification()), new InMemoryA2aPushNotificationCallbackStore(),
+                new HttpPushNotificationSender(new InMemoryPushNotificationConfigStore()),
+                new InMemoryA2aPushNotificationCallbackStore(),
                 callbackHandler);
     }
 
     private static A2aPushNotificationCapabilityGate disabledGate() {
         A2AProperties properties = new A2AProperties();
         return new A2aPushNotificationCapabilityGate(properties,
-                new HttpPushNotificationSender(new InMemoryPushNotificationConfigStore(),
-                        properties.getPushNotification()), new InMemoryA2aPushNotificationCallbackStore(),
+                new HttpPushNotificationSender(new InMemoryPushNotificationConfigStore()),
+                new InMemoryA2aPushNotificationCallbackStore(),
                 callback -> true);
     }
 

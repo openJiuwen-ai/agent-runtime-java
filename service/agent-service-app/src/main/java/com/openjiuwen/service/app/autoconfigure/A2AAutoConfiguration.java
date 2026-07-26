@@ -119,17 +119,15 @@ public class A2AAutoConfiguration {
     }
 
     /**
-     * Creates a no-op push notification sender bean (push notifications disabled by default).
+     * Creates the HTTP push notification sender bean.
      *
      * @param pushConfigStore the push notification config store
-     * @param properties the A2A configuration properties
      * @return the no-op push notification sender
      */
     @Bean
     @ConditionalOnMissingBean
-    public PushNotificationSender a2aPushNotificationSender(PushNotificationConfigStore pushConfigStore,
-            A2AProperties properties) {
-        return new HttpPushNotificationSender(pushConfigStore, properties.getPushNotification());
+    public PushNotificationSender a2aPushNotificationSender(PushNotificationConfigStore pushConfigStore) {
+        return new HttpPushNotificationSender(pushConfigStore);
     }
 
     /**

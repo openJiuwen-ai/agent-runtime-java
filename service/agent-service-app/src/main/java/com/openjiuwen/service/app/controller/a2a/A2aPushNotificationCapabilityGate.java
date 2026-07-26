@@ -37,9 +37,6 @@ public class A2aPushNotificationCapabilityGate {
      */
     public boolean isPushNotificationsEnabled() {
         return properties.isPushNotifications()
-            && properties.getPushNotification() != null
-            && properties.getPushNotification().getTrustedCallbackHosts() != null
-            && !properties.getPushNotification().getTrustedCallbackHosts().isEmpty()
             && sender instanceof HttpPushNotificationSender
             && callbackStore != null
             && callbackHandler != null

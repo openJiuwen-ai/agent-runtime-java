@@ -34,8 +34,7 @@ import java.util.Map;
     PushNotificationCallbackIntegrationTest.CallbackTestConfig.class
 },
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-            "openjiuwen.service.a2a.push-notifications=true",
-            "openjiuwen.service.a2a.push-notification.trusted-callback-hosts[0]=127.0.0.1"
+            "openjiuwen.service.a2a.push-notifications=true"
         })
 @AutoConfigureTestRestTemplate
 class PushNotificationCallbackIntegrationTest {

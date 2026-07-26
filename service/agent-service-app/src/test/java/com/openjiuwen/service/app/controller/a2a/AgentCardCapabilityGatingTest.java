@@ -17,37 +17,35 @@ import org.a2aproject.sdk.spec.AgentCard;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
-import java.util.List;
-
 /**
  * Tests Agent Card push-notification capability gating.
  */
 class AgentCardCapabilityGatingTest {
     @Test
     void pushNotificationsRemainDisabledWhenOperatorSwitchIsOff() {
-        A2AProperties properties = properties(false, List.of("callback.example.com"));
+        A2AProperties properties = properties(false);
 
-        AgentCard card = card(properties, httpSender(properties), new InMemoryA2aPushNotificationCallbackStore(),
+        AgentCard card = card(properties, httpSender(), new InMemoryA2aPushNotificationCallbackStore(),
                 callback -> true);
 
         assertThat(card.capabilities().pushNotifications()).isFalse();
     }
 
     @Test
-    void pushNotificationsRemainDisabledWithoutTrustPolicy() {
-        A2AProperties properties = properties(true, List.of());
+    void pushNotificationsDoNotRequireDeploymentHostTrust() {
+        A2AProperties properties = properties(true);
 
-        AgentCard card = card(properties, httpSender(properties), new InMemoryA2aPushNotificationCallbackStore(),
+        AgentCard card = card(properties, httpSender(), new InMemoryA2aPushNotificationCallbackStore(),
                 callback -> true);
 
-        assertThat(card.capabilities().pushNotifications()).isFalse();
+        assertThat(card.capabilities().pushNotifications()).isTrue();
     }
 
     @Test
     void pushNotificationsRemainDisabledWithoutRecoveryHandler() {
-        A2AProperties properties = properties(true, List.of("callback.example.com"));
+        A2AProperties properties = properties(true);
 
-        AgentCard card = card(properties, httpSender(properties), new InMemoryA2aPushNotificationCallbackStore(),
+        AgentCard card = card(properties, httpSender(), new InMemoryA2aPushNotificationCallbackStore(),
                 new NoOpA2aPushNotificationCallbackHandler());
 
         assertThat(card.capabilities().pushNotifications()).isFalse();
@@ -55,9 +53,9 @@ class AgentCardCapabilityGatingTest {
 
     @Test
     void pushNotificationsAdvertisedWhenCallbackPathComplete() {
-        A2AProperties properties = properties(true, List.of("callback.example.com"));
+        A2AProperties properties = properties(true);
 
-        AgentCard card = card(properties, httpSender(properties), new InMemoryA2aPushNotificationCallbackStore(),
+        AgentCard card = card(properties, httpSender(), new InMemoryA2aPushNotificationCallbackStore(),
                 callback -> true);
 
         assertThat(card.capabilities().pushNotifications()).isTrue();
@@ -65,7 +63,7 @@ class AgentCardCapabilityGatingTest {
 
     @Test
     void pushNotificationsRemainDisabledForNonHttpSender() {
-        A2AProperties properties = properties(true, List.of("callback.example.com"));
+        A2AProperties properties = properties(true);
 
         AgentCard card = card(properties, mock(PushNotificationSender.class),
                 new InMemoryA2aPushNotificationCallbackStore(), callback -> true);
@@ -83,16 +81,14 @@ class AgentCardCapabilityGatingTest {
         return controller.getStandardCard(new MockHttpServletRequest("GET", "/.well-known/agent-card.json"));
     }
 
-    private static A2AProperties properties(boolean isPushNotifications, List<String> trustedHosts) {
+    private static A2AProperties properties(boolean isPushNotifications) {
         A2AProperties properties = new A2AProperties();
         properties.setPushNotifications(isPushNotifications);
-        properties.getPushNotification().setTrustedCallbackHosts(trustedHosts);
         return properties;
     }
 
-    private static HttpPushNotificationSender httpSender(A2AProperties properties) {
-        return new HttpPushNotificationSender(new InMemoryPushNotificationConfigStore(),
-                properties.getPushNotification());
+    private static HttpPushNotificationSender httpSender() {
+        return new HttpPushNotificationSender(new InMemoryPushNotificationConfigStore());
     }
 
     private static AgentServiceIdentity identity() {

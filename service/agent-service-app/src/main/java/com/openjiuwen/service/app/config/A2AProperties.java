@@ -52,13 +52,9 @@ public class A2AProperties {
 
     private String jsonRpcPath = "/a2a";
 
-    private String agentCardPath = "/a2a/.well-known/agent-card.json";
-
     private int taskCompletionTimeoutSeconds = 300;
 
     private RemoteInvocationProperties remoteInvocation = new RemoteInvocationProperties();
-
-    private PushNotificationProperties pushNotification = new PushNotificationProperties();
 
     /** Runtime-level bounded remote invocation configuration. */
     @Data
@@ -68,12 +64,6 @@ public class A2AProperties {
         private int maxQueueSize = 256;
 
         private long queueTimeoutSeconds = 30L;
-    }
-
-    /** Runtime-to-runtime push notification delivery configuration. */
-    @Data
-    public static class PushNotificationProperties {
-        private List<String> trustedCallbackHosts = List.of();
     }
 
     /**

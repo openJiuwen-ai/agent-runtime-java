@@ -24,8 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Serves the A2A-standard Agent Card on multiple well-known paths. All fields
- * are driven by {@link A2AProperties}
+ * Serves the A2A-standard Agent Card on well-known paths. All fields are driven by {@link A2AProperties}
  * configuration.
  *
  * @since 0.1.0
@@ -77,18 +76,6 @@ public class AgentCardController {
     @GetMapping(A2AServicePaths.WELL_KNOWN_AGENT_JSON)
     @AuthorizedResource(resource = "agent-card", action = "read")
     public AgentCard getCompatCard(HttpServletRequest request) {
-        return buildCard(request);
-    }
-
-    /**
-     * Returns the agent card on the prefixed A2A well-known path.
-     *
-     * @param request the HTTP servlet request
-     * @return the agent card
-     */
-    @GetMapping(A2AServicePaths.A2A_WELL_KNOWN_CARD)
-    @AuthorizedResource(resource = "agent-card", action = "read")
-    public AgentCard getPrefixedCard(HttpServletRequest request) {
         return buildCard(request);
     }
 

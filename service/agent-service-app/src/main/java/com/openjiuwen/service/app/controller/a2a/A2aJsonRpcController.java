@@ -9,7 +9,6 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
@@ -56,17 +55,13 @@ public class A2aJsonRpcController {
 
     private final RequestHandler requestHandler;
 
-    private final A2AProperties a2aProperties;
-
     /**
      * Constructs the JSON-RPC controller.
      *
      * @param requestHandler the A2A SDK request handler
-     * @param a2aProperties A2A runtime properties
      */
-    public A2aJsonRpcController(RequestHandler requestHandler, A2AProperties a2aProperties) {
+    public A2aJsonRpcController(RequestHandler requestHandler) {
         this.requestHandler = requestHandler;
-        this.a2aProperties = a2aProperties;
     }
 
     /**
@@ -193,8 +188,7 @@ public class A2aJsonRpcController {
                 || params.configuration().taskPushNotificationConfig() == null) {
             return;
         }
-        A2aPushNotificationTrustPolicy.validateTrusted(params.configuration().taskPushNotificationConfig(),
-                a2aProperties.getPushNotification());
+        A2aPushNotificationCallbackUrlPolicy.validateCallbackUrl(params.configuration().taskPushNotificationConfig());
     }
 
     /**

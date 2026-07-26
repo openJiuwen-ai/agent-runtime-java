@@ -27,7 +27,6 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -62,7 +61,7 @@ class PushNotificationSenderTest {
         });
         server.start();
         InMemoryPushNotificationConfigStore store = configStore(callbackUrl(), "secret-token");
-        HttpPushNotificationSender sender = new HttpPushNotificationSender(store, trustedLocalhost());
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(store);
         Task task = completedTask("task-1");
         TaskStatusUpdateEvent event = completedEvent("task-1");
         String expectedNotificationId = sender.notificationIdFor(task,
@@ -86,13 +85,10 @@ class PushNotificationSenderTest {
 
     @Test
     void senderCallbackBodyIsAcceptedByReceiver() {
-        A2AProperties.PushNotificationProperties pushProperties = trustedLocalhost();
-        HttpPushNotificationSender sender = new HttpPushNotificationSender(
-                new InMemoryPushNotificationConfigStore(), pushProperties);
-        A2aPushNotificationCallbackHandler handler = callback -> true;
         A2AProperties properties = new A2AProperties();
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(new InMemoryPushNotificationConfigStore());
+        A2aPushNotificationCallbackHandler handler = callback -> true;
         properties.setPushNotifications(true);
-        properties.setPushNotification(pushProperties);
         A2aPushNotificationCallbackController receiver = new A2aPushNotificationCallbackController(
                 new InMemoryA2aPushNotificationCallbackStore(), handler,
                 new A2aPushNotificationCapabilityGate(properties, sender,
@@ -107,7 +103,7 @@ class PushNotificationSenderTest {
     }
 
     @Test
-    void rejectsUntrustedCallbackHostWithoutPosting() throws Exception {
+    void rejectsNonHttpCallbackUrlWithoutPosting() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/a2a/push-notifications/callback", exchange -> {
@@ -115,10 +111,8 @@ class PushNotificationSenderTest {
             respond(exchange, 200, "{}");
         });
         server.start();
-        InMemoryPushNotificationConfigStore store = configStore(callbackUrl(), null);
-        A2AProperties.PushNotificationProperties properties = new A2AProperties.PushNotificationProperties();
-        properties.setTrustedCallbackHosts(List.of("caller.example"));
-        HttpPushNotificationSender sender = new HttpPushNotificationSender(store, properties);
+        InMemoryPushNotificationConfigStore store = configStore("file:///tmp/callback", null);
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(store);
         Task task = completedTask("task-1");
         TaskStatusUpdateEvent event = completedEvent("task-1");
 
@@ -131,7 +125,7 @@ class PushNotificationSenderTest {
         assertThat(sender.deliveryRecord(notificationId)).hasValueSatisfying(record -> {
             assertThat(record.attempts()).isEqualTo(1);
             assertThat(record.isSuccess()).isFalse();
-            assertThat(record.message()).contains("untrusted");
+            assertThat(record.message()).contains("invalid callback URL");
         });
     }
 
@@ -155,7 +149,7 @@ class PushNotificationSenderTest {
         });
         server.start();
         InMemoryPushNotificationConfigStore store = configStore(callbackUrl(), null);
-        HttpPushNotificationSender sender = new HttpPushNotificationSender(store, trustedLocalhost());
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(store);
         Task task = completedTask("task-1");
         TaskStatusUpdateEvent event = completedEvent("task-1");
 
@@ -180,12 +174,6 @@ class PushNotificationSenderTest {
         store.setInfo(TaskPushNotificationConfig.builder().id("push-1").taskId("task-1").url(callbackUrl).token(token)
                 .build());
         return store;
-    }
-
-    private static A2AProperties.PushNotificationProperties trustedLocalhost() {
-        A2AProperties.PushNotificationProperties properties = new A2AProperties.PushNotificationProperties();
-        properties.setTrustedCallbackHosts(List.of("127.0.0.1"));
-        return properties;
     }
 
     private static Task completedTask(String taskId) {

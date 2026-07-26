@@ -4,8 +4,6 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
-import com.openjiuwen.service.app.config.A2AProperties;
-
 import org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException;
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
@@ -35,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Sends A2A task terminal notifications to a trusted callback receiver.
+ * Sends A2A task terminal notifications to a callback receiver.
  *
  * @since 0.1.0
  */
@@ -44,21 +42,16 @@ public class HttpPushNotificationSender implements PushNotificationSender {
 
     private final PushNotificationConfigStore configStore;
 
-    private final A2AProperties.PushNotificationProperties properties;
-
     private final HttpClient httpClient;
 
     private final ConcurrentMap<String, DeliveryRecord> deliveryRecords = new ConcurrentHashMap<>();
 
-    public HttpPushNotificationSender(PushNotificationConfigStore configStore,
-            A2AProperties.PushNotificationProperties properties) {
-        this(configStore, properties, HttpClient.newHttpClient());
+    public HttpPushNotificationSender(PushNotificationConfigStore configStore) {
+        this(configStore, HttpClient.newHttpClient());
     }
 
-    HttpPushNotificationSender(PushNotificationConfigStore configStore,
-            A2AProperties.PushNotificationProperties properties, HttpClient httpClient) {
+    HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient) {
         this.configStore = configStore;
-        this.properties = properties;
         this.httpClient = httpClient;
     }
 
@@ -71,11 +64,11 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         if (config.isEmpty() || config.get().url() == null || config.get().url().isBlank()) {
             return;
         }
-        Optional<URI> callbackUri = A2aPushNotificationTrustPolicy.trustedCallbackUri(config.get().url(), properties);
+        Optional<URI> callbackUri = A2aPushNotificationCallbackUrlPolicy.callbackUri(config.get().url());
         String notificationId = notificationId(task.id(), config.get().id(), event == null ? null : event.kind());
         if (callbackUri.isEmpty()) {
-            record(notificationId, task.id(), config.get().id(), false, "untrusted callback host");
-            log.warn("Rejected A2A push notification for untrusted callback URL {}", config.get().url());
+            record(notificationId, task.id(), config.get().id(), false, "invalid callback URL");
+            log.warn("Rejected A2A push notification for invalid callback URL {}", config.get().url());
             return;
         }
         HttpRequest request = request(callbackUri.get(), notificationId, config.get(), callbackBody(notificationId,
