@@ -23,6 +23,7 @@ import org.a2aproject.sdk.spec.InternalError;
 import org.a2aproject.sdk.spec.MethodNotFoundError;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskIdParams;
 import org.a2aproject.sdk.spec.TaskQueryParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,8 +40,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 
 /**
- * JSON-RPC controller for A2A protocol endpoints. Handles {@code SendMessage}, {@code SendStreamingMessage}, and
- * {@code GetTask} methods.
+ * JSON-RPC controller for A2A protocol endpoints. Handles {@code SendMessage}, {@code SendStreamingMessage},
+ * {@code GetTask}, and {@code SubscribeToTask} methods.
  *
  * @since 0.1.0
  */
@@ -98,6 +99,7 @@ public class A2aJsonRpcController {
                     yield streamToSse(pub, id);
                 }
                 case A2AMethods.GET_TASK_METHOD -> handleGetTask(request.payload(), id, ctx);
+                case A2AMethods.SUBSCRIBE_TO_TASK_METHOD -> handleSubscribeToTask(request.payload(), id, ctx);
                 default -> A2aJsonRpcProtocol.errorResponse(id,
                         new MethodNotFoundError(null, "Method not found: " + method, null));
             };
@@ -169,6 +171,12 @@ public class A2aJsonRpcController {
         TaskQueryParams tqp = A2aJsonRpcParamsParser.parseTaskQueryParams(request);
         Task task = requestHandler.onGetTask(tqp, ctx);
         return jsonRpcResponse(id, task);
+    }
+
+    private ResponseEntity<SseEmitter> handleSubscribeToTask(JsonObject request, Object id, ServerCallContext ctx) {
+        TaskIdParams params = A2aJsonRpcParamsParser.parseTaskIdParams(request);
+        Flow.Publisher<StreamingEventKind> publisher = requestHandler.onSubscribeToTask(params, ctx);
+        return streamToSse(publisher, id);
     }
 
     /**
