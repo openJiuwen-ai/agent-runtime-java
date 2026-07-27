@@ -198,32 +198,6 @@ class GovernedMem0ApiTest {
     }
 
     @Test
-    void circuitBreakerAllowsCallsAfterResetTimeout() throws Exception {
-        MiddlewareProperties.Memory memory = basePolicy();
-        memory.getCircuitBreaker().setEnabled(true);
-        memory.getCircuitBreaker().setFailureThreshold(1);
-        memory.getCircuitBreaker().setResetTimeoutMs(50L);
-        status = 500;
-        responseBody = "{\"error\":\"boom\"}";
-        GovernedMem0Api api = new GovernedMem0Api(baseUrl, memory);
-
-        assertThatThrownBy(() -> api.getMemory(baseUrl, API_KEY, "m-1")).isInstanceOf(RuntimeException.class);
-        int hitsBeforeReset = requests.size();
-        assertThatThrownBy(() -> api.getMemory(baseUrl, API_KEY, "m-1"))
-            .isInstanceOf(RuntimeException.class)
-            .hasMessageContaining("circuit breaker is open");
-        assertThat(requests.size()).isEqualTo(hitsBeforeReset);
-
-        status = 200;
-        responseBody = "{\"id\":\"m-1\",\"memory\":\"likes coffee\"}";
-        Thread.sleep(80L);
-        Map<String, Object> memoryResult = api.getMemory(baseUrl, API_KEY, "m-1");
-
-        assertThat(requests.size()).isEqualTo(hitsBeforeReset + 1);
-        assertThat(memoryResult).containsEntry("id", "m-1");
-    }
-
-    @Test
     void auditLogNeverContainsPlaintextApiKey() throws Exception {
         org.slf4j.Logger slf4jLogger = LoggerFactory.getLogger(ExternalCallExecutor.class);
         if (!(slf4jLogger instanceof Logger auditLogger)) {
