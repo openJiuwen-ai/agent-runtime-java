@@ -139,7 +139,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 public void onError(Throwable error) {
                     log.error("A2A agent stream error taskId={} contextId={}", msgCtx.getTaskId(),
                             msgCtx.getContextId(), error);
-                    emitter.fail();
+                    failAndDrain(emitter, msgCtx, error);
                 }
 
                 @Override
@@ -275,7 +275,7 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
-    private void failAndDrain(AgentEmitter emitter, A2AMessageContext msgCtx, RuntimeException error) {
+    private void failAndDrain(AgentEmitter emitter, A2AMessageContext msgCtx, Throwable error) {
         String errorMessage = error.getMessage() == null ? "Agent execution failed" : error.getMessage();
         Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(errorMessage)))
                 .build();
