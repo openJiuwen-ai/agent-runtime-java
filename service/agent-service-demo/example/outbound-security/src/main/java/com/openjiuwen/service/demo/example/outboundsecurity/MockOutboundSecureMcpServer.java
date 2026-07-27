@@ -41,7 +41,8 @@ public class MockOutboundSecureMcpServer {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
+    };
 
     private final String bearerToken;
 
@@ -64,8 +65,7 @@ public class MockOutboundSecureMcpServer {
         server = createServer(port, tlsMaterial);
         server.start();
         log.info("Mock outbound secure MCP server started at https://127.0.0.1:{}/mcp (token={})",
-            server.getAddress().getPort(),
-            bearerToken == null || bearerToken.isBlank() ? "<none>" : bearerToken);
+                server.getAddress().getPort(), bearerToken == null || bearerToken.isBlank() ? "<none>" : bearerToken);
     }
 
     /**
@@ -150,16 +150,19 @@ public class MockOutboundSecureMcpServer {
         Map<String, Object> request = MAPPER.readValue(exchange.getRequestBody(), MAP_TYPE);
         Object method = request.get("method");
         if ("initialize".equals(method)) {
-            writeJson(exchange, 200, response(request.get("id"),
-                Map.of("protocolVersion", "2024-11-05", "capabilities", Map.of(), "serverInfo",
-                    Map.of("name", "mock-outbound-secure-mcp", "version", "1.0.0"))));
+            writeJson(exchange, 200, response(request.get("id"), Map.of("protocolVersion", "2024-11-05", "capabilities",
+                    Map.of(), "serverInfo", Map.of("name", "mock-outbound-secure-mcp", "version", "1.0.0"))));
+            return;
+        }
+        if ("notifications/initialized".equals(method)) {
+            writeNoContent(exchange);
             return;
         }
         if ("tools/list".equals(method)) {
-            writeJson(exchange, 200, response(request.get("id"), Map.of("tools", List.of(
-                Map.of("name", "secure_echo", "description", "Echo tool on HTTPS MCP with outbound auth",
-                    "inputSchema", Map.of("type", "object", "properties", Map.of("text", Map.of("type", "string")),
-                        "required", List.of("text")))))));
+            writeJson(exchange, 200, response(request.get("id"), Map.of("tools",
+                    List.of(Map.of("name", "secure_echo", "description", "Echo tool on HTTPS MCP with outbound auth",
+                            "inputSchema", Map.of("type", "object", "properties",
+                                    Map.of("text", Map.of("type", "string")), "required", List.of("text")))))));
             return;
         }
         if ("tools/call".equals(method)) {
@@ -167,12 +170,12 @@ public class MockOutboundSecureMcpServer {
             Map<String, Object> arguments = asMap(params.get("arguments"));
             Object text = arguments.getOrDefault("text", "");
             writeJson(exchange, 200, response(request.get("id"),
-                Map.of("content", List.of(Map.of("type", "text", "text", "secure_echo:" + text)))));
+                    Map.of("content", List.of(Map.of("type", "text", "text", "secure_echo:" + text)))));
             return;
         }
 
         writeJson(exchange, 200, Map.of("jsonrpc", "2.0", "id", request.get("id"), "error",
-            Map.of("code", -32601, "message", "Method not found")));
+                Map.of("code", -32601, "message", "Method not found")));
     }
 
     private static Map<String, Object> response(Object id, Map<String, Object> result) {
@@ -185,7 +188,7 @@ public class MockOutboundSecureMcpServer {
 
     private static ThreadPoolExecutor newServerExecutor() {
         return new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(100),
-            new ThreadPoolExecutor.AbortPolicy());
+                new ThreadPoolExecutor.AbortPolicy());
     }
 
     private static Map<String, String> parseArgs(String[] args) {
@@ -212,6 +215,11 @@ public class MockOutboundSecureMcpServer {
         try (OutputStream output = exchange.getResponseBody()) {
             output.write(body);
         }
+    }
+
+    private static void writeNoContent(HttpExchange exchange) throws IOException {
+        exchange.sendResponseHeaders(204, -1);
+        exchange.close();
     }
 
     private static void deleteRecursively(java.nio.file.Path path) {
