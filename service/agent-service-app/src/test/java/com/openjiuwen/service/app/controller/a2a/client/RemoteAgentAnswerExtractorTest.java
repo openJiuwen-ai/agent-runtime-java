@@ -9,7 +9,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.google.gson.Gson;
-import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
@@ -138,7 +137,6 @@ class RemoteAgentAnswerExtractorTest {
 
     @Test
     void workflowFinalArtifactIsUnwrappedWhenCompletedStatusArrives() throws Exception {
-        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
                 TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
                 boolean.class);
@@ -150,6 +148,7 @@ class RemoteAgentAnswerExtractorTest {
         Task task = Task.builder().id("remote-task").contextId("remote-context")
                 .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(artifact)).build();
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
 
         statusMethod.invoke(
                 client, new TaskStatusUpdateEvent("remote-task",

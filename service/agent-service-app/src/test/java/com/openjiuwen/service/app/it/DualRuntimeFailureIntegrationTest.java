@@ -298,7 +298,6 @@ class DualRuntimeFailureIntegrationTest {
                     throw new IllegalStateException("callee failure release timed out");
                 }
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
                 throw new IllegalStateException("callee failure release interrupted", e);
             }
         }

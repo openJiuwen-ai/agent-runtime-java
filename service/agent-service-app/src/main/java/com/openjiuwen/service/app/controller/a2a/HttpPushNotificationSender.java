@@ -104,7 +104,7 @@ public class HttpPushNotificationSender implements PushNotificationSender {
             log.warn("A2A push notification delivery failed for task {}", task.id(), e);
         } catch (InterruptedException e) {
             record(notificationId, task.id(), config.id(), false, "interrupted");
-            Thread.currentThread().interrupt();
+            log.warn("A2A push notification delivery interrupted for task {}", task.id(), e);
         }
     }
 
