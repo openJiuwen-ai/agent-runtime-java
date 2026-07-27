@@ -172,6 +172,25 @@ class A2AAgentExecutorTest {
     }
 
     @Test
+    void streamingFailureEmitsFailedStatusWithBusinessError() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> observer
+                .onError(new IllegalStateException("remote stream boom")))).when(orchestrator)
+                .streamQuery(any(), any());
+        RequestContext context = requestContext("task-1", "ctx-1", true);
+        A2AProtocolAdapter adapter = requestAdapter(true, Map.of());
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
+
+        assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast)
+                .filteredOn(event -> event.status().state() == TaskState.TASK_STATE_FAILED).singleElement()
+                .satisfies(event -> assertThat(event.status().message().parts()).singleElement().isInstanceOfSatisfying(
+                        TextPart.class, part -> assertThat(part.text()).isEqualTo("remote stream boom")));
+    }
+
+    @Test
     void copiesOnlyStoredInterruptOntoResumeRequest() {
         Map<String, Object> interaction = Map.of("kind", "message", "message", "Continue");
         Message statusMessage = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart("Continue")))
