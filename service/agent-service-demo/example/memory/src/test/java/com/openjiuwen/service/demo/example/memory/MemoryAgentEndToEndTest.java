@@ -54,7 +54,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -89,6 +96,10 @@ class MemoryAgentEndToEndTest {
     private static final String SEED_MEMORY = "用户喜欢拿铁咖啡";
 
     private static final String STORED_CONTENT = "用户喜欢手冲咖啡";
+
+    private static final int CONCURRENT_SCOPE_REQUESTS = 5;
+
+    private static final int CONCURRENT_TIMEOUT_SECONDS = 10;
 
     private static final AtomicBoolean FACTORY_REGISTERED = new AtomicBoolean(false);
 
@@ -149,6 +160,10 @@ class MemoryAgentEndToEndTest {
         Runner.release("memory-e2e-stream");
         Runner.release("memory-e2e-prefetch-failure");
         Runner.release("memory-e2e-syncturn-failure");
+        Runner.release("memory-e2e-empty-prefetch");
+        for (String userId : concurrentUserIds()) {
+            Runner.release(concurrentConversationId(userId));
+        }
     }
 
     @AfterAll
@@ -216,6 +231,40 @@ class MemoryAgentEndToEndTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resultContent(response)).contains("拿铁咖啡");
         assertThat(MEM0_SERVER.addRequests()).isPositive();
+    }
+
+    @Test
+    void emptyPrefetchResultSkipsMemoryContextAndStillSyncsTurn() throws IOException {
+        MEM0_SERVER.clearMemories();
+        String message = "请直接回答：没有长期记忆也要回复。";
+
+        ResponseEntity<String> response = postQuery("memory-e2e-empty-prefetch", message);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(MEM0_SERVER.searchRequests()).isEqualTo(1);
+        assertThat(USER_MESSAGES_SEEN_BY_MODEL).anySatisfy(observedMessage -> assertThat(observedMessage)
+            .contains(message)
+            .doesNotContain("<memory-context>")
+            .doesNotContain("<user-message>"));
+        assertThat(MEM0_SERVER.addBodies()).anySatisfy(body -> {
+            assertThat(body).containsEntry("user_id", USER_ID);
+            assertThat(messages(body)).anySatisfy(item -> assertThat(item)
+                .containsEntry("role", "user")
+                .containsEntry("content", message));
+        });
+    }
+
+    @Test
+    void concurrentRequestsKeepMemoryScopeIsolated() throws Exception {
+        List<String> userIds = concurrentUserIds();
+        seedScopedMemories(userIds);
+
+        List<ResponseEntity<String>> responses = executeConcurrentQueries(userIds);
+
+        assertThat(responses).allSatisfy(response -> assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK));
+        verifyConcurrentSearchScopes(userIds);
+        verifyConcurrentAddScopes(userIds);
+        verifyConcurrentMemoryContexts(userIds);
     }
 
     private void verifyLifecyclePrefetchAndSyncTurn() throws IOException {
@@ -307,12 +356,123 @@ class MemoryAgentEndToEndTest {
         assertThat(MEM0_SERVER.containsMemoryText(STORED_CONTENT)).isTrue();
     }
 
+    private void seedScopedMemories(List<String> userIds) {
+        MEM0_SERVER.clearMemories();
+        for (String userId : userIds) {
+            MEM0_SERVER.seedMemory("m-" + userId, scopedMemory(userId), userId);
+        }
+    }
+
+    private List<ResponseEntity<String>> executeConcurrentQueries(List<String> userIds) throws Exception {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+            userIds.size(),
+            userIds.size(),
+            0L,
+            TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<>(userIds.size()),
+            namedThreadFactory("memory-e2e-scope"));
+        CountDownLatch startGate = new CountDownLatch(1);
+        try {
+            List<Future<ResponseEntity<String>>> futures = new ArrayList<>();
+            for (String userId : userIds) {
+                futures.add(executor.submit(queryTask(startGate, userId)));
+            }
+            startGate.countDown();
+            return collectResponses(futures);
+        } finally {
+            executor.shutdown();
+            assertThat(executor.awaitTermination(CONCURRENT_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private List<ResponseEntity<String>> collectResponses(List<Future<ResponseEntity<String>>> futures)
+        throws Exception {
+        List<ResponseEntity<String>> responses = new ArrayList<>();
+        for (Future<ResponseEntity<String>> future : futures) {
+            responses.add(future.get(CONCURRENT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        }
+        return responses;
+    }
+
+    private Callable<ResponseEntity<String>> queryTask(CountDownLatch startGate, String userId) {
+        return () -> {
+            startGate.await();
+            return postQuery(concurrentConversationId(userId), userId, scopedQuery(userId));
+        };
+    }
+
+    private ThreadFactory namedThreadFactory(String prefix) {
+        AtomicInteger sequence = new AtomicInteger(0);
+        return task -> {
+            Thread thread = new Thread(task, prefix + "-" + sequence.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
+
+    private void verifyConcurrentSearchScopes(List<String> userIds) {
+        assertThat(MEM0_SERVER.searchBodies()).hasSize(userIds.size());
+        assertThat(MEM0_SERVER.searchBodies().stream()
+            .map(body -> String.valueOf(filters(body).get("user_id")))
+            .toList()).containsExactlyInAnyOrderElementsOf(userIds);
+    }
+
+    private void verifyConcurrentAddScopes(List<String> userIds) {
+        assertThat(MEM0_SERVER.addBodies()).hasSize(userIds.size());
+        assertThat(MEM0_SERVER.addBodies().stream()
+            .map(body -> String.valueOf(body.get("user_id")))
+            .toList()).containsExactlyInAnyOrderElementsOf(userIds);
+    }
+
+    private void verifyConcurrentMemoryContexts(List<String> userIds) {
+        for (String userId : userIds) {
+            assertThat(USER_MESSAGES_SEEN_BY_MODEL)
+                .anySatisfy(message -> verifyScopedMemoryContext(message, userId, userIds));
+        }
+    }
+
+    private void verifyScopedMemoryContext(String message, String userId, List<String> userIds) {
+        assertThat(message)
+            .contains("<memory-context>")
+            .contains(scopedMemory(userId))
+            .contains(scopedQuery(userId));
+        for (String otherUserId : userIds) {
+            if (!userId.equals(otherUserId)) {
+                assertThat(message).doesNotContain(scopedMemory(otherUserId));
+            }
+        }
+    }
+
+    private static List<String> concurrentUserIds() {
+        List<String> userIds = new ArrayList<>();
+        for (int index = 1; index <= CONCURRENT_SCOPE_REQUESTS; index++) {
+            userIds.add("memory-scope-user-" + index);
+        }
+        return userIds;
+    }
+
+    private static String concurrentConversationId(String userId) {
+        return "memory-e2e-scope-" + userId;
+    }
+
+    private static String scopedQuery(String userId) {
+        return "请直接回答：并发请求 " + userId + " 的记忆是什么？";
+    }
+
+    private static String scopedMemory(String userId) {
+        return "用户 " + userId + " 喜欢专属记忆";
+    }
+
     private ResponseEntity<String> postQuery(String conversationId, String message) {
+        return postQuery(conversationId, USER_ID, message);
+    }
+
+    private ResponseEntity<String> postQuery(String conversationId, String userId, String message) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         return rest.postForEntity("/v1/query", new HttpEntity<>(Map.of(
             "conversation_id", conversationId,
-            "user_id", USER_ID,
+            "user_id", userId,
             "message", message,
             "stream", false), headers), String.class);
     }
@@ -555,11 +715,19 @@ class MemoryAgentEndToEndTest {
             seedMemory(MEMORY_ID, SEED_MEMORY);
         }
 
+        private void clearMemories() {
+            memories.clear();
+        }
+
         private void seedMemory(String id, String text) {
+            seedMemory(id, text, USER_ID);
+        }
+
+        private void seedMemory(String id, String text, String userId) {
             memories.put(id, Map.of(
                 "id", id,
                 "memory", text,
-                "user_id", USER_ID));
+                "user_id", userId));
         }
 
         private boolean containsMemory(String id) {
@@ -615,13 +783,14 @@ class MemoryAgentEndToEndTest {
             String method = exchange.getRequestMethod();
             String path = exchange.getRequestURI().getPath();
             if ("POST".equals(method) && "/v3/memories/search/".equals(path)) {
+                Map<String, Object> body = readBody(exchange);
                 searchRequests.incrementAndGet();
-                searchBodies.add(readBody(exchange));
+                searchBodies.add(body);
                 if (shouldFailSearch.get()) {
                     writeJson(exchange, 500, Map.of("message", "forced search failure"));
                     return;
                 }
-                writeJson(exchange, 200, Map.of("results", searchResults()));
+                writeJson(exchange, 200, Map.of("results", searchResults(body)));
                 return;
             }
             if ("POST".equals(method) && "/v3/memories/add/".equals(path)) {
@@ -660,14 +829,25 @@ class MemoryAgentEndToEndTest {
             writeJson(exchange, 404, Map.of("message", "mem0 route not found: " + method + " " + path));
         }
 
-        private List<Map<String, Object>> searchResults() {
+        private List<Map<String, Object>> searchResults(Map<String, Object> body) {
+            String userId = filterValue(body, "user_id");
             return memories.values().stream()
+                .filter(record -> userId.isBlank() || userId.equals(String.valueOf(record.get("user_id"))))
                 .map(record -> {
                     Map<String, Object> result = new java.util.LinkedHashMap<>(record);
                     result.put("score", 0.9);
                     return result;
                 })
                 .toList();
+        }
+
+        private String filterValue(Map<String, Object> body, String key) {
+            Object filters = body.get("filters");
+            if (filters instanceof Map<?, ?> map) {
+                Object value = map.get(key);
+                return value != null ? String.valueOf(value) : "";
+            }
+            return "";
         }
 
         private Map<String, Object> storeAddedMemory(HttpExchange exchange) throws IOException {
