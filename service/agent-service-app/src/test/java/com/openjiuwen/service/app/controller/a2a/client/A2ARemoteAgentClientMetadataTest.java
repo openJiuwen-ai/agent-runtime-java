@@ -47,5 +47,7 @@ class A2ARemoteAgentClientMetadataTest {
         assertThat(params.message().metadata()).isEmpty();
         assertThat(callWithoutMetadata.metadata()).isEmpty();
         assertThat(callWithoutMetadata.messageMetadata()).isEmpty();
+        assertThat(call.isCallerStreaming()).isFalse();
+        assertThat(callWithoutMetadata.isCallerStreaming()).isFalse();
     }
 }

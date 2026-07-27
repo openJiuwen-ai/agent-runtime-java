@@ -8,6 +8,7 @@
     - [架构概述](2.开发指南/架构概述.md)
     - [逻辑架构](2.开发指南/逻辑架构.md)
   - [HTTP 对话面](2.开发指南/HTTP对话面.md)
+  - [对话接口输入与输出](2.开发指南/对话接口输入与输出.md)
   - [开发与扩展](2.开发指南/开发与扩展/README.md)
     - [开发 Agent Service](2.开发指南/开发Agent%20Service.md)
     - [Adapters 与 Handler](2.开发指南/Adapters与Handler.md)

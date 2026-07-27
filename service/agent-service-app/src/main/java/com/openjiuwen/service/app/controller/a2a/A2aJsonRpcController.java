@@ -5,6 +5,8 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
@@ -49,7 +51,7 @@ import java.util.concurrent.Flow;
 public class A2aJsonRpcController {
     private static final Logger log = LoggerFactory.getLogger(A2aJsonRpcController.class);
 
-    private static final Gson GSON = new Gson();
+    private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
 
     private final RequestHandler requestHandler;
 
@@ -90,7 +92,7 @@ public class A2aJsonRpcController {
                     ctx.getState().put("_a2a_stream", false);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     EventKind result = requestHandler.onMessageSend(params, ctx);
-                    yield ResponseEntity.ok(JsonUtil.toJson(new SendMessageResponse(id, result)));
+                    yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
                 }
                 case A2AMethods.SEND_STREAMING_MESSAGE_METHOD -> {
                     ctx.getState().put("_a2a_stream", true);
@@ -135,7 +137,7 @@ public class A2aJsonRpcController {
              */
             public void onNext(StreamingEventKind e) {
                 try {
-                    String eventJson = JsonUtil.toJson(e);
+                    String eventJson = serializeA2aJson(e);
                     String data = "{\"jsonrpc\":\"" + A2AMessage.JSONRPC_VERSION + "\",\"id\":" + idJson
                             + ",\"result\":" + eventJson + "}";
                     emitter.send(SseEmitter.event().name("jsonrpc").data(data));
@@ -189,23 +191,28 @@ public class A2aJsonRpcController {
      */
     private static ResponseEntity<String> jsonRpcResponse(Object id, Object result) {
         try {
-            String resultJson = JsonUtil.toJson(result);
+            JsonElement resultElement = JsonParser.parseString(JsonUtil.toJson(result));
             // StreamingEventKindTypeAdapter wraps as {"task":{...}} — unwrap it
-            JsonObject obj = JsonParser.parseString(resultJson).getAsJsonObject();
+            JsonObject obj = resultElement.getAsJsonObject();
             if (obj.size() == 1) {
                 String key = obj.keySet().iterator().next();
                 if ("task".equals(key) || "message".equals(key) || "statusUpdate".equals(key)
                         || "artifactUpdate".equals(key)) {
-                    resultJson = obj.get(key).toString();
+                    resultElement = obj.get(key);
                 }
             }
-            String idPart = id != null ? ",\"id\":" + JsonUtil.toJson(id) : "";
+            String resultJson = GSON.toJson(resultElement);
+            String idPart = id != null ? ",\"id\":" + GSON.toJson(id) : "";
             String response = "{\"jsonrpc\":\"2.0\"" + idPart + ",\"result\":" + resultJson + "}";
             return ResponseEntity.ok(response);
         } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
             log.error("Failed to serialize JSON-RPC response", e);
             return A2aJsonRpcProtocol.errorResponse(id, new InternalError("Internal error"));
         }
+    }
+
+    static String serializeA2aJson(Object value) throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException {
+        return GSON.toJson(JsonParser.parseString(JsonUtil.toJson(value)));
     }
 
     private ServerCallContext buildCallContext(jakarta.servlet.http.HttpServletRequest req) {

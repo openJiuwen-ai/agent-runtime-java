@@ -4,6 +4,8 @@ Agent Service 对外 **Ingress** HTTP 契约与 Python `AgentApp` 对齐。路�
 
 与 **A2A JSON-RPC** 的关系：两者共用 `ServeOrchestrator` → `AgentHandler`，但路由与协议不同。A2A 详见 [A2A 开发指导](A2A/开发指导.md)。
 
+REST 与 A2A 的完整请求、响应、SSE、`TextPart`/`DataPart` 和中断恢复报文见 [对话接口输入与输出](对话接口输入与输出.md)。
+
 ## 端点一览
 
 ### Query 与健康

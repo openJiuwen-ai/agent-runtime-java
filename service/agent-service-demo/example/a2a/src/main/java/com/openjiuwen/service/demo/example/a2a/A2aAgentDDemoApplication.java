@@ -4,46 +4,42 @@
 
 package com.openjiuwen.service.demo.example.a2a;
 
-import com.openjiuwen.core.singleagent.agents.ReActAgent;
+import com.openjiuwen.core.application.schema.WorkflowAgentConfig;
+import com.openjiuwen.core.application.workflow.WorkflowAgent;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
 import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
-import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.annotation.Bean;
 
+import java.util.List;
+
 /**
- * Agent B (port 18091): a ReAct LLM agent that keeps the original local calc
- * tool and adds A2A delegation tools to Agent C and Agent D.
- * <p>
- * Start this agent after Agent C and before Agent A.
- * </p>
+ * Agent D (port 18093): an expense WorkflowAgent with manual approval and an LLM final report.
  *
  * @since 0.1.0
  */
 @SpringBootApplication(scanBasePackages = "com.openjiuwen.service.app")
-public class A2aAgentBDemoApplication {
-    private static final String AGENT_ID = "demo-a2a-agent-b";
+public class A2aAgentDDemoApplication {
+    private static final String AGENT_ID = "demo-a2a-agent-d";
 
     public static void main(String[] args) {
-        new SpringApplicationBuilder(A2aAgentBDemoApplication.class).properties("spring.config.import="
+        new SpringApplicationBuilder(A2aAgentDDemoApplication.class).properties("spring.config.import="
                 + "optional:classpath:application-base.yml," + "optional:classpath:application-base_local.yml,"
-                + "optional:classpath:application-a2a-agent-b.yml,"
+                + "optional:classpath:application-a2a-agent-d.yml,"
                 + "optional:classpath:application-a2a-redis.local.yml").run(args);
     }
 
     @Bean
-    AgentHandler agentBHandler(LlmConfigResolver llmConfigResolver) {
+    AgentHandler agentDHandler(LlmConfigResolver llmConfigResolver) {
         ResolvedLlmConfig llmConfig = llmConfigResolver.resolveRequired();
-        ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Agent B (A2A Demo)",
-                "ReAct agent with local calc, Agent C food delegation, and Agent D expense workflow routing",
-                llmConfig);
-        agent.registerRail(new CalcInterruptRail());
-        agent.registerRail(new BToCDelegateRail());
-        agent.registerRail(new BToDDelegateRail());
+        WorkflowAgentConfig config = WorkflowAgentConfig.builder().id(AGENT_ID)
+                .description("Agent D expense compliance and approval workflow").build();
+        WorkflowAgent agent = new WorkflowAgent(config);
+        agent.addWorkflows(List.of(ExpenseReviewWorkflow.build(llmConfig)));
         return new JiuwenCoreAgentHandler(agent);
     }
 }
