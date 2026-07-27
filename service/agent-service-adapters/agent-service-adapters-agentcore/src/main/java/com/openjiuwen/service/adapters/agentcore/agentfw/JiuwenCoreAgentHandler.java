@@ -262,7 +262,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
         if (rawResult instanceof Map<?, ?> rawMap) {
-            @SuppressWarnings("unchecked") Map<String, Object> map = (Map<String, Object>) rawMap;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) rawMap;
             Optional<QueryResponse> result1 = getQueryResponse(conversationId, map);
             if (result1.isPresent()) {
                 return result1.get();
@@ -607,6 +608,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static void extractInteractionData(InteractionOutput io, Map<String, Object> data) {
         Object value = io.getValue();
+        if (value instanceof String message && !message.isBlank()) {
+            data.put("message", message);
+            return;
+        }
         if (value instanceof InterruptRequest req) {
             if (req.getMessage() != null) {
                 data.put("message", req.getMessage());

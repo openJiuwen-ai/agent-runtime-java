@@ -65,6 +65,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     private static final String A2A_DELEGATE_KIND = "a2a_delegate";
 
+    private static final String CLIENT_TOOL_KIND = "client_tool";
+
     private static final String MIXED_INTERRUPT_ERROR = "CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED";
 
     private static final String CORE_RESUME_IN_FLIGHT = "REMOTE_BATCH_CORE_RESUME_IN_FLIGHT";
@@ -109,21 +111,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
 
     @Override
     public QueryResponse query(ServeRequest request) {
-        return queryWithProgress(request, NOOP_OBSERVER);
-    }
-
-    /**
-     * Executes a synchronous query while forwarding remote-member progress to an internal observer.
-     *
-     * @param request the serve request
-     * @param progressObserver observer for remote-member progress
-     * @return the original synchronous query response
-     */
-    public QueryResponse queryWithProgress(ServeRequest request, QueryStreamObserver progressObserver) {
         log.info("Orchestrator query START conversationId={}", request.getConversationId());
         ServeRequest current = request;
         while (true) {
-            QueryResumeResult resumeResult = syncResumePending(current, progressObserver);
+            QueryResumeResult resumeResult = syncResumePending(current, NOOP_OBSERVER);
             if (resumeResult.response() != null) {
                 return resumeResult.response();
             }
@@ -146,7 +137,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             }
 
             Optional<ServeRequest> interruptResult = handleQueryInterrupt(interruptData, current, response,
-                progressObserver);
+                NOOP_OBSERVER);
             if (interruptResult.isEmpty()) {
                 return response;
             }
@@ -195,6 +186,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> tryResumePending(ServeRequest current, QueryStreamObserver observer) {
+        if (isClientToolResume(current)) {
+            return Optional.of(current);
+        }
         Optional<java.util.concurrent.CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> batchResume =
             batchCoordinator.resume(current, observer);
         if (batchResume.isPresent()) {
@@ -313,7 +307,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             observer.onError(new IllegalArgumentException("CORE_INTERRUPT_CORRELATION_MISSING"));
             return Optional.empty();
         }
-        log.info("Orchestrator forwarding ask_user interrupt to client convId={}", current.getConversationId());
+        Object interruptKind = rawInterrupt.get("context") instanceof Map<?, ?> context
+            ? context.get("_interrupt_kind") : "batch";
+        log.info("Orchestrator forwarding local interrupt to client interruptKind={} convId={}",
+            interruptKind, current.getConversationId());
         observer.onNext(interrupt);
         observer.onComplete();
         return Optional.empty();
@@ -360,6 +357,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
      *         {@link Optional#empty()} if the loop should stop
      */
     private QueryResumeResult syncResumePending(ServeRequest current, QueryStreamObserver progressObserver) {
+        if (isClientToolResume(current)) {
+            return QueryResumeResult.continueWith(current);
+        }
         Optional<java.util.concurrent.CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> batchResume =
             batchCoordinator.resume(current, progressObserver);
         if (batchResume.isPresent()) {
@@ -541,6 +541,27 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
             && isRemoteDelegate(interrupt)
             && interrupt.get("toolCallId") instanceof String toolCallId
             && !toolCallId.isBlank();
+    }
+
+    private static boolean isClientToolResume(ServeRequest request) {
+        if (request == null || request.getMetadata() == null
+                || !(request.getMetadata().get("_interrupt") instanceof Map<?, ?> interrupt)) {
+            return false;
+        }
+        return isAllInterruptKind(interrupt, CLIENT_TOOL_KIND);
+    }
+
+    private static boolean isAllInterruptKind(Map<?, ?> interrupt, String kind) {
+        if (interrupt.get("items") instanceof List<?> items) {
+            return !items.isEmpty() && items.stream().allMatch(item -> hasInterruptKind(item, kind));
+        }
+        return hasInterruptKind(interrupt, kind);
+    }
+
+    private static boolean hasInterruptKind(Object item, String kind) {
+        return item instanceof Map<?, ?> map
+                && map.get("context") instanceof Map<?, ?> context
+                && kind.equals(context.get("_interrupt_kind"));
     }
 
     private static boolean isRemoteDelegate(Map<String, Object> interrupt) {

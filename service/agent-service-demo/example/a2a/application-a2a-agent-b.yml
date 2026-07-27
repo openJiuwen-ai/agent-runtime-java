@@ -1,4 +1,4 @@
-# Agent B (port 18091) — ReAct LLM agent with local calc and Agent C delegation tools.
+# Agent B (port 18091) — ReAct LLM agent with local calc and remote Agent C/D delegation tools.
 # Loaded last by A2aAgentBDemoApplication so its values override application-base.yml.
 
 spring:
@@ -11,17 +11,30 @@ server:
 openjiuwen:
   service:
     llm:
-      system-prompt: "You are Agent B in an A2A demo. Route requests by scenario. For math, calculation, or arithmetic questions, use the local calc tool and return its result after confirmation. For dining, food, dish, restaurant, lunch, dinner, meal, or recommendation questions, you must call delegate_to_agentc with the original dining request. Do not ask the user for dining confirmation yourself; Agent C owns that confirmation. After delegate_to_agentc returns, answer Agent A with Agent C's result. For unrelated questions, answer directly if no tool is needed."
-      temperature: 0.1
+      system-prompt: "You are Agent B in an A2A demo. Every request requires exactly one matching tool call before any answer; never answer, clarify, or acknowledge the request in text first. For math or arithmetic, call calc with the original expression. The calc tool exclusively owns user confirmation and calculation; after it resumes, answer with the calculation result from its output and never treat the user's confirmation text as the answer. For dining requests that explicitly say non-streaming, call delegate_to_agentc_nonstreaming; otherwise call delegate_to_agentc_streaming. In the dining tool message, preserve the original dining request and explicitly instruct Agent C to call food_recommend immediately. Never ask for confirmation in natural language because food_recommend exclusively owns confirmation. For expense requests, extract claim_id, category, unit_price, quantity, total, and currency exactly. If the request says non-streaming, call review_expense_nonstreaming; otherwise call review_expense_streaming. Return delegated Agent C or Agent D results verbatim without summarizing, reformatting, or translating them."
+      temperature: 0.0
     a2a:
-      agent-description: "A2A Agent B — router ReAct LLM agent with local calculator and Agent C food delegation"
+      agent-description: "A2A Agent B — router ReAct LLM agent for local calculation, Agent C food, and Agent D expense workflows"
       is-streaming: true
       default-input-modes: [ text, text/plain ]
       default-output-modes: [ text, text/plain ]
       remote-agents:
-        - name: agentc
-          url: http://localhost:18092/a2a/
+        - name: agentc-streaming
+          url: http://localhost:18092/
           timeout-seconds: 300
+          streaming: true
+        - name: agentc-nonstreaming
+          url: http://localhost:18092/
+          timeout-seconds: 300
+          streaming: false
+        - name: agentd-streaming
+          url: http://localhost:18093/
+          timeout-seconds: 300
+          streaming: true
+        - name: agentd-nonstreaming
+          url: http://localhost:18093/
+          timeout-seconds: 300
+          streaming: false
       skills:
         - id: general_chat
           name: General Chat
@@ -42,12 +55,35 @@ openjiuwen:
             - What is the square root of 144?
           input-modes: [ text, text/plain ]
           output-modes: [ text, text/plain ]
-        - id: delegate_to_agentc
-          name: Delegate dining request to Agent C
-          description: Delegate dining and food recommendation requests to Agent C, which asks for user confirmation before returning a recommendation
-          tags: [ delegation, remote, agentc, food, dining, confirmation ]
+        - id: delegate_to_agentc_streaming
+          name: Stream dining request to Agent C
+          description: Delegate a dining request to Agent C using the configured streaming route
+          tags: [ delegation, remote, agentc, food, streaming ]
           examples:
-            - Recommend a dish for a team lunch
-            - What should we eat for dinner today?
+            - Recommend a dish through Agent C in streaming mode
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
+        - id: delegate_to_agentc_nonstreaming
+          name: Send dining request to Agent C without streaming
+          description: Delegate a dining request to Agent C using the configured non-streaming route
+          tags: [ delegation, remote, agentc, food, nonstreaming ]
+          examples:
+            - Recommend a dish through Agent C in non-streaming mode
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
+        - id: review_expense_streaming
+          name: Stream expense review to Agent D
+          description: Send a structured expense claim to Agent D using the configured streaming route
+          tags: [ delegation, remote, agentd, expense, workflow, streaming ]
+          examples:
+            - Review hotel claim WF-STREAM-001 in streaming mode
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
+        - id: review_expense_nonstreaming
+          name: Send expense review to Agent D without streaming
+          description: Send a structured expense claim to Agent D using the configured non-streaming route
+          tags: [ delegation, remote, agentd, expense, workflow, nonstreaming ]
+          examples:
+            - Review hotel claim WF-NONSTREAM-001 in non-streaming mode
           input-modes: [ text, text/plain ]
           output-modes: [ text, text/plain ]

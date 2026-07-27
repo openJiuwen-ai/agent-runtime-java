@@ -302,7 +302,7 @@ class A2ARemoteAgentClientClassLoaderTest {
     }
 
     @Test
-    void callOutcomeUsesEachRegisteredAgentsStreamingMode() throws Exception {
+    void callOutcomeRequiresConfiguredAndCallerStreaming() throws Exception {
         AgentCard card = testCard();
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
         registry.register("sync-agent", card, 30);
@@ -319,16 +319,18 @@ class A2ARemoteAgentClientClassLoaderTest {
                     .thenReturn(builder);
             when(builder.build()).thenReturn(sdkClient);
 
-            var sync = remoteClient.callOutcome(remoteCall("sync-agent"), null, null);
-            var stream = remoteClient.callOutcome(remoteCall("stream-agent"), null, null);
-            verify(sdkClient, timeout(1000).times(2)).sendMessage(params.capture(), anyList(), any(), isNull());
-            sync.cancel(false);
-            stream.cancel(false);
+            var unconfigured = remoteClient.callOutcome(remoteCall("sync-agent", true), null, null);
+            var callerSync = remoteClient.callOutcome(remoteCall("stream-agent", false), null, null);
+            var enabled = remoteClient.callOutcome(remoteCall("stream-agent", true), null, null);
+            verify(sdkClient, timeout(1000).times(3)).sendMessage(params.capture(), anyList(), any(), isNull());
+            unconfigured.cancel(false);
+            callerSync.cancel(false);
+            enabled.cancel(false);
         }
 
         ArgumentCaptor<ClientConfig> configs = ArgumentCaptor.forClass(ClientConfig.class);
-        verify(builder, times(2)).clientConfig(configs.capture());
-        assertThat(configs.getAllValues()).extracting(ClientConfig::isStreaming).containsExactly(false, true);
+        verify(builder, times(3)).clientConfig(configs.capture());
+        assertThat(configs.getAllValues()).extracting(ClientConfig::isStreaming).containsExactly(false, false, true);
         assertThat(params.getAllValues()).allSatisfy(value -> {
             assertThat(value.configuration()).isNotNull();
             assertThat(value.configuration().returnImmediately()).isFalse();
@@ -375,6 +377,11 @@ class A2ARemoteAgentClientClassLoaderTest {
 
     private static RemoteCall remoteCall(String agentName) {
         return new RemoteCall(agentName, "hello", "context", null, Map.of());
+    }
+
+    private static RemoteCall remoteCall(String agentName, boolean isCallerStreaming) {
+        return new RemoteCall(agentName, "hello", "context", null, Map.of(), Map.of(),
+                isCallerStreaming);
     }
 
     private static final class NoServicesClassLoader extends ClassLoader {

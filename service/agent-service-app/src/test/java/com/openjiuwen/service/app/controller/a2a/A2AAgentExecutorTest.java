@@ -18,7 +18,6 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
-import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 
 import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.agentexecution.RequestContext;
@@ -27,8 +26,8 @@ import org.a2aproject.sdk.server.events.EventQueueClosedException;
 import org.a2aproject.sdk.server.events.EventQueueItem;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.spec.Message;
-import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
@@ -45,21 +44,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 class A2AAgentExecutorTest {
     @Test
-    void nonStreamingA2aKeepsQuerySemanticsAndProjectsRemoteProgress() {
-        A2AEnabledServeOrchestrator orchestrator = mock(A2AEnabledServeOrchestrator.class);
-        Map<String, Object> projection = Map.of(
-            "kind", "remote_agent_invocation",
-            "batchId", "batch-1",
-            "toolCallId", "call-a",
-            "sequence", 1,
-            "target", "agent-a",
-            "phase", "RUNNING");
-        doAnswer(invocation -> {
-            QueryStreamObserver observer = invocation.getArgument(1);
-            observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_PROGRESS,
-                Map.of("content", "running", "projection", projection)));
-            return new QueryResponse(Map.of("content", "done"), "ctx-1");
-        }).when(orchestrator).queryWithProgress(any(), any());
+    void nonStreamingA2aReturnsOnlyFinalQueryArtifact() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
         A2AProtocolAdapter adapter = requestAdapter(false, Map.of());
         RequestContext context = requestContext("task-1", "ctx-1", false);
         CapturingEventQueue queue = new CapturingEventQueue();
@@ -67,23 +54,11 @@ class A2AAgentExecutorTest {
         new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
 
         List<TaskArtifactUpdateEvent> artifacts = queue.events.stream()
-            .filter(TaskArtifactUpdateEvent.class::isInstance)
-            .map(TaskArtifactUpdateEvent.class::cast)
-            .toList();
-        assertThat(artifacts).anySatisfy(event -> {
-            assertThat(event.artifact().parts().get(0)).isInstanceOfSatisfying(TextPart.class, part -> {
-                assertThat(part.text()).isEqualTo("running");
-                assertThat(part.metadata()).containsEntry("_remote_invocation", projection);
-            });
-        });
-        List<String> texts = artifacts.stream()
-            .flatMap(event -> event.artifact().parts().stream())
-            .filter(TextPart.class::isInstance)
-            .map(TextPart.class::cast)
-            .map(TextPart::text)
-            .toList();
-        assertThat(texts).containsExactly("running", "done");
-        verify(orchestrator).queryWithProgress(any(), any());
+                .filter(TaskArtifactUpdateEvent.class::isInstance).map(TaskArtifactUpdateEvent.class::cast).toList();
+        List<String> texts = artifacts.stream().flatMap(event -> event.artifact().parts().stream())
+                .filter(TextPart.class::isInstance).map(TextPart.class::cast).map(TextPart::text).toList();
+        assertThat(texts).containsExactly("done");
+        verify(orchestrator).query(any());
         verify(orchestrator, never()).streamQuery(any(), any());
     }
 

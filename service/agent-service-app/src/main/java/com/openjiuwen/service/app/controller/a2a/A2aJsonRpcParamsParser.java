@@ -16,6 +16,7 @@ import org.a2aproject.sdk.spec.InvalidParamsError;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.TaskIdParams;
 import org.a2aproject.sdk.spec.TaskQueryParams;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
@@ -72,6 +73,19 @@ final class A2aJsonRpcParamsParser {
             throw e;
         } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
             log.debug("Invalid GetTask params", e);
+            throw new InvalidParamsError();
+        }
+    }
+
+    static TaskIdParams parseTaskIdParams(JsonObject request) {
+        try {
+            JsonObject params = requiredObject(request, "params", "params");
+            requiredNonBlankString(params, "id", "params.id");
+            return JsonUtil.fromJson(params.toString(), TaskIdParams.class);
+        } catch (InvalidParamsError e) {
+            throw e;
+        } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
+            log.debug("Invalid SubscribeToTask params", e);
             throw new InvalidParamsError();
         }
     }

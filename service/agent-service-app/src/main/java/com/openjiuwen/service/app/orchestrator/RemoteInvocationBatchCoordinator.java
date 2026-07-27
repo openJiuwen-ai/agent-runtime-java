@@ -350,7 +350,8 @@ final class RemoteInvocationBatchCoordinator {
             metadata.put("userId", userId);
         }
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
-            optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata());
+            optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
+            batch.request.isStream());
         QueryStreamObserver progressObserver = memberProgressObserver(batch, member);
         CompletableFuture<RemoteCallOutcome> future;
         try {

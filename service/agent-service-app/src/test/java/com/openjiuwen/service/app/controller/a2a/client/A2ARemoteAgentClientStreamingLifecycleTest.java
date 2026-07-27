@@ -72,7 +72,8 @@ class A2ARemoteAgentClientStreamingLifecycleTest {
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry);
 
         var result = client.callOutcome(
-                new RemoteCall("remote", "hello", "ctx", null, Map.of()), NOOP_OBSERVER, null);
+                new RemoteCall("remote", "hello", "ctx", null, Map.of(), Map.of(), true),
+                NOOP_OBSERVER, null);
 
         Throwable thrown = catchThrowable(() -> result.get(5, TimeUnit.SECONDS));
         assertThat(thrown).isInstanceOfSatisfying(ExecutionException.class,

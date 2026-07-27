@@ -109,6 +109,81 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
+    void streamingClientToolResumeBypassesRemoteBatchProbe() {
+        ServeRequest request = req("c-client-tool-stream");
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>(Map.of(
+            "runtime.parentTaskId", "task-client-tool-stream",
+            "runtime.remoteToolInputs", Map.of("call-a", "page body"),
+            "_interrupt", clientToolInterrupt("call-a", "readCurrentPage")));
+        request.setMetadata(metadata);
+        doAnswer(invocation -> {
+            ServeRequest actual = invocation.getArgument(0);
+            assertThat(actual).isSameAs(request);
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "final"));
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        Map<String, Object> expectedMetadata = new java.util.LinkedHashMap<>(metadata);
+
+        orchestrator.streamQuery(request, observer);
+
+        verify(agentHandler).streamQuery(any(), any());
+        verify(observer).onNext(argThat(chunk -> "final".equals(chunk.getData())));
+        verify(observer).onComplete();
+        verify(observer, never()).onError(any());
+        assertThat(request.getMetadata()).isEqualTo(expectedMetadata);
+    }
+
+    @Test
+    void synchronousClientToolBatchResumeBypassesRemoteBatchProbe() {
+        ServeRequest request = req("c-client-tool-query");
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>(Map.of(
+            "runtime.parentTaskId", "task-client-tool-query",
+            "runtime.remoteToolInputs", Map.of("call-a", "page body", "call-b", "confirmed"),
+            "_interrupt", Map.of("items", List.of(
+                clientToolInterrupt("call-a", "readCurrentPage"),
+                clientToolInterrupt("call-b", "confirmLocalAction")))));
+        Map<String, Object> expectedMetadata = new java.util.LinkedHashMap<>(metadata);
+        request.setMetadata(metadata);
+        when(agentHandler.query(request)).thenReturn(
+            new QueryResponse(Map.of("content", "final"), request.getConversationId()));
+
+        QueryResponse response = orchestrator.query(request);
+
+        assertThat(response.getResult()).isEqualTo(Map.of("content", "final"));
+        verify(agentHandler).query(request);
+        assertThat(request.getMetadata()).isEqualTo(expectedMetadata);
+    }
+
+    @Test
+    void onlyPureClientToolInterruptsBypassRemoteBatchProbe() {
+        List<Map<String, Object>> interrupts = List.of(
+            Map.of("items", List.of(
+                clientToolInterrupt("call-a", "readCurrentPage"),
+                Map.of("context", Map.of("_interrupt_kind", "ask_user")))),
+            Map.of("items", List.of(Map.of("context", Map.of("_interrupt_kind", "ask_user")))),
+            Map.of("items", List.of()));
+
+        for (int index = 0; index < interrupts.size(); index++) {
+            ServeRequest request = req("c-not-client-tool-" + index);
+            request.setMetadata(new java.util.LinkedHashMap<>(Map.of(
+                "runtime.parentTaskId", "task-not-client-tool-" + index,
+                "runtime.remoteToolInputs", Map.of("call-a", "input"),
+                "_interrupt", interrupts.get(index))));
+            QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+            orchestrator.streamQuery(request, observer);
+
+            verify(observer).onError(argThat(error -> error instanceof IllegalArgumentException
+                && error.getMessage().contains("REMOTE_BATCH_PARENT_MISMATCH")));
+            verify(observer, never()).onComplete();
+        }
+        verify(agentHandler, never()).streamQuery(any(), any());
+    }
+
+    @Test
     void multipleLocalInterruptsAreForwardedWithoutRemoteDispatch() {
         Map<String, Object> interrupt = Map.of("items", List.of(
             Map.of("toolCallId", "call-a", "message", "question-a",
@@ -164,12 +239,13 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void queryWithProgressKeepsSynchronousHandlerAndProjectsRemoteMembers() {
+    void queryKeepsSynchronousHandlerAndDisablesRemoteStreaming() {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
         when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
+            assertThat(call.isCallerStreaming()).isFalse();
             QueryStreamObserver remoteObserver = invocation.getArgument(1);
             remoteObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "remote-progress"));
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
@@ -182,17 +258,13 @@ class A2AEnabledServeOrchestratorTest {
             }
             return new QueryResponse(Map.of("content", "final"), "c-query-progress");
         });
-        QueryStreamObserver progressObserver = mock(QueryStreamObserver.class);
         ServeRequest request = req("c-query-progress");
+        request.setStream(false);
         request.setMetadata(Map.of("runtime.parentTaskId", "parent-query-progress"));
 
-        QueryResponse response = orchestrator.queryWithProgress(request, progressObserver);
+        QueryResponse response = orchestrator.query(request);
 
         assertThat(response.getResult()).isEqualTo(Map.of("content", "final"));
-        verify(progressObserver, times(3)).onNext(argThat(chunk ->
-            QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType())
-                && chunk.getData() instanceof Map<?, ?> data
-                && "remote-progress".equals(data.get("content"))));
         verify(agentHandler, times(2)).query(any());
         verify(agentHandler, never()).streamQuery(any(), any());
     }
@@ -248,6 +320,7 @@ class A2AEnabledServeOrchestratorTest {
             "test-agent", 16, 256, 30);
         when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
+            assertThat(call.isCallerStreaming()).isTrue();
             String id = call.message().substring("message-".length());
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
                 "remote-" + id,
@@ -740,5 +813,13 @@ class A2AEnabledServeOrchestratorTest {
                 "toolCallId", "call-local",
                 "message", "local question",
                 "context", Map.of("_interrupt_kind", "ask_user"))));
+    }
+
+    private static Map<String, Object> clientToolInterrupt(String toolCallId, String toolName) {
+        return Map.of(
+            "type", "__interaction__",
+            "toolCallId", toolCallId,
+            "toolName", toolName,
+            "context", Map.of("_interrupt_kind", "client_tool"));
     }
 }

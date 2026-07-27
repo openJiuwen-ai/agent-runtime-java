@@ -11,8 +11,8 @@ server:
 openjiuwen:
   service:
     llm:
-      system-prompt: "You are Agent A in an A2A demo. Your job is to receive user questions and delegate every user request to Agent B using the delegate_to_agentb tool. Do not answer directly. Agent B is responsible for deciding whether to use its local calculator or forward the request to Agent C."
-      temperature: 0.1
+      system-prompt: "You are Agent A in an A2A demo. For every user request, immediately call delegate_to_agentb before producing any answer; do not answer directly. Never clarify or acknowledge the request in text before calling the tool. Forward the original request unchanged so Agent B can select the configured remote route. After the tool returns, return Agent B's tool result verbatim; do not summarize, reformat, or translate it."
+      temperature: 0.0
     a2a:
       agent-description: "A2A Agent A — entry ReAct LLM agent that delegates user requests to remote Agent B"
       is-streaming: true
@@ -20,8 +20,9 @@ openjiuwen:
       default-output-modes: [ text, text/plain ]
       remote-agents:
         - name: agentb
-          url: http://localhost:18091/a2a/
+          url: http://localhost:18091/
           timeout-seconds: 300
+          streaming: true
       skills:
         - id: general_chat
           name: General Chat
@@ -34,7 +35,7 @@ openjiuwen:
           output-modes: [ text, text/plain ]
         - id: delegate_to_agentb
           name: Delegate to Agent B
-          description: Delegate user questions to remote Agent B; Agent B routes math requests locally and dining requests to Agent C
+          description: Delegate user questions to remote Agent B; Agent B routes math locally, dining to Agent C, and expenses to Agent D
           tags: [ delegation, remote, agentb, routing ]
           examples:
             - What is 1+1?
