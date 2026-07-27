@@ -6,6 +6,8 @@ package com.openjiuwen.service.app.config.llm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -15,6 +17,9 @@ import org.springframework.mock.env.MockEnvironment;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.Set;
 
 /**
  * Unit tests for {@link ApiConfigLoader}.
@@ -63,6 +68,30 @@ class ApiConfigLoaderTest {
     }
 
     @Test
+    void load_fileAtSixthParentLevel_discoversFile() throws Exception {
+        Path configDirectory = tempDir.resolve("root");
+        Path workingDirectory = Files.createDirectories(configDirectory.resolve("1/2/3/4/5/6"));
+        writeConfig(configDirectory.resolve(ApiConfigLoader.DEFAULT_FILE_NAME), "SixthLevelProvider", "true");
+        ApiConfigLoader loader = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(),
+            () -> workingDirectory);
+
+        ApiConfigLoader.ApiConfigValues values = loader.load(null, true).orElseThrow();
+
+        assertThat(values.provider()).hasValue("SixthLevelProvider");
+    }
+
+    @Test
+    void load_fileAtSeventhParentLevel_doesNotDiscoverFile() throws Exception {
+        Path configDirectory = tempDir.resolve("root");
+        Path workingDirectory = Files.createDirectories(configDirectory.resolve("1/2/3/4/5/6/7"));
+        writeConfig(configDirectory.resolve(ApiConfigLoader.DEFAULT_FILE_NAME), "SeventhLevelProvider", "true");
+        ApiConfigLoader loader = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(),
+            () -> workingDirectory);
+
+        assertThat(loader.load(null, true)).isEmpty();
+    }
+
+    @Test
     void load_usesEnvironmentPathBeforeAutoDiscovery() throws Exception {
         Path environmentFile = writeConfig(tempDir.resolve("environment.json"), "EnvironmentProvider", "true");
         Path workingDirectory = Files.createDirectories(tempDir.resolve("work"));
@@ -98,6 +127,29 @@ class ApiConfigLoaderTest {
         assertThatThrownBy(() -> loader.load(tempDir.resolve("missing.json").toString(), true))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("openjiuwen.service.llm.config-file");
+    }
+
+    @Test
+    void load_explicitFileIsUnreadable_rejectsConfiguredSource() throws Exception {
+        Path file = writeConfig(tempDir.resolve("unreadable.json"), "true");
+        PosixFileAttributeView attributeView = Files.getFileAttributeView(file, PosixFileAttributeView.class);
+        assumeTrue(attributeView != null, "POSIX file permissions are not supported");
+        Set<PosixFilePermission> originalPermissions = Files.getPosixFilePermissions(file);
+
+        try {
+            Files.setPosixFilePermissions(file, Set.of());
+            assumeFalse(Files.isReadable(file), "Current process can still read a file without POSIX permissions");
+            ApiConfigLoader loader = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(), () -> tempDir);
+            String normalizedPath = file.toAbsolutePath().normalize().toString();
+
+            assertThatThrownBy(() -> loader.load(file.toString(), false))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("openjiuwen.service.llm.config-file")
+                .hasMessageContaining("readable regular file")
+                .hasMessageContaining(normalizedPath);
+        } finally {
+            Files.setPosixFilePermissions(file, originalPermissions);
+        }
     }
 
     @Test
