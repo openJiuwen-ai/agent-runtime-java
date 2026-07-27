@@ -9,7 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.google.gson.Gson;
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient.RemoteCallOutcome;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
@@ -35,11 +35,12 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Unit tests for the answer discrimination and business-text extraction in
- * {@link A2ARemoteAgentClient}. The remote caller keeps AgentCore stream
- * envelopes in the forwarded stream and unwraps terminal answer and workflow
- * envelopes into the tool result fed back to our LLM.
+ * {@link RemoteAgentAnswerExtractor} and {@link A2ARemoteAgentClient}. The remote
+ * caller keeps the AgentCore stream envelope in the forwarded stream (uniform
+ * format) and unwraps terminal {@code answer} and {@code workflow_final} envelopes
+ * into the tool result fed back to our LLM.
  */
-class A2ARemoteAgentClientExtractTest {
+class RemoteAgentAnswerExtractorTest {
     private static final Gson GSON = new Gson();
 
     @Test
@@ -50,7 +51,7 @@ class A2ARemoteAgentClientExtractTest {
         payload.put("result_type", "answer");
         String raw = GSON.toJson(envelope("answer", payload));
 
-        assertThat(A2ARemoteAgentClient.answerText(raw)).contains("2");
+        assertThat(RemoteAgentAnswerExtractor.extractAnswer(raw)).contains("2");
     }
 
     @Test
@@ -69,7 +70,7 @@ class A2ARemoteAgentClientExtractTest {
         Map<String, Object> payload = Map.of("content", "2");
         String raw = GSON.toJson(envelope("llm_output", payload));
 
-        assertThat(A2ARemoteAgentClient.answerText(raw)).isEmpty();
+        assertThat(RemoteAgentAnswerExtractor.extractAnswer(raw)).isEmpty();
     }
 
     @Test
@@ -79,26 +80,26 @@ class A2ARemoteAgentClientExtractTest {
         payload.put("trace_id", "abc");
         String raw = GSON.toJson(envelope("answer", payload));
 
-        assertThat(A2ARemoteAgentClient.answerText(raw)).contains(raw);
+        assertThat(RemoteAgentAnswerExtractor.extractAnswer(raw)).contains(raw);
     }
 
     @Test
     @DisplayName("plain (non-JSON) text is not an answer envelope")
     void plainTextNotAnswer() {
-        assertThat(A2ARemoteAgentClient.answerText("hello")).isEmpty();
+        assertThat(RemoteAgentAnswerExtractor.extractAnswer("hello")).isEmpty();
     }
 
     @Test
     @DisplayName("extractBusinessText prefers payload text keys, then top level")
     void extractBusinessTextVariants() {
-        assertThat(A2ARemoteAgentClient.extractBusinessText("2")).contains("2");
-        assertThat(A2ARemoteAgentClient.extractBusinessText("   ")).isEmpty();
-        assertThat(A2ARemoteAgentClient.extractBusinessText(null)).isEmpty();
-        assertThat(A2ARemoteAgentClient.extractBusinessText(42)).isEmpty();
+        assertThat(RemoteAgentAnswerExtractor.extractBusinessText("2")).contains("2");
+        assertThat(RemoteAgentAnswerExtractor.extractBusinessText("   ")).isEmpty();
+        assertThat(RemoteAgentAnswerExtractor.extractBusinessText(null)).isEmpty();
+        assertThat(RemoteAgentAnswerExtractor.extractBusinessText(42)).isEmpty();
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("delta", "hel");
-        assertThat(A2ARemoteAgentClient.extractBusinessText(envelope("chunk", payload))).contains("hel");
+        assertThat(RemoteAgentAnswerExtractor.extractBusinessText(envelope("chunk", payload))).contains("hel");
     }
 
     @Test

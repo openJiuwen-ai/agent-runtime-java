@@ -90,7 +90,7 @@ class A2ARemoteAgentClientClassLoaderTest {
                 }
             });
             A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
-            CompletableFuture<A2ARemoteAgentClient.RemoteCallOutcome> outcome = null;
+            CompletableFuture<RemoteCallOutcome> outcome = null;
             try {
                 outcome = remoteClient.callOutcome(remoteCall("sync-agent"), null, null);
                 callReturned.countDown();
@@ -375,12 +375,12 @@ class A2ARemoteAgentClientClassLoaderTest {
         when(builder.build()).thenReturn(client);
     }
 
-    private static A2ARemoteAgentClient.RemoteCall remoteCall(String agentName) {
-        return new A2ARemoteAgentClient.RemoteCall(agentName, "hello", "context", null, Map.of());
+    private static RemoteCall remoteCall(String agentName) {
+        return new RemoteCall(agentName, "hello", "context", null, Map.of());
     }
 
-    private static A2ARemoteAgentClient.RemoteCall remoteCall(String agentName, boolean isCallerStreaming) {
-        return new A2ARemoteAgentClient.RemoteCall(agentName, "hello", "context", null, Map.of(), Map.of(),
+    private static RemoteCall remoteCall(String agentName, boolean isCallerStreaming) {
+        return new RemoteCall(agentName, "hello", "context", null, Map.of(), Map.of(),
                 isCallerStreaming);
     }
 

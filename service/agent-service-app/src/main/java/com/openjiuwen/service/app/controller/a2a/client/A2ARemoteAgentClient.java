@@ -34,7 +34,7 @@ import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
+import java.lang.reflect.Type;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -55,12 +55,23 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * A2A remote agent caller using the official SDK {@code
- * Client.builder(card).withTransport(JSONRPCTransport.class, config)} pattern.
+ * Baseline {@link RemoteAgentCaller} using the official A2A SDK
+ * {@code Client.builder(card).withTransport(JSONRPCTransport.class, config)} pattern.
+ *
+ * <p>Exposes a single {@link #callOutcome(RemoteCall, QueryStreamObserver, Consumer)}
+ * entry point used by {@code RemoteInvocationBatchCoordinator} for both single-agent
+ * and parallel batch remote invocations. Streaming artifacts are forwarded to the
+ * optional {@code streamObserver}; the structured {@link RemoteCallOutcome} carries
+ * the terminal task state, the resolved business text, and any input-required
+ * prompt back to the coordinator.
+ *
+ * <p>Structured failure handling: transport errors, timeouts, and premature
+ * stream close complete the returned future exceptionally; the coordinator
+ * translates them into per-member batch failures.
  *
  * @since 0.1.0
  */
-public class A2ARemoteAgentClient {
+public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
 
     private static final int DEFAULT_IO_CONCURRENCY = 16;
@@ -72,10 +83,9 @@ public class A2ARemoteAgentClient {
     private final ExecutorService ioExecutor;
 
     /**
-     * Constructs the remote agent client.
+     * Constructs the remote agent client with the default I/O concurrency.
      *
-     * @param registry
-     *            the remote agent card registry
+     * @param registry the remote agent card registry
      */
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry) {
         this(registry, DEFAULT_IO_CONCURRENCY);
@@ -101,45 +111,6 @@ public class A2ARemoteAgentClient {
                             .error("Uncaught A2A remote I/O error thread={}", source.getName(), error));
                     return thread;
                 }, new ThreadPoolExecutor.AbortPolicy());
-    }
-
-    /**
-     * Parameter object for a remote agent call: the addressing and payload
-     * coordinates shared by callers.
-     *
-     * @param agentName
-     *            registered remote agent name
-     * @param message
-     *            text payload to send
-     * @param contextId
-     *            conversation context ID (shared across calls to the same remote)
-     * @param taskId
-     *            remote task ID to resume, or null for a new task
-     * @param metadata params-level metadata
-     * @param messageMetadata message-level metadata
-     * @param isCallerStreaming whether the current inbound request is streaming
-     */
-    public record RemoteCall(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata, Map<String, Object> messageMetadata, boolean isCallerStreaming) {
-        public RemoteCall {
-            metadata = immutableMetadata(metadata);
-            messageMetadata = immutableMetadata(messageMetadata);
-        }
-
-        public RemoteCall(String agentName, String message, String contextId, String taskId,
-                Map<String, Object> metadata, Map<String, Object> messageMetadata) {
-            this(agentName, message, contextId, taskId, metadata, messageMetadata, false);
-        }
-
-        public RemoteCall(String agentName, String message, String contextId, String taskId,
-                Map<String, Object> metadata) {
-            this(agentName, message, contextId, taskId, metadata, null, false);
-        }
-    }
-
-    /** Structured terminal or input-required result for a coordinator-owned call. */
-    public record RemoteCallOutcome(String remoteTaskId, TaskState remoteState, String resultCategory, String result,
-            String inputPrompt) {
     }
 
     /**
@@ -180,12 +151,6 @@ public class A2ARemoteAgentClient {
         var configuration = MessageSendConfiguration.builder().returnImmediately(false).build();
         return MessageSendParams.builder().message(messageBuilder.build()).configuration(configuration)
                 .metadata(call.metadata()).build();
-    }
-
-    private static Map<String, Object> immutableMetadata(Map<String, Object> metadata) {
-        return metadata == null || metadata.isEmpty()
-                ? Map.of()
-                : Collections.unmodifiableMap(new LinkedHashMap<>(metadata));
     }
 
     /**
@@ -240,8 +205,9 @@ public class A2ARemoteAgentClient {
      * @param remoteTaskIdObserver observer for remote task IDs used by batch persistence
      * @return structured remote outcome
      */
-    public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, QueryStreamObserver streamObserver,
-            Consumer<String> remoteTaskIdObserver) {
+    @Override
+    public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
+            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver) {
         A2ARemoteAgentCardRegistry.RemoteAgentEntry entry = registry.get(call.agentName())
                 .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
         boolean isStreaming = entry.isStreaming() && call.isCallerStreaming();
@@ -289,6 +255,11 @@ public class A2ARemoteAgentClient {
             }
         });
         return result;
+    }
+
+    @Override
+    public boolean supported(String agentName) {
+        return agentName != null && registry.get(agentName).isPresent();
     }
 
     private void handleClientEvent(ClientEvent event, CompletableFuture<RemoteCallOutcome> result,

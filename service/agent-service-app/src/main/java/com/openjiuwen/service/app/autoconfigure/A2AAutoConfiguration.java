@@ -15,6 +15,8 @@ import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.spi.AgentHandler;
@@ -205,27 +207,31 @@ public class A2AAutoConfiguration {
     }
 
     /**
-     * Creates the remote agent client bean.
+     * Creates the default {@link RemoteAgentCaller} bean. Deployments may
+     * override with an {@code A2AGatewayRemoteAgentCaller}.
      *
      * @param registry the remote agent card registry
      * @param props A2A runtime properties
-     * @return the remote agent client
+     * @return the default remote agent caller
      */
     @Bean
-    @ConditionalOnMissingBean
-    public A2ARemoteAgentClient a2aRemoteAgentClient(A2ARemoteAgentCardRegistry registry, A2AProperties props) {
+    @ConditionalOnMissingBean(RemoteAgentCaller.class)
+    public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props) {
         return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency());
     }
 
     /**
-     * Creates the agent card discovery bean for fetching remote agent cards at startup.
+     * Creates the agent card discovery bean for fetching remote agent cards at
+     * startup. Also serves as the baseline {@link RemoteAgentCardResolver};
+     * deployments may override with an {@code A2AGatewayCardResolver} for
+     * cross-origin cards.
      *
      * @param props the A2A properties
      * @param registry the remote agent card registry
      * @return the agent card discovery
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(RemoteAgentCardResolver.class)
     public A2AAgentCardDiscovery a2aAgentCardDiscovery(A2AProperties props, A2ARemoteAgentCardRegistry registry) {
         return new A2AAgentCardDiscovery(props, registry);
     }
@@ -235,7 +241,7 @@ public class A2AAutoConfiguration {
      *
      * @param agentHandler the agent handler
      * @param taskStore the task store
-     * @param a2aClient the remote agent client
+     * @param remoteAgentCaller the remote agent caller SPI
      * @param streamRegistry the active stream registry
      * @param agentId the application name used as the agent identifier for shadow task namespacing
      * @param props A2A runtime properties
@@ -244,10 +250,10 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(ServeOrchestrator.class)
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-            A2ARemoteAgentClient a2aClient, ActiveStreamRegistry streamRegistry,
+            RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry,
             @Value("${spring.application.name:agent}") String agentId, A2AProperties props) {
         A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
-        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, agentId,
+        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId,
             limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds());
     }
 

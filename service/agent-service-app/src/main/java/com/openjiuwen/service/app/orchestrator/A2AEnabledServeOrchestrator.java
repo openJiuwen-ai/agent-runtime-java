@@ -4,7 +4,7 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.StreamCancellationHandle;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -29,11 +29,12 @@ import java.util.concurrent.ExecutionException;
 /**
  * A2A-aware orchestrator with interrupt-resume chain.
  *
- * <p>
- * Detects {@code "interrupt"} chunks from the agent handler, routes
- * {@code a2a_delegate} interrupts to a remote agent via
- * {@link A2ARemoteAgentClient}, and resumes the local agent with the remote
- * result. Other interrupts are forwarded as {@code INPUT_REQUIRED}.
+ * <p>Delegates {@code a2a_delegate} interrupts (single-agent or parallel batch)
+ * to {@link RemoteInvocationBatchCoordinator}, which fans out
+ * {@link com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller#callOutcome}
+ * invocations and aggregates their outcomes into a single resume or
+ * input-required signal. Non-a2a interrupts are forwarded to the client as
+ * {@code INPUT_REQUIRED}.
  *
  * @since 0.1.0
  */
@@ -81,22 +82,30 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     /**
      * Constructs the orchestrator with explicit remote invocation limits.
      *
-     * @param agentHandler local agent handler
-     * @param taskStore A2A task store
-     * @param a2aClient remote A2A client
-     * @param streamRegistry active stream registry
-     * @param agentId local agent identity
-     * @param maxConcurrency global remote invocation concurrency
-     * @param maxQueueSize global pending invocation capacity
-     * @param queueTimeoutSeconds maximum queue wait
+     * @param agentHandler
+     *            the local agent handler
+     * @param taskStore
+     *            the A2A task store for shadow tasks
+     * @param remoteAgentCaller
+     *            the remote agent caller SPI; consumed by the batch coordinator
+     * @param streamRegistry
+     *            the active stream registry for cancellation
+     * @param agentId
+     *            this agent's identity for shadow task key namespacing
+     * @param maxConcurrency
+     *            global remote invocation concurrency
+     * @param maxQueueSize
+     *            global pending invocation capacity
+     * @param queueTimeoutSeconds
+     *            maximum queue wait
      */
-    public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore, A2ARemoteAgentClient a2aClient,
-        ActiveStreamRegistry streamRegistry, String agentId, int maxConcurrency, int maxQueueSize,
-        long queueTimeoutSeconds) {
+    public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
+        RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
+        int maxConcurrency, int maxQueueSize, long queueTimeoutSeconds) {
         this.agentHandler = agentHandler;
         this.taskStore = taskStore;
         this.streamRegistry = streamRegistry;
-        this.batchCoordinator = new RemoteInvocationBatchCoordinator(taskStore, a2aClient, agentId,
+        this.batchCoordinator = new RemoteInvocationBatchCoordinator(taskStore, remoteAgentCaller, agentId,
             maxConcurrency, maxQueueSize, queueTimeoutSeconds);
     }
 
@@ -366,7 +375,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     }
 
     /**
-     * Handles a2a_delegate interrupt in query mode.
+     * Handles a2a_delegate interrupt in query mode: forwards once to the remote
+     * agent. When {@code resolution.shouldResume()} is {@code true} (tool-call path),
+     * the remote's answer is fed back to the parent handler as a tool result.
+     * When {@code false} (intent-workflow path), the remote's answer is this
+     * layer's final answer and is returned directly without re-invoking the
+     * agent.
      *
      * @param interruptData
      *            the interrupt data map
@@ -416,6 +430,13 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private Optional<ServeRequest> streamBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
         if (resolution.isReadyToResume()) {
+            if (!resolution.shouldResume()) {
+                if (!observer.isCancelled()) {
+                    observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, joinRemoteAnswers(resolution)));
+                    observer.onComplete();
+                }
+                return Optional.empty();
+            }
             ServeRequest resume = buildBatchResumeRequest(current, resolution);
             if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
                 observer.onError(new IllegalStateException(CORE_RESUME_IN_FLIGHT + ": " + resolution.batchId()));
@@ -431,6 +452,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
     private QueryResumeResult queryBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryResponse response) {
         if (resolution.isReadyToResume()) {
+            if (!resolution.shouldResume()) {
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("role", "assistant");
+                result.put("content", joinRemoteAnswers(resolution));
+                return QueryResumeResult.respond(new QueryResponse(result, current.getConversationId()));
+            }
             ServeRequest resume = buildBatchResumeRequest(current, resolution);
             if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
                 throw new IllegalStateException(CORE_RESUME_IN_FLIGHT + ": " + resolution.batchId());
@@ -446,6 +473,27 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator {
         result.put("content", resolution.interrupt().getOrDefault("message", "Remote agent requires input"));
         result.put("_interrupt", resolution.interrupt());
         return QueryResumeResult.respond(new QueryResponse(result, current.getConversationId()));
+    }
+
+    private static String joinRemoteAnswers(RemoteInvocationBatchCoordinator.BatchResolution resolution) {
+        if (resolution.results().isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        resolution.results().values().forEach(value -> {
+            if (value == null) {
+                return;
+            }
+            String text = value instanceof Map<?, ?> map && map.get("ok") instanceof Boolean isOk && !isOk
+                ? "" : String.valueOf(value);
+            if (!text.isEmpty()) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(text);
+            }
+        });
+        return sb.toString();
     }
 
     private static ServeRequest buildBatchResumeRequest(ServeRequest original,

@@ -79,7 +79,7 @@ class A2AAgentCardDiscoveryTest {
     void fetchCardRejectsMissingBaseUrl() {
         discovery = new A2AAgentCardDiscovery(new A2AProperties(), new A2ARemoteAgentCardRegistry());
 
-        assertThatThrownBy(() -> discovery.fetchCard(null)).isInstanceOf(IllegalArgumentException.class)
+        assertThatThrownBy(() -> discovery.fetchCardInternal(null)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("baseUrl must not be null or blank");
     }
 
