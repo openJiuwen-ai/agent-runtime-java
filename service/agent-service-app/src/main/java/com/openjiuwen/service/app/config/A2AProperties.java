@@ -52,8 +52,6 @@ public class A2AProperties {
 
     private String jsonRpcPath = "/a2a";
 
-    private String agentCardPath = "/a2a/.well-known/agent-card.json";
-
     private int taskCompletionTimeoutSeconds = 300;
 
     private RemoteInvocationProperties remoteInvocation = new RemoteInvocationProperties();

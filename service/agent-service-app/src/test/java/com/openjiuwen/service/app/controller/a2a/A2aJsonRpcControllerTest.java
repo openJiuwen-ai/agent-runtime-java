@@ -9,12 +9,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
+import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
 import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.DataPart;
@@ -22,7 +24,10 @@ import org.a2aproject.sdk.spec.InvalidParamsError;
 import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.StreamingEventKind;
+import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskIdParams;
+import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -40,6 +45,13 @@ import java.util.concurrent.Flow;
  * @since 0.1.0
  */
 class A2aJsonRpcControllerTest {
+    private static final String[] UNSUPPORTED_PUSH_CRUD_METHODS = {
+        "CreateTaskPushNotificationConfig",
+        "GetTaskPushNotificationConfig",
+        "ListTaskPushNotificationConfigs",
+        "DeleteTaskPushNotificationConfig"
+    };
+
     @Test
     void parsesParamsAndMessageMetadataAsDistinctMaps() {
         JsonObject request = requestWithMetadata("{\"request-scope\":\"params\"}",
@@ -143,10 +155,159 @@ class A2aJsonRpcControllerTest {
         });
     }
 
+    @Test
+    void unsupportedPushCrudMethodsReturnMethodNotFound() {
+        RequestHandler requestHandler = mock(RequestHandler.class);
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
+
+        for (String method : UNSUPPORTED_PUSH_CRUD_METHODS) {
+            ResponseEntity<?> response = controller.handleJsonRpc("""
+                    {"jsonrpc":"2.0","id":"req-1","method":"%s","params":{}}
+                    """.formatted(method), servletRequest);
+
+            JsonObject body = jsonBody(response);
+            assertThat(body.getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32601);
+            assertThat(body.getAsJsonObject("error").get("message").getAsString()).contains(method);
+        }
+        verifyNoInteractions(requestHandler);
+    }
+
+    @Test
+    void absoluteHttpInlinePushConfigReachesSdkHandler() {
+        RequestHandler requestHandler = mock(RequestHandler.class);
+        when(requestHandler.onMessageSend(org.mockito.ArgumentMatchers.any(MessageSendParams.class),
+                org.mockito.ArgumentMatchers.any(ServerCallContext.class))).thenReturn(completedTask());
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
+
+        controller.handleJsonRpc("""
+                {
+                  "jsonrpc": "2.0",
+                  "id": "req-1",
+                  "method": "SendMessage",
+                  "params": {
+                    "message": {
+                      "role": "ROLE_USER",
+                      "messageId": "msg-1",
+                      "contextId": "ctx-1",
+                      "parts": [{"kind": "text", "text": "hello"}]
+                    },
+                    "pushNotificationConfig": {
+                      "id": "push-1",
+                      "callbackUrl": "https://evil.example/a2a/push-notifications/callback"
+                    }
+                  }
+                }
+                """, servletRequest);
+
+        verify(requestHandler).onMessageSend(org.mockito.ArgumentMatchers.any(MessageSendParams.class),
+                org.mockito.ArgumentMatchers.any(ServerCallContext.class));
+    }
+
+    @Test
+    void nonHttpInlinePushConfigIsRejectedBeforeCallingSdkHandler() {
+        RequestHandler requestHandler = mock(RequestHandler.class);
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
+
+        ResponseEntity<?> response = controller.handleJsonRpc("""
+                {
+                  "jsonrpc": "2.0",
+                  "id": "req-1",
+                  "method": "SendMessage",
+                  "params": {
+                    "message": {
+                      "role": "ROLE_USER",
+                      "messageId": "msg-1",
+                      "contextId": "ctx-1",
+                      "parts": [{"kind": "text", "text": "hello"}]
+                    },
+                    "pushNotificationConfig": {
+                      "id": "push-1",
+                      "callbackUrl": "ftp://callback.example/a2a/push-notifications/callback"
+                    }
+                  }
+                }
+                """, servletRequest);
+
+        JsonObject body = jsonBody(response);
+        assertThat(body.getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32602);
+        verifyNoInteractions(requestHandler);
+    }
+
+    @Test
+    void parsesInlinePushNotificationConfigIntoSdkConfiguration() {
+        JsonObject request = JsonParser.parseString("""
+                {
+                  "params": {
+                    "message": {
+                      "role": "ROLE_USER",
+                      "messageId": "msg-1",
+                      "contextId": "ctx-1",
+                      "parts": [{"kind": "text", "text": "hello"}]
+                    },
+                    "pushNotificationConfig": {
+                      "id": "push-1",
+                      "callbackUrl": "https://caller.example/a2a/push-notifications/callback",
+                      "authentication": {
+                        "scheme": "Bearer",
+                        "credentials": "token-ref"
+                      }
+                    }
+                  }
+                }
+                """).getAsJsonObject();
+
+        MessageSendParams params = A2aJsonRpcParamsParser.parseMessageSendParams(request);
+
+        assertThat(params.configuration()).isNotNull();
+        assertThat(params.configuration().returnImmediately()).isTrue();
+        assertThat(params.configuration().taskPushNotificationConfig()).satisfies(config -> {
+            assertThat(config.id()).isEqualTo("push-1");
+            assertThat(config.url()).isEqualTo("https://caller.example/a2a/push-notifications/callback");
+            assertThat(config.authentication().scheme()).isEqualTo("Bearer");
+            assertThat(config.authentication().credentials()).isEqualTo("token-ref");
+        });
+    }
+
+    @Test
+    void rejectsMalformedInlinePushNotificationConfigAsInvalidParams() {
+        JsonObject request = JsonParser.parseString("""
+                {
+                  "params": {
+                    "message": {
+                      "role": "ROLE_USER",
+                      "messageId": "msg-1",
+                      "contextId": "ctx-1",
+                      "parts": [{"kind": "text", "text": "hello"}]
+                    },
+                    "pushNotificationConfig": "not-an-object"
+                  }
+                }
+                """).getAsJsonObject();
+
+        assertThatThrownBy(() -> A2aJsonRpcParamsParser.parseMessageSendParams(request))
+                .isInstanceOf(InvalidParamsError.class);
+    }
+
     private static JsonObject requestWithMetadata(String paramsMetadata, String messageMetadata) {
         String json = "{\"params\":{\"metadata\":" + paramsMetadata + ",\"message\":{"
                 + "\"role\":\"ROLE_USER\",\"messageId\":\"msg-1\",\"contextId\":\"ctx-1\","
                 + "\"parts\":[{\"kind\":\"text\",\"text\":\"hello\"}],\"metadata\":" + messageMetadata + "}}}";
         return JsonParser.parseString(json).getAsJsonObject();
+    }
+
+    private static JsonObject jsonBody(ResponseEntity<?> response) {
+        Object body = response.getBody();
+        if (body instanceof String text) {
+            return JsonParser.parseString(text).getAsJsonObject();
+        }
+        throw new AssertionError("JSON-RPC response body is not a string: " + body);
+    }
+
+    private static Task completedTask() {
+        return Task.builder().id("task-1").contextId("ctx-1")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
     }
 }

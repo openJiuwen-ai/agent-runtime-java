@@ -44,6 +44,39 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 class A2AAgentExecutorTest {
     @Test
+    void blockingCallContextOverridesAdapterDefaultStreamFlag() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        A2AProtocolAdapter adapter = requestAdapter(true, Map.of());
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
+
+        org.mockito.ArgumentCaptor<ServeRequest> request = org.mockito.ArgumentCaptor.forClass(ServeRequest.class);
+        verify(orchestrator).query(request.capture());
+        verify(orchestrator, never()).streamQuery(any(), any());
+        assertThat(request.getValue().isStream()).isFalse();
+    }
+
+    @Test
+    void streamingCallContextOverridesAdapterDefaultStreamFlag() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> observer.onComplete()))
+                .when(orchestrator).streamQuery(any(), any());
+        A2AProtocolAdapter adapter = requestAdapter(false, Map.of());
+        RequestContext context = requestContext("task-1", "ctx-1", true);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
+
+        org.mockito.ArgumentCaptor<ServeRequest> request = org.mockito.ArgumentCaptor.forClass(ServeRequest.class);
+        verify(orchestrator).streamQuery(request.capture(), any());
+        verify(orchestrator, never()).query(any());
+        assertThat(request.getValue().isStream()).isTrue();
+    }
+
+    @Test
     void nonStreamingA2aReturnsOnlyFinalQueryArtifact() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
@@ -119,6 +152,23 @@ class A2AAgentExecutorTest {
         executor.execute(context, emitter);
 
         assertThat(queue.sizeCalls.get()).isPositive();
+    }
+
+    @Test
+    void failurePathEmitsFailedStatusWithBusinessError() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenThrow(new IllegalStateException("remote boom"));
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        A2AProtocolAdapter adapter = requestAdapter(false, Map.of());
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
+
+        assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast)
+                .filteredOn(event -> event.status().state() == TaskState.TASK_STATE_FAILED).singleElement()
+                .satisfies(event -> assertThat(event.status().message().parts()).singleElement().isInstanceOfSatisfying(
+                        TextPart.class, part -> assertThat(part.text()).isEqualTo("remote boom")));
     }
 
     @Test

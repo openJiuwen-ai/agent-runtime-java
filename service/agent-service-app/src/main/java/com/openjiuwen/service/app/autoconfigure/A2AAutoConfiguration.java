@@ -10,6 +10,12 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
+import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
+import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
+import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCapabilityGate;
+import com.openjiuwen.service.app.controller.a2a.HttpPushNotificationSender;
+import com.openjiuwen.service.app.controller.a2a.InMemoryA2aPushNotificationCallbackStore;
+import com.openjiuwen.service.app.controller.a2a.NoOpA2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
 import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
@@ -113,15 +119,44 @@ public class A2AAutoConfiguration {
     }
 
     /**
-     * Creates a no-op push notification sender bean (push notifications disabled by default).
+     * Creates the HTTP push notification sender bean.
      *
+     * @param pushConfigStore the push notification config store
      * @return the no-op push notification sender
      */
     @Bean
     @ConditionalOnMissingBean
-    public PushNotificationSender a2aPushNotificationSender() {
-        return (event, task) -> {
-        };
+    public PushNotificationSender a2aPushNotificationSender(PushNotificationConfigStore pushConfigStore) {
+        return new HttpPushNotificationSender(pushConfigStore);
+    }
+
+    /**
+     * Creates the push notification callback idempotency store bean.
+     *
+     * @return the callback idempotency store
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public A2aPushNotificationCallbackStore a2aPushNotificationCallbackStore() {
+        return new InMemoryA2aPushNotificationCallbackStore();
+    }
+
+    /**
+     * Creates the push notification capability gate bean.
+     *
+     * @param properties the A2A configuration properties
+     * @param pushNotificationSender the push notification sender
+     * @param callbackStore the callback idempotency store
+     * @param callbackHandler the callback handler
+     * @return the push notification capability gate
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public A2aPushNotificationCapabilityGate a2aPushNotificationCapabilityGate(A2AProperties properties,
+            PushNotificationSender pushNotificationSender, A2aPushNotificationCallbackStore callbackStore,
+            A2aPushNotificationCallbackHandler callbackHandler) {
+        return new A2aPushNotificationCapabilityGate(properties, pushNotificationSender, callbackStore,
+                callbackHandler);
     }
 
     /**
@@ -254,7 +289,18 @@ public class A2AAutoConfiguration {
             @Value("${spring.application.name:agent}") String agentId, A2AProperties props) {
         A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId,
-            limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds());
+                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds());
+    }
+
+    /**
+     * Creates the default no-op push notification callback handler bean.
+     *
+     * @return the no-op callback handler
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public A2aPushNotificationCallbackHandler a2aPushNotificationCallbackHandler() {
+        return new NoOpA2aPushNotificationCallbackHandler();
     }
 
     /**

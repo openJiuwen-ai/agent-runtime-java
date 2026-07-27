@@ -83,15 +83,19 @@ class A2aIntegrationTest {
     }
 
     @Test
-    void agentCardAccessibleOnAllPaths() throws Exception {
+    void agentCardAccessibleOnWellKnownPaths() throws Exception {
         var std = json(rest.getForObject("/.well-known/agent-card.json", String.class));
         assertThat(std).containsKeys("name", "supportedInterfaces", "skills");
 
         var compat = json(rest.getForObject("/.well-known/agent.json", String.class));
         assertThat(compat).isEqualTo(std);
+    }
 
-        var prefixed = json(rest.getForObject("/a2a/.well-known/agent-card.json", String.class));
-        assertThat(prefixed).isEqualTo(std);
+    @Test
+    void prefixedWellKnownAgentCardIsNotMounted() {
+        ResponseEntity<String> response = rest.getForEntity("/a2a/.well-known/agent-card.json", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test

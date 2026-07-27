@@ -91,12 +91,14 @@ public class A2aJsonRpcController {
                 case A2AMethods.SEND_MESSAGE_METHOD -> {
                     ctx.getState().put("_a2a_stream", false);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
+                    validateInlinePushNotificationConfig(params);
                     EventKind result = requestHandler.onMessageSend(params, ctx);
                     yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
                 }
                 case A2AMethods.SEND_STREAMING_MESSAGE_METHOD -> {
                     ctx.getState().put("_a2a_stream", true);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
+                    validateInlinePushNotificationConfig(params);
                     Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
                     yield streamToSse(pub, id);
                 }
@@ -179,6 +181,14 @@ public class A2aJsonRpcController {
         TaskIdParams params = A2aJsonRpcParamsParser.parseTaskIdParams(request);
         Flow.Publisher<StreamingEventKind> publisher = requestHandler.onSubscribeToTask(params, ctx);
         return streamToSse(publisher, id);
+    }
+
+    private void validateInlinePushNotificationConfig(org.a2aproject.sdk.spec.MessageSendParams params) {
+        if (params == null || params.configuration() == null
+                || params.configuration().taskPushNotificationConfig() == null) {
+            return;
+        }
+        A2aPushNotificationCallbackUrlPolicy.validateCallbackUrl(params.configuration().taskPushNotificationConfig());
     }
 
     /**

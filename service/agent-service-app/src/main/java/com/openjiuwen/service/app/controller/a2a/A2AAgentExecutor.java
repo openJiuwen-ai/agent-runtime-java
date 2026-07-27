@@ -108,7 +108,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             }
         } catch (IllegalArgumentException | IllegalStateException | NullPointerException ex) {
             log.error("Agent execution failed for contextId={}", ctx.getContextId(), ex);
-            emitter.fail();
+            failAndDrain(emitter, msgCtx, ex);
         }
     }
 
@@ -159,7 +159,7 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
         if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
             log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
-                msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> map ? map.get("message") : null);
+                    msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> map ? map.get("message") : null);
             if (chunk.getData() instanceof Map<?, ?> interruptData) {
                 emitter.requiresInput(statusMessage(interruptData));
             } else {
@@ -272,6 +272,21 @@ public class A2AAgentExecutor implements AgentExecutor {
             log.info("A2A eventQueue drained after COMPLETED taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
             log.debug("A2A completeAndDrain: eventQueue unavailable taskId={}", taskId, e);
+        }
+    }
+
+    private void failAndDrain(AgentEmitter emitter, A2AMessageContext msgCtx, RuntimeException error) {
+        String errorMessage = error.getMessage() == null ? "Agent execution failed" : error.getMessage();
+        Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(errorMessage)))
+                .build();
+        emitter.fail(message);
+        String taskId = msgCtx.getTaskId();
+        try {
+            Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
+            queue.ifPresent(q -> awaitInFlightDrained(q, taskId));
+            log.info("A2A eventQueue drained after FAILED taskId={}", taskId);
+        } catch (ReflectiveOperationException | SecurityException e) {
+            log.debug("A2A failAndDrain: eventQueue unavailable taskId={}", taskId, e);
         }
     }
 

@@ -12,9 +12,13 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.server.tasks.TaskStore;
+import org.a2aproject.sdk.spec.Artifact;
+import org.a2aproject.sdk.spec.ListTasksParams;
+import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
+import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,6 +70,27 @@ final class RemoteInvocationBatchCoordinator {
         REMOTE_BATCH_ID,
         "runtime.remoteToolResults");
 
+    private static final int MAX_EARLY_CALLBACKS = 256;
+
+    private static final QueryStreamObserver NOOP_OBSERVER = new QueryStreamObserver() {
+        @Override
+        public void onNext(QueryChunk chunk) {
+        }
+
+        @Override
+        public void onComplete() {
+        }
+
+        @Override
+        public void onError(Throwable error) {
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false;
+        }
+    };
+
     private final TaskStore taskStore;
 
     private final RemoteAgentCaller client;
@@ -85,6 +110,8 @@ final class RemoteInvocationBatchCoordinator {
     private final Map<String, Batch> activeByParent = new LinkedHashMap<>();
 
     private final Map<String, String> coreResumeClaims = new LinkedHashMap<>();
+
+    private final Map<String, Task> earlyCallbacksByRemoteTaskId = new LinkedHashMap<>();
 
     private int activeCount;
 
@@ -202,6 +229,55 @@ final class RemoteInvocationBatchCoordinator {
             return resumeReadyBatch(batch, targetedInputs);
         }
         return resumeWaitingBatch(batch, targetedInputs, parentTaskId, request.lastUserQuery());
+    }
+
+    boolean recoverCallback(Task task) {
+        if (task == null || task.id() == null || task.id().isBlank()) {
+            return false;
+        }
+        var shadows = taskStore.list(ListTasksParams.builder().build()).tasks();
+        for (Task shadow : shadows) {
+            if (!isBatchShadow(shadow)) {
+                continue;
+            }
+            Map<?, ?> rawBatch = (Map<?, ?>) shadow.metadata().get(REMOTE_BATCH);
+            if (recoverShadow(shadow, rawBatch, task)) {
+                return true;
+            }
+        }
+        rememberEarlyCallback(task);
+        return false;
+    }
+
+    private void rememberEarlyCallback(Task task) {
+        synchronized (lock) {
+            earlyCallbacksByRemoteTaskId.put(task.id(), task);
+            while (earlyCallbacksByRemoteTaskId.size() > MAX_EARLY_CALLBACKS) {
+                String eldest = earlyCallbacksByRemoteTaskId.keySet().iterator().next();
+                earlyCallbacksByRemoteTaskId.remove(eldest);
+            }
+        }
+    }
+
+    private boolean recoverShadow(Task shadow, Map<?, ?> rawBatch, Task task) {
+        String parentTaskId = stringValue(rawBatch.get("parentTaskId"));
+        ServeRequest request = new ServeRequest();
+        request.setConversationId(shadow.contextId());
+        request.setMetadata(parentTaskId.isBlank() ? Map.of() : Map.of(PARENT_TASK_ID, parentTaskId));
+        Batch batch = restoreBatch(rawBatch, request, parentTaskId, new SerialObserver(NOOP_OBSERVER));
+        Optional<Member> matched = batch.members.stream()
+            .filter(member -> task.id().equals(member.remoteTaskId))
+            .findFirst();
+        if (matched.isEmpty()) {
+            return false;
+        }
+        Member member = matched.get();
+        if (member.state == MemberState.COMPLETED) {
+            return true;
+        }
+        applyOutcome(member, callbackOutcome(task), null);
+        saveShadow(batch, shadowState(batch));
+        return true;
     }
 
     private Optional<CompletableFuture<BatchResolution>> resumeReadyBatch(Batch batch,
@@ -474,6 +550,88 @@ final class RemoteInvocationBatchCoordinator {
         }
     }
 
+    private static RemoteCallOutcome callbackOutcome(Task task) {
+        TaskStatus status = task.status();
+        TaskState state = status == null ? null : status.state();
+        String statusText = status == null || status.message() == null ? "" : extractText(status.message().parts());
+        String taskText = extractTaskResult(task);
+        if (isResultBearingNonTerminalState(state) && (!taskText.isBlank() || !statusText.isBlank())) {
+            state = TaskState.TASK_STATE_COMPLETED;
+        }
+        if (state == TaskState.TASK_STATE_INPUT_REQUIRED || state == TaskState.TASK_STATE_AUTH_REQUIRED) {
+            String inputPrompt = statusText.isBlank() ? "Remote agent requires input" : statusText;
+            return new RemoteCallOutcome(task.id(), state, resultCategory(state), null, inputPrompt);
+        }
+        String resultText = state == TaskState.TASK_STATE_COMPLETED
+            ? (taskText.isBlank() ? statusText : taskText)
+            : (statusText.isBlank() ? taskText : statusText);
+        return new RemoteCallOutcome(task.id(), state, resultCategory(state), resultText, null);
+    }
+
+    private static String resultCategory(TaskState state) {
+        if (state == null) {
+            return "REMOTE_PROTOCOL_ERROR";
+        }
+        return switch (state) {
+            case TASK_STATE_COMPLETED -> "COMPLETED";
+            case TASK_STATE_INPUT_REQUIRED, TASK_STATE_AUTH_REQUIRED -> "INPUT_REQUIRED";
+            case TASK_STATE_REJECTED -> "REMOTE_REJECTED";
+            case TASK_STATE_FAILED -> "REMOTE_BUSINESS_FAILURE";
+            default -> "REMOTE_PROTOCOL_ERROR";
+        };
+    }
+
+    private static boolean isResultBearingNonTerminalState(TaskState state) {
+        return state == null
+            || state == TaskState.UNRECOGNIZED
+            || state == TaskState.TASK_STATE_SUBMITTED
+            || state == TaskState.TASK_STATE_WORKING;
+    }
+
+    private static String shadowState(Batch batch) {
+        boolean hasWaitingMember = batch.members.stream()
+            .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
+        return hasWaitingMember ? "WAITING_INPUT" : "READY_TO_RESUME";
+    }
+
+    private static String extractTaskResult(Task task) {
+        if (task.artifacts() == null || task.artifacts().isEmpty()) {
+            return "";
+        }
+        StringBuilder content = new StringBuilder();
+        for (Artifact artifact : task.artifacts()) {
+            content.append(extractBusinessParts(artifact.parts()));
+        }
+        return content.toString();
+    }
+
+    private static String extractBusinessParts(List<Part<?>> parts) {
+        if (parts == null) {
+            return "";
+        }
+        StringBuilder text = new StringBuilder();
+        for (Part<?> part : parts) {
+            if (part instanceof TextPart textPart
+                    && (textPart.metadata() == null || !textPart.metadata().containsKey("_remote_invocation"))) {
+                text.append(textPart.text());
+            }
+        }
+        return text.toString();
+    }
+
+    private static String extractText(List<Part<?>> parts) {
+        if (parts == null || parts.isEmpty()) {
+            return "";
+        }
+        StringBuilder text = new StringBuilder();
+        for (Part<?> part : parts) {
+            if (part instanceof TextPart textPart) {
+                text.append(textPart.text());
+            }
+        }
+        return text.toString();
+    }
+
     private void finishBatchIfSettled(Batch batch) {
         boolean isSettled;
         synchronized (lock) {
@@ -560,6 +718,35 @@ final class RemoteInvocationBatchCoordinator {
             .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
             .metadata(Map.of(REMOTE_BATCH, snapshot))
             .build(), true);
+        replayEarlyCallbacks(batch);
+    }
+
+    private void replayEarlyCallbacks(Batch batch) {
+        List<Task> callbacks = new ArrayList<>();
+        synchronized (lock) {
+            for (Member member : batch.members) {
+                if (member.remoteTaskId == null || member.remoteTaskId.isBlank()) {
+                    continue;
+                }
+                Task callback = earlyCallbacksByRemoteTaskId.remove(member.remoteTaskId);
+                if (callback != null) {
+                    callbacks.add(callback);
+                }
+            }
+        }
+        if (callbacks.isEmpty()) {
+            return;
+        }
+        Task shadow = taskStore.get(shadowTaskId(batch.parentTaskId));
+        for (Task callback : callbacks) {
+            if (!isBatchShadow(shadow)) {
+                return;
+            }
+            Map<?, ?> rawBatch = (Map<?, ?>) shadow.metadata().get(REMOTE_BATCH);
+            if (recoverShadow(shadow, rawBatch, callback)) {
+                shadow = taskStore.get(shadowTaskId(batch.parentTaskId));
+            }
+        }
     }
 
     void completeResume(ServeRequest request) {
