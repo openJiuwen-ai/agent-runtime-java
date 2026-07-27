@@ -24,16 +24,10 @@ import org.a2aproject.sdk.server.agentexecution.RequestContext;
 import org.a2aproject.sdk.server.events.EventQueue;
 import org.a2aproject.sdk.server.events.EventQueueClosedException;
 import org.a2aproject.sdk.server.events.EventQueueItem;
-import org.a2aproject.sdk.server.tasks.InMemoryPushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
-import org.a2aproject.sdk.server.tasks.PushNotificationSender;
-import org.a2aproject.sdk.spec.ListTaskPushNotificationConfigsParams;
 import org.a2aproject.sdk.spec.Message;
-import org.a2aproject.sdk.spec.MessageSendConfiguration;
-import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
-import org.a2aproject.sdk.spec.TaskPushNotificationConfig;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
@@ -44,7 +38,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Unit tests for {@link A2AAgentExecutor}.
@@ -162,39 +155,20 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void failurePathBindsPushConfigAndSendsFailedTaskNotification() {
+    void failurePathEmitsFailedStatusWithBusinessError() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenThrow(new IllegalStateException("remote boom"));
-        AtomicReference<Task> pushedTask = new AtomicReference<>();
-        PushNotificationSender sender = new PushNotificationSender() {
-            @Override
-            public void sendNotification(StreamingEventKind event, Task task) {
-                pushedTask.set(task);
-            }
-        };
         RequestContext context = requestContext("task-1", "ctx-1", false);
-        when(context.getConfiguration()).thenReturn(MessageSendConfiguration.builder()
-            .taskPushNotificationConfig(TaskPushNotificationConfig.builder()
-                .id("push-1")
-                .url("http://127.0.0.1/callback")
-                .token("token-ref")
-                .build())
-            .build());
-
         A2AProtocolAdapter adapter = requestAdapter(false, Map.of());
-        InMemoryPushNotificationConfigStore store = new InMemoryPushNotificationConfigStore();
-        new A2AAgentExecutor(orchestrator, adapter, sender, store).execute(context,
-            new AgentEmitter(context, new CapturingEventQueue()));
+        CapturingEventQueue queue = new CapturingEventQueue();
 
-        assertThat(store.getInfo(new ListTaskPushNotificationConfigsParams("task-1")).configs())
-            .singleElement()
-            .satisfies(config -> assertThat(config)
-                .returns("push-1", TaskPushNotificationConfig::id)
-                .returns("task-1", TaskPushNotificationConfig::taskId)
-                .returns("http://127.0.0.1/callback", TaskPushNotificationConfig::url)
-                .returns("token-ref", TaskPushNotificationConfig::token));
-        assertThat(pushedTask).hasValueSatisfying(task -> assertThat(task.status().state())
-            .isEqualTo(TaskState.TASK_STATE_FAILED));
+        new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
+
+        assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast)
+                .filteredOn(event -> event.status().state() == TaskState.TASK_STATE_FAILED).singleElement()
+                .satisfies(event -> assertThat(event.status().message().parts()).singleElement().isInstanceOfSatisfying(
+                        TextPart.class, part -> assertThat(part.text()).isEqualTo("remote boom")));
     }
 
     @Test

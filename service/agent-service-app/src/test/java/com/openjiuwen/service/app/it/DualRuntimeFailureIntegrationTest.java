@@ -30,6 +30,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -41,6 +42,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -48,16 +50,15 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Dual-runtime degradation path for A2A callback-mode remote failures.
  */
-@SpringBootTest(classes = DualRuntimeFailureIntegrationTest.CallerRuntimeApplication.class,
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = {
-        "spring.application.name=caller-failure-it",
-        "openjiuwen.service.a2a.push-notifications=true"
-    })
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT, properties = {"spring.application.name=caller-failure-it",
+        "openjiuwen.service.a2a.push-notifications=true"})
+@ContextConfiguration(classes = DualRuntimeFailureIntegrationTest.CallerRuntimeApplication.class)
 @AutoConfigureTestRestTemplate
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class DualRuntimeFailureIntegrationTest {
@@ -81,19 +82,21 @@ class DualRuntimeFailureIntegrationTest {
 
     private ConfigurableApplicationContext callee;
 
+    private FailingCalleeHandler failingCallee;
+
     @BeforeEach
     void startCallee() {
-        callee = new SpringApplicationBuilder(FailingCalleeRuntimeApplication.class)
-            .properties(
-                "server.port=0",
-                "spring.application.name=callee-failure-it",
-                "openjiuwen.service.a2a.push-notifications=true")
-            .run();
+        callee = new SpringApplicationBuilder(FailingCalleeRuntimeApplication.class).properties("server.port=0",
+                "spring.application.name=callee-failure-it", "openjiuwen.service.a2a.push-notifications=true").run();
+        failingCallee = callee.getBean(FailingCalleeHandler.class);
         registry.register("failing-callee", card(calleePort()), 5, false);
     }
 
     @AfterEach
     void stopCallee() {
+        if (failingCallee != null) {
+            failingCallee.releaseFailure();
+        }
         if (callee != null) {
             callee.close();
         }
@@ -103,47 +106,39 @@ class DualRuntimeFailureIntegrationTest {
     @SuppressWarnings("unchecked")
     void callerReceivesRemoteFailureCallbackAndResumesWithStructuredError() throws Exception {
         String callbackUrl = "http://127.0.0.1:" + callerPort + "/a2a/push-notifications/callback";
-        Map<String, Object> firstBody = json(postA2a(rpc("SendMessage", "dual-runtime-failure-start", Map.of(
-            "metadata", Map.of(
-                CALLBACK_URL_METADATA, callbackUrl,
-                CALLBACK_ID_METADATA, "push-dual-runtime-failure"),
-            "message", Map.of(
-                "role", "ROLE_USER",
-                "messageId", "msg-dual-runtime-failure-start",
-                "contextId", "ctx-dual-runtime-failure",
-                "parts", List.of(Map.of("kind", "text", "text", "start failing runtime")))))));
+        Map<String, Object> firstBody = json(postA2a(rpc("SendMessage", "dual-runtime-failure-start",
+                Map.of("metadata",
+                        Map.of(CALLBACK_URL_METADATA, callbackUrl, CALLBACK_ID_METADATA, "push-dual-runtime-failure"),
+                        "message",
+                        Map.of("role", "ROLE_USER", "messageId", "msg-dual-runtime-failure-start", "contextId",
+                                "ctx-dual-runtime-failure", "parts",
+                                List.of(Map.of("kind", "text", "text", "start failing runtime")))))));
         Map<String, Object> waitingTask = taskFrom(firstBody);
         String taskId = String.valueOf(waitingTask.get("id"));
 
         assertThat(((Map<String, Object>) waitingTask.get("status")).get("state"))
-            .isEqualTo("TASK_STATE_INPUT_REQUIRED");
+                .isEqualTo("TASK_STATE_INPUT_REQUIRED");
 
+        failingCallee.releaseFailure();
         Map<String, Object> readyBatch = awaitReadyRemoteBatch(taskId);
         List<Map<String, Object>> members = (List<Map<String, Object>>) readyBatch.get("members");
         assertThat(readyBatch).containsEntry("state", "READY_TO_RESUME");
-        assertThat(members).singleElement().satisfies(member -> assertThat(member)
-            .containsEntry("agentName", "failing-callee")
-            .containsEntry("state", "FAILED")
-            .containsEntry("resultCategory", "REMOTE_BUSINESS_FAILURE"));
-        assertThat(members.get(0).get("result").toString())
-            .contains("REMOTE_BUSINESS_FAILURE")
-            .contains("remoteAgentId=failing-callee");
+        assertThat(members).singleElement()
+                .satisfies(member -> assertThat(member).containsEntry("agentName", "failing-callee")
+                        .containsEntry("state", "FAILED").containsEntry("resultCategory", "REMOTE_BUSINESS_FAILURE"));
+        assertThat(members.get(0).get("result").toString()).contains("REMOTE_BUSINESS_FAILURE")
+                .contains("remoteAgentId=failing-callee");
 
-        Map<String, Object> resumedBody = json(postA2a(rpc("SendMessage", "dual-runtime-failure-resume", Map.of(
-            "message", Map.of(
-                "role", "ROLE_USER",
-                "messageId", "msg-dual-runtime-failure-resume",
-                "taskId", taskId,
-                "contextId", "ctx-dual-runtime-failure",
-                "parts", List.of(Map.of("kind", "text", "text", "continue")))))));
+        Map<String, Object> resumedBody = json(postA2a(rpc("SendMessage", "dual-runtime-failure-resume",
+                Map.of("message",
+                        Map.of("role", "ROLE_USER", "messageId", "msg-dual-runtime-failure-resume", "taskId", taskId,
+                                "contextId", "ctx-dual-runtime-failure", "parts",
+                                List.of(Map.of("kind", "text", "text", "continue")))))));
         Map<String, Object> completedTask = taskFrom(resumedBody);
 
         assertThat(completedTask.get("id")).isEqualTo(taskId);
-        assertThat(((Map<String, Object>) completedTask.get("status")).get("state"))
-            .isEqualTo("TASK_STATE_COMPLETED");
-        assertThat(allArtifactText(completedTask))
-            .contains("caller degraded")
-            .contains("REMOTE_BUSINESS_FAILURE");
+        assertThat(((Map<String, Object>) completedTask.get("status")).get("state")).isEqualTo("TASK_STATE_COMPLETED");
+        assertThat(allArtifactText(completedTask)).contains("caller degraded").contains("REMOTE_BUSINESS_FAILURE");
     }
 
     private Map<String, Object> awaitReadyRemoteBatch(String taskId) throws Exception {
@@ -153,8 +148,7 @@ class DualRuntimeFailureIntegrationTest {
         while (Instant.now().isBefore(deadline)) {
             Task shadow = taskStore.get(shadowTaskId);
             if (shadow != null && shadow.metadata() != null
-                    && shadow.metadata().get("_remote_batch") instanceof Map<?, ?> batch
-                    && isReadyBatch(batch)) {
+                    && shadow.metadata().get("_remote_batch") instanceof Map<?, ?> batch && isReadyBatch(batch)) {
                 Map<String, Object> result = new LinkedHashMap<>();
                 batch.forEach((key, value) -> result.put(String.valueOf(key), value));
                 return result;
@@ -162,8 +156,8 @@ class DualRuntimeFailureIntegrationTest {
             lastObserved = shadow == null ? "<missing>" : String.valueOf(shadow.metadata());
             Thread.sleep(100);
         }
-        throw new AssertionError("remote failure batch was not recovered for " + shadowTaskId
-            + ", lastObserved=" + lastObserved);
+        throw new AssertionError(
+                "remote failure batch was not recovered for " + shadowTaskId + ", lastObserved=" + lastObserved);
     }
 
     private static boolean isReadyBatch(Map<?, ?> batch) {
@@ -171,7 +165,7 @@ class DualRuntimeFailureIntegrationTest {
             return false;
         }
         return members.stream().allMatch(member -> member instanceof Map<?, ?> item
-            && List.of("COMPLETED", "FAILED", "TIMED_OUT").contains(String.valueOf(item.get("state"))));
+                && List.of("COMPLETED", "FAILED", "TIMED_OUT").contains(String.valueOf(item.get("state"))));
     }
 
     private ResponseEntity<String> postA2a(Map<String, Object> body) {
@@ -227,30 +221,18 @@ class DualRuntimeFailureIntegrationTest {
 
     private static AgentCard card(int port) {
         String url = "http://127.0.0.1:" + port + "/a2a";
-        return AgentCard.builder()
-            .name("failing-callee")
-            .description("failing callee")
-            .provider(new AgentProvider("", ""))
-            .version("1.0")
-            .capabilities(new AgentCapabilities(false, true, false, List.of()))
-            .defaultInputModes(List.of("text"))
-            .defaultOutputModes(List.of("text"))
-            .skills(List.of())
-            .securitySchemes(Collections.emptyMap())
-            .securityRequirements(List.of())
-            .supportedInterfaces(List.of(new AgentInterface("JSONRPC", url, null, "1.0")))
-            .url(url)
-            .preferredTransport("JSONRPC")
-            .additionalInterfaces(List.of())
-            .build();
+        return AgentCard.builder().name("failing-callee").description("failing callee")
+                .provider(new AgentProvider("", "")).version("1.0")
+                .capabilities(new AgentCapabilities(false, true, false, List.of())).defaultInputModes(List.of("text"))
+                .defaultOutputModes(List.of("text")).skills(List.of()).securitySchemes(Collections.emptyMap())
+                .securityRequirements(List.of())
+                .supportedInterfaces(List.of(new AgentInterface("JSONRPC", url, null, "1.0"))).url(url)
+                .preferredTransport("JSONRPC").additionalInterfaces(List.of()).build();
     }
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    @ComponentScan(basePackages = {
-        "com.openjiuwen.service.app.controller",
-        "com.openjiuwen.service.app.lifecycle"
-    })
+    @ComponentScan(basePackages = {"com.openjiuwen.service.app.controller", "com.openjiuwen.service.app.lifecycle"})
     static class CallerRuntimeApplication {
         @Bean
         @Primary
@@ -261,10 +243,7 @@ class DualRuntimeFailureIntegrationTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    @ComponentScan(basePackages = {
-        "com.openjiuwen.service.app.controller",
-        "com.openjiuwen.service.app.lifecycle"
-    })
+    @ComponentScan(basePackages = {"com.openjiuwen.service.app.controller", "com.openjiuwen.service.app.lifecycle"})
     static class FailingCalleeRuntimeApplication {
         @Bean
         @Primary
@@ -280,19 +259,12 @@ class DualRuntimeFailureIntegrationTest {
             if (results instanceof Map<?, ?> remoteResults) {
                 return response(request, "caller degraded:" + remoteResults.get("call-failing-callee"));
             }
-            return new QueryResponse(Map.of(
-                "role", "assistant",
-                "_interrupt", Map.of(
-                    "batchId", "dual-runtime-failure-batch",
-                    "items", List.of(Map.of(
-                        "index", 0,
-                        "toolCallId", "call-failing-callee",
-                        "toolName", "failing-callee-tool",
-                        "message", "delegate:" + request.lastUserQuery(),
-                        "context", Map.of(
-                            "_interrupt_kind", "a2a_delegate",
-                            "agentName", "failing-callee"))))),
-                request.getConversationId());
+            return new QueryResponse(
+                    Map.of("role", "assistant", "_interrupt", Map.of("batchId", "dual-runtime-failure-batch", "items",
+                            List.of(Map.of("index", 0, "toolCallId", "call-failing-callee", "toolName",
+                                    "failing-callee-tool", "message", "delegate:" + request.lastUserQuery(), "context",
+                                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "failing-callee"))))),
+                    request.getConversationId());
         }
 
         @Override
@@ -303,14 +275,32 @@ class DualRuntimeFailureIntegrationTest {
     }
 
     private static final class FailingCalleeHandler implements AgentHandler {
+        private final CountDownLatch failureRelease = new CountDownLatch(1);
+
         @Override
         public QueryResponse query(ServeRequest request) {
+            awaitFailureRelease();
             throw new IllegalStateException("callee business failure");
         }
 
         @Override
         public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
             observer.onError(new IllegalStateException("callee business failure"));
+        }
+
+        private void releaseFailure() {
+            failureRelease.countDown();
+        }
+
+        private void awaitFailureRelease() {
+            try {
+                if (!failureRelease.await(15, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("callee failure release timed out");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("callee failure release interrupted", e);
+            }
         }
     }
 

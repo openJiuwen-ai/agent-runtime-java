@@ -20,6 +20,8 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -64,9 +66,8 @@ class PushNotificationSenderTest {
         HttpPushNotificationSender sender = new HttpPushNotificationSender(store);
         Task task = completedTask("task-1");
         TaskStatusUpdateEvent event = completedEvent("task-1");
-        String expectedNotificationId = sender.notificationIdFor(task,
-                store.getInfo(new org.a2aproject.sdk.spec.ListTaskPushNotificationConfigsParams("task-1")).configs()
-                        .get(0), event);
+        String expectedNotificationId = sender.notificationIdFor(task, store
+                .getInfo(new org.a2aproject.sdk.spec.ListTaskPushNotificationConfigsParams("task-1")).configs().get(0));
 
         sender.sendNotification(event, task);
 
@@ -83,6 +84,44 @@ class PushNotificationSenderTest {
         });
     }
 
+    @ParameterizedTest
+    @EnumSource(value = TaskState.class, mode = EnumSource.Mode.EXCLUDE, names = {"TASK_STATE_COMPLETED",
+            "TASK_STATE_FAILED"})
+    void doesNotPostForNonCallbackStates(TaskState state) throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/a2a/push-notifications/callback", exchange -> {
+            requests.incrementAndGet();
+            respond(exchange, 200, "{}");
+        });
+        server.start();
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(configStore(callbackUrl(), null));
+
+        sender.sendNotification(statusEvent("task-1", state), task("task-1", state));
+
+        assertThat(requests.get()).isZero();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TaskState.class, names = {"TASK_STATE_COMPLETED", "TASK_STATE_FAILED"})
+    void postsOnlyOnceForCallbackState(TaskState state) throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/a2a/push-notifications/callback", exchange -> {
+            requests.incrementAndGet();
+            respond(exchange, 200, "{}");
+        });
+        server.start();
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(configStore(callbackUrl(), null));
+        Task terminalTask = task("task-1", state);
+        TaskStatusUpdateEvent terminalEvent = statusEvent("task-1", state);
+
+        sender.sendNotification(terminalEvent, terminalTask);
+        sender.sendNotification(terminalEvent, terminalTask);
+
+        assertThat(requests.get()).isEqualTo(1);
+    }
+
     @Test
     void senderCallbackBodyIsAcceptedByReceiver() {
         A2AProperties properties = new A2AProperties();
@@ -90,14 +129,13 @@ class PushNotificationSenderTest {
         A2aPushNotificationCallbackHandler handler = callback -> true;
         properties.setPushNotifications(true);
         A2aPushNotificationCallbackController receiver = new A2aPushNotificationCallbackController(
-                new InMemoryA2aPushNotificationCallbackStore(), handler,
-                new A2aPushNotificationCapabilityGate(properties, sender,
-                        new InMemoryA2aPushNotificationCallbackStore(), handler));
+                new InMemoryA2aPushNotificationCallbackStore(), handler, new A2aPushNotificationCapabilityGate(
+                        properties, sender, new InMemoryA2aPushNotificationCallbackStore(), handler));
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/a2a/push-notifications/callback");
         request.addHeader("X-A2A-Notification-Id", "notif-sender-receiver");
 
-        ResponseEntity<String> response = receiver.handleCallback(sender.callbackBody("notif-sender-receiver",
-                completedTask("task-1")), request);
+        ResponseEntity<String> response = receiver
+                .handleCallback(sender.callbackBody("notif-sender-receiver", completedTask("task-1")), request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
@@ -119,9 +157,8 @@ class PushNotificationSenderTest {
         sender.sendNotification(event, task);
 
         assertThat(requests.get()).isZero();
-        String notificationId = sender.notificationIdFor(task,
-                store.getInfo(new org.a2aproject.sdk.spec.ListTaskPushNotificationConfigsParams("task-1")).configs()
-                        .get(0), event);
+        String notificationId = sender.notificationIdFor(task, store
+                .getInfo(new org.a2aproject.sdk.spec.ListTaskPushNotificationConfigsParams("task-1")).configs().get(0));
         assertThat(sender.deliveryRecord(notificationId)).hasValueSatisfying(record -> {
             assertThat(record.attempts()).isEqualTo(1);
             assertThat(record.isSuccess()).isFalse();
@@ -177,13 +214,19 @@ class PushNotificationSenderTest {
     }
 
     private static Task completedTask(String taskId) {
-        return Task.builder().id(taskId).contextId("ctx-1")
-                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+        return task(taskId, TaskState.TASK_STATE_COMPLETED);
     }
 
     private static TaskStatusUpdateEvent completedEvent(String taskId) {
-        return TaskStatusUpdateEvent.builder().taskId(taskId).contextId("ctx-1")
-                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+        return statusEvent(taskId, TaskState.TASK_STATE_COMPLETED);
+    }
+
+    private static Task task(String taskId, TaskState state) {
+        return Task.builder().id(taskId).contextId("ctx-1").status(new TaskStatus(state)).build();
+    }
+
+    private static TaskStatusUpdateEvent statusEvent(String taskId, TaskState state) {
+        return TaskStatusUpdateEvent.builder().taskId(taskId).contextId("ctx-1").status(new TaskStatus(state)).build();
     }
 
     private static void respond(HttpExchange exchange, int status, String body) throws IOException {

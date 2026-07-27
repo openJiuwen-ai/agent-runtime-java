@@ -13,6 +13,7 @@ import org.a2aproject.sdk.spec.ListTaskPushNotificationConfigsParams;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskPushNotificationConfig;
+import org.a2aproject.sdk.spec.TaskState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +47,8 @@ public class HttpPushNotificationSender implements PushNotificationSender {
 
     private final ConcurrentMap<String, DeliveryRecord> deliveryRecords = new ConcurrentHashMap<>();
 
+    private final ConcurrentMap<String, Object> deliveryLocks = new ConcurrentHashMap<>();
+
     public HttpPushNotificationSender(PushNotificationConfigStore configStore) {
         this(configStore, HttpClient.newHttpClient());
     }
@@ -57,7 +60,7 @@ public class HttpPushNotificationSender implements PushNotificationSender {
 
     @Override
     public void sendNotification(StreamingEventKind event, Task task) {
-        if (task == null || task.id() == null) {
+        if (!isCallbackState(task)) {
             return;
         }
         Optional<TaskPushNotificationConfig> config = firstConfig(task.id());
@@ -65,23 +68,43 @@ public class HttpPushNotificationSender implements PushNotificationSender {
             return;
         }
         Optional<URI> callbackUri = A2aPushNotificationCallbackUrlPolicy.callbackUri(config.get().url());
-        String notificationId = notificationId(task.id(), config.get().id(), event == null ? null : event.kind());
+        String notificationId = notificationId(task.id(), config.get().id());
+        Object deliveryLock = deliveryLocks.computeIfAbsent(notificationId, key -> new Object());
+        synchronized (deliveryLock) {
+            DeliveryRecord record = deliveryRecords.get(notificationId);
+            if (record != null && record.isSuccess()) {
+                return;
+            }
+            deliver(task, config.get(), callbackUri, notificationId);
+        }
+    }
+
+    private boolean isCallbackState(Task task) {
+        if (task == null || task.id() == null || task.status() == null) {
+            return false;
+        }
+        TaskState state = task.status().state();
+        return state == TaskState.TASK_STATE_COMPLETED || state == TaskState.TASK_STATE_FAILED;
+    }
+
+    private void deliver(Task task, TaskPushNotificationConfig config, Optional<URI> callbackUri,
+            String notificationId) {
         if (callbackUri.isEmpty()) {
-            record(notificationId, task.id(), config.get().id(), false, "invalid callback URL");
-            log.warn("Rejected A2A push notification for invalid callback URL {}", config.get().url());
+            record(notificationId, task.id(), config.id(), false, "invalid callback URL");
+            log.warn("Rejected A2A push notification for invalid callback URL {}", config.url());
             return;
         }
-        HttpRequest request = request(callbackUri.get(), notificationId, config.get(), callbackBody(notificationId,
-                task));
+        HttpRequest request = request(callbackUri.get(), notificationId, config, callbackBody(notificationId, task));
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             boolean isSuccess = response.statusCode() >= 200 && response.statusCode() < 300;
-            record(notificationId, task.id(), config.get().id(), isSuccess, "HTTP " + response.statusCode());
+            record(notificationId, task.id(), config.id(), isSuccess, "HTTP " + response.statusCode());
         } catch (IOException e) {
-            record(notificationId, task.id(), config.get().id(), false, e.getClass().getSimpleName());
+            record(notificationId, task.id(), config.id(), false, e.getClass().getSimpleName());
             log.warn("A2A push notification delivery failed for task {}", task.id(), e);
         } catch (InterruptedException e) {
-            record(notificationId, task.id(), config.get().id(), false, "interrupted");
+            record(notificationId, task.id(), config.id(), false, "interrupted");
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -89,8 +112,8 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         return Optional.ofNullable(deliveryRecords.get(notificationId));
     }
 
-    String notificationIdFor(Task task, TaskPushNotificationConfig config, StreamingEventKind event) {
-        return notificationId(task.id(), config.id(), event == null ? null : event.kind());
+    String notificationIdFor(Task task, TaskPushNotificationConfig config) {
+        return notificationId(task.id(), config.id());
     }
 
     private Optional<TaskPushNotificationConfig> firstConfig(String taskId) {
@@ -103,8 +126,7 @@ public class HttpPushNotificationSender implements PushNotificationSender {
             String body) {
         HttpRequest.BodyPublisher publisher = HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8);
         HttpRequest.Builder builder = HttpRequest.newBuilder(callbackUri).POST(publisher)
-                .header("Content-Type", "application/json")
-                .header("X-A2A-Notification-Id", notificationId);
+                .header("Content-Type", "application/json").header("X-A2A-Notification-Id", notificationId);
         authorizationHeader(config).ifPresent(value -> builder.header("Authorization", value));
         return builder.build();
     }
@@ -131,12 +153,11 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         }
     }
 
-    private String notificationId(String taskId, String configId, String eventKind) {
+    private String notificationId(String taskId, String configId) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             String configPart = configId == null ? "" : configId;
-            String eventPart = eventKind == null ? "" : eventKind;
-            String source = taskId + ":" + configPart + ":" + eventPart;
+            String source = taskId + ":" + configPart;
             return HexFormat.of().formatHex(digest.digest(source.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is not available", e);

@@ -222,15 +222,12 @@ public class A2AAutoConfiguration {
      *
      * @param orchestrator the serve orchestrator
      * @param adapter the A2A protocol adapter
-     * @param pushNotificationSender the push notification sender
-     * @param pushConfigStore the push notification config store
      * @return the A2A agent executor
      */
     @Bean
     @ConditionalOnMissingBean
-    public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
-            PushNotificationSender pushNotificationSender, PushNotificationConfigStore pushConfigStore) {
-        return new A2AAgentExecutor(orchestrator, adapter, pushNotificationSender, pushConfigStore);
+    public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter) {
+        return new A2AAgentExecutor(orchestrator, adapter);
     }
 
     /**
@@ -292,7 +289,7 @@ public class A2AAutoConfiguration {
             @Value("${spring.application.name:agent}") String agentId, A2AProperties props) {
         A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId,
-            limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds());
+                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds());
     }
 
     /**
