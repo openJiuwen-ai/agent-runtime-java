@@ -4,6 +4,8 @@ param(
     [string]$BaseUrlB = "http://localhost:18091",
     [string]$BaseUrlC = "http://localhost:18092",
     [string]$BaseUrlD = "http://localhost:18093",
+    [ValidateRange(1, 2147483647)]
+    [int]$A2aRequestTimeoutSec = 300,
     [string]$ConvId = ""
 )
 
@@ -450,7 +452,7 @@ try {
     $calcBody1 = New-A2aRequestBody "SendMessage" "calc-1" $calcContext "" `
         "Please calculate 1+1 through Agent B."
     $calcResponse1 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/a2a/" -Method POST `
-        -Body $calcBody1 -TimeoutSec 300
+        -Body $calcBody1 -TimeoutSec $A2aRequestTimeoutSec
     Save-JsonResponse $calcResponse1 "calc-response-1.json"
     $calcTask1 = Read-SyncTask $calcResponse1 "TASK_STATE_INPUT_REQUIRED" "reply yes or no"
     Write-Pass "A->B calculator reached confirmation (taskId=$($calcTask1.TaskId))"
@@ -458,7 +460,7 @@ try {
     Write-Step "2b" "Round 2: resume the same A->B calculator task"
     $calcBody2 = New-A2aRequestBody "SendMessage" "calc-2" $calcContext $calcTask1.TaskId "ok"
     $calcResponse2 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/a2a/" -Method POST `
-        -Body $calcBody2 -TimeoutSec 300
+        -Body $calcBody2 -TimeoutSec $A2aRequestTimeoutSec
     Save-JsonResponse $calcResponse2 "calc-response-2.json"
     $calcTask2 = Read-SyncTask $calcResponse2 "TASK_STATE_COMPLETED"
     Assert-CalculationResult $calcResponse2 "2"
@@ -473,7 +475,8 @@ try {
     Write-Step "3a" "Round 1: trigger Agent C through the streaming route"
     $cStreamBody1 = New-A2aRequestBody "SendStreamingMessage" "c-stream-1" `
         $cStreamContext "" $cStreamMessage
-    $cStreamResponse1 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" -Body $cStreamBody1
+    $cStreamResponse1 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" -Body $cStreamBody1 `
+        -TimeoutSec $A2aRequestTimeoutSec
     $cStreamResponse1 | Set-Content -LiteralPath (Join-Path $tmp "c-stream-response-1.txt") -Encoding utf8
     $cStreamTask1 = Read-SseTask $cStreamResponse1 "TASK_STATE_INPUT_REQUIRED" "agent c" "confirm"
     Write-Pass "Agent C streaming route reached confirmation (taskId=$($cStreamTask1.TaskId))"
@@ -481,7 +484,8 @@ try {
     Write-Step "3b" "Round 2: resume the same Agent C streaming task"
     $cStreamBody2 = New-A2aRequestBody "SendStreamingMessage" "c-stream-2" `
         $cStreamContext $cStreamTask1.TaskId "approved"
-    $cStreamResponse2 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" -Body $cStreamBody2
+    $cStreamResponse2 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" -Body $cStreamBody2 `
+        -TimeoutSec $A2aRequestTimeoutSec
     $cStreamResponse2 | Set-Content -LiteralPath (Join-Path $tmp "c-stream-response-2.txt") -Encoding utf8
     $cStreamTask2 = Read-SseTask $cStreamResponse2 "TASK_STATE_COMPLETED" "agent c" "kung pao chicken"
     if ($cStreamTask2.TaskId -ne $cStreamTask1.TaskId) {
@@ -496,7 +500,7 @@ try {
     $cNonstreamBody1 = New-A2aRequestBody "SendMessage" "c-nonstream-1" `
         $cNonstreamContext "" $cNonstreamMessage
     $cNonstreamResponse1 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/a2a/" -Method POST `
-        -Body $cNonstreamBody1 -TimeoutSec 300
+        -Body $cNonstreamBody1 -TimeoutSec $A2aRequestTimeoutSec
     Save-JsonResponse $cNonstreamResponse1 "c-nonstream-response-1.json"
     $cNonstreamTask1 = Read-SyncTask $cNonstreamResponse1 "TASK_STATE_INPUT_REQUIRED" "agent c" "confirm"
     Write-Pass "Agent C non-streaming route reached confirmation (taskId=$($cNonstreamTask1.TaskId))"
@@ -505,7 +509,7 @@ try {
     $cNonstreamBody2 = New-A2aRequestBody "SendMessage" "c-nonstream-2" `
         $cNonstreamContext $cNonstreamTask1.TaskId "approved"
     $cNonstreamResponse2 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/a2a/" -Method POST `
-        -Body $cNonstreamBody2 -TimeoutSec 300
+        -Body $cNonstreamBody2 -TimeoutSec $A2aRequestTimeoutSec
     Save-JsonResponse $cNonstreamResponse2 "c-nonstream-response-2.json"
     $cNonstreamTask2 = Read-SyncTask $cNonstreamResponse2 "TASK_STATE_COMPLETED" `
         "agent c" "kung pao chicken"
@@ -521,7 +525,8 @@ try {
     Write-Step "5a" "Round 1: trigger Agent D through the streaming route"
     $dStreamBody1 = New-A2aRequestBody "SendStreamingMessage" "d-stream-1" `
         $dStreamContext "" $dStreamMessage
-    $dStreamResponse1 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" -Body $dStreamBody1
+    $dStreamResponse1 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" -Body $dStreamBody1 `
+        -TimeoutSec $A2aRequestTimeoutSec
     $dStreamResponse1 | Set-Content -LiteralPath (Join-Path $tmp "d-stream-response-1.txt") -Encoding utf8
     $dStreamTask1 = Read-SseTask $dStreamResponse1 "TASK_STATE_INPUT_REQUIRED" `
         "manual approval" $dStreamClaim
@@ -530,7 +535,8 @@ try {
     Write-Step "5b" "Round 2: approve and resume the same Agent D streaming task"
     $dStreamBody2 = New-A2aRequestBody "SendStreamingMessage" "d-stream-2" `
         $dStreamContext $dStreamTask1.TaskId "approved"
-    $dStreamResponse2 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" -Body $dStreamBody2
+    $dStreamResponse2 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" -Body $dStreamBody2 `
+        -TimeoutSec $A2aRequestTimeoutSec
     $dStreamResponse2 | Set-Content -LiteralPath (Join-Path $tmp "d-stream-response-2.txt") -Encoding utf8
     $dStreamTask2 = Read-SseTask $dStreamResponse2 "TASK_STATE_COMPLETED" `
         "agent d expense review completed" $dStreamClaim "llm_report="
@@ -556,7 +562,7 @@ try {
     $dNonstreamBody1 = New-A2aRequestBody "SendMessage" "d-nonstream-1" `
         $dNonstreamContext "" $dNonstreamMessage
     $dNonstreamResponse1 = Invoke-Utf8JsonRequest -Uri "$BaseUrlA/a2a/" -Method POST `
-        -Body $dNonstreamBody1 -TimeoutSec 300
+        -Body $dNonstreamBody1 -TimeoutSec $A2aRequestTimeoutSec
     Save-JsonResponse $dNonstreamResponse1 "d-nonstream-response-1.json"
     $dNonstreamTask1 = Read-SyncTask $dNonstreamResponse1 "TASK_STATE_INPUT_REQUIRED" `
         "manual approval" $dNonstreamClaim
@@ -566,7 +572,7 @@ try {
     $dNonstreamBody2 = New-A2aRequestBody "SendMessage" "d-nonstream-2" `
         $dNonstreamContext $dNonstreamTask1.TaskId "approved"
     $dNonstreamRawResponse2 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" `
-        -Body $dNonstreamBody2 -Accept "application/json" -TimeoutSec 300
+        -Body $dNonstreamBody2 -Accept "application/json" -TimeoutSec $A2aRequestTimeoutSec
     $dNonstreamResponse2 = $dNonstreamRawResponse2 | ConvertFrom-Json
     Save-JsonResponse $dNonstreamResponse2 "d-nonstream-response-2.json"
     $dNonstreamTask2 = Read-SyncTask $dNonstreamResponse2 "TASK_STATE_COMPLETED" `

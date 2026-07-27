@@ -5,6 +5,7 @@ BASE_URL_A="${BASE_URL_A:-http://localhost:18090}"
 BASE_URL_B="${BASE_URL_B:-http://localhost:18091}"
 BASE_URL_C="${BASE_URL_C:-http://localhost:18092}"
 BASE_URL_D="${BASE_URL_D:-http://localhost:18093}"
+A2A_REQUEST_TIMEOUT_SECONDS="${A2A_REQUEST_TIMEOUT_SECONDS:-300}"
 CONV_ID="${CONV_ID:-a2a-demo-$(date +%Y%m%d%H%M%S)-$$}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SERVICE_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd -P)"
@@ -51,6 +52,10 @@ fail() {
   printf 'Logs and responses are in %s\n' "$TMP_DIR" >&2
   exit 1
 }
+
+if ! [[ "$A2A_REQUEST_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+  fail "A2A_REQUEST_TIMEOUT_SECONDS must be a positive integer"
+fi
 
 resolve_api_config() {
   local configured="$1"
@@ -351,7 +356,8 @@ calc_request1="$TMP_DIR/calc-request-1.json"
 calc_response1="$TMP_DIR/calc-response-1.json"
 write_a2a_request "SendMessage" "calc-1" "$CALC_CONTEXT" "" \
   "Please calculate 1+1 through Agent B." "$calc_request1"
-curl -sS -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
+curl -sS --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
+  -H 'Content-Type: application/json' \
   --data-binary "@$calc_request1" >"$calc_response1"
 calc_task_id="$(assert_sync_task "$calc_response1" "TASK_STATE_INPUT_REQUIRED" "reply yes or no")"
 pass "A->B calculator reached confirmation (taskId=$calc_task_id)"
@@ -360,7 +366,8 @@ print_step "2b" "Round 2: resume the same A->B calculator task"
 calc_request2="$TMP_DIR/calc-request-2.json"
 calc_response2="$TMP_DIR/calc-response-2.json"
 write_a2a_request "SendMessage" "calc-2" "$CALC_CONTEXT" "$calc_task_id" "ok" "$calc_request2"
-curl -sS -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
+curl -sS --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
+  -H 'Content-Type: application/json' \
   --data-binary "@$calc_request2" >"$calc_response2"
 calc_resumed_task_id="$(assert_sync_task "$calc_response2" "TASK_STATE_COMPLETED")"
 assert_calculation_result "$calc_response2" "2"
@@ -377,7 +384,8 @@ c_stream_request1="$TMP_DIR/c-stream-request-1.json"
 c_stream_response1="$TMP_DIR/c-stream-response-1.txt"
 write_a2a_request "SendStreamingMessage" "c-stream-1" "$C_STREAM_CONTEXT" "" \
   "$C_STREAM_MESSAGE" "$c_stream_request1"
-curl -sS -N -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
+curl -sS -N --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
+  -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' --data-binary "@$c_stream_request1" >"$c_stream_response1"
 c_stream_task_id="$(assert_sse_task "$c_stream_response1" "TASK_STATE_INPUT_REQUIRED" "agent c" "confirm")"
 pass "Agent C streaming route reached confirmation (taskId=$c_stream_task_id)"
@@ -387,7 +395,8 @@ c_stream_request2="$TMP_DIR/c-stream-request-2.json"
 c_stream_response2="$TMP_DIR/c-stream-response-2.txt"
 write_a2a_request "SendStreamingMessage" "c-stream-2" "$C_STREAM_CONTEXT" "$c_stream_task_id" \
   "approved" "$c_stream_request2"
-curl -sS -N -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
+curl -sS -N --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
+  -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' --data-binary "@$c_stream_request2" >"$c_stream_response2"
 c_stream_resumed_task_id="$(assert_sse_task "$c_stream_response2" "TASK_STATE_COMPLETED" \
   "agent c" "kung pao chicken")"
@@ -404,7 +413,8 @@ c_nonstream_request1="$TMP_DIR/c-nonstream-request-1.json"
 c_nonstream_response1="$TMP_DIR/c-nonstream-response-1.json"
 write_a2a_request "SendMessage" "c-nonstream-1" "$C_NONSTREAM_CONTEXT" "" \
   "$C_NONSTREAM_MESSAGE" "$c_nonstream_request1"
-curl -sS -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
+curl -sS --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
+  -H 'Content-Type: application/json' \
   --data-binary "@$c_nonstream_request1" >"$c_nonstream_response1"
 c_nonstream_task_id="$(assert_sync_task "$c_nonstream_response1" "TASK_STATE_INPUT_REQUIRED" "agent c" "confirm")"
 pass "Agent C non-streaming route reached confirmation (taskId=$c_nonstream_task_id)"
@@ -414,7 +424,8 @@ c_nonstream_request2="$TMP_DIR/c-nonstream-request-2.json"
 c_nonstream_response2="$TMP_DIR/c-nonstream-response-2.json"
 write_a2a_request "SendMessage" "c-nonstream-2" "$C_NONSTREAM_CONTEXT" "$c_nonstream_task_id" \
   "approved" "$c_nonstream_request2"
-curl -sS -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
+curl -sS --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
+  -H 'Content-Type: application/json' \
   --data-binary "@$c_nonstream_request2" >"$c_nonstream_response2"
 c_nonstream_resumed_task_id="$(assert_sync_task "$c_nonstream_response2" "TASK_STATE_COMPLETED" \
   "agent c" "kung pao chicken")"
@@ -432,7 +443,8 @@ d_stream_request1="$TMP_DIR/d-stream-request-1.json"
 d_stream_response1="$TMP_DIR/d-stream-response-1.txt"
 write_a2a_request "SendStreamingMessage" "d-stream-1" "$D_STREAM_CONTEXT" "" \
   "$D_STREAM_MESSAGE" "$d_stream_request1"
-curl -sS -N -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
+curl -sS -N --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
+  -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' --data-binary "@$d_stream_request1" >"$d_stream_response1"
 d_stream_task_id="$(assert_sse_task "$d_stream_response1" "TASK_STATE_INPUT_REQUIRED" \
   "manual approval" "$D_STREAM_CLAIM")"
@@ -443,7 +455,8 @@ d_stream_request2="$TMP_DIR/d-stream-request-2.json"
 d_stream_response2="$TMP_DIR/d-stream-response-2.txt"
 write_a2a_request "SendStreamingMessage" "d-stream-2" "$D_STREAM_CONTEXT" "$d_stream_task_id" \
   "approved" "$d_stream_request2"
-curl -sS -N -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
+curl -sS -N --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
+  -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' --data-binary "@$d_stream_request2" >"$d_stream_response2"
 d_stream_resumed_task_id="$(assert_sse_task "$d_stream_response2" "TASK_STATE_COMPLETED" \
   "agent d expense review completed" "$D_STREAM_CLAIM" "llm_report=")"
@@ -462,7 +475,8 @@ d_nonstream_request1="$TMP_DIR/d-nonstream-request-1.json"
 d_nonstream_response1="$TMP_DIR/d-nonstream-response-1.json"
 write_a2a_request "SendMessage" "d-nonstream-1" "$D_NONSTREAM_CONTEXT" "" \
   "$D_NONSTREAM_MESSAGE" "$d_nonstream_request1"
-curl -sS -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
+curl -sS --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
+  -H 'Content-Type: application/json' \
   --data-binary "@$d_nonstream_request1" >"$d_nonstream_response1"
 d_nonstream_task_id="$(assert_sync_task "$d_nonstream_response1" "TASK_STATE_INPUT_REQUIRED" \
   "manual approval" "$D_NONSTREAM_CLAIM")"
@@ -473,7 +487,8 @@ d_nonstream_request2="$TMP_DIR/d-nonstream-request-2.json"
 d_nonstream_response2="$TMP_DIR/d-nonstream-response-2.json"
 write_a2a_request "SendMessage" "d-nonstream-2" "$D_NONSTREAM_CONTEXT" "$d_nonstream_task_id" \
   "approved" "$d_nonstream_request2"
-curl -sS -X POST "$BASE_URL_A/a2a/" -H 'Content-Type: application/json' \
+curl -sS --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
+  -H 'Content-Type: application/json' \
   --data-binary "@$d_nonstream_request2" >"$d_nonstream_response2"
 d_nonstream_resumed_task_id="$(assert_sync_task "$d_nonstream_response2" "TASK_STATE_COMPLETED" \
   "agent d expense review completed" "$D_NONSTREAM_CLAIM" "llm_report=")"
