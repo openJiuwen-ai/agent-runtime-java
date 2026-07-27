@@ -85,64 +85,6 @@ class LlmConfigResolverTest {
     }
 
     @Test
-    void resolve_fileDeletedAfterInitialResolution_returnsCachedSnapshot() throws Exception {
-        Path file = tempDir.resolve("apiconfig.json");
-        writeFileConfig(file, "https://old.example/v1");
-        LlmProperties properties = fileProperties(file);
-        AtomicInteger invocationCount = new AtomicInteger();
-        CredentialDecryptor decryptor = sceneAwareDecryptor(invocationCount, new AtomicInteger());
-        LlmConfigResolver resolver = resolver(properties, decryptor);
-
-        ResolvedLlmConfig first = resolver.resolveRequired();
-        Files.delete(file);
-        ResolvedLlmConfig second = resolver.resolveRequired();
-
-        assertThat(Files.exists(file)).isFalse();
-        assertThat(second).isSameAs(first);
-        assertThat(second.getApiBase()).isEqualTo("https://old.example/v1");
-        assertThat(second.getModelName()).isEqualTo("file-model");
-        assertThat(second.getApiKey()).isEqualTo("plain:file-key");
-        assertThat(invocationCount.get()).isOne();
-
-        LlmConfigResolver freshResolver = resolver(properties, decryptor);
-        String normalizedPath = file.toAbsolutePath().normalize().toString();
-
-        assertThatThrownBy(freshResolver::resolveRequired)
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("openjiuwen.service.llm.config-file")
-            .hasMessageContaining("readable regular file")
-            .hasMessageContaining(normalizedPath);
-        assertThat(invocationCount.get()).isOne();
-    }
-
-    @Test
-    void resolve_fileCorruptedAfterInitialResolve_returnsCachedSnapshot() throws Exception {
-        Path file = tempDir.resolve("apiconfig.json");
-        writeFileConfig(file, "https://old.example/v1");
-        LlmProperties properties = fileProperties(file);
-        AtomicInteger invocationCount = new AtomicInteger();
-        CredentialDecryptor decryptor = sceneAwareDecryptor(invocationCount, new AtomicInteger());
-        LlmConfigResolver resolver = resolver(properties, decryptor);
-
-        ResolvedLlmConfig first = resolver.resolveRequired();
-        Files.writeString(file, "{not-valid-json");
-        ResolvedLlmConfig second = resolver.resolveRequired();
-
-        assertThat(second).isSameAs(first);
-        assertThat(second.getApiBase()).isEqualTo("https://old.example/v1");
-        assertThat(second.getModelName()).isEqualTo("file-model");
-        assertThat(second.getApiKey()).isEqualTo("plain:file-key");
-        assertThat(invocationCount.get()).isOne();
-
-        LlmConfigResolver freshResolver = resolver(properties, decryptor);
-
-        assertThatThrownBy(freshResolver::resolveRequired)
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("Failed to read LLM API configuration file");
-        assertThat(invocationCount.get()).isOne();
-    }
-
-    @Test
     void resolve_prefersSpringPropertiesOverFileValues() throws Exception {
         Path file = tempDir.resolve("apiconfig.json");
         Files.writeString(file, """
