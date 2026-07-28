@@ -40,8 +40,9 @@ class SslContextFactoryTest {
 
     @Test
     void missingKeystoreLocationFailsFast() {
-        TlsMaterial material = TlsMaterialLoader.load("classpath:missing-store.p12", OutboundTlsTestCertificates.PASSWORD,
-            "PKCS12", null, null, null, List.of("TLSv1.3"), true, passthroughDecryptor());
+        TlsMaterial material = TlsMaterialLoader.load("classpath:missing-store.p12",
+            OutboundTlsTestCertificates.PASSWORD, "PKCS12", null, null, null, List.of("TLSv1.3"), true,
+            passthroughDecryptor());
 
         assertThatThrownBy(() -> SslContextFactory.toSslContext(material, new DefaultResourceLoader()))
             .isInstanceOf(IllegalStateException.class)

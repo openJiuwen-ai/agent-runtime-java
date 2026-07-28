@@ -14,6 +14,8 @@ import org.springframework.beans.factory.ObjectProvider;
 /**
  * Ensures agent readiness in integration tests where the first init phase may
  * complete before {@link AgentHandler} beans are visible under security auto-configuration.
+ *
+ * @since 0.1.0
  */
 public final class AgentReadinessTestSupport {
     private AgentReadinessTestSupport() {

@@ -10,6 +10,8 @@ import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.spec.security.AuthMaterial;
 import com.openjiuwen.service.spec.security.TlsMaterial;
 
+import okhttp3.OkHttpClient;
+
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -18,8 +20,6 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-
-import okhttp3.OkHttpClient;
 
 /**
  * Unit tests for {@link ExternalHttpClientFactory}.

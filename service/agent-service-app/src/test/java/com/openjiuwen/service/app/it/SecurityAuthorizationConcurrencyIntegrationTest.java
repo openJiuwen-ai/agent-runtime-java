@@ -10,7 +10,6 @@ import com.openjiuwen.service.app.it.support.IngressAuthorizationTestSupport;
 import com.openjiuwen.service.app.it.support.AgentReadinessTestSupport;
 import com.openjiuwen.service.app.it.support.IngressAuthorizationTestSupport.RecordingFineGrainedAuthorizer;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
-import com.openjiuwen.service.spec.security.AuthorizationRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.BeforeEach;

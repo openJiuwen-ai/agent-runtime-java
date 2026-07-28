@@ -6,7 +6,6 @@ package com.openjiuwen.service.app.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.openjiuwen.service.app.it.support.IngressAuthorizationTestSupport;
 import com.openjiuwen.service.app.it.support.IngressAuthorizationTestSupport.RecordingFineGrainedAuthorizer;
 import com.openjiuwen.service.spec.security.AuthorizationRequest;
 import com.openjiuwen.service.spec.security.AuthorizationResult;
