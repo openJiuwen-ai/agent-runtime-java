@@ -63,6 +63,30 @@ class ApiConfigLoaderTest {
     }
 
     @Test
+    void load_fileAtSixthParentLevel_discoversFile() throws Exception {
+        Path configDirectory = tempDir.resolve("root");
+        Path workingDirectory = Files.createDirectories(configDirectory.resolve("1/2/3/4/5/6"));
+        writeConfig(configDirectory.resolve(ApiConfigLoader.DEFAULT_FILE_NAME), "SixthLevelProvider", "true");
+        ApiConfigLoader loader = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(),
+            () -> workingDirectory);
+
+        ApiConfigLoader.ApiConfigValues values = loader.load(null, true).orElseThrow();
+
+        assertThat(values.provider()).hasValue("SixthLevelProvider");
+    }
+
+    @Test
+    void load_fileAtSeventhParentLevel_doesNotDiscoverFile() throws Exception {
+        Path configDirectory = tempDir.resolve("root");
+        Path workingDirectory = Files.createDirectories(configDirectory.resolve("1/2/3/4/5/6/7"));
+        writeConfig(configDirectory.resolve(ApiConfigLoader.DEFAULT_FILE_NAME), "SeventhLevelProvider", "true");
+        ApiConfigLoader loader = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(),
+            () -> workingDirectory);
+
+        assertThat(loader.load(null, true)).isEmpty();
+    }
+
+    @Test
     void load_usesEnvironmentPathBeforeAutoDiscovery() throws Exception {
         Path environmentFile = writeConfig(tempDir.resolve("environment.json"), "EnvironmentProvider", "true");
         Path workingDirectory = Files.createDirectories(tempDir.resolve("work"));
