@@ -26,7 +26,6 @@ Agent Service middleware 配置绑定对象。
 | `memory.provider` | 长期记忆服务类型，当前支持 `mem0`。 |
 | `memory.endpoint` | 长期记忆服务地址。 |
 | `memory.encrypted-api-key` | 加密 API Key，使用 `MEMORY_API_KEY` 场景交给 `CredentialDecryptor` 处理。 |
-| `memory.user-id` | 未提供请求级用户时使用的默认用户标识。 |
 | `memory.request-scoped-session` | 是否使用携带请求用户信息的 Agent session。 |
 
 ## 使用者
