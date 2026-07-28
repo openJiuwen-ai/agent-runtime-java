@@ -149,6 +149,38 @@ class Mem0MemoryStoreTest {
     }
 
     @Test
+    void longQueryPassesThroughSearchUnchanged() {
+        server = LocalMem0Server.start();
+        MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
+        memory.setEndpoint(server.endpoint());
+        Mem0MemoryStore store = new Mem0MemoryStore("plainkey", memory,
+            new GovernedMem0Api(server.endpoint(), memory));
+        String longQuery = "用户想查询一段很长的长期记忆内容。".repeat(300);
+
+        store.search(new MemorySearchRequest(new MemoryScope("request-user", "", "", ""),
+            longQuery, 3, false, Map.of()));
+
+        assertThat(server.lastSearchBody()).containsEntry("query", longQuery);
+    }
+
+    @Test
+    void longAddMessagePassesThroughAddUnchanged() {
+        server = LocalMem0Server.start();
+        MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
+        memory.setEndpoint(server.endpoint());
+        Mem0MemoryStore store = new Mem0MemoryStore("plainkey", memory,
+            new GovernedMem0Api(server.endpoint(), memory));
+        String longContent = "用户描述了一段很长的偏好和事实。".repeat(300);
+
+        store.add(new MemoryAddRequest(new MemoryScope("request-user", "", "", ""),
+            List.of(new MemoryMessage("user", longContent)), Map.of()));
+
+        assertThat(messages(server.lastAddBody())).anySatisfy(message -> assertThat(message)
+            .containsEntry("role", "user")
+            .containsEntry("content", longContent));
+    }
+
+    @Test
     void blankGetIdReturnsEmpty() {
         Mem0MemoryStore store = new Mem0MemoryStore("plainkey", new MiddlewareProperties.Memory(), null);
 
@@ -162,6 +194,21 @@ class Mem0MemoryStoreTest {
         assertThatThrownBy(() -> store.delete(new MemoryDeleteRequest(MemoryScope.empty(), " ")))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessage("memory_id must not be blank");
+    }
+
+    @Test
+    void emptyAddMessagesThrow() {
+        Mem0MemoryStore store = new Mem0MemoryStore("plainkey", new MiddlewareProperties.Memory(), null);
+
+        assertThatThrownBy(() -> store.add(new MemoryAddRequest(MemoryScope.empty(), List.of(), Map.of())))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("memory add messages must not be empty");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> messages(Map<String, Object> body) {
+        Object messages = body.get("messages");
+        return messages instanceof List<?> list ? (List<Map<String, Object>>) list : List.of();
     }
 
     private static final class LocalMem0Server {

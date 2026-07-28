@@ -149,6 +149,7 @@ class MemoryAgentEndToEndTest {
         Runner.release("memory-e2e-stream");
         Runner.release("memory-e2e-prefetch-failure");
         Runner.release("memory-e2e-syncturn-failure");
+        Runner.release("memory-e2e-empty-prefetch");
     }
 
     @AfterAll
@@ -216,6 +217,27 @@ class MemoryAgentEndToEndTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resultContent(response)).contains("拿铁咖啡");
         assertThat(MEM0_SERVER.addRequests()).isPositive();
+    }
+
+    @Test
+    void emptyPrefetchResultSkipsMemoryContextAndStillSyncsTurn() throws IOException {
+        MEM0_SERVER.clearMemories();
+        String message = "请直接回答：没有长期记忆也要回复。";
+
+        ResponseEntity<String> response = postQuery("memory-e2e-empty-prefetch", message);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(MEM0_SERVER.searchRequests()).isEqualTo(1);
+        assertThat(USER_MESSAGES_SEEN_BY_MODEL).anySatisfy(observedMessage -> assertThat(observedMessage)
+            .contains(message)
+            .doesNotContain("<memory-context>")
+            .doesNotContain("<user-message>"));
+        assertThat(MEM0_SERVER.addBodies()).anySatisfy(body -> {
+            assertThat(body).containsEntry("user_id", USER_ID);
+            assertThat(messages(body)).anySatisfy(item -> assertThat(item)
+                .containsEntry("role", "user")
+                .containsEntry("content", message));
+        });
     }
 
     private void verifyLifecyclePrefetchAndSyncTurn() throws IOException {
@@ -555,6 +577,10 @@ class MemoryAgentEndToEndTest {
             seedMemory(MEMORY_ID, SEED_MEMORY);
         }
 
+        private void clearMemories() {
+            memories.clear();
+        }
+
         private void seedMemory(String id, String text) {
             memories.put(id, Map.of(
                 "id", id,
@@ -615,13 +641,14 @@ class MemoryAgentEndToEndTest {
             String method = exchange.getRequestMethod();
             String path = exchange.getRequestURI().getPath();
             if ("POST".equals(method) && "/v3/memories/search/".equals(path)) {
+                Map<String, Object> body = readBody(exchange);
                 searchRequests.incrementAndGet();
-                searchBodies.add(readBody(exchange));
+                searchBodies.add(body);
                 if (shouldFailSearch.get()) {
                     writeJson(exchange, 500, Map.of("message", "forced search failure"));
                     return;
                 }
-                writeJson(exchange, 200, Map.of("results", searchResults()));
+                writeJson(exchange, 200, Map.of("results", searchResults(body)));
                 return;
             }
             if ("POST".equals(method) && "/v3/memories/add/".equals(path)) {
@@ -660,14 +687,25 @@ class MemoryAgentEndToEndTest {
             writeJson(exchange, 404, Map.of("message", "mem0 route not found: " + method + " " + path));
         }
 
-        private List<Map<String, Object>> searchResults() {
+        private List<Map<String, Object>> searchResults(Map<String, Object> body) {
+            String userId = filterValue(body, "user_id");
             return memories.values().stream()
+                .filter(record -> userId.isBlank() || userId.equals(String.valueOf(record.get("user_id"))))
                 .map(record -> {
                     Map<String, Object> result = new java.util.LinkedHashMap<>(record);
                     result.put("score", 0.9);
                     return result;
                 })
                 .toList();
+        }
+
+        private String filterValue(Map<String, Object> body, String key) {
+            Object filters = body.get("filters");
+            if (filters instanceof Map<?, ?> map) {
+                Object value = map.get(key);
+                return value != null ? String.valueOf(value) : "";
+            }
+            return "";
         }
 
         private Map<String, Object> storeAddedMemory(HttpExchange exchange) throws IOException {
