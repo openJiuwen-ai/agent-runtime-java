@@ -84,7 +84,7 @@ User -> Agent A -> Agent B -> Agent C (resume) -> recommendation -> Agent B -> A
 
 Agent D 不是用户直接调用的独立工作流。完整场景从 Agent A 开始：Agent A 委派给 Agent B，Agent B 根据请求选择 Agent D 的流式或非流式路由，并把结构化费用信息交给 Agent D。
 
-Agent D 首先按费用类别检查单价。合规费用自动审批并沿 `D -> B -> A` 返回；超标费用中断等待人工审批。用户使用最初调用 Agent A 获得的 `contextId` 和 `taskId` 再次调用 Agent A，Runtime 恢复嵌套的 `A -> B -> D` 调用，Agent D 在审批后调用真实大模型生成最终报告，再将结果逐层返回用户。
+Agent D 首先按费用类别检查单价。合规费用自动审批并沿 `D -> B -> A` 返回；超标费用中断等待人工审批。用户使用最初调用 Agent A 获得的 `contextId` 和 `taskId` 再次调用 Agent A，Runtime 恢复嵌套的 `A -> B -> D` 调用，Agent D 在审批后调用真实大模型生成最终报告，再将结果逐层返回用户。Agent D 的 End 不配置 `responseTemplate`，用于验证 `workflow_final.payload.output` 为嵌套对象时的 A2A 结果传递。
 
 ```text
 User -> Agent A -> Agent B -> Agent D -> policy check
@@ -377,7 +377,7 @@ curl -sS -N -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
-恢复后应进入 `TASK_STATE_COMPLETED`。结构化中间事件位于 `parts.data`，最终 `parts.text` 为普通业务文本，不再包含转义后的 AgentCore JSON 信封；结果应包含 `Agent D expense review completed`、`WF-STREAM-001`、`OVER_LIMIT`、`approved` 和 `llm_report=`。
+恢复后应进入 `TASK_STATE_COMPLETED`。Agent D 的结构化最终结果通过 `parts.data` 传递，逐层返回后的用户结果应包含 `claim_id`、`WF-STREAM-001`、`policy_status`、`OVER_LIMIT`、`approved` 和 `llm_report`，且不得包含未解开的 `workflow_final` AgentCore 信封。
 
 ### 场景 5：A -> B -> D 非流式人工审批与恢复
 
@@ -430,7 +430,7 @@ curl -sS -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
-恢复后应进入 `TASK_STATE_COMPLETED`，结果应包含 `Agent D expense review completed`、`WF-NONSTREAM-001`、`OVER_LIMIT`、`approved` 和 `llm_report=`。
+恢复后应进入 `TASK_STATE_COMPLETED`，结果应包含 `claim_id`、`WF-NONSTREAM-001`、`policy_status`、`OVER_LIMIT`、`approved` 和 `llm_report`，并且 Agent B 不应因空工具结果重复调用 Agent D。
 
 ### 场景 6：A -> B -> D 合规费用自动审批
 

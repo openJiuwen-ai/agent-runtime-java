@@ -7,9 +7,9 @@ package com.openjiuwen.service.app.controller.a2a.client;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
+import com.openjiuwen.service.app.controller.a2a.AgentCoreEnvelopeText;
 
 import java.lang.reflect.Type;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -36,7 +36,8 @@ public final class RemoteAgentAnswerExtractor {
      */
     public static final String ANSWER_ENVELOPE_TYPE = "answer";
     private static final Gson GSON = new Gson();
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
+    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
+    }.getType();
 
     private RemoteAgentAnswerExtractor() {
     }
@@ -49,8 +50,7 @@ public final class RemoteAgentAnswerExtractor {
      *         is not an answer envelope
      */
     public static Optional<String> extractAnswer(String raw) {
-        return parseEnvelope(raw)
-                .filter(envelope -> ANSWER_ENVELOPE_TYPE.equals(envelope.get("type")))
+        return parseEnvelope(raw).filter(envelope -> ANSWER_ENVELOPE_TYPE.equals(envelope.get("type")))
                 .map(envelope -> extractBusinessText(envelope).orElse(raw));
     }
 
@@ -65,8 +65,7 @@ public final class RemoteAgentAnswerExtractor {
      *         is not an answer envelope
      */
     public static Optional<Map<String, Object>> extractAnswerEnvelope(String raw) {
-        return parseEnvelope(raw)
-                .filter(envelope -> ANSWER_ENVELOPE_TYPE.equals(envelope.get("type")));
+        return parseEnvelope(raw).filter(envelope -> ANSWER_ENVELOPE_TYPE.equals(envelope.get("type")));
     }
 
     /**
@@ -94,15 +93,7 @@ public final class RemoteAgentAnswerExtractor {
      * @return the first non-blank text found, or {@link Optional#empty()}
      */
     static Optional<String> extractBusinessText(Object data) {
-        if (data instanceof String s) {
-            return s.isBlank() ? Optional.empty() : Optional.of(s);
-        }
-        if (!(data instanceof Map<?, ?> map)) {
-            return Optional.empty();
-        }
-        Optional<String> fromPayload = map.get("payload") instanceof Map<?, ?> payload
-                ? firstText(payload) : Optional.empty();
-        return fromPayload.isPresent() ? fromPayload : firstText(map);
+        return AgentCoreEnvelopeText.businessText(data);
     }
 
     private static Optional<Map<String, Object>> parseEnvelope(String raw) {
@@ -111,19 +102,5 @@ public final class RemoteAgentAnswerExtractor {
         } catch (JsonSyntaxException e) {
             return Optional.empty();
         }
-    }
-
-    private static Optional<String> firstText(Map<?, ?> map) {
-        for (String key : List.of("content", "delta", "output", "response")) {
-            Object value = map.get(key);
-            if (value == null || value instanceof Map || value instanceof List) {
-                continue;
-            }
-            String text = String.valueOf(value);
-            if (!text.isBlank()) {
-                return Optional.of(text);
-            }
-        }
-        return Optional.empty();
     }
 }

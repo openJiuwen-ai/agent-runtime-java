@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.app.controller.a2a.AgentCoreEnvelopeText;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
@@ -27,15 +28,14 @@ import org.a2aproject.sdk.spec.MessageSendConfiguration;
 import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
-import org.a2aproject.sdk.spec.TaskPushNotificationConfig;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
+import org.a2aproject.sdk.spec.TaskPushNotificationConfig;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Type;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -156,9 +156,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         }
         Map<String, Object> paramsMetadata = paramsMetadata(call.metadata());
         var configurationBuilder = MessageSendConfiguration.builder().returnImmediately(false);
-        callbackConfig(call, contextId).ifPresent(config -> configurationBuilder
-                .returnImmediately(true)
-                .taskPushNotificationConfig(config));
+        callbackConfig(call, contextId)
+                .ifPresent(config -> configurationBuilder.returnImmediately(true).taskPushNotificationConfig(config));
         return MessageSendParams.builder().message(messageBuilder.build()).configuration(configurationBuilder.build())
                 .metadata(paramsMetadata).build();
     }
@@ -179,14 +178,10 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         if (!(rawUrl instanceof String url) || url.isBlank()) {
             return Optional.empty();
         }
-        String id = Optional.ofNullable(call.metadata().get(CALLBACK_ID_METADATA))
-                .map(String::valueOf)
-                .filter(value -> !value.isBlank())
-                .orElse("push-" + contextId);
-        String token = Optional.ofNullable(call.metadata().get(CALLBACK_TOKEN_METADATA))
-                .map(String::valueOf)
-                .filter(value -> !value.isBlank())
-                .orElse(null);
+        String id = Optional.ofNullable(call.metadata().get(CALLBACK_ID_METADATA)).map(String::valueOf)
+                .filter(value -> !value.isBlank()).orElse("push-" + contextId);
+        String token = Optional.ofNullable(call.metadata().get(CALLBACK_TOKEN_METADATA)).map(String::valueOf)
+                .filter(value -> !value.isBlank()).orElse(null);
         return Optional.of(TaskPushNotificationConfig.builder().id(id).url(url).token(token).build());
     }
 
@@ -243,8 +238,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * @return structured remote outcome
      */
     @Override
-    public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
-            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver) {
+    public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, QueryStreamObserver streamObserver,
+            Consumer<String> remoteTaskIdObserver) {
         A2ARemoteAgentCardRegistry.RemoteAgentEntry entry = registry.get(call.agentName())
                 .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
         boolean isStreaming = entry.isStreaming() && call.isCallerStreaming();
@@ -262,8 +257,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
         boolean isCallbackMode = setup.params.configuration() != null
                 && setup.params.configuration().taskPushNotificationConfig() != null;
-        BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) ->
-                handleClientEvent(event, result, streamObserver, remoteTaskIdObserver, isCallbackMode);
+        BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> handleClientEvent(event, result,
+                streamObserver, remoteTaskIdObserver, isCallbackMode);
         Client client = createClient(setup.entry, isStreaming);
         AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
         try {
@@ -359,8 +354,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             boolean isCallbackMode) {
         TaskState state = event.status().state();
         String statusText = event.status().message() != null ? extractText(event.status().message().parts()) : "";
-        completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task), result,
-            remoteTaskIdObserver, isCallbackMode);
+        completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task), result, remoteTaskIdObserver,
+                isCallbackMode);
     }
 
     private void handleOutcomeTask(TaskEvent event, CompletableFuture<RemoteCallOutcome> result,
@@ -368,8 +363,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         Task task = event.getTask();
         TaskState state = task.status().state();
         String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";
-        completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task), result,
-            remoteTaskIdObserver, isCallbackMode);
+        completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task), result, remoteTaskIdObserver,
+                isCallbackMode);
     }
 
     private static void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
@@ -438,17 +433,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     private static String extractBusinessParts(List<Part<?>> parts) {
-        if (parts == null) {
-            return "";
-        }
-        StringBuilder text = new StringBuilder();
-        for (Part<?> part : parts) {
-            if (part instanceof TextPart textPart
-                    && (textPart.metadata() == null || !textPart.metadata().containsKey("_remote_invocation"))) {
-                text.append(textPart.text());
-            }
-        }
-        return text.toString();
+        return A2aPartContent.extract(parts);
     }
 
     /**

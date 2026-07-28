@@ -78,11 +78,7 @@ public final class ExpenseReviewWorkflow {
         workflow.addWorkflowComp("auto_approve", autoApproval, Map.of("claim_id", "${check_policy.data.claim_id}"),
                 null);
 
-        workflow.setEndComp("end",
-                new End(Map.of("responseTemplate",
-                        "Agent D expense review completed: claim={{claim_id}}, policy={{policy_status}}, "
-                                + "decision={{manual_decision}}{{auto_decision}}. "
-                                + "llm_report={{llm_report}}{{auto_report}}")),
+        workflow.setEndComp("end", new End(),
                 Map.of("claim_id", "${check_policy.data.claim_id}", "policy_status",
                         "${check_policy.data.policy_status}", "manual_decision", "${manual_approval.user_response}",
                         "auto_decision", "${auto_approve.data.decision}", "llm_report", "${final_response.text}",

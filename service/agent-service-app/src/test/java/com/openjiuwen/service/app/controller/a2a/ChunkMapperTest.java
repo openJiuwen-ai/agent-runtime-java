@@ -38,6 +38,14 @@ class ChunkMapperTest {
     }
 
     @Test
+    void workflowFinalEnvelopeWithStructuredOutputIsMappedToBusinessData() {
+        Map<String, Object> output = Map.of("auto_result", "Expense claim approved");
+        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_CHUNK, envelope("workflow_final", Map.of("output", output)));
+
+        assertThat(data(chunk)).isEqualTo(output);
+    }
+
+    @Test
     void intermediateEnvelopeIsMappedToStructuredData() {
         QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_CHUNK, envelope("llm_output", Map.of("content", "working")));
 
