@@ -29,17 +29,17 @@ final class OutboundTlsTestCertificates {
     }
 
     private static void runKeytool(String... args) throws IOException, InterruptedException {
-        List<String> command = new ArrayList<>();
-        command.add(Path.of(System.getProperty("java.home"), "bin",
+        List<String> runToolCommands = new ArrayList<>();
+        runToolCommands.add(Path.of(System.getProperty("java.home"), "bin",
             System.getProperty("os.name").toLowerCase().contains("win") ? "keytool.exe" : "keytool").toString());
         for (String arg : args) {
-            command.add(arg);
+            runToolCommands.add(arg);
         }
-        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-        String output = new String(process.getInputStream().readAllBytes());
-        int exitCode = process.waitFor();
+        Process runToolprocess = new ProcessBuilder(runToolCommands).redirectErrorStream(true).start();
+        String procOutput = new String(runToolprocess.getInputStream().readAllBytes());
+        int exitCode = runToolprocess.waitFor();
         if (exitCode != 0) {
-            throw new IllegalStateException("keytool failed with exit code " + exitCode + ": " + output.trim());
+            throw new IllegalStateException("keytool failed with exit code " + exitCode + ": " + procOutput.trim());
         }
     }
 }
