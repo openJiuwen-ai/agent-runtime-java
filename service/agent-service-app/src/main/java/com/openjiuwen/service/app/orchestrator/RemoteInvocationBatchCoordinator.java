@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
@@ -63,12 +64,8 @@ final class RemoteInvocationBatchCoordinator {
 
     private static final String REMOTE_BATCH_ID = "runtime.remoteBatchId";
 
-    private static final Set<String> RESERVED_METADATA = Set.of(
-        "_interrupt",
-        PARENT_TASK_ID,
-        REMOTE_TOOL_INPUTS,
-        REMOTE_BATCH_ID,
-        "runtime.remoteToolResults");
+    private static final Set<String> RESERVED_METADATA = Set.of("_interrupt", PARENT_TASK_ID, REMOTE_TOOL_INPUTS,
+            REMOTE_BATCH_ID, "runtime.remoteToolResults");
 
     private static final int MAX_EARLY_CALLBACKS = 256;
 
@@ -125,8 +122,8 @@ final class RemoteInvocationBatchCoordinator {
      * @param maxQueueSize maximum queued remote members
      * @param queueTimeoutSeconds maximum queue wait in seconds
      */
-    RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId,
-            int maxConcurrency, int maxQueueSize, long queueTimeoutSeconds) {
+    RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId, int maxConcurrency,
+            int maxQueueSize, long queueTimeoutSeconds) {
         if (maxConcurrency <= 0) {
             throw new IllegalArgumentException("maxConcurrency must be greater than zero");
         }
@@ -176,20 +173,20 @@ final class RemoteInvocationBatchCoordinator {
         synchronized (lock) {
             Batch active = activeByParent.get(parentTaskId);
             if (active != null) {
-                return Optional.of(CompletableFuture.failedFuture(
-                    new IllegalStateException("REMOTE_BATCH_ALREADY_ACTIVE: " + parentTaskId)));
+                return Optional.of(CompletableFuture
+                        .failedFuture(new IllegalStateException("REMOTE_BATCH_ALREADY_ACTIVE: " + parentTaskId)));
             }
         }
         Task persisted = taskStore.get(shadowTaskId(parentTaskId));
         if (isBatchShadow(persisted)) {
-            return Optional.of(CompletableFuture.failedFuture(
-                new IllegalStateException("REMOTE_BATCH_ALREADY_PENDING: " + parentTaskId)));
+            return Optional.of(CompletableFuture
+                    .failedFuture(new IllegalStateException("REMOTE_BATCH_ALREADY_PENDING: " + parentTaskId)));
         }
         synchronized (lock) {
             Batch active = activeByParent.get(parentTaskId);
             if (active != null) {
-                return Optional.of(CompletableFuture.failedFuture(
-                    new IllegalStateException("REMOTE_BATCH_ALREADY_ACTIVE: " + parentTaskId)));
+                return Optional.of(CompletableFuture
+                        .failedFuture(new IllegalStateException("REMOTE_BATCH_ALREADY_ACTIVE: " + parentTaskId)));
             }
             activeByParent.put(parentTaskId, batch);
         }
@@ -214,15 +211,15 @@ final class RemoteInvocationBatchCoordinator {
         if (shadow == null || shadow.metadata() == null
                 || !(shadow.metadata().get(REMOTE_BATCH) instanceof Map<?, ?> rawBatch)) {
             if (!targetedInputs.isEmpty()) {
-                return Optional.of(CompletableFuture.failedFuture(
-                    new IllegalArgumentException("REMOTE_BATCH_PARENT_MISMATCH")));
+                return Optional.of(
+                        CompletableFuture.failedFuture(new IllegalArgumentException("REMOTE_BATCH_PARENT_MISMATCH")));
             }
             return Optional.empty();
         }
         String snapshotParentTaskId = stringValue(rawBatch.get("parentTaskId"));
         if (!snapshotParentTaskId.isBlank() && !snapshotParentTaskId.equals(parentTaskId)) {
-            return Optional.of(CompletableFuture.failedFuture(
-                new IllegalArgumentException("REMOTE_BATCH_PARENT_MISMATCH")));
+            return Optional
+                    .of(CompletableFuture.failedFuture(new IllegalArgumentException("REMOTE_BATCH_PARENT_MISMATCH")));
         }
         Batch batch = restoreBatch(rawBatch, request, parentTaskId, new SerialObserver(observer));
         if ("READY_TO_RESUME".equals(stringValue(rawBatch.get("state")))) {
@@ -265,9 +262,8 @@ final class RemoteInvocationBatchCoordinator {
         request.setConversationId(shadow.contextId());
         request.setMetadata(parentTaskId.isBlank() ? Map.of() : Map.of(PARENT_TASK_ID, parentTaskId));
         Batch batch = restoreBatch(rawBatch, request, parentTaskId, new SerialObserver(NOOP_OBSERVER));
-        Optional<Member> matched = batch.members.stream()
-            .filter(member -> task.id().equals(member.remoteTaskId))
-            .findFirst();
+        Optional<Member> matched = batch.members.stream().filter(member -> task.id().equals(member.remoteTaskId))
+                .findFirst();
         if (matched.isEmpty()) {
             return false;
         }
@@ -286,8 +282,8 @@ final class RemoteInvocationBatchCoordinator {
         batch.members.forEach(member -> memberIds.add(member.toolCallId));
         for (String toolCallId : targetedInputs.keySet()) {
             if (!memberIds.contains(toolCallId)) {
-                return Optional.of(CompletableFuture.failedFuture(
-                    new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_UNKNOWN: " + toolCallId)));
+                return Optional.of(CompletableFuture
+                        .failedFuture(new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_UNKNOWN: " + toolCallId)));
             }
         }
         return Optional.of(CompletableFuture.completedFuture(snapshotResolution(batch)));
@@ -295,14 +291,13 @@ final class RemoteInvocationBatchCoordinator {
 
     private Optional<CompletableFuture<BatchResolution>> resumeWaitingBatch(Batch batch,
             Map<String, String> targetedInputs, String parentTaskId, String lastUserQuery) {
-        List<Member> pending = batch.members.stream()
-            .filter(member -> member.state == MemberState.INPUT_REQUIRED)
-            .toList();
+        List<Member> pending = batch.members.stream().filter(member -> member.state == MemberState.INPUT_REQUIRED)
+                .toList();
         Map<String, String> effectiveInputs;
         if (targetedInputs.isEmpty()) {
             if (pending.size() != 1) {
-                return Optional.of(CompletableFuture.failedFuture(
-                    new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_REQUIRED")));
+                return Optional.of(CompletableFuture
+                        .failedFuture(new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_REQUIRED")));
             }
             effectiveInputs = Map.of(pending.get(0).toolCallId, lastUserQuery);
         } else {
@@ -313,12 +308,12 @@ final class RemoteInvocationBatchCoordinator {
         for (String toolCallId : effectiveInputs.keySet()) {
             Member member = membersById.get(toolCallId);
             if (member == null) {
-                return Optional.of(CompletableFuture.failedFuture(
-                    new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_UNKNOWN: " + toolCallId)));
+                return Optional.of(CompletableFuture
+                        .failedFuture(new IllegalArgumentException("REMOTE_TOOL_INPUT_TARGET_UNKNOWN: " + toolCallId)));
             }
             if (member.state != MemberState.INPUT_REQUIRED) {
-                return Optional.of(CompletableFuture.failedFuture(
-                    new IllegalArgumentException("REMOTE_TOOL_INPUT_STATE_CONFLICT: " + toolCallId)));
+                return Optional.of(CompletableFuture
+                        .failedFuture(new IllegalArgumentException("REMOTE_TOOL_INPUT_STATE_CONFLICT: " + toolCallId)));
             }
         }
         List<Member> selected = new ArrayList<>();
@@ -333,8 +328,8 @@ final class RemoteInvocationBatchCoordinator {
         });
         synchronized (lock) {
             if (activeByParent.containsKey(parentTaskId)) {
-                return Optional.of(CompletableFuture.failedFuture(
-                    new IllegalStateException("REMOTE_BATCH_ALREADY_ACTIVE: " + parentTaskId)));
+                return Optional.of(CompletableFuture
+                        .failedFuture(new IllegalStateException("REMOTE_BATCH_ALREADY_ACTIVE: " + parentTaskId)));
             }
             activeByParent.put(parentTaskId, batch);
         }
@@ -343,9 +338,8 @@ final class RemoteInvocationBatchCoordinator {
     }
 
     private static boolean isBatchShadow(Task task) {
-        return task != null && task.status() != null
-            && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED
-            && task.metadata() != null && task.metadata().get(REMOTE_BATCH) instanceof Map<?, ?>;
+        return task != null && task.status() != null && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED
+                && task.metadata() != null && task.metadata().get(REMOTE_BATCH) instanceof Map<?, ?>;
     }
 
     private void submit(PendingInvocation invocation) {
@@ -380,7 +374,7 @@ final class RemoteInvocationBatchCoordinator {
         }
         if (isQueued) {
             CompletableFuture.delayedExecutor(queueTimeout.toMillis(), TimeUnit.MILLISECONDS)
-                .execute(() -> expireQueued(invocation));
+                    .execute(() -> expireQueued(invocation));
             return;
         }
         if (isOverloaded) {
@@ -394,7 +388,7 @@ final class RemoteInvocationBatchCoordinator {
             if (!invocation.batch.isResolved && invocation.member.state == MemberState.QUEUED
                     && queue.remove(invocation)) {
                 invocation.member.fail(MemberState.FAILED, "REMOTE_OVERLOADED",
-                    "Remote invocation queue wait timed out");
+                        "Remote invocation queue wait timed out");
                 isExpired = true;
             }
         }
@@ -426,8 +420,8 @@ final class RemoteInvocationBatchCoordinator {
             metadata.put("userId", userId);
         }
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
-            optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
-            batch.request.isStream());
+                optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
+                batch.request.isStream());
         QueryStreamObserver progressObserver = memberProgressObserver(batch, member);
         CompletableFuture<RemoteCallOutcome> future;
         try {
@@ -466,7 +460,7 @@ final class RemoteInvocationBatchCoordinator {
                 }
                 if (Duration.between(candidate.member.queuedAt, Instant.now()).compareTo(queueTimeout) > 0) {
                     candidate.member.fail(MemberState.FAILED, "REMOTE_OVERLOADED",
-                        "Remote invocation queue wait timed out");
+                            "Remote invocation queue wait timed out");
                     expired.add(candidate);
                 } else {
                     activeCount++;
@@ -544,8 +538,8 @@ final class RemoteInvocationBatchCoordinator {
             member.result = outcome.result() == null ? "" : outcome.result();
         } else {
             String message = outcome.result() == null || outcome.result().isBlank()
-                ? "Remote task did not complete"
-                : outcome.result();
+                    ? "Remote task did not complete"
+                    : outcome.result();
             member.fail(MemberState.FAILED, outcome.resultCategory(), message);
         }
     }
@@ -563,8 +557,8 @@ final class RemoteInvocationBatchCoordinator {
             return new RemoteCallOutcome(task.id(), state, resultCategory(state), null, inputPrompt);
         }
         String resultText = state == TaskState.TASK_STATE_COMPLETED
-            ? (taskText.isBlank() ? statusText : taskText)
-            : (statusText.isBlank() ? taskText : statusText);
+                ? (taskText.isBlank() ? statusText : taskText)
+                : (statusText.isBlank() ? taskText : statusText);
         return new RemoteCallOutcome(task.id(), state, resultCategory(state), resultText, null);
     }
 
@@ -582,15 +576,13 @@ final class RemoteInvocationBatchCoordinator {
     }
 
     private static boolean isResultBearingNonTerminalState(TaskState state) {
-        return state == null
-            || state == TaskState.UNRECOGNIZED
-            || state == TaskState.TASK_STATE_SUBMITTED
-            || state == TaskState.TASK_STATE_WORKING;
+        return state == null || state == TaskState.UNRECOGNIZED || state == TaskState.TASK_STATE_SUBMITTED
+                || state == TaskState.TASK_STATE_WORKING;
     }
 
     private static String shadowState(Batch batch) {
         boolean hasWaitingMember = batch.members.stream()
-            .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
+                .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
         return hasWaitingMember ? "WAITING_INPUT" : "READY_TO_RESUME";
     }
 
@@ -606,17 +598,7 @@ final class RemoteInvocationBatchCoordinator {
     }
 
     private static String extractBusinessParts(List<Part<?>> parts) {
-        if (parts == null) {
-            return "";
-        }
-        StringBuilder text = new StringBuilder();
-        for (Part<?> part : parts) {
-            if (part instanceof TextPart textPart
-                    && (textPart.metadata() == null || !textPart.metadata().containsKey("_remote_invocation"))) {
-                text.append(textPart.text());
-            }
-        }
-        return text.toString();
+        return A2aPartContent.extract(parts);
     }
 
     private static String extractText(List<Part<?>> parts) {
@@ -635,9 +617,8 @@ final class RemoteInvocationBatchCoordinator {
     private void finishBatchIfSettled(Batch batch) {
         boolean isSettled;
         synchronized (lock) {
-            isSettled = !batch.isResolved
-                && batch.members.stream().noneMatch(member -> member.state == MemberState.QUEUED
-                    || member.state == MemberState.RUNNING);
+            isSettled = !batch.isResolved && batch.members.stream()
+                    .noneMatch(member -> member.state == MemberState.QUEUED || member.state == MemberState.RUNNING);
             if (isSettled) {
                 batch.isResolved = true;
             }
@@ -662,7 +643,7 @@ final class RemoteInvocationBatchCoordinator {
 
     private BatchResolution resolveSettledBatch(Batch batch) {
         boolean hasWaitingMember = batch.members.stream()
-            .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
+                .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
         if (hasWaitingMember) {
             Map<String, Object> interrupt = publicInterrupt(batch);
             saveShadow(batch, "WAITING_INPUT");
@@ -712,12 +693,9 @@ final class RemoteInvocationBatchCoordinator {
             members.add(value);
         }
         snapshot.put("members", members);
-        taskStore.save(Task.builder()
-            .id(shadowTaskId(batch.parentTaskId))
-            .contextId(batch.request.getConversationId())
-            .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
-            .metadata(Map.of(REMOTE_BATCH, snapshot))
-            .build(), true);
+        taskStore.save(Task.builder().id(shadowTaskId(batch.parentTaskId)).contextId(batch.request.getConversationId())
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, OffsetDateTime.now()))
+                .metadata(Map.of(REMOTE_BATCH, snapshot)).build(), true);
         replayEarlyCallbacks(batch);
     }
 
@@ -848,7 +826,7 @@ final class RemoteInvocationBatchCoordinator {
                 }
                 if (Duration.between(candidate.member.queuedAt, Instant.now()).compareTo(queueTimeout) > 0) {
                     candidate.member.fail(MemberState.FAILED, "REMOTE_OVERLOADED",
-                        "Remote invocation queue wait timed out");
+                            "Remote invocation queue wait timed out");
                     expired.add(candidate);
                 } else {
                     activeCount++;
@@ -899,10 +877,11 @@ final class RemoteInvocationBatchCoordinator {
             batch.observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_PROGRESS, data));
         }
         if (hasStateChanged) {
-            log.info("Remote invocation state parentTaskId={} conversationId={} batchId={} toolCallId={} "
-                    + "remoteAgentId={} state={} latencyMs={}",
-                batch.parentTaskId, batch.request.getConversationId(), batch.batchId, member.toolCallId,
-                target, member.state, latencyMs);
+            log.info(
+                    "Remote invocation state parentTaskId={} conversationId={} batchId={} toolCallId={} "
+                            + "remoteAgentId={} state={} latencyMs={}",
+                    batch.parentTaskId, batch.request.getConversationId(), batch.batchId, member.toolCallId, target,
+                    member.state, latencyMs);
         }
     }
 
@@ -922,8 +901,8 @@ final class RemoteInvocationBatchCoordinator {
                 throw new IllegalArgumentException("CORE_INTERRUPT_CORRELATION_CONFLICT: " + toolCallId);
             }
             Map<String, Object> context = item.get("context") instanceof Map<?, ?> rawContext
-                ? copyMap(rawContext)
-                : Map.of();
+                    ? copyMap(rawContext)
+                    : Map.of();
             if (!"a2a_delegate".equals(stringValue(context.get("_interrupt_kind")))) {
                 throw new IllegalArgumentException("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED");
             }
@@ -936,12 +915,12 @@ final class RemoteInvocationBatchCoordinator {
             }
             int index = item.get("index") instanceof Number number ? number.intValue() : i;
             Member member = new Member(index, toolCallId, stringValue(item.get("toolName")),
-                stringValue(context.get("agentName")), stringValue(item.get("message")));
+                    stringValue(context.get("agentName")), stringValue(item.get("message")));
             members.add(member);
         }
         members.sort(java.util.Comparator.comparingInt(member -> member.index));
         return new Batch(UUID.randomUUID().toString(), parentTaskId, request, observer, members,
-            isBatchResume == null || isBatchResume);
+                isBatchResume == null || isBatchResume);
     }
 
     private Batch restoreBatch(Map<?, ?> rawBatch, ServeRequest request, String parentTaskId, SerialObserver observer) {
@@ -956,7 +935,7 @@ final class RemoteInvocationBatchCoordinator {
             }
             int index = rawMember.get("index") instanceof Number number ? number.intValue() : members.size();
             Member member = new Member(index, stringValue(rawMember.get("toolCallId")),
-                stringValue(rawMember.get("toolName")), stringValue(rawMember.get("agentName")), "");
+                    stringValue(rawMember.get("toolName")), stringValue(rawMember.get("agentName")), "");
             member.state = MemberState.valueOf(stringValue(rawMember.get("state")));
             member.remoteTaskId = stringValue(rawMember.get("remoteTaskId"));
             member.resultCategory = optionalNonBlank(stringValue(rawMember.get("resultCategory"))).orElse(null);
@@ -1008,9 +987,8 @@ final class RemoteInvocationBatchCoordinator {
             items.add(item);
         }
         Map<String, Object> interrupt = new LinkedHashMap<>();
-        interrupt.put("message", items.size() == 1
-            ? items.get(0).get("message")
-            : "Multiple remote agents require input");
+        interrupt.put("message",
+                items.size() == 1 ? items.get(0).get("message") : "Multiple remote agents require input");
         interrupt.put("items", items);
         return interrupt;
     }
@@ -1032,7 +1010,7 @@ final class RemoteInvocationBatchCoordinator {
 
     private static BatchResolution snapshotResolution(Batch batch) {
         boolean hasWaitingMember = batch.members.stream()
-            .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
+                .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
         if (hasWaitingMember) {
             return new BatchResolution(batch.batchId, false, Map.of(), publicInterrupt(batch), batch.shouldResume);
         }
@@ -1106,8 +1084,9 @@ final class RemoteInvocationBatchCoordinator {
     }
 
     private static String safeMessage(Throwable error) {
-        return error.getMessage() == null || error.getMessage().isBlank() ? error.getClass().getSimpleName()
-            : error.getMessage();
+        return error.getMessage() == null || error.getMessage().isBlank()
+                ? error.getClass().getSimpleName()
+                : error.getMessage();
     }
 
     private static boolean isRateLimited(Throwable error) {
@@ -1118,7 +1097,7 @@ final class RemoteInvocationBatchCoordinator {
     private static boolean isProtocolFailure(Throwable error) {
         String message = safeMessage(error).toLowerCase(java.util.Locale.ROOT);
         return message.contains("json-rpc") || message.contains("jsonrpc") || message.contains("protocol")
-            || message.contains("malformed") || message.contains("parse error");
+                || message.contains("malformed") || message.contains("parse error");
     }
 
     private static Throwable unwrap(Throwable error) {
@@ -1168,12 +1147,7 @@ final class RemoteInvocationBatchCoordinator {
     }
 
     private enum MemberState {
-        QUEUED,
-        RUNNING,
-        COMPLETED,
-        INPUT_REQUIRED,
-        FAILED,
-        TIMED_OUT
+        QUEUED, RUNNING, COMPLETED, INPUT_REQUIRED, FAILED, TIMED_OUT
     }
 
     private static final class Batch {

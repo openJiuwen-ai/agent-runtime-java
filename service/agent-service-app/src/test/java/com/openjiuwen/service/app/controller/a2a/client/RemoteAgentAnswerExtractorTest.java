@@ -9,6 +9,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonParser;
+import com.openjiuwen.service.app.controller.a2a.ChunkMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
@@ -51,6 +53,15 @@ class RemoteAgentAnswerExtractorTest {
         String raw = GSON.toJson(envelope("answer", payload));
 
         assertThat(RemoteAgentAnswerExtractor.extractAnswer(raw)).contains("2");
+    }
+
+    @Test
+    void answerEnvelopeWithStructuredOutputIsUnwrappedAsJson() {
+        Map<String, Object> output = Map.of("auto_result", "Expense claim approved");
+        String raw = GSON.toJson(envelope("answer", Map.of("output", output)));
+
+        assertThat(JsonParser.parseString(RemoteAgentAnswerExtractor.extractAnswer(raw).orElseThrow()))
+                .isEqualTo(GSON.toJsonTree(output));
     }
 
     @Test
@@ -160,6 +171,31 @@ class RemoteAgentAnswerExtractorTest {
     }
 
     @Test
+    void structuredWorkflowFinalArtifactReturnsOnCompletedStatus() throws Exception {
+        Map<String, Object> output = Map.of("auto_result", "Expense claim approved");
+        List<Part<?>> progressParts = new ChunkMapper()
+                .toParts(new QueryChunk(QueryChunk.TYPE_CHUNK, envelope("llm_output", Map.of("content", "working"))));
+        List<Part<?>> parts = new ChunkMapper()
+                .toParts(new QueryChunk(QueryChunk.TYPE_CHUNK, envelope("workflow_final", Map.of("output", output))));
+        Artifact progress = new Artifact("artifact-progress", null, null, progressParts, Map.of(), List.of());
+        Artifact artifact = new Artifact("artifact-workflow-final", null, null, parts, Map.of(), List.of());
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(progress, artifact)).build();
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                boolean.class);
+        statusMethod.setAccessible(true);
+
+        statusMethod.invoke(client, new TaskStatusUpdateEvent("remote-task", task.status(), "remote-context", Map.of()),
+                task, result, (java.util.function.Consumer<String>) ignored -> {
+                }, false);
+
+        assertThat(JsonParser.parseString(result.getNow(null).result())).isEqualTo(GSON.toJsonTree(output));
+    }
+
+    @Test
     void answerArtifactDoesNotOverrideLaterFailedStatus() throws Exception {
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
@@ -217,6 +253,8 @@ class RemoteAgentAnswerExtractorTest {
     void internalProjectionPartsAreExcludedFromCompletedResult() throws Exception {
         Artifact artifact = new Artifact("artifact-business", null, null,
                 List.<Part<?>>of(new TextPart("internal", Map.of("_remote_invocation", Map.of("toolCallId", "call-a"))),
+                        new DataPart(Map.of("progress", "internal"),
+                                Map.of("_remote_invocation", Map.of("toolCallId", "call-a"))),
                         new TextPart("business")),
                 Map.of(), List.of());
         Task task = Task.builder().id("remote-task").contextId("remote-context")

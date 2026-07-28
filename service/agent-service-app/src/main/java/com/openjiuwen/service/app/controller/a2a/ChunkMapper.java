@@ -47,9 +47,9 @@ public class ChunkMapper {
     }
 
     private static Part<?> toPart(Object data, Map<String, Object> metadata) {
-        Optional<String> terminalText = AgentCoreEnvelopeText.terminalText(data);
-        if (terminalText.isPresent()) {
-            return metadata == null ? new TextPart(terminalText.get()) : new TextPart(terminalText.get(), metadata);
+        Optional<Object> terminalValue = AgentCoreEnvelopeText.terminalValue(data);
+        if (terminalValue.isPresent()) {
+            return toBusinessPart(terminalValue.get(), metadata);
         }
         Object structured = data instanceof String text ? parseStructuredJson(text).orElse(null) : data;
         if (structured instanceof Map || structured instanceof List || structured instanceof Number
@@ -57,6 +57,14 @@ public class ChunkMapper {
             return metadata == null ? new DataPart(structured) : new DataPart(structured, metadata);
         }
         String text = data instanceof String value ? value : GSON.toJson(data);
+        return metadata == null ? new TextPart(text) : new TextPart(text, metadata);
+    }
+
+    private static Part<?> toBusinessPart(Object value, Map<String, Object> metadata) {
+        if (value instanceof Map || value instanceof List || value instanceof Number || value instanceof Boolean) {
+            return metadata == null ? new DataPart(value) : new DataPart(value, metadata);
+        }
+        String text = value instanceof String stringValue ? stringValue : GSON.toJson(value);
         return metadata == null ? new TextPart(text) : new TextPart(text, metadata);
     }
 

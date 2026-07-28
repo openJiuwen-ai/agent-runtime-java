@@ -262,8 +262,9 @@ for artifact in artifacts:
             envelope = json.loads(text)
         except (json.JSONDecodeError, TypeError):
             continue
-        if isinstance(envelope, (dict, list)):
-            raise SystemExit("structured JSON leaked into parts.text instead of parts.data")
+        if isinstance(envelope, dict) and envelope.get("type") in ("answer", "workflow_final") \
+                and "payload" in envelope:
+            raise SystemExit("AgentCore terminal envelope leaked into parts.text")
 PY
 }
 
@@ -297,6 +298,17 @@ assert_log_contains() {
   local expected="$2"
   if ! grep -Fq "$expected" "$log_file"; then
     fail "log $log_file did not contain: $expected"
+  fi
+}
+
+assert_log_count() {
+  local log_file="$1"
+  local expected="$2"
+  local expected_count="$3"
+  local actual_count
+  actual_count="$(grep -Fc "$expected" "$log_file" || true)"
+  if [ "$actual_count" -ne "$expected_count" ]; then
+    fail "log $log_file contained '$expected' $actual_count times; expected $expected_count"
   fi
 }
 
@@ -459,7 +471,7 @@ curl -sS -N --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/"
   -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' --data-binary "@$d_stream_request2" >"$d_stream_response2"
 d_stream_resumed_task_id="$(assert_sse_task "$d_stream_response2" "TASK_STATE_COMPLETED" \
-  "agent d expense review completed" "$D_STREAM_CLAIM" "llm_report=")"
+  "policy_status" "$D_STREAM_CLAIM" "llm_report")"
 assert_plain_terminal_artifacts "$d_stream_response2" "sse"
 if [ "$d_stream_resumed_task_id" != "$d_stream_task_id" ]; then
   fail "Agent D streaming resume changed taskId from $d_stream_task_id to $d_stream_resumed_task_id"
@@ -491,7 +503,7 @@ curl -sS --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
   -H 'Content-Type: application/json' \
   --data-binary "@$d_nonstream_request2" >"$d_nonstream_response2"
 d_nonstream_resumed_task_id="$(assert_sync_task "$d_nonstream_response2" "TASK_STATE_COMPLETED" \
-  "agent d expense review completed" "$D_NONSTREAM_CLAIM" "llm_report=")"
+  "policy_status" "$D_NONSTREAM_CLAIM" "llm_report")"
 assert_plain_terminal_artifacts "$d_nonstream_response2" "sync"
 if [ "$d_nonstream_resumed_task_id" != "$d_nonstream_task_id" ]; then
   fail "Agent D non-streaming resume changed taskId from $d_nonstream_task_id to $d_nonstream_resumed_task_id"
@@ -506,6 +518,8 @@ assert_log_contains "$TMP_DIR/agent-b.log" "A2A call agent=agentc-streaming stre
 assert_log_contains "$TMP_DIR/agent-b.log" "A2A call agent=agentc-nonstreaming streaming=false"
 assert_log_contains "$TMP_DIR/agent-b.log" "A2A call agent=agentd-streaming streaming=true"
 assert_log_contains "$TMP_DIR/agent-b.log" "A2A call agent=agentd-nonstreaming streaming=false"
+assert_log_count "$TMP_DIR/agent-b.log" "A2A call agent=agentd-streaming streaming=true" 2
+assert_log_count "$TMP_DIR/agent-b.log" "A2A call agent=agentd-nonstreaming streaming=false" 2
 assert_log_contains "$TMP_DIR/agent-d.log" "Begin to call node [final_response]"
 pass "Configured streaming and non-streaming remote routes were exercised"
 

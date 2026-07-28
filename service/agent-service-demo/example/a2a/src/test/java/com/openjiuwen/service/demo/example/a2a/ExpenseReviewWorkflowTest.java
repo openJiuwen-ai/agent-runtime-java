@@ -30,8 +30,13 @@ class ExpenseReviewWorkflowTest {
                 newSession("auto"), null);
 
         assertThat(output.getState()).isEqualTo(WorkflowExecutionState.COMPLETED);
-        assertThat(String.valueOf(output.getResult())).contains("Agent D expense review completed").contains("WF-AUTO")
-                .contains("COMPLIANT").contains("auto-approved");
+        assertThat(output.getResult()).isInstanceOf(Map.class);
+        Object structuredOutput = ((Map<?, ?>) output.getResult()).get("output");
+        assertThat(structuredOutput).isInstanceOf(Map.class);
+        Map<?, ?> result = (Map<?, ?>) structuredOutput;
+        assertThat(result.get("claim_id")).isEqualTo("WF-AUTO");
+        assertThat(result.get("policy_status")).isEqualTo("COMPLIANT");
+        assertThat(result.get("auto_decision")).isEqualTo("auto-approved");
     }
 
     @Test

@@ -262,8 +262,10 @@ function Assert-PlainTerminalArtifacts {
             } catch {
                 continue
             }
-            if ($envelope -is [System.Management.Automation.PSCustomObject] -or $envelope -is [array]) {
-                throw "structured JSON leaked into parts.text instead of parts.data"
+            if ($envelope -is [System.Management.Automation.PSCustomObject] -and `
+                $envelope.type -in @("answer", "workflow_final") -and `
+                $null -ne $envelope.payload) {
+                throw "AgentCore terminal envelope leaked into parts.text"
             }
         }
     }
@@ -294,6 +296,14 @@ function Assert-LogContains {
     param([string]$LogFile, [string]$Expected)
     if (-not (Select-String -LiteralPath $LogFile -SimpleMatch $Expected -Quiet)) {
         throw "log $LogFile did not contain: $Expected"
+    }
+}
+
+function Assert-LogCount {
+    param([string]$LogFile, [string]$Expected, [int]$ExpectedCount)
+    $actualCount = @(Select-String -LiteralPath $LogFile -SimpleMatch $Expected).Count
+    if ($actualCount -ne $ExpectedCount) {
+        throw "log $LogFile contained '$Expected' $actualCount times; expected $ExpectedCount"
     }
 }
 
@@ -539,7 +549,7 @@ try {
         -TimeoutSec $A2aRequestTimeoutSec
     $dStreamResponse2 | Set-Content -LiteralPath (Join-Path $tmp "d-stream-response-2.txt") -Encoding utf8
     $dStreamTask2 = Read-SseTask $dStreamResponse2 "TASK_STATE_COMPLETED" `
-        "agent d expense review completed" $dStreamClaim "llm_report="
+        "policy_status" $dStreamClaim "llm_report"
     $dStreamArtifacts = @(
         foreach ($line in ($dStreamResponse2 -split "`r?`n")) {
             if ($line.StartsWith("data:")) {
@@ -576,7 +586,7 @@ try {
     $dNonstreamResponse2 = $dNonstreamRawResponse2 | ConvertFrom-Json
     Save-JsonResponse $dNonstreamResponse2 "d-nonstream-response-2.json"
     $dNonstreamTask2 = Read-SyncTask $dNonstreamResponse2 "TASK_STATE_COMPLETED" `
-        "agent d expense review completed" $dNonstreamClaim "llm_report="
+        "policy_status" $dNonstreamClaim "llm_report"
     Assert-PlainTerminalArtifacts @($dNonstreamResponse2.result.task.artifacts) $dNonstreamRawResponse2
     if ($dNonstreamTask2.TaskId -ne $dNonstreamTask1.TaskId) {
         throw "Agent D non-streaming resume changed taskId from $($dNonstreamTask1.TaskId) to $($dNonstreamTask2.TaskId)"
@@ -589,6 +599,8 @@ try {
     Assert-LogContains $agentB.StdoutLog "A2A call agent=agentc-nonstreaming streaming=false"
     Assert-LogContains $agentB.StdoutLog "A2A call agent=agentd-streaming streaming=true"
     Assert-LogContains $agentB.StdoutLog "A2A call agent=agentd-nonstreaming streaming=false"
+    Assert-LogCount $agentB.StdoutLog "A2A call agent=agentd-streaming streaming=true" 2
+    Assert-LogCount $agentB.StdoutLog "A2A call agent=agentd-nonstreaming streaming=false" 2
     Assert-LogContains $agentD.StdoutLog "Begin to call node [final_response]"
     Write-Pass "Configured streaming and non-streaming remote routes were exercised"
 
