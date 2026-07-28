@@ -45,26 +45,33 @@ public final class A2aPartContent {
             }
             if (part instanceof TextPart textPart) {
                 content.append(textPart.text());
-            } else if (part instanceof DataPart dataPart && dataPart.data() != null) {
-                Object data = dataPart.data();
-                Optional<Object> terminalValue = AgentCoreEnvelopeText.terminalValue(data);
-                if (terminalValue.isEmpty() && AgentCoreEnvelopeText.isStreamEnvelope(data)) {
-                    continue;
-                }
-                Object value = terminalValue.orElse(data);
-                content.append(value instanceof String text ? text : GSON.toJson(value));
+                continue;
             }
+            if (!(part instanceof DataPart dataPart) || dataPart.data() == null) {
+                continue;
+            }
+            Object data = dataPart.data();
+            Optional<Object> terminalValue = AgentCoreEnvelopeText.terminalValue(data);
+            if (terminalValue.isEmpty() && AgentCoreEnvelopeText.isStreamEnvelope(data)) {
+                continue;
+            }
+            Object value = terminalValue.orElse(data);
+            content.append(value instanceof String text ? text : GSON.toJson(value));
         }
         return content.toString();
     }
 
     private static boolean isInternalProjection(Part<?> part) {
-        Map<String, Object> metadata = null;
         if (part instanceof TextPart textPart) {
-            metadata = textPart.metadata();
-        } else if (part instanceof DataPart dataPart) {
-            metadata = dataPart.metadata();
+            return hasRemoteInvocationMetadata(textPart.metadata());
         }
+        if (part instanceof DataPart dataPart) {
+            return hasRemoteInvocationMetadata(dataPart.metadata());
+        }
+        return false;
+    }
+
+    private static boolean hasRemoteInvocationMetadata(Map<String, Object> metadata) {
         return metadata != null && metadata.containsKey(REMOTE_INVOCATION_METADATA);
     }
 }

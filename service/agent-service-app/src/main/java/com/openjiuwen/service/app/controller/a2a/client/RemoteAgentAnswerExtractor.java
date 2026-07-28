@@ -103,5 +103,4 @@ public final class RemoteAgentAnswerExtractor {
             return Optional.empty();
         }
     }
-
 }
