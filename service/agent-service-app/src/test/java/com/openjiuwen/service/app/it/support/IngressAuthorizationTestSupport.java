@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.it.support;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.spec.security.AuthorizationRequest;
 import com.openjiuwen.service.spec.security.AuthorizationResult;
 import com.openjiuwen.service.spec.security.FineGrainedAuthorizer;
 
@@ -16,8 +17,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Shared helpers for ingress authorization integration tests.
@@ -82,6 +85,73 @@ public final class IngressAuthorizationTestSupport {
         assertThat(error.get("resource")).isEqualTo(resource);
         assertThat(error.get("action")).isEqualTo(action);
         assertThat(error.get("reason")).isEqualTo(reason);
+    }
+
+    /**
+     * Records authorization requests for integration assertions.
+     */
+    public static final class RecordingFineGrainedAuthorizer implements FineGrainedAuthorizer {
+        private final FineGrainedAuthorizer delegate;
+
+        private final List<AuthorizationRequest> requests = new CopyOnWriteArrayList<>();
+
+        public RecordingFineGrainedAuthorizer(FineGrainedAuthorizer delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public AuthorizationResult authorize(AuthorizationRequest request) {
+            requests.add(request);
+            return delegate.authorize(request);
+        }
+
+        /**
+         * Returns captured authorization requests.
+         *
+         * @return immutable snapshot of requests
+         */
+        public List<AuthorizationRequest> requests() {
+            return List.copyOf(requests);
+        }
+
+        /**
+         * Clears captured requests.
+         */
+        public void clear() {
+            requests.clear();
+        }
+    }
+
+    /**
+     * Spring test configuration that allows all annotated ingress resources.
+     */
+    @TestConfiguration
+    public static class AllowAnnotatedIngressAuthorizerConfig {
+        /**
+         * Allows all ingress resources for integration testing.
+         *
+         * @return recording authorizer bean
+         */
+        @Bean
+        RecordingFineGrainedAuthorizer recordingFineGrainedAuthorizer() {
+            return new RecordingFineGrainedAuthorizer(request -> AuthorizationResult.allow());
+        }
+    }
+
+    /**
+     * Spring test configuration that allows {@code query:execute}.
+     */
+    @TestConfiguration
+    public static class AllowQueryAuthorizerConfig {
+        /**
+         * Allows query execute for integration testing.
+         *
+         * @return recording authorizer bean
+         */
+        @Bean
+        RecordingFineGrainedAuthorizer recordingFineGrainedAuthorizer() {
+            return new RecordingFineGrainedAuthorizer(request -> AuthorizationResult.allow());
+        }
     }
 
     /**

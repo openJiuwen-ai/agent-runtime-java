@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Unit tests for {@link ExternalAuthMaterialMerger}.
@@ -119,5 +120,135 @@ class ExternalAuthMaterialMergerTest {
         assertThat(material.headers()).containsEntry("X-Api-Key", "value");
         assertThat(material.materialExtensions()).containsEntry("expiresAt", 12345L);
         assertThat(material.queryParams()).isEmpty();
+    }
+
+    @Test
+    void mergePlainBearerTokenWithoutDecryption() {
+        ExternalAuthMaterialMerger merger = new ExternalAuthMaterialMerger(new NoOpExternalAuthenticator(),
+            passthroughDecryptor());
+
+        AuthMaterial material = merger.merge(target,
+            new ExternalAuthConfig("bearer", "Authorization", "plain-token", null, null, Map.of()));
+
+        assertThat(material.headers()).containsEntry("Authorization", "Bearer plain-token");
+    }
+
+    @Test
+    void mergeHeaderAuthTypeUsesCustomHeaderName() {
+        ExternalAuthMaterialMerger merger = new ExternalAuthMaterialMerger(new NoOpExternalAuthenticator(),
+            passthroughDecryptor());
+
+        AuthMaterial material = merger.merge(target,
+            new ExternalAuthConfig("header", "X-Sandbox-Token", null, "ENC(token)", null, Map.of()));
+
+        assertThat(material.headers()).containsEntry("X-Sandbox-Token", "plain-ENC(token)");
+        assertThat(material.headers()).doesNotContainKey("Authorization");
+    }
+
+    @Test
+    void mergeUsesRemoteAndSandboxSceneTypes() {
+        AtomicInteger remoteScene = new AtomicInteger();
+        AtomicInteger sandboxScene = new AtomicInteger();
+        CredentialDecryptor decryptor = sceneRecordingDecryptor(remoteScene, sandboxScene);
+        ExternalAuthMaterialMerger merger = new ExternalAuthMaterialMerger(new NoOpExternalAuthenticator(), decryptor);
+
+        ExternalTargetRef remoteTarget = new ExternalTargetRef("REMOTE", "remote-1", "https://remote.internal/a2a",
+            CredentialSceneType.REMOTE_AUTH_TOKEN);
+        ExternalTargetRef sandboxTarget = new ExternalTargetRef("SANDBOX", "sandbox-1", "https://sandbox.internal",
+            CredentialSceneType.SANDBOX_AUTH_TOKEN);
+
+        merger.merge(remoteTarget,
+            new ExternalAuthConfig("bearer", "Authorization", null, "ENC(remote)", null, Map.of()));
+        merger.merge(sandboxTarget,
+            new ExternalAuthConfig("bearer", "Authorization", null, "ENC(sandbox)", null, Map.of()));
+
+        assertThat(remoteScene).hasValue(CredentialSceneType.REMOTE_AUTH_TOKEN);
+        assertThat(sandboxScene).hasValue(CredentialSceneType.SANDBOX_AUTH_TOKEN);
+    }
+
+    @Test
+    void mergePassesAuthExtensionsToSpi() {
+        Map<String, Object> extensions = Map.of("signingAlgorithm", "HMAC-SHA256", "keyRef", "vault:mcp-key");
+        AtomicReference<Map<String, Object>> capturedExtensions = new AtomicReference<>();
+        ExternalAuthenticator authenticator = (ignoredTarget, authConfig) -> {
+            capturedExtensions.set(authConfig.extensions());
+            return AuthMaterial.none();
+        };
+        ExternalAuthMaterialMerger merger = new ExternalAuthMaterialMerger(authenticator, passthroughDecryptor());
+
+        assertThatThrownBy(() -> merger.merge(target,
+            new ExternalAuthConfig("custom", "Authorization", null, null, null, extensions)))
+            .isInstanceOf(ExternalAuthenticationException.class);
+        assertThat(capturedExtensions.get()).containsEntry("signingAlgorithm", "HMAC-SHA256")
+            .containsEntry("keyRef", "vault:mcp-key");
+    }
+
+    @Test
+    void mergePropagatesDecryptFailure() {
+        CredentialDecryptor failingDecryptor = new CredentialDecryptor() {
+            @Override
+            public String decrypt(String ciphertext) {
+                return ciphertext;
+            }
+
+            @Override
+            public String decrypt(String ciphertext, int sceneType) {
+                throw new IllegalStateException("decrypt failed");
+            }
+        };
+        ExternalAuthMaterialMerger merger = new ExternalAuthMaterialMerger(new NoOpExternalAuthenticator(),
+            failingDecryptor);
+
+        assertThatThrownBy(() -> merger.merge(target,
+            new ExternalAuthConfig("bearer", "Authorization", null, "ENC(token)", null, Map.of())))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("decrypt failed");
+    }
+
+    @Test
+    void spiFailureIsPropagatedBeforeOutboundCall() {
+        ExternalAuthenticator authenticator = (ignoredTarget, ignoredConfig) -> {
+            throw new ExternalAuthenticationException("credential invalid");
+        };
+        ExternalAuthMaterialMerger merger = new ExternalAuthMaterialMerger(authenticator, passthroughDecryptor());
+
+        assertThatThrownBy(
+            () -> merger.merge(target, new ExternalAuthConfig("custom", "Authorization", null, null, null, Map.of())))
+            .isInstanceOf(ExternalAuthenticationException.class)
+            .hasMessageContaining("credential invalid");
+    }
+
+    private static CredentialDecryptor passthroughDecryptor() {
+        return new CredentialDecryptor() {
+            @Override
+            public String decrypt(String ciphertext) {
+                return ciphertext;
+            }
+
+            @Override
+            public String decrypt(String ciphertext, int sceneType) {
+                return "plain-" + ciphertext;
+            }
+        };
+    }
+
+    private static CredentialDecryptor sceneRecordingDecryptor(AtomicInteger remoteScene, AtomicInteger sandboxScene) {
+        return new CredentialDecryptor() {
+            @Override
+            public String decrypt(String ciphertext) {
+                return ciphertext;
+            }
+
+            @Override
+            public String decrypt(String ciphertext, int sceneType) {
+                if (sceneType == CredentialSceneType.REMOTE_AUTH_TOKEN) {
+                    remoteScene.set(sceneType);
+                }
+                if (sceneType == CredentialSceneType.SANDBOX_AUTH_TOKEN) {
+                    sandboxScene.set(sceneType);
+                }
+                return "token-" + sceneType;
+            }
+        };
     }
 }

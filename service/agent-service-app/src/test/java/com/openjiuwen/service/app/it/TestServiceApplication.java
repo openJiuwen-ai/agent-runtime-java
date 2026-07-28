@@ -8,6 +8,7 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 
 /**
  * Spring Boot test application wiring a stub {@link AgentHandler} for
@@ -18,6 +19,7 @@ import org.springframework.context.annotation.Bean;
 @SpringBootApplication(scanBasePackages = "com.openjiuwen.service.app")
 public class TestServiceApplication {
     @Bean
+    @Primary
     AgentHandler echoAgentHandler() {
         return new MultiTurnEchoHandler();
     }

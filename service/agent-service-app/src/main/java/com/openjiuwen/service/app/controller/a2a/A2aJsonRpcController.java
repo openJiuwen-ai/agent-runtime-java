@@ -229,6 +229,10 @@ public class A2aJsonRpcController {
         var ctx = new ServerCallContext(UnauthenticatedUser.INSTANCE,
                 Map.of("remote-addr", req.getRemoteAddr(), "path", req.getRequestURI()), Set.of());
         ctx.getState().put(ServerCallContext.STRICT_CONTEXT_VALIDATION_KEY, false);
+        Map<String, String> ingressHeaders = A2AMessageContext.tenantHeadersFrom(req);
+        if (!ingressHeaders.isEmpty()) {
+            ctx.getState().put(A2AMessageContext.INGRESS_HEADERS_STATE_KEY, ingressHeaders);
+        }
         return ctx;
     }
 }

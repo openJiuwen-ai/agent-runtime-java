@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.spec.security.TlsMaterial;
 
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,6 +19,13 @@ import java.util.List;
  * Unit tests for {@link ExternalTlsConfigResolver}.
  */
 class ExternalTlsConfigResolverTest {
+    private static String inlineKeyStoreLocation;
+
+    @BeforeAll
+    static void generateMaterial() throws Exception {
+        inlineKeyStoreLocation = OutboundTlsTestCertificates.generateServerKeyStore().toUri().toString();
+    }
+
     @Test
     void globalRefRequiresEnabledGlobalTls() {
         ExternalTlsConfig tlsConfig = new ExternalTlsConfig();
@@ -60,6 +68,27 @@ class ExternalTlsConfigResolverTest {
             passthroughDecryptor());
 
         assertThat(resolver.resolve(new ExternalTlsConfig())).isEmpty();
+    }
+
+    @Test
+    void inlineTlsWorksWhenGlobalTlsDisabled() {
+        GlobalTlsProperties global = new GlobalTlsProperties();
+        global.setEnabled(false);
+
+        ExternalTlsConfig inline = new ExternalTlsConfig();
+        inline.setEnabled(true);
+        inline.setRef("inline");
+        inline.setKeyStore(keyStoreLocation());
+        inline.setKeyStorePassword(OutboundTlsTestCertificates.PASSWORD);
+        inline.setKeyStoreType("PKCS12");
+
+        ExternalTlsConfigResolver resolver = new ExternalTlsConfigResolver(global, passthroughDecryptor());
+
+        assertThat(resolver.resolve(inline)).isPresent();
+    }
+
+    private static String keyStoreLocation() {
+        return inlineKeyStoreLocation;
     }
 
     private static CredentialDecryptor passthroughDecryptor() {
