@@ -116,12 +116,13 @@ public class A2AAgentExecutor implements AgentExecutor {
             AgentEmitter emitter) {
         AtomicBoolean cancelled = new AtomicBoolean(false);
         AtomicBoolean interrupted = new AtomicBoolean(false);
+        AtomicBoolean failed = new AtomicBoolean(false);
         activeCancellations.put(ctx.getContextId(), cancelled);
         try {
             orchestrator.streamQuery(req, new QueryStreamObserver() {
                 @Override
                 public void onNext(QueryChunk chunk) {
-                    handleStreamingChunk(chunk, msgCtx, emitter, interrupted);
+                    handleStreamingChunk(chunk, msgCtx, emitter, interrupted, failed);
                 }
 
                 @Override
@@ -129,6 +130,8 @@ public class A2AAgentExecutor implements AgentExecutor {
                     if (interrupted.get()) {
                         log.info("A2A stream ended after interrupt (COMPLETED suppressed) taskId={}",
                                 msgCtx.getTaskId());
+                    } else if (failed.get()) {
+                        log.info("A2A stream ended after failure (COMPLETED suppressed) taskId={}", msgCtx.getTaskId());
                     } else {
                         log.info("A2A stream complete taskId={}", msgCtx.getTaskId());
                         emitter.complete();
@@ -139,7 +142,9 @@ public class A2AAgentExecutor implements AgentExecutor {
                 public void onError(Throwable error) {
                     log.error("A2A agent stream error taskId={} contextId={}", msgCtx.getTaskId(),
                             msgCtx.getContextId(), error);
-                    failAndDrain(emitter, msgCtx, error);
+                    if (failed.compareAndSet(false, true)) {
+                        failAndDrain(emitter, msgCtx, error);
+                    }
                 }
 
                 @Override
@@ -153,8 +158,13 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private void handleStreamingChunk(QueryChunk chunk, A2AMessageContext msgCtx, AgentEmitter emitter,
-            AtomicBoolean interrupted) {
-        if (interrupted.get()) {
+            AtomicBoolean interrupted, AtomicBoolean failed) {
+        if (interrupted.get() || failed.get()) {
+            return;
+        }
+        if (QueryChunk.TYPE_ERROR.equals(chunk.getType())) {
+            failed.set(true);
+            failAndDrain(emitter, msgCtx, streamChunkFailure(chunk));
             return;
         }
         if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
@@ -173,6 +183,21 @@ public class A2AAgentExecutor implements AgentExecutor {
         if (!parts.isEmpty()) {
             emitter.addArtifact(parts);
         }
+    }
+
+    private static RuntimeException streamChunkFailure(QueryChunk chunk) {
+        Object data = chunk.getData();
+        Optional<String> businessMessage = AgentCoreEnvelopeText.businessText(data);
+        String message = businessMessage.orElseGet(() -> {
+            if (data instanceof Map<?, ?> map && map.get("error") != null) {
+                return String.valueOf(map.get("error"));
+            }
+            if (data instanceof String text && !text.isBlank()) {
+                return text;
+            }
+            return "Agent streaming execution failed";
+        });
+        return new IllegalStateException(message);
     }
 
     private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter) {

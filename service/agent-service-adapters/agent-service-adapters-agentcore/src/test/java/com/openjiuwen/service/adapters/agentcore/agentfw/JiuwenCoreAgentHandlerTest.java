@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * JiuwenCoreAgentHandlerTest
@@ -104,6 +105,39 @@ class JiuwenCoreAgentHandlerTest {
 
         assertThat(chunks).hasSize(1);
         assertThat(agent.nextCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    void coreErrorOutputTerminatesStreamAsFailure() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new ErrorStreamingAgent());
+        List<QueryChunk> chunks = new ArrayList<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicBoolean completed = new AtomicBoolean(false);
+
+        handler.streamQuery(request("c-stream-error", "fail"), new QueryStreamObserver() {
+            @Override
+            public void onNext(QueryChunk chunk) {
+                chunks.add(chunk);
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                failure.set(error);
+            }
+
+            @Override
+            public void onComplete() {
+                completed.set(true);
+            }
+        });
+
+        assertThat(chunks).singleElement().satisfies(chunk -> {
+            assertThat(chunk.getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+            assertThat(chunk.getData()).isInstanceOfSatisfying(Map.class,
+                    data -> assertThat(data).containsEntry("type", "error"));
+        });
+        assertThat(failure.get()).isInstanceOf(IllegalStateException.class).hasMessage("Connection refused");
+        assertThat(completed.get()).isFalse();
     }
 
     @Test
@@ -698,6 +732,23 @@ class JiuwenCoreAgentHandlerTest {
                     return new OutputSchema("llm_output", index, payload);
                 }
             };
+        }
+    }
+
+    /** Test agent that reports a Core streaming failure as an OutputSchema. */
+    public static class ErrorStreamingAgent {
+        /**
+         * Streams one structured failure, matching ReActAgent and DeepAgent behavior.
+         *
+         * @param inputs inputs
+         * @param session session
+         * @param streamModes streamModes
+         * @return Iterator<Object>
+         */
+        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+            return List.<Object>of(
+                    new OutputSchema("error", 0, Map.of("output", "Connection refused", "result_type", "error")))
+                    .iterator();
         }
     }
 
