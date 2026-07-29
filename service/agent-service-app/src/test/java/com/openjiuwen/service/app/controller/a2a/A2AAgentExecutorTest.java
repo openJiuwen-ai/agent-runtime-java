@@ -155,6 +155,15 @@ class A2AAgentExecutorTest {
     }
 
     @Test
+    void inputRequiredQueueRemainsOpenWhenDrainTimesOut() {
+        NeverDrainingEventQueue queue = new NeverDrainingEventQueue();
+
+        A2AAgentExecutor.closeWhenDrained(queue, "task-1", 0L);
+
+        assertThat(queue.closeCalls.get()).isZero();
+    }
+
+    @Test
     void failurePathEmitsFailedStatusWithBusinessError() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenThrow(new IllegalStateException("remote boom"));
@@ -392,6 +401,20 @@ class A2AAgentExecutorTest {
 
         @Override
         public void close(boolean isImmediate, boolean shouldNotifyParent) {
+        }
+    }
+
+    private static final class NeverDrainingEventQueue extends CountingEventQueue {
+        private final AtomicInteger closeCalls = new AtomicInteger();
+
+        @Override
+        public int size() {
+            return 1;
+        }
+
+        @Override
+        public void close(boolean isImmediate, boolean shouldNotifyParent) {
+            closeCalls.incrementAndGet();
         }
     }
 }

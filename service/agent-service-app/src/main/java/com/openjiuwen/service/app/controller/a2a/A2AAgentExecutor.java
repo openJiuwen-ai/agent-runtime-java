@@ -47,9 +47,10 @@ public class A2AAgentExecutor implements AgentExecutor {
     private static final String INTERRUPT = "_interrupt";
 
     /**
-     * Dead-time bound for waiting on the in-flight queue to drain before
-     * force-closing the stream. The wait returns as soon as the queue actually
-     * drains, so this only caps the worst case; it is set generously because under
+     * Dead-time bound for waiting on the in-flight queue to drain before closing
+     * the stream. The wait returns as soon as the queue actually drains; on timeout
+     * the queue stays open so a late interrupted status can still be delivered. The
+     * bound is set generously because under
      * a high-latency Redis task store the event-bus processor persists each
      * backed-up streaming event with a blocking round-trip, so a large backlog can
      * take a while to clear.
@@ -278,22 +279,29 @@ public class A2AAgentExecutor implements AgentExecutor {
         try {
             Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
             if (queue.isPresent()) {
-                org.a2aproject.sdk.server.events.EventQueue q = queue.get();
-                awaitInFlightDrained(q, taskId);
-                q.close(false, false);
+                closeWhenDrained(queue.get(), taskId, CLOSE_DRAIN_TIMEOUT_MS);
             }
-            log.info("A2A eventQueue closed (INPUT_REQUIRED preserved) taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
             log.warn("A2A closeEventQueue failed, falling back to complete() taskId={}", taskId, e);
             emitter.complete();
         }
     }
 
+    static void closeWhenDrained(org.a2aproject.sdk.server.events.EventQueue queue, String taskId, long timeoutMs) {
+        if (awaitInFlightDrained(queue, taskId, timeoutMs)) {
+            queue.close(false, false);
+            log.info("A2A eventQueue closed (INPUT_REQUIRED preserved) taskId={}", taskId);
+            return;
+        }
+        log.warn("A2A eventQueue still has in-flight events after {}ms; leaving it open to preserve INPUT_REQUIRED "
+                + "delivery taskId={}", timeoutMs, taskId);
+    }
+
     private static void completeAndDrain(AgentEmitter emitter, String taskId) {
         emitter.complete();
         try {
             Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
-            queue.ifPresent(q -> awaitInFlightDrained(q, taskId));
+            queue.ifPresent(q -> awaitInFlightDrained(q, taskId, CLOSE_DRAIN_TIMEOUT_MS));
             log.info("A2A eventQueue drained after COMPLETED taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
             log.debug("A2A completeAndDrain: eventQueue unavailable taskId={}", taskId, e);
@@ -308,7 +316,7 @@ public class A2AAgentExecutor implements AgentExecutor {
         String taskId = msgCtx.getTaskId();
         try {
             Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
-            queue.ifPresent(q -> awaitInFlightDrained(q, taskId));
+            queue.ifPresent(q -> awaitInFlightDrained(q, taskId, CLOSE_DRAIN_TIMEOUT_MS));
             log.info("A2A eventQueue drained after FAILED taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
             log.debug("A2A failAndDrain: eventQueue unavailable taskId={}", taskId, e);
@@ -333,16 +341,20 @@ public class A2AAgentExecutor implements AgentExecutor {
      * child queue. {@code MainQueue.size()} only returns to zero after
      * {@code distributeToChildren()} and the matching semaphore release, so this is
      * the reliable "safe to close" signal. Returns early as soon as the queue
-     * drains and only blocks up to {@link #CLOSE_DRAIN_TIMEOUT_MS}; falls back to
-     * an immediate close if the topology or {@code size()} cannot be read
-     * reflectively.
+     * drains and only blocks up to the supplied timeout. A timeout or unavailable
+     * queue size is reported to the caller so it can avoid closing ahead of an
+     * in-flight interrupted status.
      *
      * @param childQueue
      *            the emitter's (child) event queue
      * @param taskId
      *            the A2A task ID for logging
+     * @param timeoutMs
+     *            maximum time to wait for in-flight events
+     * @return {@code true} when the queue drained before the timeout
      */
-    private static void awaitInFlightDrained(org.a2aproject.sdk.server.events.EventQueue childQueue, String taskId) {
+    private static boolean awaitInFlightDrained(org.a2aproject.sdk.server.events.EventQueue childQueue, String taskId,
+            long timeoutMs) {
         Object sizeTarget = childQueue;
         try {
             var parentField = childQueue.getClass().getDeclaredField("parent");
@@ -354,24 +366,24 @@ public class A2AAgentExecutor implements AgentExecutor {
         } catch (ReflectiveOperationException | SecurityException e) {
             log.debug("A2A awaitInFlightDrained: no parent queue, polling child queue taskId={}", taskId);
         }
-        long deadline = System.currentTimeMillis() + CLOSE_DRAIN_TIMEOUT_MS;
+        long deadline = System.currentTimeMillis() + timeoutMs;
         try {
             var sizeMethod = sizeTarget.getClass().getMethod("size");
             sizeMethod.setAccessible(true);
             while (System.currentTimeMillis() < deadline) {
                 Object size = sizeMethod.invoke(sizeTarget);
                 if (size instanceof Integer i && i <= 0) {
-                    return;
+                    return true;
                 }
                 Thread.sleep(CLOSE_DRAIN_POLL_MS);
             }
-            log.warn("A2A awaitInFlightDrained timed out after {}ms, closing anyway taskId={}", CLOSE_DRAIN_TIMEOUT_MS,
-                    taskId);
+            return false;
         } catch (InterruptedException e) {
             log.debug("A2A awaitInFlightDrained interrupted taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
-            log.debug("A2A awaitInFlightDrained: size() unavailable, closing immediately taskId={}", taskId);
+            log.debug("A2A awaitInFlightDrained: size() unavailable taskId={}", taskId);
         }
+        return false;
     }
 
     @Override
