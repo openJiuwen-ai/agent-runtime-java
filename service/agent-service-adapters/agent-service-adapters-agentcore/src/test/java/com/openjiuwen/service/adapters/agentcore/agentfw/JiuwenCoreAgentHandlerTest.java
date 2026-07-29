@@ -5,18 +5,26 @@
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.openjiuwen.core.common.schema.BaseCard;
+import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
+import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.core.runner.base.TagMatchStrategy;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
+import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
+import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.core.workflow.WorkflowOutput;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -508,6 +516,35 @@ class JiuwenCoreAgentHandlerTest {
 
         QueryResponse third = handler.query(request("c-reset-session", "c"));
         assertThat((Map<String, Object>) third.getResult()).containsEntry("content", "turn1:c");
+    }
+
+    @Test
+    void clearSessionClearsReActAgentContextEngine() {
+        ReActAgent agent = mock(ReActAgent.class);
+        ContextEngine contextEngine = mock(ContextEngine.class);
+        when(agent.getContextEngine()).thenReturn(contextEngine);
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
+
+        handler.clearSession("c-reset-context");
+
+        verify(contextEngine).clearContextBySession("c-reset-context");
+    }
+
+    @Test
+    void clearSessionResolvesRegisteredAgentContextEngine() {
+        String agentId = "registered-reset-context-agent";
+        ReActAgent agent = mock(ReActAgent.class);
+        ContextEngine contextEngine = mock(ContextEngine.class);
+        when(agent.getContextEngine()).thenReturn(contextEngine);
+        Runner.resourceMgr().addAgent(AgentCard.builder().id(agentId).name(agentId).build(), () -> agent, null);
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agentId);
+
+        try {
+            handler.clearSession("c-registered-reset-context");
+            verify(contextEngine).clearContextBySession("c-registered-reset-context");
+        } finally {
+            Runner.resourceMgr().removeAgent(agentId, null, TagMatchStrategy.ALL, true);
+        }
     }
 
     @Test

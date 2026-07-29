@@ -5,6 +5,7 @@
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import com.openjiuwen.core.common.schema.BaseCard;
+import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
@@ -14,9 +15,12 @@ import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.session.stream.TraceSchema;
+import com.openjiuwen.core.singleagent.ControllerAgent;
+import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.core.workflow.WorkflowOutput;
+import com.openjiuwen.harness.deep_agent.DeepAgent;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -182,6 +186,27 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         log.info("Releasing AgentCore session for conversation_id={}", conversationId);
         Runner.release(conversationId);
+        contextEngine(resolveAgent()).ifPresent(engine -> engine.clearContextBySession(conversationId));
+    }
+
+    private Object resolveAgent() {
+        return agent instanceof String agentId ? Runner.resourceMgr().getAgent(agentId) : agent;
+    }
+
+    private static Optional<ContextEngine> contextEngine(Object resolvedAgent) {
+        if (resolvedAgent instanceof ReActAgent reactAgent) {
+            return Optional.ofNullable(reactAgent.getContextEngine());
+        }
+        if (resolvedAgent instanceof ControllerAgent controllerAgent) {
+            return Optional.ofNullable(controllerAgent.getContextEngine());
+        }
+        if (resolvedAgent instanceof DeepAgent deepAgent) {
+            return contextEngine(deepAgent.getAgent());
+        }
+        if (resolvedAgent instanceof com.openjiuwen.core.singleagent.legacy.BaseAgent legacyAgent) {
+            return Optional.ofNullable(legacyAgent.getContextEngine());
+        }
+        return Optional.empty();
     }
 
     @Override
