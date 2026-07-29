@@ -28,9 +28,15 @@ public class FineGrainedAuthorizerBootstrapValidator implements InitializingBean
 
     @Override
     public void afterPropertiesSet() {
-        if (authorizerProvider.getIfAvailable() == null) {
+        long authorizerCount = authorizerProvider.stream().count();
+        if (authorizerCount == 0) {
             throw new IllegalStateException(
                 "openjiuwen.service.security.auth.enabled=true requires a FineGrainedAuthorizer @Bean");
+        }
+        if (authorizerCount > 1) {
+            throw new IllegalStateException(
+                "openjiuwen.service.security.auth.enabled=true requires exactly one FineGrainedAuthorizer @Bean, found "
+                    + authorizerCount);
         }
     }
 }

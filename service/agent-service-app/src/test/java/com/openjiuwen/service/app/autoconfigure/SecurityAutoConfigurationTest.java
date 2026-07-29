@@ -67,4 +67,37 @@ class SecurityAutoConfigurationTest {
                     assertThat(properties.getAuth().isEnabled()).isFalse();
                 });
     }
+
+    @Test
+    void securityDisabledIgnoresTlsAndAuthSubSwitches() {
+        contextRunner.withPropertyValues("openjiuwen.service.security.enabled=false",
+                "openjiuwen.service.security.tls.enabled=true", "openjiuwen.service.security.auth.enabled=true")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(ResourceAuthorizationAspect.class);
+                    assertThat(context).doesNotHaveBean(FineGrainedAuthorizerBootstrapValidator.class);
+                });
+    }
+
+    @Test
+    void authDisabledDoesNotRegisterAspectEvenWhenSecurityEnabled() {
+        contextRunner.withPropertyValues("openjiuwen.service.security.enabled=true",
+                "openjiuwen.service.security.auth.enabled=false")
+                .withBean(FineGrainedAuthorizer.class, () -> request -> AuthorizationResult.allow()).run(context -> {
+                    assertThat(context).doesNotHaveBean(ResourceAuthorizationAspect.class);
+                    assertThat(context).doesNotHaveBean(FineGrainedAuthorizerBootstrapValidator.class);
+                });
+    }
+
+    @Test
+    void multipleAuthorizerBeansFailStartup() {
+        contextRunner
+                .withPropertyValues("openjiuwen.service.security.enabled=true",
+                        "openjiuwen.service.security.auth.enabled=true")
+                .withBean("authorizerA", FineGrainedAuthorizer.class, () -> request -> AuthorizationResult.allow())
+                .withBean("authorizerB", FineGrainedAuthorizer.class, () -> request -> AuthorizationResult.allow())
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasMessageContaining("FineGrainedAuthorizer");
+                });
+    }
 }

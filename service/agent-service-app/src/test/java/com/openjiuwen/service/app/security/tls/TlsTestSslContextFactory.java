@@ -6,8 +6,10 @@ package com.openjiuwen.service.app.security.tls;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.KeyStore;
 import java.security.SecureRandom;
@@ -71,6 +73,41 @@ public final class TlsTestSslContextFactory {
             }
         } else {
             throw new IOException("Failed to open HTTPS connection");
+        }
+    }
+
+    /**
+     * Performs an HTTPS POST with a JSON body and returns the HTTP status code.
+     *
+     * @param port server port
+     * @param sslContext client SSL context
+     * @param path request path
+     * @param jsonBody JSON request body
+     * @return HTTP status code
+     * @throws IOException if the request fails before a response is received
+     */
+    public static int postJsonStatusCode(int port, SSLContext sslContext, String path, String jsonBody)
+            throws IOException {
+        URL url = new URL("https://127.0.0.1:" + port + path);
+        URLConnection connection = url.openConnection();
+        if (!(connection instanceof HttpsURLConnection httpsConnection)) {
+            throw new IOException("Failed to open HTTPS connection");
+        }
+        httpsConnection.setSSLSocketFactory(sslContext.getSocketFactory());
+        httpsConnection.setConnectTimeout(5_000);
+        httpsConnection.setReadTimeout(5_000);
+        httpsConnection.setRequestMethod("POST");
+        httpsConnection.setDoOutput(true);
+        httpsConnection.setRequestProperty("Content-Type", "application/json");
+        byte[] payload = jsonBody.getBytes(StandardCharsets.UTF_8);
+        httpsConnection.setFixedLengthStreamingMode(payload.length);
+        try (OutputStream outputStream = httpsConnection.getOutputStream()) {
+            outputStream.write(payload);
+        }
+        try {
+            return httpsConnection.getResponseCode();
+        } finally {
+            httpsConnection.disconnect();
         }
     }
 
