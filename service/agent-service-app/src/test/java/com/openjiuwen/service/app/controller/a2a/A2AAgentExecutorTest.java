@@ -191,6 +191,31 @@ class A2AAgentExecutorTest {
     }
 
     @Test
+    void streamingErrorChunkFailsWithoutArtifactOrCompletedStatus() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, Map.of("type", "error", "payload",
+                    Map.of("output", "LLM connection refused", "result_type", "error"))));
+            observer.onComplete();
+        })).when(orchestrator).streamQuery(any(), any());
+        RequestContext context = requestContext("task-1", "ctx-1", true);
+        A2AProtocolAdapter adapter = requestAdapter(true, Map.of());
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
+
+        assertThat(queue.events).noneMatch(TaskArtifactUpdateEvent.class::isInstance);
+        assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast)
+                .filteredOn(event -> event.status().state() == TaskState.TASK_STATE_FAILED).singleElement()
+                .satisfies(event -> assertThat(event.status().message().parts()).singleElement().isInstanceOfSatisfying(
+                        TextPart.class, part -> assertThat(part.text()).isEqualTo("LLM connection refused")));
+        assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast)
+                .noneMatch(event -> event.status().state() == TaskState.TASK_STATE_COMPLETED);
+    }
+
+    @Test
     void copiesOnlyStoredInterruptOntoResumeRequest() {
         Map<String, Object> interaction = Map.of("kind", "message", "message", "Continue");
         Message statusMessage = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart("Continue")))

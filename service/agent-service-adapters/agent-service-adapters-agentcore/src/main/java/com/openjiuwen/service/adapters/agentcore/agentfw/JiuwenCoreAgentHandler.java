@@ -227,6 +227,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 Object raw = source.next();
                 Object normalized = normalizeChunk(raw);
                 String chunkType = mapToQueryChunkType(normalized);
+                if (QueryChunk.TYPE_ERROR.equals(chunkType)) {
+                    observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, normalized));
+                    observer.onError(toStreamException(normalized));
+                    return;
+                }
                 if (QueryChunk.TYPE_INTERRUPT.equals(chunkType) && normalized instanceof Map<?, ?> map) {
                     interrupts.add(copyStringMap(map));
                 } else {
@@ -592,7 +597,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     /**
      * Maps the internal agent-core OutputSchema type to a standard
      * {@link QueryChunk} type, so downstream code never sees agent-core-internal
-     * type strings. Only the interrupt signal needs a distinct top-level type;
+     * type strings. Interrupt and error signals keep distinct top-level types;
      * every other chunk (the final answer included) is a plain
      * {@link QueryChunk#TYPE_CHUNK} — its fine-grained type travels transparently
      * inside the chunk's own {@code {type,index,payload}} envelope.
@@ -608,7 +613,16 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (INTERACTION_TYPE.equals(m.get("type"))) {
             return QueryChunk.TYPE_INTERRUPT;
         }
+        if (QueryChunk.TYPE_ERROR.equals(m.get("type"))) {
+            return QueryChunk.TYPE_ERROR;
+        }
         return QueryChunk.TYPE_CHUNK;
+    }
+
+    private static RuntimeException toStreamException(Object normalized) {
+        String message = extractContent(normalized, STREAM_CONTENT_KEYS, false).filter(content -> !content.isBlank())
+                .orElse("AgentCore streaming execution failed");
+        return new IllegalStateException(message);
     }
 
     /**
