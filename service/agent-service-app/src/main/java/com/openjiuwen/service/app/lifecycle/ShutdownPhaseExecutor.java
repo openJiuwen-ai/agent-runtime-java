@@ -71,7 +71,11 @@ public final class ShutdownPhaseExecutor {
         }
         AgentHandler handler = agentHandlerProvider.getIfAvailable();
         if (handler != null) {
-            handler.stop();
+            try {
+                handler.stop();
+            } catch (Exception ex) {
+                log.warn("AgentHandler.stop() failed", ex);
+            }
         }
         readiness.markProcessDown();
         log.info("Agent shutdown phase completed for application '{}'", appName);

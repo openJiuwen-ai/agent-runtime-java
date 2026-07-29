@@ -49,7 +49,17 @@ class ActiveStreamInterruptorTest {
     }
 
     @Test
-    void interruptWithoutOrchestratorStillNotifiesHandlers() {
+    void interruptUnknownConversationIdStillNotifiesHandlers() {
+        ActiveStreamInterruptor interruptor = newInterruptor(null);
+
+        interruptor.interrupt("missing-conv");
+
+        assertThat(interruptCount.get()).isEqualTo(1);
+        assertThat(registry.activeCount()).isZero();
+    }
+
+    @Test
+    void interruptWithoutActiveStreamStillNotifiesHandlers() {
         StreamCancellationHandle handle = registry.register("c1");
         ActiveStreamInterruptor interruptor = newInterruptor(null);
 

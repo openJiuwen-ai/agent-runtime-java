@@ -146,6 +146,25 @@ class RedisMiddlewareAutoConfigurationTest {
     }
 
     @Test
+    void doesNotCreateRedisClientWhenCheckpointerTypeIsMysql() {
+        contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=mysql",
+                "openjiuwen.service.middleware.redis.default.host=redis.local")
+                .run(context -> assertThat(context).doesNotHaveBean(RuntimeRedisClient.class));
+    }
+
+    @Test
+    void doesNotCreateRedisClientWhenCheckpointerTypeIsPersistence() {
+        contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=persistence")
+                .run(context -> assertThat(context).doesNotHaveBean(RuntimeRedisClient.class));
+    }
+
+    @Test
+    void doesNotCreateRedisClientWhenCheckpointerTypeIsBlank() {
+        contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=")
+                .run(context -> assertThat(context).doesNotHaveBean(RuntimeRedisClient.class));
+    }
+
+    @Test
     void doesNotCreateRedisClientWhenCheckpointerIsNotRedis() {
         contextRunner.run(context -> assertThat(context).doesNotHaveBean(RuntimeRedisClient.class));
     }
