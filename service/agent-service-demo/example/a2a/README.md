@@ -377,7 +377,7 @@ curl -sS -N -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
-恢复后应进入 `TASK_STATE_COMPLETED`。Agent D 的结构化最终结果通过 `parts.data` 传递，逐层返回后的用户结果应包含 `claim_id`、`WF-STREAM-001`、`policy_status`、`OVER_LIMIT`、`approved` 和 `llm_report`，且不得包含未解开的 `workflow_final` AgentCore 信封。
+恢复后应进入 `TASK_STATE_COMPLETED`，保持原 `taskId`，且不得包含未解开的 `workflow_final` AgentCore 信封。Agent D 的结构化最终结果通过 `parts.data` 传递，但经过 Agent B 和 Agent A 的 ReAct 层后，最外层文本可能被模型重新表述；烟测不对该文本的字段名或格式做断言。
 
 ### 场景 5：A -> B -> D 非流式人工审批与恢复
 
@@ -430,7 +430,7 @@ curl -sS -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
-恢复后应进入 `TASK_STATE_COMPLETED`，结果应包含 `claim_id`、`WF-NONSTREAM-001`、`policy_status`、`OVER_LIMIT`、`approved` 和 `llm_report`，并且 Agent B 不应因空工具结果重复调用 Agent D。
+恢复后应进入 `TASK_STATE_COMPLETED` 并保持原 `taskId`，同时 Agent B 不应因空工具结果重复调用 Agent D。烟测不检查经过 ReAct 层后的最终文本字段或格式。
 
 ### 场景 6：A -> B -> D 合规费用自动审批
 
