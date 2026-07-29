@@ -25,6 +25,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
@@ -41,6 +42,10 @@ import java.util.concurrent.ConcurrentMap;
 public class HttpPushNotificationSender implements PushNotificationSender {
     private static final Logger log = LoggerFactory.getLogger(HttpPushNotificationSender.class);
 
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
+
+    private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(10);
+
     private final PushNotificationConfigStore configStore;
 
     private final HttpClient httpClient;
@@ -50,12 +55,16 @@ public class HttpPushNotificationSender implements PushNotificationSender {
     private final ConcurrentMap<String, Object> deliveryLocks = new ConcurrentHashMap<>();
 
     public HttpPushNotificationSender(PushNotificationConfigStore configStore) {
-        this(configStore, HttpClient.newHttpClient());
+        this(configStore, newDefaultHttpClient());
     }
 
     HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient) {
         this.configStore = configStore;
         this.httpClient = httpClient;
+    }
+
+    static HttpClient newDefaultHttpClient() {
+        return HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
     }
 
     @Override
@@ -125,7 +134,7 @@ public class HttpPushNotificationSender implements PushNotificationSender {
     private HttpRequest request(URI callbackUri, String notificationId, TaskPushNotificationConfig config,
             String body) {
         HttpRequest.BodyPublisher publisher = HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8);
-        HttpRequest.Builder builder = HttpRequest.newBuilder(callbackUri).POST(publisher)
+        HttpRequest.Builder builder = HttpRequest.newBuilder(callbackUri).timeout(REQUEST_TIMEOUT).POST(publisher)
                 .header("Content-Type", "application/json").header("X-A2A-Notification-Id", notificationId);
         authorizationHeader(config).ifPresent(value -> builder.header("Authorization", value));
         return builder.build();

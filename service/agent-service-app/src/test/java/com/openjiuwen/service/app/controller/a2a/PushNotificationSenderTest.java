@@ -5,6 +5,10 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -28,7 +32,11 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -45,6 +53,28 @@ class PushNotificationSenderTest {
         if (server != null) {
             server.stop(0);
         }
+    }
+
+    @Test
+    void defaultHttpClientHasConnectTimeout() {
+        assertThat(HttpPushNotificationSender.newDefaultHttpClient().connectTimeout()).contains(Duration.ofSeconds(30));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void callbackRequestHasRequestTimeout() throws Exception {
+        HttpClient httpClient = mock(HttpClient.class);
+        HttpResponse<String> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(
+                configStore("https://callback.example/a2a/push-notifications/callback", null), httpClient);
+
+        sender.sendNotification(completedEvent("task-1"), completedTask("task-1"));
+
+        org.mockito.ArgumentCaptor<HttpRequest> requestCaptor = org.mockito.ArgumentCaptor.forClass(HttpRequest.class);
+        verify(httpClient).send(requestCaptor.capture(), any(HttpResponse.BodyHandler.class));
+        assertThat(requestCaptor.getValue().timeout()).contains(Duration.ofMinutes(10));
     }
 
     @Test
