@@ -252,7 +252,15 @@ function Assert-PlainTerminalArtifacts {
     if ($RawResponse.Contains("\u003d")) {
         throw "response contains HTML-escaped equals signs (\u003d)"
     }
+    $hasTerminalArtifact = $false
     foreach ($artifact in $Artifacts) {
+        $metadataProperty = $artifact.PSObject.Properties["metadata"]
+        if ($null -ne $metadataProperty -and $null -ne $metadataProperty.Value) {
+            $terminalProperty = $metadataProperty.Value.PSObject.Properties["_agentcore_terminal"]
+            if ($null -ne $terminalProperty -and $terminalProperty.Value -eq $true) {
+                $hasTerminalArtifact = $true
+            }
+        }
         foreach ($part in @($artifact.parts)) {
             if ($null -eq $part.text) {
                 continue
@@ -268,6 +276,9 @@ function Assert-PlainTerminalArtifacts {
                 throw "AgentCore terminal envelope leaked into parts.text"
             }
         }
+    }
+    if (-not $hasTerminalArtifact) {
+        throw "response did not contain an artifact marked as the AgentCore terminal result"
     }
 }
 

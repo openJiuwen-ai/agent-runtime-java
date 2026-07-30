@@ -24,12 +24,16 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
 import org.a2aproject.sdk.server.tasks.TaskStore;
+import org.a2aproject.sdk.spec.Artifact;
+import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
+import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -557,6 +561,27 @@ class RemoteInvocationBatchCoordinatorTest {
         assertThat(resolution.results().get("call-a")).isEqualTo("result-a");
         assertThat(resolution.results().get("call-b").toString()).contains("REMOTE_BUSINESS_FAILURE");
         assertThat(resolution.results().get("call-c")).isEqualTo("result-c");
+    }
+
+    @Test
+    void callbackOutcomeUsesOnlyMarkedTerminalArtifact() throws Exception {
+        Artifact textProgress = new Artifact("artifact-text-progress", null, null,
+            List.of(new TextPart("intermediate text")), Map.of(), List.of());
+        Artifact traceProgress = new Artifact("artifact-trace-progress", null, null,
+            List.of(new DataPart(Map.of("type", "trace", "payload", Map.of("content", "reasoning")))),
+            Map.of(), List.of());
+        Artifact answer = new Artifact("artifact-answer", null, null, List.of(new TextPart("final answer")),
+            Map.of("_agentcore_terminal", true), List.of());
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+            .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
+            .artifacts(List.of(textProgress, traceProgress, answer)).build();
+        Method callbackOutcome = RemoteInvocationBatchCoordinator.class.getDeclaredMethod("callbackOutcome",
+            Task.class);
+        callbackOutcome.setAccessible(true);
+
+        RemoteCallOutcome outcome = (RemoteCallOutcome) callbackOutcome.invoke(null, task);
+
+        assertThat(outcome.result()).isEqualTo("final answer");
     }
 
     @Test

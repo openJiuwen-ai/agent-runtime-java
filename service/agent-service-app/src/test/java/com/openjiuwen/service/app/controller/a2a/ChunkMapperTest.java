@@ -43,6 +43,7 @@ class ChunkMapperTest {
         QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_CHUNK, envelope("workflow_final", Map.of("output", output)));
 
         assertThat(data(chunk)).isEqualTo(output);
+        assertThat(mapper.isTerminalResult(chunk)).isTrue();
     }
 
     @Test
@@ -50,6 +51,7 @@ class ChunkMapperTest {
         QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_CHUNK, envelope("llm_output", Map.of("content", "working")));
 
         assertThat(data(chunk)).isEqualTo(chunk.getData());
+        assertThat(mapper.isTerminalResult(chunk)).isFalse();
     }
 
     @Test
@@ -85,6 +87,7 @@ class ChunkMapperTest {
 
         assertThat(part.data()).isEqualTo(content);
         assertThat(part.metadata()).containsEntry("_remote_invocation", projection);
+        assertThat(mapper.isTerminalResult(chunk)).isFalse();
     }
 
     private String text(QueryChunk chunk) {
