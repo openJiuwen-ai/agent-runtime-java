@@ -787,12 +787,12 @@ final class RemoteInvocationBatchCoordinator {
         data.put("projection", projection);
         try {
             batch.observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT, data));
-        } catch (RuntimeException ex) {
+        } catch (IllegalStateException ex) {
             failRemoteOutput(batch, ex);
         }
     }
 
-    private void failRemoteOutput(Batch batch, RuntimeException cause) {
+    private void failRemoteOutput(Batch batch, IllegalStateException cause) {
         boolean isBatchFailed = false;
         synchronized (lock) {
             if (!batch.isResolved) {
