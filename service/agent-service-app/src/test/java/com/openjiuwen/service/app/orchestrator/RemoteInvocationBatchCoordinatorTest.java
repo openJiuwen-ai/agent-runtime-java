@@ -44,11 +44,13 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Verifies bounded parallel remote invocation, projection, persistence, and targeted resume behavior.
+ * Verifies bounded parallel remote invocation, output forwarding, persistence, and targeted resume behavior.
  *
  * @since 0.1.0
  */
 class RemoteInvocationBatchCoordinatorTest {
+    private static final int REMOTE_OUTPUT_COUNT = 256;
+
     @Test
     void concurrentCompletionKeepsOriginalToolCallOrder() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
@@ -71,89 +73,63 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     @Test
-    void concurrentProgressKeepsMemberProjectionSequenceInEmissionOrder() {
+    void concurrentRemoteOutputsKeepSourceMetadataWithoutStateProjections() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
-        AtomicReference<QueryStreamObserver> progressObserver = new AtomicReference<>();
+        AtomicReference<QueryStreamObserver> outputObserver = new AtomicReference<>();
         when(client.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
-            progressObserver.set(invocation.getArgument(1));
+            outputObserver.set(invocation.getArgument(1));
             return outcome;
         });
-        List<Long> sequences = Collections.synchronizedList(new ArrayList<>());
-        QueryStreamObserver observer = new QueryStreamObserver() {
-            @Override
-            public void onNext(QueryChunk chunk) {
-                if (chunk.getData() instanceof Map<?, ?> data
-                        && data.get("projection") instanceof Map<?, ?> projection
-                        && projection.get("sequence") instanceof Number sequence) {
-                    sequences.add(sequence.longValue());
-                }
-            }
-
-            @Override
-            public void onComplete() {
-            }
-
-            @Override
-            public void onError(Throwable error) {
-            }
-        };
+        List<QueryChunk> outputs = Collections.synchronizedList(new ArrayList<>());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> {
+            outputs.add(invocation.getArgument(0));
+            return null;
+        }).when(observer).onNext(any());
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-progress-order", "call-a"), request("parent-progress-order", Map.of()), observer);
         assertThat(result.isDone()).isFalse();
-        CountDownLatch start = new CountDownLatch(1);
-        List<CompletableFuture<Void>> callbacks = new ArrayList<>();
-        for (int index = 0; index < 256; index++) {
-            callbacks.add(CompletableFuture.runAsync(() -> {
-                try {
-                    start.await();
-                } catch (InterruptedException ex) {
-                    throw new IllegalStateException(ex);
-                }
-                progressObserver.get().onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "progress"));
-            }));
-        }
-
-        start.countDown();
-        CompletableFuture.allOf(callbacks.toArray(CompletableFuture[]::new)).join();
-        List<Long> emittedBeforeCompletion = new ArrayList<>(sequences);
+        emitConcurrentOutputs(outputObserver.get());
+        List<QueryChunk> emittedBeforeCompletion = new ArrayList<>(outputs);
         outcome.complete(completed("remote-a", "result-a"));
         result.join();
 
-        assertThat(emittedBeforeCompletion).isSorted().doesNotHaveDuplicates();
+        assertRemoteOutputs(emittedBeforeCompletion);
+        assertThat(outputs).hasSize(REMOTE_OUTPUT_COUNT);
     }
 
     @Test
-    void batchDoesNotResolveBeforeQueuedProjectionsAreDelivered() throws Exception {
+    void batchDoesNotResolveBeforeQueuedRemoteOutputsAreDelivered() throws Exception {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = new LinkedHashMap<>();
-        Map<String, QueryStreamObserver> progressObservers = new LinkedHashMap<>();
+        Map<String, QueryStreamObserver> outputObservers = new LinkedHashMap<>();
         when(client.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             String id = call.message().substring("message-".length());
-            progressObservers.put(id, invocation.getArgument(1));
+            outputObservers.put(id, invocation.getArgument(1));
             return outcomes.computeIfAbsent(id, ignored -> new CompletableFuture<>());
         });
-        CountDownLatch projectionEntered = new CountDownLatch(1);
-        CountDownLatch releaseProjection = new CountDownLatch(1);
+        CountDownLatch outputEntered = new CountDownLatch(1);
+        CountDownLatch releaseOutput = new CountDownLatch(1);
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
         doAnswer(invocation -> {
             QueryChunk chunk = invocation.getArgument(0);
-            if (chunk.getData() instanceof Map<?, ?> data && "blocked-progress".equals(data.get("content"))) {
-                projectionEntered.countDown();
-                releaseProjection.await(5, TimeUnit.SECONDS);
+            if (chunk.getData() instanceof Map<?, ?> data && "blocked-output".equals(data.get("content"))) {
+                outputEntered.countDown();
+                releaseOutput.await(5, TimeUnit.SECONDS);
             }
             return null;
         }).when(observer).onNext(any());
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 2);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
-            batch("batch-projection-barrier", "call-a", "call-b"),
-            request("parent-projection-barrier", Map.of()), observer);
+            batch("batch-output-barrier", "call-a", "call-b"),
+            request("parent-output-barrier", Map.of()), observer);
         assertThat(result).isNotDone();
-        CompletableFuture<Void> blockedCallback = CompletableFuture.runAsync(() -> progressObservers.get("call-a")
-            .onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "blocked-progress")));
-        assertThat(projectionEntered.await(5, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<Void> blockedCallback = CompletableFuture.runAsync(() -> outputObservers.get("call-a")
+            .onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "blocked-output")));
+        assertThat(outputEntered.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(blockedCallback).isNotDone();
 
         CountDownLatch remoteCompletionStarted = new CountDownLatch(1);
@@ -167,7 +143,7 @@ class RemoteInvocationBatchCoordinatorTest {
             assertThatThrownBy(() -> result.get(200, TimeUnit.MILLISECONDS))
                 .isInstanceOf(TimeoutException.class);
         } finally {
-            releaseProjection.countDown();
+            releaseOutput.countDown();
         }
 
         remoteCompletions.get(5, TimeUnit.SECONDS);
@@ -202,43 +178,17 @@ class RemoteInvocationBatchCoordinatorTest {
 
     @Test
     void queuedMemberTimesOutWithoutWaitingForRunningMemberToFinish() throws Exception {
-        CountDownLatch overloaded = new CountDownLatch(1);
-        QueryStreamObserver observer = new QueryStreamObserver() {
-            @Override
-            public void onNext(QueryChunk chunk) {
-                if (chunk.getData() instanceof Map<?, ?> data
-                        && data.get("projection") instanceof Map<?, ?> projection
-                        && "call-b".equals(projection.get("toolCallId"))
-                        && "REMOTE_OVERLOADED".equals(projection.get("resultCategory"))) {
-                    overloaded.countDown();
-                }
-            }
-
-            @Override
-            public void onComplete() {
-            }
-
-            @Override
-            public void onError(Throwable error) {
-            }
-
-            @Override
-            public boolean isCancelled() {
-                return false;
-            }
-        };
-
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(new InMemoryTaskStore(),
             client, "test-agent", 1, 10, 1);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
-            batch("batch-queue-timeout", "call-a", "call-b"), request("parent-queue-timeout", Map.of()), observer);
+            batch("batch-queue-timeout", "call-a", "call-b"), request("parent-queue-timeout", Map.of()),
+            mock(QueryStreamObserver.class));
 
-        boolean hasExpiredBeforeSlotReleased = overloaded.await(2, TimeUnit.SECONDS);
+        TimeUnit.MILLISECONDS.sleep(1500);
         outcomes.get("call-a").complete(completed("remote-a", "result-a"));
 
-        assertThat(hasExpiredBeforeSlotReleased).isTrue();
         verify(client).callOutcome(any(), any(), any());
         assertThat(result.join().results().get("call-b").toString()).contains("REMOTE_OVERLOADED");
     }
@@ -289,10 +239,11 @@ class RemoteInvocationBatchCoordinatorTest {
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
             "test-agent", 3, 10, 30);
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
 
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-wait", "call-a", "call-b", "call-c"), request("parent-wait", Map.of()),
-            mock(QueryStreamObserver.class));
+            observer);
         outcomes.get("call-a").complete(completed("remote-a", "result-a"));
         outcomes.get("call-b").complete(inputRequired("remote-b", "input-b"));
         outcomes.get("call-c").complete(inputRequired("remote-c", "input-c"));
@@ -302,6 +253,7 @@ class RemoteInvocationBatchCoordinatorTest {
         assertThat((List<Map<String, Object>>) resolution.interrupt().get("items"))
             .extracting(item -> item.get("toolCallId"))
             .containsExactly("call-b", "call-c");
+        verify(observer, never()).onNext(any());
 
         Task shadow = store.get("shadow:test-agent:parent-wait");
         assertThat(shadow).isNotNull();
@@ -337,9 +289,7 @@ class RemoteInvocationBatchCoordinatorTest {
         ServeRequest resumeRequest = request("parent-resume",
             Map.of("runtime.remoteToolInputs", Map.of("call-b", "answer-b")));
 
-        List<QueryChunk> projected = Collections.synchronizedList(new ArrayList<>());
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
-        doAnswer(invocation -> projected.add(invocation.getArgument(0))).when(observer).onNext(any());
         Optional<CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> resumed =
             coordinator.resume(resumeRequest, observer);
         assertThat(resumed).isPresent();
@@ -348,12 +298,7 @@ class RemoteInvocationBatchCoordinatorTest {
         RemoteInvocationBatchCoordinator.BatchResolution resolution = resumed.orElseThrow().join();
         assertThat(resolution.isReadyToResume()).isFalse();
         assertThat(resolution.interrupt().toString()).contains("call-c").doesNotContain("call-b");
-        assertThat(projected).filteredOn(chunk -> chunk.getData() instanceof Map<?, ?> data
-                && data.get("projection") instanceof Map<?, ?> projection
-                && "call-b".equals(projection.get("toolCallId"))
-                && "RUNNING".equals(projection.get("phase")))
-            .allSatisfy(chunk -> assertThat((Map<String, Object>) ((Map<?, ?>) chunk.getData()).get("projection"))
-                .doesNotContainKey("resultCategory"));
+        verify(observer, never()).onNext(any());
         Task shadow = store.get("shadow:test-agent:parent-resume");
         Map<String, Object> snapshot = (Map<String, Object>) shadow.metadata().get("_remote_batch");
         List<Map<String, Object>> members = (List<Map<String, Object>>) snapshot.get("members");
@@ -407,21 +352,27 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     @Test
-    void projectionFailureFailsBatchBeforeStartingRemoteCalls() {
+    void remoteOutputFailureFailsBatchAfterStartingRemoteCall() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
+        AtomicReference<QueryStreamObserver> outputObserver = new AtomicReference<>();
+        when(client.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+            outputObserver.set(invocation.getArgument(1));
+            return outcome;
+        });
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
-        org.mockito.Mockito.doThrow(new RuntimeException("projection sink unavailable"))
+        org.mockito.Mockito.doThrow(new IllegalStateException("output sink unavailable"))
             .when(observer).onNext(any());
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 3);
 
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
-            batch("batch-projection-failure", "call-a", "call-b"), request("parent-projection-failure", Map.of()),
-            observer);
+            batch("batch-output-failure", "call-a"), request("parent-output-failure", Map.of()), observer);
+        outputObserver.get().onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "remote output"));
 
         assertThatThrownBy(result::join)
             .hasCauseInstanceOf(RuntimeException.class)
-            .hasRootCauseMessage("projection sink unavailable");
-        verify(client, never()).callOutcome(any(), any(), any());
+            .hasRootCauseMessage("output sink unavailable");
+        verify(client).callOutcome(any(), any(), any());
     }
 
     @Test
@@ -730,6 +681,44 @@ class RemoteInvocationBatchCoordinatorTest {
     private static RemoteInvocationBatchCoordinator coordinator(A2ARemoteAgentClient client, int maxConcurrency) {
         return new RemoteInvocationBatchCoordinator(new InMemoryTaskStore(), client, "test-agent", maxConcurrency,
             10, 30);
+    }
+
+    private static void emitConcurrentOutputs(QueryStreamObserver observer) {
+        CountDownLatch start = new CountDownLatch(1);
+        List<CompletableFuture<Void>> callbacks = new ArrayList<>();
+        for (int index = 0; index < REMOTE_OUTPUT_COUNT; index++) {
+            callbacks.add(CompletableFuture.runAsync(() -> {
+                try {
+                    start.await();
+                } catch (InterruptedException ex) {
+                    throw new IllegalStateException(ex);
+                }
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "progress"));
+            }));
+        }
+        start.countDown();
+        CompletableFuture.allOf(callbacks.toArray(CompletableFuture[]::new)).join();
+    }
+
+    private static void assertRemoteOutputs(List<QueryChunk> outputs) {
+        assertThat(outputs).hasSize(REMOTE_OUTPUT_COUNT);
+        Map<?, ?> firstData = (Map<?, ?>) outputs.get(0).getData();
+        Map<?, ?> firstProjection = (Map<?, ?>) firstData.get("projection");
+        Object batchId = firstProjection.get("batchId");
+        assertThat(String.valueOf(batchId)).isNotBlank();
+        assertThat(outputs).allSatisfy(chunk -> {
+            assertThat(chunk.getType()).isEqualTo(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT);
+            assertThat(chunk.getData()).isInstanceOfSatisfying(Map.class, data -> {
+                assertThat(data.get("content")).isEqualTo("progress");
+                assertThat(data.get("projection")).isInstanceOfSatisfying(Map.class, projection -> {
+                    assertThat(projection).containsEntry("kind", "remote_agent_output")
+                        .containsEntry("batchId", batchId)
+                        .containsEntry("toolCallId", "call-a")
+                        .containsEntry("target", "agent-call-a")
+                        .doesNotContainKeys("phase", "sequence", "resultCategory", "latencyMs");
+                });
+            });
+        });
     }
 
     private static WaitingBatch waitingBatch(String parentTaskId) {

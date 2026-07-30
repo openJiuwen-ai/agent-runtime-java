@@ -61,24 +61,27 @@ class ChunkMapperTest {
     }
 
     @Test
-    void terminalRemoteProgressKeepsProjectionMetadataAndPlainText() {
-        Map<String, Object> projection = Map.of("target", "agentd-streaming", "phase", "RUNNING");
-        Map<String, Object> progress = Map.of("projection", projection, "content",
-                envelope("workflow_final", Map.of("response", "approved")));
+    void remoteOutputKeepsSourceMetadataAndPlainText() {
+        Map<String, Object> projection = Map.of("kind", "remote_agent_output", "batchId", "batch-a",
+                "toolCallId", "call-a", "target", "agent-a");
+        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT,
+                Map.of("content", "working", "projection", projection));
 
-        TextPart part = part(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_PROGRESS, progress));
+        TextPart part = part(chunk);
 
-        assertThat(part.text()).isEqualTo("approved");
+        assertThat(part.text()).isEqualTo("working");
         assertThat(part.metadata()).containsEntry("_remote_invocation", projection);
     }
 
     @Test
-    void intermediateProgressKeepsMetadataAndStructuredData() {
-        Map<String, Object> projection = Map.of("target", "agentd-streaming", "phase", "RUNNING");
+    void structuredRemoteOutputKeepsSourceMetadata() {
+        Map<String, Object> projection = Map.of("kind", "remote_agent_output", "batchId", "batch-a",
+                "toolCallId", "call-a", "target", "agent-a");
         Map<String, Object> content = envelope("llm_output", Map.of("content", "working"));
-        Map<String, Object> progress = Map.of("projection", projection, "content", content);
+        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT,
+                Map.of("content", content, "projection", projection));
 
-        DataPart part = dataPart(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_PROGRESS, progress));
+        DataPart part = dataPart(chunk);
 
         assertThat(part.data()).isEqualTo(content);
         assertThat(part.metadata()).containsEntry("_remote_invocation", projection);

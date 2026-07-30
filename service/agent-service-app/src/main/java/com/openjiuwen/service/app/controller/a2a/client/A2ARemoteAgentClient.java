@@ -233,7 +233,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * the runtime batch coordinator.
      *
      * @param call remote call coordinates
-     * @param streamObserver observer for ordinary remote progress
+     * @param streamObserver observer for remote business output
      * @param remoteTaskIdObserver observer for remote task IDs used by batch persistence
      * @return structured remote outcome
      */

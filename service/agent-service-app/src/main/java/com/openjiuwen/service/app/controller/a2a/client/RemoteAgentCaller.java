@@ -16,8 +16,8 @@ import java.util.function.Consumer;
  * <ul>
  *   <li>{@link A2ARemoteAgentClient} — baseline, A2A SDK via
  *       {@code Client.builder(card).withTransport(JSONRPCTransport.class, config)};
- *       taps the remote answer artifact and routes intermediate chunks to the
- *       observer.</li>
+ *       taps the remote answer artifact and routes intermediate business chunks
+ *       to the observer.</li>
  *   <li>{@code A2AGatewayRemoteAgentCaller} (deployment module) —
  *       {@code gatewayBaseUrl + "/" + agentName + jsonRpcPath} routing; consumes
  *       {@code responseContent} to append an assistant message to {@code messages}.</li>
@@ -38,8 +38,9 @@ public interface RemoteAgentCaller {
      * <p>Implementations MUST:
      * <ul>
      *   <li>resolve the remote agent entry by {@link RemoteCall#agentName()}</li>
-     *   <li>forward intermediate chunks (streaming artifacts, progress events)
-     *       to {@code streamObserver} when non-null</li>
+     *   <li>forward intermediate business chunks (streaming artifacts) to
+     *       {@code streamObserver} when non-null; remote task-state events belong
+     *       in the returned {@link RemoteCallOutcome}</li>
      *   <li>notify {@code remoteTaskIdObserver} of the remote task id as soon as
      *       it is known, so the batch coordinator can persist it for resume</li>
      *   <li>complete the returned future with a {@link RemoteCallOutcome} on
@@ -51,7 +52,7 @@ public interface RemoteAgentCaller {
      * caller cancels the batch.
      *
      * @param call                 the remote call coordinates
-     * @param streamObserver       observer for intermediate streaming chunks; may be {@code null}
+     * @param streamObserver       observer for intermediate business chunks; may be {@code null}
      * @param remoteTaskIdObserver observer for the remote task id; may be {@code null}
      * @return a future completing with the structured remote outcome
      */
