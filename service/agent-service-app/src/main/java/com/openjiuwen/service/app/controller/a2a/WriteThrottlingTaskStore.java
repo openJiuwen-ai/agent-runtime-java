@@ -108,7 +108,7 @@ public class WriteThrottlingTaskStore implements TaskStore {
 
         if (isCritical || isWriteDue) {
             delegate.save(task, isOverwrite);
-            lastWriteMs.put(id, now);
+            lastWriteMs.put(id, clock.getAsLong());
             if (state != null && state.isFinal()) {
                 // Durable in the delegate now; drop the in-memory copy so the map stays
                 // bounded.
@@ -143,10 +143,9 @@ public class WriteThrottlingTaskStore implements TaskStore {
     public ListTasksResult list(ListTasksParams params) {
         // Flush any coalesced-but-unwritten state so the delegate's scan reflects
         // in-flight tasks too.
-        long now = clock.getAsLong();
         for (Map.Entry<String, Task> e : latest.entrySet()) {
             delegate.save(e.getValue(), true);
-            lastWriteMs.put(e.getKey(), now);
+            lastWriteMs.put(e.getKey(), clock.getAsLong());
         }
         return delegate.list(params);
     }
