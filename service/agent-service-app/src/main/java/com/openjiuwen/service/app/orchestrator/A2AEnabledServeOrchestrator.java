@@ -358,17 +358,17 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
      *
      * @param current
      *            the current serve request
-     * @param progressObserver
-     *            observer for remote-member progress
+     * @param outputObserver
+     *            observer for remote business output
      * @return the next {@link ServeRequest} to continue with, or
      *         {@link Optional#empty()} if the loop should stop
      */
-    private QueryResumeResult syncResumePending(ServeRequest current, QueryStreamObserver progressObserver) {
+    private QueryResumeResult syncResumePending(ServeRequest current, QueryStreamObserver outputObserver) {
         if (isClientToolResume(current)) {
             return QueryResumeResult.continueWith(current);
         }
         Optional<java.util.concurrent.CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> batchResume =
-            batchCoordinator.resume(current, progressObserver);
+            batchCoordinator.resume(current, outputObserver);
         if (batchResume.isPresent()) {
             try {
                 return queryBatchResolution(current, batchResume.get().get(), null);
@@ -395,17 +395,17 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
      *            the current serve request
      * @param response
      *            the query response
-     * @param progressObserver
-     *            observer for remote-member progress
+     * @param outputObserver
+     *            observer for remote business output
      * @return the next {@link ServeRequest} to continue with, or
      *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> handleQueryInterrupt(Map<String, Object> interruptData, ServeRequest current,
-        QueryResponse response, QueryStreamObserver progressObserver) {
+        QueryResponse response, QueryStreamObserver outputObserver) {
         if (isCoordinatorInterrupt(interruptData)) {
             try {
                 QueryResumeResult batchResult = queryBatchResolution(current,
-                    batchCoordinator.execute(interruptData, current, progressObserver).get(), response);
+                    batchCoordinator.execute(interruptData, current, outputObserver).get(), response);
                 if (batchResult.response() != null) {
                     response.setResult(batchResult.response().getResult());
                     return Optional.empty();

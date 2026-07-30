@@ -87,7 +87,6 @@ class A2AEnabledServeOrchestratorCallbackRecoveryTest {
                     "toolName", "tool-a",
                     "agentName", "agent-a",
                     "state", "INPUT_REQUIRED",
-                    "projectionSeq", 1,
                     "remoteTaskId", remoteTaskId,
                     "resultCategory", "INPUT_REQUIRED",
                     "inputPrompt", "waiting")))))

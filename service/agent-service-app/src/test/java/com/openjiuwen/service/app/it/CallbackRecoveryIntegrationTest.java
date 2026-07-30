@@ -95,7 +95,6 @@ class CallbackRecoveryIntegrationTest {
                     "toolName", "remote-tool",
                     "agentName", "callee",
                     "state", "INPUT_REQUIRED",
-                    "projectionSeq", 1,
                     "remoteTaskId", "remote-task-recovery-it",
                     "resultCategory", "INPUT_REQUIRED",
                     "inputPrompt", "waiting for remote callback")))))

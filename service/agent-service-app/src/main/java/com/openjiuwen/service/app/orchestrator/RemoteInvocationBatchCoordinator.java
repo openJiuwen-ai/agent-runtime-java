@@ -146,7 +146,7 @@ final class RemoteInvocationBatchCoordinator {
      *
      * @param interrupt normalized single or multi-member interrupt
      * @param request current parent request
-     * @param observer parent progress observer
+     * @param observer parent observer for remote business output
      * @return asynchronous batch resolution
      */
     CompletableFuture<BatchResolution> execute(Map<String, Object> interrupt, ServeRequest request,
@@ -197,7 +197,7 @@ final class RemoteInvocationBatchCoordinator {
      * Resumes selected members of an existing remote batch shadow.
      *
      * @param request current parent request containing trusted targeted inputs
-     * @param observer parent progress observer
+     * @param observer parent observer for remote business output
      * @return empty when no remote batch shadow exists
      */
     Optional<CompletableFuture<BatchResolution>> resume(ServeRequest request, QueryStreamObserver observer) {
@@ -365,9 +365,7 @@ final class RemoteInvocationBatchCoordinator {
                 isOverloaded = true;
             }
         }
-        if (!emitProjection(invocation.batch, invocation.member, invocation.member.state.name(), shouldStart)) {
-            return;
-        }
+        logMemberState(invocation.batch, invocation.member);
         if (shouldStart) {
             start(invocation);
             return;
@@ -395,9 +393,8 @@ final class RemoteInvocationBatchCoordinator {
         if (!isExpired) {
             return;
         }
-        if (emitProjection(invocation.batch, invocation.member, invocation.member.state.name(), false)) {
-            finishBatchIfSettled(invocation.batch);
-        }
+        logMemberState(invocation.batch, invocation.member);
+        finishBatchIfSettled(invocation.batch);
     }
 
     private void start(PendingInvocation invocation) {
@@ -422,10 +419,10 @@ final class RemoteInvocationBatchCoordinator {
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
                 optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
                 batch.request.isStream());
-        QueryStreamObserver progressObserver = memberProgressObserver(batch, member);
+        QueryStreamObserver outputObserver = memberOutputObserver(batch, member);
         CompletableFuture<RemoteCallOutcome> future;
         try {
-            future = client.callOutcome(call, progressObserver, remoteTaskId -> {
+            future = client.callOutcome(call, outputObserver, remoteTaskId -> {
                 if (remoteTaskId != null && !remoteTaskId.isBlank()) {
                     synchronized (lock) {
                         if (!batch.isResolved && member.state == MemberState.RUNNING) {
@@ -446,10 +443,10 @@ final class RemoteInvocationBatchCoordinator {
         Member member = invocation.member;
         List<PendingInvocation> expired = new ArrayList<>();
         PendingInvocation next = null;
-        boolean shouldProjectMember;
+        boolean shouldApplyOutcome;
         synchronized (lock) {
-            shouldProjectMember = !batch.isResolved;
-            if (shouldProjectMember) {
+            shouldApplyOutcome = !batch.isResolved;
+            if (shouldApplyOutcome) {
                 applyOutcome(member, outcome, error);
             }
             activeCount = Math.max(0, activeCount - 1);
@@ -470,10 +467,10 @@ final class RemoteInvocationBatchCoordinator {
                 }
             }
         }
-        if (shouldProjectMember) {
-            emitProjection(batch, member, member.state.name(), false);
+        if (shouldApplyOutcome) {
+            logMemberState(batch, member);
         }
-        projectExpiredInvocations(expired);
+        logExpiredInvocations(expired);
         if (next != null) {
             boolean isResolved;
             synchronized (lock) {
@@ -484,23 +481,21 @@ final class RemoteInvocationBatchCoordinator {
                 finishBatchIfSettled(batch);
                 return;
             }
-            if (emitProjection(next.batch, next.member, MemberState.RUNNING.name(), true)) {
-                start(next);
-            }
+            logMemberState(next.batch, next.member);
+            start(next);
         }
         finishBatchIfSettled(batch);
     }
 
-    private void projectExpiredInvocations(List<PendingInvocation> expired) {
+    private void logExpiredInvocations(List<PendingInvocation> expired) {
         for (PendingInvocation candidate : expired) {
             synchronized (lock) {
                 if (candidate.batch.isResolved) {
                     continue;
                 }
             }
-            if (emitProjection(candidate.batch, candidate.member, candidate.member.state.name(), false)) {
-                finishBatchIfSettled(candidate.batch);
-            }
+            logMemberState(candidate.batch, candidate.member);
+            finishBatchIfSettled(candidate.batch);
         }
     }
 
@@ -679,7 +674,6 @@ final class RemoteInvocationBatchCoordinator {
             value.put("toolName", member.toolName);
             value.put("agentName", member.agentName);
             value.put("state", member.state.name());
-            value.put("projectionSeq", member.projectionSeq);
             putIfNotBlank(value, "remoteTaskId", member.remoteTaskId);
             putIfNotBlank(value, "resultCategory", member.resultCategory);
             if (member.state == MemberState.COMPLETED && member.result != null) {
@@ -753,7 +747,7 @@ final class RemoteInvocationBatchCoordinator {
         }
     }
 
-    private QueryStreamObserver memberProgressObserver(Batch batch, Member member) {
+    private QueryStreamObserver memberOutputObserver(Batch batch, Member member) {
         return new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
@@ -762,7 +756,9 @@ final class RemoteInvocationBatchCoordinator {
                         return;
                     }
                 }
-                emitProjection(batch, member, chunk.getData(), false);
+                if (chunk != null) {
+                    forwardRemoteOutput(batch, member, chunk.getData());
+                }
             }
 
             @Override
@@ -780,20 +776,24 @@ final class RemoteInvocationBatchCoordinator {
         };
     }
 
-    private boolean emitProjection(Batch batch, Member member, Object content, boolean hasReservedUnstartedSlot) {
+    private void forwardRemoteOutput(Batch batch, Member member, Object content) {
+        Map<String, Object> projection = new LinkedHashMap<>();
+        projection.put("kind", "remote_agent_output");
+        projection.put("batchId", batch.batchId);
+        projection.put("toolCallId", member.toolCallId);
+        projection.put("target", member.agentName.isBlank() ? member.toolName : member.agentName);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("content", content == null ? "" : content);
+        data.put("projection", projection);
         try {
-            project(batch, member, content);
-            return true;
+            batch.observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT, data));
         } catch (RuntimeException ex) {
-            failProjection(batch, member, ex, hasReservedUnstartedSlot);
-            return false;
+            failRemoteOutput(batch, ex);
         }
     }
 
-    private void failProjection(Batch batch, Member projectedMember, RuntimeException cause,
-            boolean hasReservedUnstartedSlot) {
+    private void failRemoteOutput(Batch batch, RuntimeException cause) {
         boolean isBatchFailed = false;
-        boolean hasReleasedSlot = false;
         synchronized (lock) {
             if (!batch.isResolved) {
                 batch.isResolved = true;
@@ -801,17 +801,9 @@ final class RemoteInvocationBatchCoordinator {
                 queue.removeIf(invocation -> invocation.batch == batch);
                 isBatchFailed = true;
             }
-            if (hasReservedUnstartedSlot && projectedMember.state == MemberState.RUNNING) {
-                projectedMember.fail(MemberState.FAILED, "REMOTE_PROJECTION_FAILED", safeMessage(cause));
-                activeCount = Math.max(0, activeCount - 1);
-                hasReleasedSlot = true;
-            }
         }
         if (isBatchFailed) {
             batch.completion.completeExceptionally(cause);
-        }
-        if (hasReleasedSlot) {
-            startNextQueuedAfterReleasedSlot();
         }
     }
 
@@ -837,52 +829,27 @@ final class RemoteInvocationBatchCoordinator {
             }
         }
         for (PendingInvocation candidate : expired) {
-            if (emitProjection(candidate.batch, candidate.member, candidate.member.state.name(), false)) {
-                finishBatchIfSettled(candidate.batch);
-            }
+            logMemberState(candidate.batch, candidate.member);
+            finishBatchIfSettled(candidate.batch);
         }
-        if (next != null && emitProjection(next.batch, next.member, MemberState.RUNNING.name(), true)) {
+        if (next != null) {
+            logMemberState(next.batch, next.member);
             start(next);
         }
     }
 
-    private static void project(Batch batch, Member member, Object content) {
-        boolean hasStateChanged;
+    private static void logMemberState(Batch batch, Member member) {
         long latencyMs = 0L;
-        String target;
-        synchronized (member) {
-            Map<String, Object> projection = new LinkedHashMap<>();
-            member.projectionSeq++;
-            String state = member.state.name();
-            hasStateChanged = !state.equals(member.lastProjectedState);
-            member.lastProjectedState = state;
-            target = member.agentName.isBlank() ? member.toolName : member.agentName;
-            projection.put("kind", "remote_agent_invocation");
-            projection.put("batchId", batch.batchId);
-            projection.put("toolCallId", member.toolCallId);
-            projection.put("sequence", member.projectionSeq);
-            projection.put("target", target);
-            projection.put("phase", state);
-            if (member.resultCategory != null) {
-                projection.put("resultCategory", member.resultCategory);
-            }
-            if (member.startedAt != null) {
-                Instant end = member.completedAt != null ? member.completedAt : Instant.now();
-                latencyMs = Math.max(0, Duration.between(member.startedAt, end).toMillis());
-                projection.put("latencyMs", latencyMs);
-            }
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("content", content == null ? "" : content);
-            data.put("projection", projection);
-            batch.observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_PROGRESS, data));
+        if (member.startedAt != null) {
+            Instant end = member.completedAt != null ? member.completedAt : Instant.now();
+            latencyMs = Math.max(0, Duration.between(member.startedAt, end).toMillis());
         }
-        if (hasStateChanged) {
-            log.info(
-                    "Remote invocation state parentTaskId={} conversationId={} batchId={} toolCallId={} "
-                            + "remoteAgentId={} state={} latencyMs={}",
-                    batch.parentTaskId, batch.request.getConversationId(), batch.batchId, member.toolCallId, target,
-                    member.state, latencyMs);
-        }
+        String target = member.agentName.isBlank() ? member.toolName : member.agentName;
+        log.info(
+                "Remote invocation state parentTaskId={} conversationId={} batchId={} toolCallId={} "
+                        + "remoteAgentId={} state={} latencyMs={}",
+                batch.parentTaskId, batch.request.getConversationId(), batch.batchId, member.toolCallId, target,
+                member.state, latencyMs);
     }
 
     private Batch parseBatch(Map<String, Object> interrupt, ServeRequest request, String parentTaskId,
@@ -947,7 +914,6 @@ final class RemoteInvocationBatchCoordinator {
                 }
             }
             member.inputPrompt = optionalNonBlank(stringValue(rawMember.get("inputPrompt"))).orElse(null);
-            member.projectionSeq = rawMember.get("projectionSeq") instanceof Number number ? number.longValue() : 0;
             members.add(member);
         }
         members.sort(java.util.Comparator.comparingInt(member -> member.index));
@@ -1201,10 +1167,6 @@ final class RemoteInvocationBatchCoordinator {
 
         private String errorMessage;
 
-        private long projectionSeq;
-
-        private String lastProjectedState;
-
         private Instant queuedAt = Instant.now();
 
         private Instant startedAt;
@@ -1284,7 +1246,7 @@ final class RemoteInvocationBatchCoordinator {
                     try {
                         pending.wait();
                     } catch (InterruptedException ex) {
-                        throw new IllegalStateException("Interrupted while waiting for remote projections", ex);
+                        throw new IllegalStateException("Interrupted while waiting for remote stream events", ex);
                     }
                 }
             }

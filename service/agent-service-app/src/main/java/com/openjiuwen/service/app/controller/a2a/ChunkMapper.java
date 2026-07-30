@@ -37,11 +37,11 @@ public class ChunkMapper {
             return List.of();
         }
         Object data = chunk.getData();
-        if (QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType()) && data instanceof Map<?, ?> progress
-                && progress.get("projection") instanceof Map<?, ?> rawProjection) {
+        if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType()) && data instanceof Map<?, ?> output
+                && output.get("projection") instanceof Map<?, ?> rawProjection) {
             Map<String, Object> projection = new LinkedHashMap<>();
             rawProjection.forEach((key, value) -> projection.put(String.valueOf(key), value));
-            return List.of(toPart(progress.get("content"), Map.of("_remote_invocation", projection)));
+            return List.of(toPart(output.get("content"), Map.of("_remote_invocation", projection)));
         }
         return List.of(toPart(data, null));
     }

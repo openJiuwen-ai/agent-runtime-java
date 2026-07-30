@@ -678,8 +678,10 @@ class A2AEnabledServeOrchestratorTest {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
+        AtomicInteger remoteCalls = new AtomicInteger();
         when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
+            remoteCalls.incrementAndGet();
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
                 "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
         });
@@ -692,16 +694,9 @@ class A2AEnabledServeOrchestratorTest {
             observer.onComplete();
             return null;
         }).when(agentHandler).streamQuery(any(), any());
-        AtomicBoolean cancelled = new AtomicBoolean();
         QueryStreamObserver cancellingObserver = new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
-                if (QueryChunk.TYPE_REMOTE_AGENT_PROGRESS.equals(chunk.getType())
-                        && chunk.getData() instanceof Map<?, ?> data
-                        && data.get("projection") instanceof Map<?, ?> projection
-                        && "COMPLETED".equals(projection.get("phase"))) {
-                    cancelled.set(true);
-                }
             }
 
             @Override
@@ -714,7 +709,7 @@ class A2AEnabledServeOrchestratorTest {
 
             @Override
             public boolean isCancelled() {
-                return cancelled.get();
+                return remoteCalls.get() == 3;
             }
         };
         ServeRequest request = req("c-cancelled-ready");
