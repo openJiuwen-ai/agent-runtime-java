@@ -14,6 +14,9 @@ import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
+import reactor.core.publisher.Flux;
+import reactor.test.StepVerifier;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
@@ -21,9 +24,6 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
-
-import reactor.core.publisher.Flux;
-import reactor.test.StepVerifier;
 
 /**
  * Tests WebFlux query controller behavior.
