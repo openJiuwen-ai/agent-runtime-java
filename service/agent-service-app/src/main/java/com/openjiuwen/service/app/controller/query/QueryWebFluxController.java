@@ -132,7 +132,8 @@ public class QueryWebFluxController {
             @Override
             public void onError(Throwable error) {
                 if (!isCancelled()) {
-                    sink.complete();
+                    log.error("Stream query failed for conversation_id={}", serveRequest.getConversationId(), error);
+                    sink.error(error);
                 }
             }
 
