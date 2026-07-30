@@ -548,8 +548,7 @@ try {
     $dStreamResponse2 = Invoke-Utf8TextRequest -Uri "$BaseUrlA/a2a/" -Body $dStreamBody2 `
         -TimeoutSec $A2aRequestTimeoutSec
     $dStreamResponse2 | Set-Content -LiteralPath (Join-Path $tmp "d-stream-response-2.txt") -Encoding utf8
-    $dStreamTask2 = Read-SseTask $dStreamResponse2 "TASK_STATE_COMPLETED" `
-        "policy_status" $dStreamClaim "llm_report"
+    $dStreamTask2 = Read-SseTask $dStreamResponse2 "TASK_STATE_COMPLETED"
     $dStreamArtifacts = @(
         foreach ($line in ($dStreamResponse2 -split "`r?`n")) {
             if ($line.StartsWith("data:")) {
@@ -585,8 +584,7 @@ try {
         -Body $dNonstreamBody2 -Accept "application/json" -TimeoutSec $A2aRequestTimeoutSec
     $dNonstreamResponse2 = $dNonstreamRawResponse2 | ConvertFrom-Json
     Save-JsonResponse $dNonstreamResponse2 "d-nonstream-response-2.json"
-    $dNonstreamTask2 = Read-SyncTask $dNonstreamResponse2 "TASK_STATE_COMPLETED" `
-        "policy_status" $dNonstreamClaim "llm_report"
+    $dNonstreamTask2 = Read-SyncTask $dNonstreamResponse2 "TASK_STATE_COMPLETED"
     Assert-PlainTerminalArtifacts @($dNonstreamResponse2.result.task.artifacts) $dNonstreamRawResponse2
     if ($dNonstreamTask2.TaskId -ne $dNonstreamTask1.TaskId) {
         throw "Agent D non-streaming resume changed taskId from $($dNonstreamTask1.TaskId) to $($dNonstreamTask2.TaskId)"

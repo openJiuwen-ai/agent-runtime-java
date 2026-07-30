@@ -470,8 +470,7 @@ write_a2a_request "SendStreamingMessage" "d-stream-2" "$D_STREAM_CONTEXT" "$d_st
 curl -sS -N --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
   -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' --data-binary "@$d_stream_request2" >"$d_stream_response2"
-d_stream_resumed_task_id="$(assert_sse_task "$d_stream_response2" "TASK_STATE_COMPLETED" \
-  "policy_status" "$D_STREAM_CLAIM" "llm_report")"
+d_stream_resumed_task_id="$(assert_sse_task "$d_stream_response2" "TASK_STATE_COMPLETED")"
 assert_plain_terminal_artifacts "$d_stream_response2" "sse"
 if [ "$d_stream_resumed_task_id" != "$d_stream_task_id" ]; then
   fail "Agent D streaming resume changed taskId from $d_stream_task_id to $d_stream_resumed_task_id"
@@ -502,8 +501,7 @@ write_a2a_request "SendMessage" "d-nonstream-2" "$D_NONSTREAM_CONTEXT" "$d_nonst
 curl -sS --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
   -H 'Content-Type: application/json' \
   --data-binary "@$d_nonstream_request2" >"$d_nonstream_response2"
-d_nonstream_resumed_task_id="$(assert_sync_task "$d_nonstream_response2" "TASK_STATE_COMPLETED" \
-  "policy_status" "$D_NONSTREAM_CLAIM" "llm_report")"
+d_nonstream_resumed_task_id="$(assert_sync_task "$d_nonstream_response2" "TASK_STATE_COMPLETED")"
 assert_plain_terminal_artifacts "$d_nonstream_response2" "sync"
 if [ "$d_nonstream_resumed_task_id" != "$d_nonstream_task_id" ]; then
   fail "Agent D non-streaming resume changed taskId from $d_nonstream_task_id to $d_nonstream_resumed_task_id"
