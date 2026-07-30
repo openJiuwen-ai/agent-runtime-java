@@ -579,9 +579,10 @@ class RemoteInvocationBatchCoordinatorTest {
             Task.class);
         callbackOutcome.setAccessible(true);
 
-        RemoteCallOutcome outcome = (RemoteCallOutcome) callbackOutcome.invoke(null, task);
+        Object outcome = callbackOutcome.invoke(null, task);
 
-        assertThat(outcome.result()).isEqualTo("final answer");
+        assertThat(outcome).isInstanceOfSatisfying(RemoteCallOutcome.class,
+            remoteCallOutcome -> assertThat(remoteCallOutcome.result()).isEqualTo("final answer"));
     }
 
     @Test
