@@ -50,6 +50,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class QueryMvcController {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(QueryMvcController.class);
+
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
 
     private final ObjectProvider<AgentReadiness> readinessProvider;
@@ -147,7 +149,8 @@ public class QueryMvcController {
             @Override
             public void onError(Throwable error) {
                 if (!isCancelled()) {
-                    emitter.complete();
+                    log.error("Stream query failed for conversation_id={}", serveRequest.getConversationId(), error);
+                    emitter.completeWithError(error);
                 }
             }
 
