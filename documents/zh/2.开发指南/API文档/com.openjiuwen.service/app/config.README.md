@@ -20,7 +20,7 @@
 | Property | Default | Description |
 | --- | --- | --- |
 | `agent-id` | `null` | 默认 `JiuwenCoreAgentHandler` 从 Core `ResourceMgr` 取 Agent 时使用。 |
-| `version` | `0.1.0` | `/health.version`。 |
+| `version` | `0.1.1` | `/health.version`。 |
 
 ## QueryProperties
 

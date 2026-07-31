@@ -12,13 +12,13 @@
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-app</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 <!-- 执行后端 + 中间件/外部 egress（默认 Agent Core leaf） -->
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-adapters-agentcore</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 ```
 
@@ -98,7 +98,7 @@ spring:
 
 openjiuwen:
   service:
-    version: 0.1.0
+    version: 0.1.1
     agent-id: ${AGENT_ID:}          # 方式 B；方式 A/C 可留空
     query:
       enabled: true
