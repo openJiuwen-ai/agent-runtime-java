@@ -37,7 +37,7 @@ public class QueryL1RestExample {
         SpringApplication application = new SpringApplication(QueryL1RestExample.class);
         application.setDefaultProperties(
             Map.of("server.port", "8090", "spring.main.web-application-type", "servlet", "spring.application.name",
-                "query-l1-example", "openjiuwen.service.version", "0.1.0", "example.query.l1.handler", "echo",
+                "query-l1-example", "openjiuwen.service.version", "0.1.1", "example.query.l1.handler", "echo",
                 "example.query.l1.stream-chunks", "1", "example.query.l1.stream-delay-ms", "0"));
         application.run(args);
     }

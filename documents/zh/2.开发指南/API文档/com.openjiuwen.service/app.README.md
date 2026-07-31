@@ -8,6 +8,7 @@
 | --- | --- |
 | [`autoconfigure`](app/autoconfigure.README.md) | Spring Boot 自动装配，注册生命周期、Controller、A2A SDK 组件和默认 Orchestrator。 |
 | [`config`](app/config.README.md) | `openjiuwen.service.*` 配置绑定对象和默认服务身份。 |
+| [`security`](../../开发与扩展/安全加固.md) | 入站 TLS/mTLS、细粒度鉴权 AOP、403 映射（`app.security` 包）。 |
 | [`controller`](app/controller.README.md) | HTTP Query、reset、health、A2A AgentCard / JSON-RPC 控制器。 |
 | [`lifecycle`](app/lifecycle.README.md) | Init / Shutdown / Readiness / active stream interrupt 管理。 |
 | [`orchestrator`](app/orchestrator.README.md) | `ServeOrchestrator` 默认实现和 A2A 中断增强实现。 |
@@ -32,6 +33,7 @@ Controller
 | [`ServiceProperties`](app/config.README.md#serviceproperties) | `openjiuwen.service` 根配置。 |
 | [`QueryProperties`](app/config.README.md#queryproperties) | Query MVC / WebFlux / legacy path 配置。 |
 | [`A2AProperties`](app/config.README.md#a2aproperties) | AgentCard、A2A 路径、skills、remote-agents 配置。 |
+| [`SecurityProperties`](app/config.README.md#securityproperties) | 入站 TLS/mTLS 与细粒度鉴权开关（`openjiuwen.service.security.*`）。 |
 | [`DefaultServeOrchestrator`](app/orchestrator.README.md#defaultserveorchestrator) | 默认 Query 编排实现。 |
 | [`A2AEnabledServeOrchestrator`](app/orchestrator.README.md#a2aenabledserveorchestrator) | 支持 A2A delegate 和 shadow task resume 的增强编排器。 |
 

@@ -66,7 +66,7 @@ A2A Remote 出站与 Health L1 矩阵等**内部验收**代码在 `src/test/`（
 {
   "status": "healthy",
   "app": "demo-agent-service",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "process_up": true,
   "agent_loaded": true
 }
