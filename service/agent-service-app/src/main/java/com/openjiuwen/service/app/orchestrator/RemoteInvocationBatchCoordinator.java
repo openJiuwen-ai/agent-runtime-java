@@ -13,7 +13,6 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.server.tasks.TaskStore;
-import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
@@ -582,18 +581,7 @@ final class RemoteInvocationBatchCoordinator {
     }
 
     private static String extractTaskResult(Task task) {
-        if (task.artifacts() == null || task.artifacts().isEmpty()) {
-            return "";
-        }
-        StringBuilder content = new StringBuilder();
-        for (Artifact artifact : task.artifacts()) {
-            content.append(extractBusinessParts(artifact.parts()));
-        }
-        return content.toString();
-    }
-
-    private static String extractBusinessParts(List<Part<?>> parts) {
-        return A2aPartContent.extract(parts);
+        return A2aPartContent.extractTaskResult(task);
     }
 
     private static String extractText(List<Part<?>> parts) {

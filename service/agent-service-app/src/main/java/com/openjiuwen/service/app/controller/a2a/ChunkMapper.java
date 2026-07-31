@@ -46,6 +46,19 @@ public class ChunkMapper {
         return List.of(toPart(data, null));
     }
 
+    /**
+     * Determines whether a normal AgentCore chunk carries a terminal business result.
+     * Remote output projections are deliberately excluded because they are progress of
+     * a nested invocation, not the parent agent's terminal result.
+     *
+     * @param chunk query chunk to inspect
+     * @return true when the chunk is an AgentCore terminal result
+     */
+    public boolean isTerminalResult(QueryChunk chunk) {
+        return chunk != null && QueryChunk.TYPE_CHUNK.equals(chunk.getType())
+                && AgentCoreEnvelopeText.terminalValue(chunk.getData()).isPresent();
+    }
+
     private static Part<?> toPart(Object data, Map<String, Object> metadata) {
         Optional<Object> terminalValue = AgentCoreEnvelopeText.terminalValue(data);
         if (terminalValue.isPresent()) {

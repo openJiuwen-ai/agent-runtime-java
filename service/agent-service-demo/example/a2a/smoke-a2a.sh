@@ -253,7 +253,11 @@ else:
     task = ((response.get("result") or {}).get("task") or {})
     artifacts = task.get("artifacts") or []
 
+has_terminal_artifact = False
 for artifact in artifacts:
+    metadata = artifact.get("metadata") or {}
+    if metadata.get("_agentcore_terminal") is True:
+        has_terminal_artifact = True
     for part in artifact.get("parts") or []:
         text = part.get("text")
         if not isinstance(text, str):
@@ -265,6 +269,8 @@ for artifact in artifacts:
         if isinstance(envelope, dict) and envelope.get("type") in ("answer", "workflow_final") \
                 and "payload" in envelope:
             raise SystemExit("AgentCore terminal envelope leaked into parts.text")
+if not has_terminal_artifact:
+    raise SystemExit("response did not contain an artifact marked as the AgentCore terminal result")
 PY
 }
 
