@@ -64,7 +64,6 @@ final class SerialQueryStreamObserver implements QueryStreamObserver {
                 try {
                     pending.wait();
                 } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
                     throw new IllegalStateException("Interrupted while waiting for remote stream events", ex);
                 }
             }

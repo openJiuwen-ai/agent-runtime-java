@@ -17,6 +17,11 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Unit tests for parsing and restoring remote invocation batches.
+ *
+ * @since 0.1.0
+ */
 class RemoteInvocationBatchParserTest {
     private final RemoteInvocationBatchParser parser = new RemoteInvocationBatchParser();
 
@@ -75,10 +80,10 @@ class RemoteInvocationBatchParserTest {
                 .isInstanceOf(IllegalStateException.class).hasMessage("REMOTE_BATCH_MEMBER_INVALID");
     }
 
-    private static Map<String, Object> interruptMember(int index, String toolCallId, boolean resume) {
+    private static Map<String, Object> interruptMember(int index, String toolCallId, boolean shouldResume) {
         return Map.of("index", index, "toolCallId", toolCallId, "toolName", "tool-" + toolCallId, "message",
                 "message-" + toolCallId, "context",
-                Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-" + toolCallId, "resume", resume));
+                Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-" + toolCallId, "resume", shouldResume));
     }
 
     private static Map<String, Object> snapshotMember(int index, String toolCallId, String state, Object result) {

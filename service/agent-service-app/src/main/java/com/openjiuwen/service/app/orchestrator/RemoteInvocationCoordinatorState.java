@@ -205,6 +205,6 @@ final class RemoteInvocationCoordinatorState {
     record Dispatch(List<PendingInvocation> expired, PendingInvocation next) {
     }
 
-    record InvocationCompletion(boolean outcomeApplied, List<PendingInvocation> expired, PendingInvocation next) {
+    record InvocationCompletion(boolean isOutcomeApplied, List<PendingInvocation> expired, PendingInvocation next) {
     }
 }

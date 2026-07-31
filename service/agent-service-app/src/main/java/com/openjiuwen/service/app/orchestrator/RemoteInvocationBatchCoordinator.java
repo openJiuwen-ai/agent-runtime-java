@@ -378,7 +378,7 @@ final class RemoteInvocationBatchCoordinator {
         Member member = invocation.member();
         InvocationCompletion completion = state.finishInvocation(invocation,
                 () -> applyOutcome(member, outcome, error));
-        if (completion.outcomeApplied()) {
+        if (completion.isOutcomeApplied()) {
             logMemberState(batch, member);
         }
         logExpiredInvocations(completion.expired());
@@ -852,5 +852,4 @@ final class RemoteInvocationBatchCoordinator {
     record BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
             Map<String, Object> interrupt, boolean shouldResume) {
     }
-
 }
