@@ -12,6 +12,7 @@ import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
 import com.openjiuwen.service.app.config.llm.LlmProperties;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -95,6 +96,7 @@ class LlmAutoConfigurationTest {
             });
     }
 
+    @Tag("smoke")
     @Test
     void autoConfiguration_loadsAndDecryptsApiKeyFromConfiguredFile() throws Exception {
         Path configFile = tempDir.resolve("llm-config.json");
