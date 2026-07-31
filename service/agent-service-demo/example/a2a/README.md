@@ -377,7 +377,7 @@ curl -sS -N -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
-恢复后应进入 `TASK_STATE_COMPLETED`，保持原 `taskId`，且不得包含未解开的 `workflow_final` AgentCore 信封。Agent D 的结构化最终结果通过 `parts.data` 传递，但经过 Agent B 和 Agent A 的 ReAct 层后，最外层文本可能被模型重新表述；烟测不对该文本的字段名或格式做断言。
+恢复后应进入 `TASK_STATE_COMPLETED`，保持原 `taskId`，且不得包含未解开的 `workflow_final` AgentCore 信封。承载最终结果的 artifact 带有 `metadata._agentcore_terminal: true`，这是 Runtime 区分终态业务结果与流式中间 artifact 的内部来源标识，不属于业务数据。Agent D 的结构化最终结果通过 `parts.data` 传递，但经过 Agent B 和 Agent A 的 ReAct 层后，最外层文本可能被模型重新表述；烟测不对该文本的字段名或格式做断言。
 
 ### 场景 5：A -> B -> D 非流式人工审批与恢复
 

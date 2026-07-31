@@ -173,14 +173,18 @@ class RemoteAgentAnswerExtractorTest {
     @Test
     void structuredWorkflowFinalArtifactReturnsOnCompletedStatus() throws Exception {
         Map<String, Object> output = Map.of("auto_result", "Expense claim approved");
-        List<Part<?>> progressParts = new ChunkMapper()
-                .toParts(new QueryChunk(QueryChunk.TYPE_CHUNK, envelope("llm_output", Map.of("content", "working"))));
         List<Part<?>> parts = new ChunkMapper()
                 .toParts(new QueryChunk(QueryChunk.TYPE_CHUNK, envelope("workflow_final", Map.of("output", output))));
-        Artifact progress = new Artifact("artifact-progress", null, null, progressParts, Map.of(), List.of());
-        Artifact artifact = new Artifact("artifact-workflow-final", null, null, parts, Map.of(), List.of());
+        Artifact textProgress = new Artifact("artifact-text-progress", null, null,
+                List.<Part<?>>of(new TextPart("intermediate text")), Map.of(), List.of());
+        Artifact traceProgress = new Artifact("artifact-trace-progress", null, null,
+                List.<Part<?>>of(new DataPart(Map.of("type", "trace", "payload", Map.of("content", "reasoning")))),
+                Map.of(), List.of());
+        Artifact artifact = new Artifact("artifact-workflow-final", null, null, parts,
+                Map.of("_agentcore_terminal", true), List.of());
         Task task = Task.builder().id("remote-task").contextId("remote-context")
-                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(progress, artifact)).build();
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
+                .artifacts(List.of(textProgress, traceProgress, artifact)).build();
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
@@ -193,6 +197,30 @@ class RemoteAgentAnswerExtractorTest {
                 }, false);
 
         assertThat(JsonParser.parseString(result.getNow(null).result())).isEqualTo(GSON.toJsonTree(output));
+    }
+
+    @Test
+    void terminalTextArtifactExcludesEarlierPlainText() throws Exception {
+        List<Part<?>> parts = new ChunkMapper()
+                .toParts(new QueryChunk(QueryChunk.TYPE_CHUNK, envelope("answer", Map.of("output", "final answer"))));
+        Artifact progress = new Artifact("artifact-progress", null, null,
+                List.<Part<?>>of(new TextPart("intermediate text")), Map.of(), List.of());
+        Artifact answer = new Artifact("artifact-answer", null, null, parts, Map.of("_agentcore_terminal", true),
+                List.of());
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(progress, answer)).build();
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                boolean.class);
+        statusMethod.setAccessible(true);
+
+        statusMethod.invoke(client, new TaskStatusUpdateEvent("remote-task", task.status(), "remote-context", Map.of()),
+                task, result, (java.util.function.Consumer<String>) ignored -> {
+                }, false);
+
+        assertThat(result.getNow(null).result()).isEqualTo("final answer");
     }
 
     @Test

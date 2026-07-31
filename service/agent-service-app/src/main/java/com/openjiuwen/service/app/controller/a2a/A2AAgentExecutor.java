@@ -182,7 +182,11 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
         List<Part<?>> parts = chunkMapper.toParts(chunk);
         if (!parts.isEmpty()) {
-            emitter.addArtifact(parts);
+            if (chunkMapper.isTerminalResult(chunk)) {
+                emitter.addArtifact(parts, null, null, Map.of(A2aPartContent.TERMINAL_RESULT_METADATA, true));
+            } else {
+                emitter.addArtifact(parts);
+            }
         }
     }
 
@@ -211,7 +215,8 @@ public class A2AAgentExecutor implements AgentExecutor {
         } else if (response.getResult() instanceof Map<?, ?> result) {
             Object content = result.get("content");
             if (content != null) {
-                emitter.addArtifact(List.of(new TextPart(String.valueOf(content))));
+                emitter.addArtifact(List.of(new TextPart(String.valueOf(content))), null, null,
+                        Map.of(A2aPartContent.TERMINAL_RESULT_METADATA, true));
             }
             completeAndDrain(emitter, msgCtx.getTaskId());
         } else {

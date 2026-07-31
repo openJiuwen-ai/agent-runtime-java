@@ -412,24 +412,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     private static String extractTaskResult(Task task) {
-        if (task.artifacts() == null || task.artifacts().isEmpty()) {
-            return "";
-        }
-        StringBuilder content = new StringBuilder();
-        String answer = null;
-        for (Artifact artifact : task.artifacts()) {
-            String artifactText = extractBusinessParts(artifact.parts());
-            if (artifactText.isEmpty()) {
-                continue;
-            }
-            Optional<String> parsedAnswer = answerText(artifactText);
-            if (parsedAnswer.isPresent()) {
-                answer = parsedAnswer.get();
-            } else {
-                content.append(artifactText);
-            }
-        }
-        return answer != null ? answer : content.toString();
+        return A2aPartContent.extractTaskResult(task);
     }
 
     private static String extractBusinessParts(List<Part<?>> parts) {

@@ -91,8 +91,33 @@ class A2AAgentExecutorTest {
         List<String> texts = artifacts.stream().flatMap(event -> event.artifact().parts().stream())
                 .filter(TextPart.class::isInstance).map(TextPart.class::cast).map(TextPart::text).toList();
         assertThat(texts).containsExactly("done");
+        assertThat(artifacts).singleElement().satisfies(event -> assertThat(event.artifact().metadata())
+                .containsEntry(A2aPartContent.TERMINAL_RESULT_METADATA, true));
         verify(orchestrator).query(any());
         verify(orchestrator, never()).streamQuery(any(), any());
+    }
+
+    @Test
+    void streamingTerminalArtifactRetainsTerminalProvenance() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK,
+                    Map.of("type", "llm_output", "index", 0, "payload", Map.of("content", "working"))));
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK,
+                    Map.of("type", "answer", "index", 1, "payload", Map.of("output", "done"))));
+            observer.onComplete();
+        })).when(orchestrator).streamQuery(any(), any());
+        A2AProtocolAdapter adapter = requestAdapter(true, Map.of());
+        RequestContext context = requestContext("task-1", "ctx-1", true);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
+
+        List<TaskArtifactUpdateEvent> artifacts = queue.events.stream()
+                .filter(TaskArtifactUpdateEvent.class::isInstance).map(TaskArtifactUpdateEvent.class::cast).toList();
+        assertThat(artifacts).hasSize(2);
+        assertThat(artifacts.get(0).artifact().metadata()).isNullOrEmpty();
+        assertThat(artifacts.get(1).artifact().metadata()).containsEntry(A2aPartContent.TERMINAL_RESULT_METADATA, true);
     }
 
     @Test
