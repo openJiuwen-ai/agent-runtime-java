@@ -82,6 +82,7 @@ openjiuwen:
 | `openjiuwen.service.lifecycle` | [生命周期与探针](生命周期与探针.md) | 启停、fail-fast、shutdown 超时 |
 | `openjiuwen.service.middleware` | [Adapters 与 Handler](Adapters与Handler.md) | Checkpointer、Redis |
 | `openjiuwen.service.external` | [Adapters 与 Handler](Adapters与Handler.md) | MCP、Remote、Sandbox |
+| `openjiuwen.service.security` | [安全加固](开发与扩展/安全加固.md) | 入站 TLS/mTLS、细粒度鉴权（默认关闭） |
 | `openjiuwen.service.a2a` | [A2A 开发指导](A2A/开发指导.md) | Agent Card、TaskStore、远端 Agent 目录 |
 
 ## 推荐 `application.yml`（骨架）

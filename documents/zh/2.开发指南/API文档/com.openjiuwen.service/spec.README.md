@@ -10,6 +10,22 @@
 | `spec.dto` | `QueryRequest`、`QueryResponse`、`QueryChunk`、`HealthResponse`、`ResetConversationRequest/Response`、`ServeRequest` |
 | `spec.spi` | `AgentHandler`、`ServeOrchestrator`、`QueryStreamObserver` |
 | `spec.lifecycle` | `AgentInitHook`、`AgentShutdownHook`、`AgentInterruptHandler`、`AgentReadiness`、`AgentServiceIdentity` 等 |
+| `spec.security` | 入站/出站安全契约：`TlsMaterial`、`FineGrainedAuthorizer`、`@AuthorizedResource`、`ExternalAuthenticator`、`AuthMaterial` 等 |
+
+## 安全 SPI（`spec.security`）
+
+| 类型 | 用途 |
+| --- | --- |
+| `TlsMaterial` | TLS keystore/truststore 材料（入站 #24 与出站 #25 `ref: global` 共用） |
+| `FineGrainedAuthorizer` | 入站细粒度鉴权 SPI；`authorize(AuthorizationRequest)` → `AuthorizationResult` |
+| `@AuthorizedResource` | Controller 方法标注 `resource` / `action` |
+| `AuthorizationRequest` / `AuthorizationResult` | 鉴权请求与允许/拒绝结果 |
+| `ExternalAuthenticator` | 出站鉴权 SPI；`authenticate(ExternalTargetRef, ExternalAuthConfig)` → `AuthMaterial` |
+| `AuthMaterial` | 出站 HTTP headers / query 叠加物 |
+| `ExternalTargetRef` / `ExternalAuthConfig` | 出站目标与 auth 配置快照 |
+| `ExternalAuthenticationException` | 出站鉴权失败 |
+
+详见 [安全加固](../../开发与扩展/安全加固.md)。
 
 ## SPI 要点
 

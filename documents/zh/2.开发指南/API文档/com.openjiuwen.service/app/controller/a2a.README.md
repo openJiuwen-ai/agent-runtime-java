@@ -23,6 +23,16 @@
 | `/a2a/.well-known/agent-card.json` | prefixed Agent Card。 |
 | `/a2a` / `/a2a/` | A2A JSON-RPC。 |
 
+## 鉴权
+
+| Controller | resource | action |
+| --- | --- | --- |
+| `A2aJsonRpcController` | `a2a` | `rpc` |
+| `AgentCardController` | `agent-card` | `read` |
+| Push Callback（若启用） | `a2a-push-callback` | `receive` |
+
+租户字段：`AuthorizationRequestResolver` 从 JSON-RPC 参数或 Header `X-User-ID` / `X-Space-ID` / `X-Tenant-ID` 解析（Header 非空时覆盖 body）。
+
 ## 调用链
 
 ```text
