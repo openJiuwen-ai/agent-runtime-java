@@ -180,10 +180,11 @@ final class RemoteInvocationBatchMapper {
             value.put("state", member.state.name());
             putIfNotBlank(value, "remoteTaskId", member.remoteTaskId);
             putIfNotBlank(value, "resultCategory", member.resultCategory);
-            if (member.state == MemberState.COMPLETED && member.result != null) {
-                value.put("result", member.result);
-            } else if (member.state != MemberState.INPUT_REQUIRED) {
-                value.put("result", toolResult(member));
+            if (member.state != MemberState.INPUT_REQUIRED) {
+                Object result = member.state == MemberState.COMPLETED && member.result != null
+                        ? member.result
+                        : toolResult(member);
+                value.put("result", result);
             }
             putIfNotBlank(value, "inputPrompt", member.inputPrompt);
             members.add(value);
