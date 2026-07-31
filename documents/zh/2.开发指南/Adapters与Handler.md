@@ -194,7 +194,7 @@ openjiuwen:
         enabled: true
         servers:
           - server-id: default
-            service-url: http://localhost:18090
+            service-url: http://127.0.0.1:8321
             sandbox-type: jiuwenbox
 ```
 
@@ -247,4 +247,4 @@ AgentHandler agentHandler() {
 - [HTTP 对话面](HTTP对话面.md) — Ingress 契约
 - [A2A 开发指导](A2A/开发指导.md) — 进程内 A2A Server 与 Orchestrator 远端委派
 - Core Runner：[agent-core-java · 执行器 Runner](https://gitcode.com/openJiuwen/agent-core-java)（仓内 `documents/zh/2.开发指南/高阶用法/`，版本见 [Agent Core 依赖](Agent Core 依赖.md)）
-- Demo 总览：[agent-service-demo/README.md](../../service/agent-service-demo/README.md)
+- Demo 总览：[agent-service-demo/README.md](../../../service/agent-service-demo/README.md)

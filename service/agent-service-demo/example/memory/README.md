@@ -1,6 +1,8 @@
 # Memory ReActAgent Demo
 
-`example/memory` 只保留一个使用用例：启动一个真实 LLM 驱动的 `ReActAgent`，通过 Runtime `MemoryStore` 接入 mem0 长期记忆。
+`example/memory` 启动一个真实 LLM 驱动的 `ReActAgent`，通过 Runtime `MemoryStore` 接入长期记忆服务。
+Runtime 当前内置 `mem0` 和 `jiuwen` 两个 `MemoryStoreProvider`；demo 默认导入
+`application-mem0.yml`，因此开箱路径是 mem0。
 
 这个 demo 同时验证两条路径：
 
@@ -29,9 +31,11 @@ example/memory/
   application.yml
   application-memory.yml
   application-mem0.yml
+  application-jiuwen.yml
   src/main/java/.../MemoryDemoApplication.java
   src/main/java/.../MemoryLifecycleAgentHandler.java
   src/test/java/.../MemoryAgentEndToEndTest.java
+  src/test/java/.../JiuwenMemoryAgentEndToEndTest.java
 ```
 
 ## 配置
@@ -83,6 +87,50 @@ export MEM0_API_KEY=your-mem0-api-key
 如果你使用本地或自建 mem0 兼容服务，把 `MEM0_ENDPOINT` 改成对应地址即可。
 用户维度不通过配置兜底，所有请求都需要在请求体里显式传 `user_id`。
 
+mem0 Cloud 默认使用：
+
+```yaml
+provider: mem0
+auth-header-mode: token
+path-style: v3
+```
+
+自建 Mem0 OSS 通常改为：
+
+```yaml
+provider: mem0
+endpoint: ${MEM0_ENDPOINT:http://localhost:8888}
+encrypted-api-key: ${MEM0_API_KEY:}
+auth-header-mode: x_api_key
+path-style: open
+```
+
+`auth-header-mode` 支持 `token`（`Authorization: Token`）、`bearer`
+（`Authorization: Bearer`）和 `x_api_key`（`X-API-Key`）。`path-style=v3` 使用 mem0 Cloud 的
+`/v3`、`/v1` API；`path-style=open` 使用自建服务的简化路径。
+
+### 3. Memory Runtime 配置
+
+`openjiuwen.service.middleware.memory` 由 `MiddlewareProperties.Memory` 绑定：
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `enabled` | `false` | 启用后创建 `MemoryStore`；容器中没有其他 `MemoryProvider` 时再创建 Core bridge |
+| `provider` | `mem0` | 内置 `mem0`、`jiuwen`；也可以注册自定义 `MemoryStoreProvider` |
+| `endpoint` | `https://api.mem0.ai` | Memory 服务基地址 |
+| `encrypted-api-key` | 空 | 经 `CredentialDecryptor` 的 `MEMORY_API_KEY` 场景解密；启用时不能为空 |
+| `request-scoped-session` | `false` | 将请求的用户、空间、租户信息传入 Core session |
+| `rerank` | `false` | 默认搜索是否启用 rerank；当前主要用于 mem0 |
+| `auth-header-mode` | `token` | mem0 鉴权头模式 |
+| `path-style` | `v3` | mem0 API 路径模式：`v3` 或 `open` |
+| `timeout-ms` | `3000` | 单次外呼超时，必须大于 0 |
+| `retry.max` | `0` | 最大重试次数 |
+| `retry.backoff-ms` | `0` | 重试退避毫秒数 |
+| `circuit-breaker.enabled` | `false` | 是否启用熔断 |
+| `circuit-breaker.failure-threshold` | `5` | 打开熔断器前的失败阈值 |
+| `circuit-breaker.reset-timeout-ms` | `30000` | 熔断器重置等待时间 |
+| `audit.enabled` | `true` | 是否输出 `EXTERNAL_CALL_AUDIT` |
+
 `application-memory.yml` 默认打开 request-scoped Core session：
 
 ```yaml
@@ -94,6 +142,11 @@ openjiuwen:
 ```
 
 打开后，demo 会给 ReActAgent 传入携带 `user_id` / `space_id` / `tenant_id` 的 `AgentSessionApi`，让 `memory_search` 等工具按请求用户访问长期记忆。关闭时，card-backed agent 保持旧的 String session 行为。
+
+如需验证 Jiuwen Memory Engine，将 `application.yml` 中导入的 `application-mem0.yml` 替换为
+`application-jiuwen.yml`，并通过 `JIUWEN_ENDPOINT`、`JIUWEN_API_KEY` 提供连接信息。Jiuwen provider
+支持 add、search，以及通过分页检索实现的 get；其 API 不支持按 memory id 删除，因此
+`memory_delete` 会返回不支持错误。
 
 ## 启动
 
@@ -200,28 +253,31 @@ curl -s http://localhost:8094/v1/query \
 
 ## 验证点
 
-- 请求前自动调用 `MemoryProvider.prefetch`，最终进入 mem0 `search`
+- 请求前自动调用 `MemoryProvider.prefetch`，最终进入所选 provider 的 `search`
 - prefetch 结果被注入为 `<memory-context>`
-- 请求后自动调用 `MemoryProvider.syncTurn`，最终进入 mem0 `add`
+- 请求后自动调用 `MemoryProvider.syncTurn`，最终进入所选 provider 的 `add`
 - LLM 可主动调用 `memory_search`
 - LLM 可主动调用 `memory_add`
 - LLM 可主动调用 `memory_get`
-- LLM 可主动调用 `memory_delete`
+- mem0 下 LLM 可主动调用 `memory_delete`
 
 ## 自动化测试
 
-E2E 测试使用 mock LLM 和 mock mem0，不依赖真实外部服务：
+E2E 测试使用 mock LLM 和本地 mock Memory 服务，不依赖真实外部服务：
 
 ```bash
 mvn -pl service/agent-service-demo/example/memory -am \
   -Dsurefire.failIfNoSpecifiedTests=false \
-  -Dtest=MemoryAgentEndToEndTest \
+  -Dtest=MemoryAgentEndToEndTest,JiuwenMemoryAgentEndToEndTest \
   test
 ```
 
 测试覆盖：
 
-- 请求前 prefetch 是否调用 mem0 search
+- mem0 与 Jiuwen provider 是否被正确选择
+- 请求前 prefetch 是否调用 provider search
 - 模型收到的 user message 是否包含 `<memory-context>`
-- 请求后 syncTurn 是否调用 mem0 add
-- 四个工具函数是否分别触发 mem0 search/add/get/delete
+- 请求后 syncTurn 是否调用 provider add
+- mem0 的 search/add/get/delete 工具链路
+- Jiuwen 的 search/add/get 工具链路
+- mem0 空检索、prefetch/syncTurn 故障降级和流式写回

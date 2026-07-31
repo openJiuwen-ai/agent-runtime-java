@@ -211,7 +211,7 @@ public class MiddlewareProperties {
     }
 
     /**
-     * Long-term memory (mem0) configuration.
+     * Long-term memory service configuration.
      *
      * <p>Implements {@link ExternalCallPolicy} so the governance timeout/retry/circuit/audit
      * settings map directly into the runtime {@code ExternalCallExecutor}.

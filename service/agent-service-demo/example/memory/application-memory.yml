@@ -4,7 +4,7 @@ server:
 # Shared long-term memory profile for agent-service-demo.
 #
 # memory.enabled=true exposes a governed MemoryStore bean.
-# Provider-specific settings live under application-mem0.yml (or future provider profiles).
+# Provider-specific settings live under application-mem0.yml or application-jiuwen.yml.
 # This demo uses MemoryProvider.prefetch before each request and MemoryProvider.syncTurn after it.
 # ReActAgent memory tools still call MemoryStore.search/add/get/delete directly.
 openjiuwen:

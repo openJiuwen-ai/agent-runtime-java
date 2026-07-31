@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
@@ -52,6 +53,7 @@ class ApiConfigLoaderTest {
         assertThat(values.shouldVerifySsl()).isEmpty();
     }
 
+    @Tag("smoke")
     @Test
     void load_discoversApiConfigFromParentDirectory() throws Exception {
         Path workingDirectory = Files.createDirectories(tempDir.resolve("a/b"));
@@ -86,6 +88,7 @@ class ApiConfigLoaderTest {
         assertThat(loader.load(null, true)).isEmpty();
     }
 
+    @Tag("smoke")
     @Test
     void load_usesEnvironmentPathBeforeAutoDiscovery() throws Exception {
         Path environmentFile = writeConfig(tempDir.resolve("environment.json"), "EnvironmentProvider", "true");
@@ -100,6 +103,7 @@ class ApiConfigLoaderTest {
         assertThat(values.provider()).hasValue("EnvironmentProvider");
     }
 
+    @Tag("smoke")
     @Test
     void load_prefersExplicitPathOverEnvironmentAndAutoDiscovery() throws Exception {
         Path explicitFile = writeConfig(tempDir.resolve("explicit.json"), "ExplicitProvider", "true");

@@ -6,6 +6,7 @@ package com.openjiuwen.service.demo.example.outboundsecurity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.List;
  * E2E integration test for outbound MCP HTTPS + Bearer auth (Issue #25).
  */
 class OutboundSecurityMcpE2EIT {
+    @Tag("smoke")
     @Test
     void listsToolsOverHttpsWithBearerAuth() throws Exception {
         List<String> toolNames = OutboundSecurityMcpClientExample.runDemo(0);

@@ -107,6 +107,21 @@
 | `context-window-limit` | `10` | 上下文窗口轮数。 |
 | `max-iterations` | `5` | Agent 最大迭代次数。 |
 
+## `apiconfig.json` 解析规则
+
+`LlmConfigResolver` 使用 `ApiConfigLoader` 选择至多一个配置文件：
+
+1. `openjiuwen.service.llm.config-file`
+2. 环境变量 `OPENJIUWEN_API_CONFIG`
+3. `auto-discover=true` 时，从当前工作目录开始，最多向上查找 6 层 `apiconfig.json`
+
+`auto-discover=false` 只关闭第 3 种来源。显式路径和环境变量路径仍会读取；路径不可读时抛出
+`IllegalStateException`，不会回退。文件必须是不超过 1 MiB 的 JSON 对象。
+
+字段合并优先级为“非空 Spring 配置 > `apiconfig.json` > Runtime 默认值”。支持的文件字段为
+`MODEL_PROVIDER`、`API_KEY`、`API_BASE`、`MODEL_NAME`、`LLM_SSL_VERIFY`。解析结果在
+`LlmConfigResolver` 中缓存，API Key 通过 `CredentialDecryptor` 的 `LLM_API_KEY` 场景解密。
+
 ## 源码路径
 
 `service/agent-service-app/src/main/java/com/openjiuwen/service/app/config/`

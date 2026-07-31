@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.openjiuwen.service.app.security.tls.TlsTestCertificates;
 import com.openjiuwen.service.app.security.tls.TlsTestSslContextFactory;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -61,6 +62,7 @@ class TlsMtlsNeedIntegrationTest {
                 .isInstanceOf(SSLHandshakeException.class);
     }
 
+    @Tag("smoke")
     @Test
     void mtlsNeedWithClientCertReturnsHealth200() throws Exception {
         SSLContext sslContext = TlsTestSslContextFactory.clientWithMtls(TLS_MATERIAL);
