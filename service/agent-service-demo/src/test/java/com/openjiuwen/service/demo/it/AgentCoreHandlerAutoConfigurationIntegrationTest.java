@@ -17,6 +17,7 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -48,6 +49,8 @@ import java.util.Map;
 class AgentCoreHandlerAutoConfigurationIntegrationTest {
     private static final String AGENT_ID = "it-agent";
 
+    private static final String CONVERSATION_ID = "c-agent-id-it";
+
     @Autowired
     private ApplicationContext context;
 
@@ -62,8 +65,14 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
             .addAgent(AgentCard.builder().id(AGENT_ID).name(AGENT_ID).build(), SessionEchoAgent::new, null);
     }
 
+    @BeforeEach
+    void clearConversation() {
+        Runner.release(CONVERSATION_ID);
+    }
+
     @AfterAll
     static void tearDownRunner() {
+        Runner.release(CONVERSATION_ID);
         new JiuwenCoreAgentHandler(AGENT_ID).stop();
         Runner.resourceMgr().removeAgent(AGENT_ID, null, TagMatchStrategy.ALL, true);
     }
@@ -78,12 +87,12 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
     @SuppressWarnings("unchecked")
     void queryEndpointWorksWithoutCustomHandlerBean() throws Exception {
         ResponseEntity<String> resp = postQuery("/v1/query",
-            Map.of("messages", List.of(Map.of("role", "user", "content", "hello")), "conversation_id", "c-agent-id-it",
+            Map.of("messages", List.of(Map.of("role", "user", "content", "hello")), "conversation_id", CONVERSATION_ID,
                 "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
-        assertThat(json).containsEntry("conversation_id", "c-agent-id-it");
+        assertThat(json).containsEntry("conversation_id", CONVERSATION_ID);
         Map<String, Object> result = (Map<String, Object>) json.get("result");
         assertThat(result).containsEntry("content", "turn1:hello");
     }

@@ -32,6 +32,7 @@ import java.util.Map;
 @SpringBootTest(classes = SecurityDemoApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @TestPropertySource(properties = {
+    "openjiuwen.service.middleware.checkpointer.type=in_memory",
     "openjiuwen.service.llm.auto-discover=false",
     "openjiuwen.service.llm.api-key=demo-test-key",
     "openjiuwen.service.llm.api-base=http://127.0.0.1:9/v1",

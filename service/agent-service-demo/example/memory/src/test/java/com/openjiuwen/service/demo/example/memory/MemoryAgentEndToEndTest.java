@@ -66,6 +66,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Tag("smoke")
 @SpringBootTest(classes = MemoryDemoApplication.class,
+    properties = "openjiuwen.service.middleware.checkpointer.type=in_memory",
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
