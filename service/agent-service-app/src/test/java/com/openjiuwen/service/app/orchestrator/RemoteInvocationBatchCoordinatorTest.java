@@ -638,11 +638,18 @@ class RemoteInvocationBatchCoordinatorTest {
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> initial = coordinator.execute(
             batch("batch-context", "call-a", "call-b", "call-c"), request("parent-context", Map.of()),
             mock(QueryStreamObserver.class));
+        assertThat(initial.isDone()).isFalse();
         ArgumentCaptor<RemoteCall> initialCalls = ArgumentCaptor.forClass(RemoteCall.class);
         verify(client, times(3)).callOutcome(initialCalls.capture(), any(), any());
         Map<String, String> initialContexts = new LinkedHashMap<>();
         initialCalls.getAllValues().forEach(call -> initialContexts.put(call.message(), call.contextId()));
         assertThat(initialContexts.values()).doesNotHaveDuplicates();
+        assertThat(initialContexts.get("message-call-a")).startsWith("conversation-1_").endsWith("_call-a")
+            .doesNotContain(":");
+        assertThat(initialContexts.get("message-call-b")).startsWith("conversation-1_").endsWith("_call-b")
+            .doesNotContain(":");
+        assertThat(initialContexts.get("message-call-c")).startsWith("conversation-1_").endsWith("_call-c")
+            .doesNotContain(":");
 
         outcomes.get("call-a").complete(inputRequired("remote-a", "input-a"));
         outcomes.get("call-b").complete(inputRequired("remote-b", "input-b"));
