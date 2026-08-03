@@ -638,6 +638,7 @@ class RemoteInvocationBatchCoordinatorTest {
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> initial = coordinator.execute(
             batch("batch-context", "call-a", "call-b", "call-c"), request("parent-context", Map.of()),
             mock(QueryStreamObserver.class));
+        assertThat(initial.isDone()).isFalse();
         ArgumentCaptor<RemoteCall> initialCalls = ArgumentCaptor.forClass(RemoteCall.class);
         verify(client, times(3)).callOutcome(initialCalls.capture(), any(), any());
         Map<String, String> initialContexts = new LinkedHashMap<>();
