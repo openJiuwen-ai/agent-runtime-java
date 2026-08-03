@@ -14,6 +14,7 @@ import com.openjiuwen.service.app.security.tls.TlsTestSslContextFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +69,7 @@ class TlsAuthCombinedIntegrationTest {
         registry.add("openjiuwen.service.security.tls.key-store-type", () -> "PKCS12");
     }
 
+    @Tag("smoke")
     @Test
     void httpsQueryWithAuthorizationAllowReturns200() throws Exception {
         SSLContext sslContext = TlsTestSslContextFactory.clientTrustServer(TLS_MATERIAL);

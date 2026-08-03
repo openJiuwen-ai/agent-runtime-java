@@ -23,11 +23,11 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 
 /**
- * Memory (mem0) external service feature demo — independent runnable module.
+ * Memory external service feature demo — independent runnable module.
  *
  * <p>Fill in {@code openjiuwen.service.llm} and {@code openjiuwen.service.middleware.memory} then start;
  * the ReAct agent prefetches memory before each request, syncs the turn afterwards, and exposes
- * mem0 tools backed by a governed {@link MemoryStore}.
+ * memory tools backed by a governed {@link MemoryStore}.
  *
  * @since 0.1.0
  */

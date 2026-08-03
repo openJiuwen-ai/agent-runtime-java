@@ -69,6 +69,9 @@ DEMO_FASTMCP_VENV=/tmp/openjiuwen-fastmcp-venv \
 ./service/agent-service-demo/example/mcp/smoke-mcp.sh
 ```
 
+Java E2E 使用 `integration` 标签，并由 `demo.mcp.e2e.server-path` 控制启用。单独执行 JUnit tag 而不提供地址时，
+测试会被跳过；完整冒烟应使用 `smoke-mcp.sh`，由脚本启动 FastMCP、传入地址并强制校验协议和审计结果。
+
 ## 手工启动 FastMCP
 
 在第一个终端执行：

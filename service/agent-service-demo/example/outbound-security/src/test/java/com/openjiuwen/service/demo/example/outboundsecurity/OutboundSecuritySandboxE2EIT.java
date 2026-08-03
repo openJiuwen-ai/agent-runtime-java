@@ -6,12 +6,14 @@ package com.openjiuwen.service.demo.example.outboundsecurity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
  * E2E integration test for outbound Sandbox HTTPS + Bearer auth (Issue #25).
  */
 class OutboundSecuritySandboxE2EIT {
+    @Tag("smoke")
     @Test
     void readsFileOverHttpsWithBearerAuth() throws Exception {
         String content = OutboundSecuritySandboxClientExample.runDemo(0);

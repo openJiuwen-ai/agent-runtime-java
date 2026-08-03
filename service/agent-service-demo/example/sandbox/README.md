@@ -8,14 +8,18 @@ runtime 不再实现独立的 sandbox HTTP provider。sandbox 后端协议由 ag
 HTTPS + Bearer 出站安全配置见 [`application-sandbox-outbound-security.example.yml`](application-sandbox-outbound-security.example.yml)；
 可运行 E2E（无需 LLM / Spring Boot）见 [`../outbound-security/README.md`](../outbound-security/README.md)。
 
-## 两个示例的区别
+## 实现组成
 
-| 示例 | 文件 | 是否经过 Agent | 用途 |
-|------|------|---------------|------|
-| Agent 调沙箱完整服务 | `src/main/java/com/openjiuwen/service/demo/example/sandbox/SandboxDemoApplication.java` | 是 | 启动 Agent Service，LLM 可选择 `readFile` / `executeCmd` / `executeCode` 工具，工具背后调用装饰后的 `SandboxClient` |
-| Adapter 直连示例 | `SandboxAdapterExample.java` | 否 | 直接创建 core `SandboxClient` 并调用沙箱服务，用来验证 sandbox 配置、client 创建和基础操作 |
+当前模块只保留完整 Agent 链路：
 
-一般手工联调“大模型通过 agent 调用沙箱，并经过 runtime 装饰器”时，使用 `SandboxDemoApplication.java`。只想验证 sandbox adapter/client 是否能连通后端时，使用 `SandboxAdapterExample.java`。
+- `SandboxDemoApplication`：启动 Agent Service，创建 `ReActAgent`；
+- `DecoratedSandboxToolRegistrar`：把 `readFile`、`executeCmd`、`executeCode` 注册为 Agent 工具；
+- `AgentCoreSandboxClientFactory`：根据 Runtime 配置创建 Core `SandboxClient`；
+- `DecoratingSandboxClient`：统一执行 timeout、retry、circuit breaker 和 audit；
+- `SandboxAgentExternalEndToEndTest`：使用确定性 mock LLM，对真实 JiuwenBox 验证完整链路。
+
+Runtime 仓库不再提供 Adapter 直连示例或本地 mock Sandbox 后端。只验证 client 连通性时，也应通过
+`AgentCoreSandboxClientFactory` 或完整 E2E，避免维护第二套协议示例。
 
 ## SandboxDemoApplication：Agent 调装饰后 Sandbox
 
@@ -139,6 +143,9 @@ mvn -pl agent-service-demo/example/sandbox -am \
   -Ddemo.sandbox.e2e.service-url=http://127.0.0.1:8321 \
   test
 ```
+
+该测试带有 `integration` 标签，并由 `demo.sandbox.e2e.service-url` 控制启用。仅执行 JUnit tag 而不提供该属性时，
+测试会被跳过；用于环境冒烟时应优先运行 `smoke-sandbox.sh`，让脚本先检查 JiuwenBox 健康状态并在不可用时失败。
 
 ## 配置与边界
 

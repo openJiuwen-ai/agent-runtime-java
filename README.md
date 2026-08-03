@@ -87,12 +87,12 @@ More examples (LLM mode, custom handlers, MCP/A2A samples): [service/agent-servi
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-app</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-adapters-agentcore</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 ```
 
@@ -222,3 +222,5 @@ We welcome issues, documentation improvements, code, and usage feedback. See [CO
 ## License
 
 This project is licensed under the [Apache License 2.0](LICENSE).
+
+This product serves solely as a workflow orchestration tool and does not embed any AI model capabilities. When users integrate AI models for specific business scenarios, they shall bear full responsibility for compliance obligations under the EU AI Act and other relevant regulatory frameworks.
