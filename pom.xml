@@ -33,7 +33,7 @@
 
         <a2a-sdk.version>1.0.0.Final</a2a-sdk.version>
         <!-- Agent Core：Maven 版本与本地源码分支，文档仅引用此处，勿在多处写死版本号 -->
-        <agent-core.version>0.1.13</agent-core.version>
+        <agent-core.version>0.1.14</agent-core.version>
         <agent-core.git.branch>730</agent-core.git.branch>
         <agent-core.repo.url>https://gitcode.com/openJiuwen/agent-core-java</agent-core.repo.url>
     </properties>
