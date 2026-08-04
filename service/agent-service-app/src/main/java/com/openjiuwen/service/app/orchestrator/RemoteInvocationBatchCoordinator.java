@@ -626,7 +626,7 @@ final class RemoteInvocationBatchCoordinator {
         if (batch.members.size() <= 1) {
             return parentContextId;
         }
-        return parentContextId + ":" + batch.batchId + ":" + member.toolCallId;
+        return parentContextId + "_" + batch.batchId + "_" + member.toolCallId;
     }
 
     /**
