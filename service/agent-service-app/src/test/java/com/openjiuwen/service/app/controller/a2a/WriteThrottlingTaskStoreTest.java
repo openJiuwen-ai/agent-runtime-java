@@ -69,6 +69,17 @@ class WriteThrottlingTaskStoreTest {
     }
 
     @Test
+    void measuresThrottleWindowAfterSlowDelegateWriteCompletes() {
+        delegate.saveDurationMs = INTERVAL_MS + 50L;
+
+        store.save(working("v0"), false);
+        store.save(working("v1"), false);
+
+        assertThat(delegate.saveCount).isEqualTo(1);
+        assertThat(store.get(ID).contextId()).isEqualTo("v1");
+    }
+
+    @Test
     void finalStateAlwaysWritesThroughAndEvictsCache() {
         store.save(working("v0"), false); // count 1
         // COMPLETED arrives inside the same throttle window — must still persist
@@ -119,15 +130,18 @@ class WriteThrottlingTaskStoreTest {
      * In-memory {@link TaskStore} that counts writes, standing in for the slow
      * Redis delegate.
      */
-    private static final class CountingStore implements TaskStore {
+    private final class CountingStore implements TaskStore {
         private final Map<String, Task> data = new HashMap<>();
 
         private int saveCount;
+
+        private long saveDurationMs;
 
         @Override
         public void save(Task task, boolean isOverwrite) {
             saveCount++;
             data.put(task.id(), task);
+            now[0] += saveDurationMs;
         }
 
         @Override

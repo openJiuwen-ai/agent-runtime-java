@@ -46,6 +46,48 @@ class DefaultAgentLifecycleManagerTest {
     }
 
     @Test
+    void initWithoutHooksMarksAgentLoadedWhenHandlerPresent() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+
+        DefaultAgentLifecycleManager manager = newManager(readiness, stubAgentHandler(), List.of(), List.of(),
+            List.of());
+
+        manager.runInitPhase();
+
+        assertThat(readiness.isAgentLoaded()).isTrue();
+    }
+
+    @Test
+    void initWithoutHandlerMarksAgentNotLoaded() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+
+        DefaultAgentLifecycleManager manager = newManager(readiness, null, List.of(), List.of(), List.of());
+
+        manager.runInitPhase();
+
+        assertThat(readiness.isAgentLoaded()).isFalse();
+        assertThat(readiness.isProcessUp()).isTrue();
+    }
+
+    @Test
+    void initFailFastPreventsSubsequentHooksWhenMiddleHookFails() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        List<String> order = new ArrayList<>();
+        AgentInitHook first = new OrderedInitHook(order, 1, "first");
+        AgentInitHook failing = new FailingInitHook(order, 2);
+        AgentInitHook third = new OrderedInitHook(order, 3, "third");
+        LifecycleProperties properties = new LifecycleProperties();
+        properties.setInitFailFast(true);
+
+        DefaultAgentLifecycleManager manager = newManager(readiness, stubAgentHandler(), List.of(first, failing, third),
+            List.of(), List.of(), properties);
+
+        assertThatThrownBy(manager::runInitPhase).isInstanceOf(IllegalStateException.class);
+        assertThat(order).containsExactly("first", "failing");
+        assertThat(readiness.isAgentLoaded()).isFalse();
+    }
+
+    @Test
     void initRunsHooksWhenHandlerBeanPresent() {
         DefaultAgentReadiness readiness = new DefaultAgentReadiness();
         AgentHandler handler = stubAgentHandler();
@@ -299,6 +341,28 @@ class DefaultAgentLifecycleManagerTest {
         @Override
         public void onInit(AgentLifecycleContext context) {
             order.add(label);
+        }
+
+        @Override
+        public int getOrder() {
+            return orderValue;
+        }
+    }
+
+    private static final class FailingInitHook implements AgentInitHook, org.springframework.core.Ordered {
+        private final List<String> order;
+
+        private final int orderValue;
+
+        private FailingInitHook(List<String> order, int orderValue) {
+            this.order = order;
+            this.orderValue = orderValue;
+        }
+
+        @Override
+        public void onInit(AgentLifecycleContext context) {
+            order.add("failing");
+            throw new IllegalStateException("middle failed");
         }
 
         @Override

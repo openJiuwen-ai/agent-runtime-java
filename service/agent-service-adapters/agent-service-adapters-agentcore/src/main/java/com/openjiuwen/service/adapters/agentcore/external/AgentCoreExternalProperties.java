@@ -11,6 +11,8 @@ import com.openjiuwen.service.adapters.common.external.ExternalAuditPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalCallPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalCircuitBreakerPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalRetryPolicy;
+import com.openjiuwen.service.adapters.common.security.ExternalAuthProperties;
+import com.openjiuwen.service.adapters.common.security.ExternalTlsConfig;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -237,6 +239,8 @@ public class AgentCoreExternalProperties {
             if (server.getTimeoutMs() != null && server.getTimeoutMs() <= 0) {
                 throw new IllegalArgumentException("MCP server timeout-ms must be greater than zero");
             }
+            validateSecurity(server.getTls(), server.getAuth(), "MCP server " + server.getServerName(),
+                server.getClientType());
         }
 
         private McpPolicy copyWithoutServers() {
@@ -270,6 +274,10 @@ public class AgentCoreExternalProperties {
         private String tag;
 
         private Double expiryTimeMs;
+
+        private ExternalTlsConfig tls = new ExternalTlsConfig();
+
+        private ExternalAuthProperties auth = new ExternalAuthProperties();
 
         public String getServerId() {
             return serverId;
@@ -333,6 +341,22 @@ public class AgentCoreExternalProperties {
 
         public void setExpiryTimeMs(Double expiryTimeMs) {
             this.expiryTimeMs = expiryTimeMs;
+        }
+
+        public ExternalTlsConfig getTls() {
+            return tls;
+        }
+
+        public void setTls(ExternalTlsConfig tls) {
+            this.tls = tls != null ? tls : new ExternalTlsConfig();
+        }
+
+        public ExternalAuthProperties getAuth() {
+            return auth;
+        }
+
+        public void setAuth(ExternalAuthProperties auth) {
+            this.auth = auth != null ? auth : new ExternalAuthProperties();
         }
     }
 
@@ -475,6 +499,7 @@ public class AgentCoreExternalProperties {
             if (client.getTimeoutMs() != null && client.getTimeoutMs() <= 0) {
                 throw new IllegalArgumentException("Remote client timeout-ms must be greater than zero");
             }
+            validateSecurity(client.getTls(), client.getAuth(), "Remote client " + client.getId(), null);
         }
 
         private static boolean isHttpUrl(String value) {
@@ -519,6 +544,10 @@ public class AgentCoreExternalProperties {
 
         private Integer timeoutMs;
 
+        private ExternalTlsConfig tls = new ExternalTlsConfig();
+
+        private ExternalAuthProperties auth = new ExternalAuthProperties();
+
         public String getId() {
             return id;
         }
@@ -557,6 +586,22 @@ public class AgentCoreExternalProperties {
 
         public void setTimeoutMs(Integer timeoutMs) {
             this.timeoutMs = timeoutMs;
+        }
+
+        public ExternalTlsConfig getTls() {
+            return tls;
+        }
+
+        public void setTls(ExternalTlsConfig tls) {
+            this.tls = tls != null ? tls : new ExternalTlsConfig();
+        }
+
+        public ExternalAuthProperties getAuth() {
+            return auth;
+        }
+
+        public void setAuth(ExternalAuthProperties auth) {
+            this.auth = auth != null ? auth : new ExternalAuthProperties();
         }
     }
 
@@ -687,6 +732,7 @@ public class AgentCoreExternalProperties {
             if (server.getTimeoutMs() != null && server.getTimeoutMs() <= 0) {
                 throw new IllegalArgumentException("Sandbox server timeout-ms must be greater than zero");
             }
+            validateSecurity(server.getTls(), server.getAuth(), "Sandbox server " + server.getServerId(), null);
         }
 
         private static boolean isHttpUrl(String value) {
@@ -740,6 +786,10 @@ public class AgentCoreExternalProperties {
         private Map<String, Object> params = new LinkedHashMap<>();
 
         private Map<String, Object> extraParams = new LinkedHashMap<>();
+
+        private ExternalTlsConfig tls = new ExternalTlsConfig();
+
+        private ExternalAuthProperties auth = new ExternalAuthProperties();
 
         public String getServerId() {
             return serverId;
@@ -844,5 +894,47 @@ public class AgentCoreExternalProperties {
         public void setExtraParams(Map<String, Object> extraParams) {
             this.extraParams = extraParams != null ? extraParams : new LinkedHashMap<>();
         }
+
+        public ExternalTlsConfig getTls() {
+            return tls;
+        }
+
+        public void setTls(ExternalTlsConfig tls) {
+            this.tls = tls != null ? tls : new ExternalTlsConfig();
+        }
+
+        public ExternalAuthProperties getAuth() {
+            return auth;
+        }
+
+        public void setAuth(ExternalAuthProperties auth) {
+            this.auth = auth != null ? auth : new ExternalAuthProperties();
+        }
+    }
+
+    private static void validateSecurity(ExternalTlsConfig tls, ExternalAuthProperties auth, String label,
+        String clientType) {
+        if (tls != null && tls.isEnabled() && clientType != null && "stdio".equalsIgnoreCase(clientType)) {
+            return;
+        }
+        if (tls != null && tls.isEnabled() && tls.getRef() != null
+            && "global".equalsIgnoreCase(tls.getRef().trim())) {
+            return;
+        }
+        if (tls != null && tls.isEnabled() && !hasText(tls.getKeyStore()) && !hasText(tls.getTrustStore())
+            && (tls.getRef() == null || !"global".equalsIgnoreCase(tls.getRef().trim()))) {
+            throw new IllegalArgumentException(label + " tls.enabled=true requires key-store or trust-store");
+        }
+        if (auth != null && auth.getType() != null && !auth.getType().isBlank()) {
+            if (!"none".equalsIgnoreCase(auth.getType()) && !hasText(auth.getToken())) {
+                if (!hasText(auth.getEncryptedToken()) && !"custom".equalsIgnoreCase(auth.getType())) {
+                    throw new IllegalArgumentException(label + " auth requires token or encrypted-token");
+                }
+            }
+        }
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

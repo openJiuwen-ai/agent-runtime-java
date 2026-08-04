@@ -6,7 +6,7 @@
 
 **openJiuwen Agent Runtime Java** (`agent-runtime-java`) is the **Java implementation repository for Agent Distributed Runtime** (the large Runtime box in the architecture diagram). **`service/`** is the **Agent Server** slice inside that Runtime — currently the main delivered module: Spring Boot HTTP ingress, in-process A2A, Adapters, and **Agent Core** via Maven.
 
-**Agent Core** lives in [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java). **Agent Runtime Manager** is planned under **`manager/*` in this same repo**. Python is a **peer Runtime** implementation (Agent Server often on FastAPI / Yuanrong FaaS).
+**Agent Core** lives in [agent-core-java](https://github.com/openJiuwen-ai/agent-core-java). **Agent Runtime Manager** is planned under **`manager/*` in this same repo**. Python is a **peer Runtime** implementation (Agent Server often on FastAPI / Yuanrong FaaS).
 
 See [Scope & roadmap](#scope--roadmap) and [Logical Architecture](documents/zh/2.开发指南/逻辑架构.md) (Chinese).
 
@@ -32,7 +32,7 @@ See [Scope & roadmap](#scope--roadmap) and [Logical Architecture](documents/zh/2
 ### Build from Source
 
 ```bash
-git clone https://gitcode.com/openJiuwen/agent-runtime-java.git
+git clone https://github.com/openJiuwen-ai/agent-runtime-java.git
 cd agent-runtime-java
 mvn clean install -DskipTests
 ```
@@ -87,12 +87,12 @@ More examples (LLM mode, custom handlers, MCP/A2A samples): [service/agent-servi
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-app</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-adapters-agentcore</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 ```
 
@@ -211,7 +211,7 @@ Index: [documents/zh/SUMMARY.md](documents/zh/SUMMARY.md) (Chinese).
 | Big picture | [Development Guide](documents/zh/2.开发指南/README.md) · [Logical Architecture](documents/zh/2.开发指南/逻辑架构.md) |
 | Module layout | [service/README.md](service/README.md) |
 
-**Agent Core** (agents, workflows, Runner): [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java) ([dependency pinning](documents/zh/2.开发指南/Agent Core 依赖.md)).
+**Agent Core** (agents, workflows, Runner): [agent-core-java](https://github.com/openJiuwen-ai/agent-core-java) ([dependency pinning](documents/zh/2.开发指南/Agent Core 依赖.md)).
 
 English documentation is planned; README is bilingual; detailed guides are currently Chinese-only.
 
@@ -222,3 +222,5 @@ We welcome issues, documentation improvements, code, and usage feedback. See [CO
 ## License
 
 This project is licensed under the [Apache License 2.0](LICENSE).
+
+This product serves solely as a workflow orchestration tool and does not embed any AI model capabilities. When users integrate AI models for specific business scenarios, they shall bear full responsibility for compliance obligations under the EU AI Act and other relevant regulatory frameworks.

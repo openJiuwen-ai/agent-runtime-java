@@ -22,8 +22,13 @@ public class PassthroughCredentialDecryptor implements CredentialDecryptor {
 
     @Override
     public String decrypt(String ciphertext) {
+        return decrypt(ciphertext, CredentialSceneType.UNKNOWN);
+    }
+
+    @Override
+    public String decrypt(String ciphertext, int sceneType) {
         if (ciphertext != null && !ciphertext.isBlank() && WARNED.compareAndSet(false, true)) {
-            log.warn("Passthrough CredentialDecryptor is active: encrypted-password is not decrypted");
+            log.warn("Passthrough CredentialDecryptor is active: credential is not decrypted, sceneType={}", sceneType);
         }
         return ciphertext;
     }

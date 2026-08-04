@@ -1,0 +1,30 @@
+# TLS / mTLS demo profile (copy to application-security-tls_local.yml after generating material).
+#
+# 1. Generate local keystores (gitignored):
+#      Windows:  .\generate-tls-material.ps1
+#      Linux:    bash generate-tls-material.sh
+# 2. Copy this file to application-security-tls_local.yml
+# 3. Fill KEYSTORE_PASSWORD / TRUSTSTORE_PASSWORD (demo script default: demo-tls-pass)
+#    Production: use ENC(...) ciphertext instead of plaintext.
+#
+server:
+  port: 8443
+
+openjiuwen:
+  service:
+    security:
+      enabled: true
+      auth:
+        enabled: false
+      tls:
+        enabled: true
+        client-auth: need
+        key-store: file:./tls/server.p12
+        key-store-password: ${KEYSTORE_PASSWORD}
+        key-store-type: PKCS12
+        trust-store: file:./tls/server-trust.p12
+        trust-store-password: ${TRUSTSTORE_PASSWORD}
+        trust-store-type: PKCS12
+        enabled-protocols:
+          - TLSv1.2
+          - TLSv1.3

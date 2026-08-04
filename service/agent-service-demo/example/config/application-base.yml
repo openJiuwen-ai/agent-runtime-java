@@ -5,13 +5,13 @@ server:
   port: 8090
 
 openjiuwen:
-  demo:
+  service:
     llm:
       auto-discover: true
       provider: OpenAI
-      api-key: ${OPENJIUWEN_DEMO_LLM_API_KEY:}
-      api-base: ${OPENJIUWEN_DEMO_LLM_API_BASE:}
-      model-name: ${OPENJIUWEN_DEMO_LLM_MODEL_NAME:}
+      api-key: ${OPENJIUWEN_SERVICE_LLM_API_KEY:}
+      api-base: ${OPENJIUWEN_SERVICE_LLM_API_BASE:}
+      model-name: ${OPENJIUWEN_SERVICE_LLM_MODEL_NAME:}
       ssl-verify: true
       system-prompt: "You are a helpful assistant. Answer concisely and accurately."
       temperature: 0.6
@@ -19,8 +19,7 @@ openjiuwen:
       timeout: 60s
       context-window-limit: 10
       max-iterations: 5
-  service:
-    version: 0.1.0
+    version: 0.1.1
     query:
       mvc:
         enabled: true
@@ -39,6 +38,7 @@ openjiuwen:
         type: none
       redis:
         default:
+          type: standalone
           host: 127.0.0.1
           port: 6379
           database: 0

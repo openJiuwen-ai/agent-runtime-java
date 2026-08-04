@@ -20,7 +20,7 @@ mvn -pl agent-service-demo -am spring-boot:run
 Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> ReActAgent
 ```
 
-必须提供 `openjiuwen.demo.llm` 的 `api-key`、`api-base`、`model-name`（通过 `application-base_local.yml` 或
+必须提供 `openjiuwen.service.llm` 的 `api-key`、`api-base`、`model-name`（通过 `application-base_local.yml` 或
 `apiconfig.json`）。未配置时进程无法启动。
 
 配置方式见 [example/query/README.md](example/query/README.md)。
@@ -39,12 +39,16 @@ Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> ReActAgent
 
 面向开发者的按需演示，索引见 [example/README.md](example/README.md)：
 
-| 目录                | 内容                                                  |
-|-------------------|-----------------------------------------------------|
-| `example/query`   | HTTP Query、SSE、`/health`（主模块 `agent-service-demo`）  |
-| `example/redis`   | 独立模块 `agent-service-demo-redis`（ReActAgent，8091 端口） |
-| `example/mcp`     | 独立模块 `agent-service-demo-mcp`                       |
-| `example/sandbox` | 独立模块 `agent-service-demo-sandbox`                   |
+| 目录                        | 内容                                                           |
+|---------------------------|--------------------------------------------------------------|
+| `example/query`           | HTTP Query、SSE、`/health`（主模块 `agent-service-demo`）           |
+| `example/redis`           | Redis Checkpointer + Core Session（8091）                       |
+| `example/mcp`             | 独立 FastMCP、Agent 工具调用与治理（8092）                              |
+| `example/sandbox`         | 独立 JiuwenBox、Agent 沙箱工具调用与治理（8093）                          |
+| `example/memory`          | Runtime `MemoryStore`、mem0/Jiuwen Memory、生命周期与工具调用（8094） |
+| `example/a2a`             | 多 Agent A2A 调用与中断恢复                                         |
+| `example/security`        | TLS 与细粒度鉴权（8095）                                             |
+| `example/outbound-security` | MCP/Sandbox 出站 HTTPS 与 Bearer 验证                              |
 
 A2A Remote 出站与 Health L1 矩阵等**内部验收**代码在 `src/test/`（含 `src/test/resources/scripts/`）。
 `DemoAgentApplicationTest` 在测试内注册确定性 echo 模型，仅用于 JUnit，不影响 live server。
@@ -66,7 +70,7 @@ A2A Remote 出站与 Health L1 矩阵等**内部验收**代码在 `src/test/`（
 {
   "status": "healthy",
   "app": "demo-agent-service",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "process_up": true,
   "agent_loaded": true
 }
@@ -124,11 +128,24 @@ data: {"type":"answer","index":1,"payload":{"output":"..."}}
 demo 会从 `apiconfig.json` 读取模型配置，字段名和 agent-core 示例保持一致。可以复制 `apiconfig_example.json` 为本地
 `apiconfig.json`，并填入自己的配置。`apiconfig.json` 会被 git 忽略。
 
-配置文件查找顺序：
+`ApiConfigLoader` 按下面的顺序选择一个配置文件：
 
-1. `openjiuwen.demo.llm.config-file`
+1. `openjiuwen.service.llm.config-file`
 2. `OPENJIUWEN_API_CONFIG`
-3. 从当前工作目录向上查找 `apiconfig.json`
+3. 当 `openjiuwen.service.llm.auto-discover=true` 时，从当前工作目录开始，最多向上查找 6 层
+   `apiconfig.json`
+
+`auto-discover` 只控制第 3 项；即使它是 `false`，显式路径和 `OPENJIUWEN_API_CONFIG` 仍然有效。显式路径或环境变量
+指向的文件不存在、不是普通文件或不可读时，启动会直接失败，不会静默回退到下一种来源。
+
+文件选定后，`LlmConfigResolver` 再按字段合并：
+
+1. 非空的 `openjiuwen.service.llm.*` Spring 配置
+2. `apiconfig.json` 对应字段
+3. Runtime 默认值
+
+因此，文件来源优先级与字段值优先级是两个不同概念。Spring 配置适合配置中心或环境变量注入；
+`apiconfig.json` 主要补充 Spring 中未设置的模型连接字段。
 
 `apiconfig.json` 示例：
 
@@ -142,19 +159,27 @@ demo 会从 `apiconfig.json` 读取模型配置，字段名和 agent-core 示例
 }
 ```
 
-显式指定配置文件启动：
+通过环境变量指定配置文件：
 
 ```bash
 OPENJIUWEN_API_CONFIG=/path/to/apiconfig.json \
 mvn -pl agent-service-demo -am spring-boot:run
 ```
 
-也可以通过 Spring 配置覆盖模型参数，例如：
+通过 Spring 属性显式指定配置文件：
 
-- `openjiuwen.demo.llm.api-base`
-- `openjiuwen.demo.llm.api-key`
-- `openjiuwen.demo.llm.model-name`
-- `openjiuwen.demo.llm.provider`
+```bash
+mvn -pl agent-service-demo -am spring-boot:run \
+  -Dspring-boot.run.arguments="--openjiuwen.service.llm.config-file=/path/to/apiconfig.json"
+```
+
+也可以直接通过 Spring 配置模型参数，例如：
+
+- `openjiuwen.service.llm.api-base`
+- `openjiuwen.service.llm.api-key`
+- `openjiuwen.service.llm.model-name`
+- `openjiuwen.service.llm.provider`
+- `openjiuwen.service.llm.ssl-verify`
 
 行为说明：
 
@@ -245,7 +270,7 @@ MODE=flux bash agent-service-demo/example/query/smoke-query.sh
 ## Example
 
 开发者特性演示见 [example/README.md](example/README.md)。redis / mcp / sandbox 为**独立 Maven 子模块**（`ReActAgent` +
-`JiuwenCoreAgentHandler`，与主 demo 共用 `example/config/application-base.yml` 中 `openjiuwen.demo.llm`）；query 使用主模块
+`JiuwenCoreAgentHandler`，与主 demo 共用 `example/config/application-base.yml` 中 `openjiuwen.service.llm`）；query 使用主模块
 `agent-service-demo`。内部 L1 转测脚本见 `src/test/resources/scripts/`。
 
 ## 外部 MCP 示例

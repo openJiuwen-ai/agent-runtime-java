@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: demo-security-agent-service
+  config:
+    import:
+      - optional:classpath:application-base.yml
+      - optional:classpath:application-base_local.yml
+      - optional:classpath:application-security.yml
+      - optional:classpath:application-security_local.yml
+      - optional:classpath:application-security-tls_local.yml

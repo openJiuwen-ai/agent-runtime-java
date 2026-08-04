@@ -38,9 +38,11 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * End-to-end smoke test for the demo service surface: {@code /health},
@@ -57,6 +59,9 @@ class DemoAgentApplicationTest {
 
     private static final AtomicBoolean FACTORY_REGISTERED = new AtomicBoolean(false);
 
+    private static final AtomicReference<List<Map<String, Object>>> LAST_MODEL_MESSAGES = new AtomicReference<>(
+            List.of());
+
     @Autowired
     private TestRestTemplate rest;
 
@@ -67,11 +72,11 @@ class DemoAgentApplicationTest {
 
     @DynamicPropertySource
     static void llmProperties(DynamicPropertyRegistry registry) {
-        registry.add("openjiuwen.demo.llm.provider", () -> TEST_PROVIDER);
-        registry.add("openjiuwen.demo.llm.api-key", () -> "test-key");
-        registry.add("openjiuwen.demo.llm.api-base", () -> "mirror://demo-smoke");
-        registry.add("openjiuwen.demo.llm.model-name", () -> "test-model");
-        registry.add("openjiuwen.demo.llm.auto-discover", () -> "false");
+        registry.add("openjiuwen.service.llm.provider", () -> TEST_PROVIDER);
+        registry.add("openjiuwen.service.llm.api-key", () -> "test-key");
+        registry.add("openjiuwen.service.llm.api-base", () -> "mirror://demo-smoke");
+        registry.add("openjiuwen.service.llm.model-name", () -> "test-model");
+        registry.add("openjiuwen.service.llm.auto-discover", () -> "false");
     }
 
     @BeforeAll
@@ -84,6 +89,7 @@ class DemoAgentApplicationTest {
     @AfterAll
     void cleanupRunner() {
         Runner.release("demo-c1");
+        agentHandler.clearSession("demo-reset-context");
         agentHandler.stop();
     }
 
@@ -96,7 +102,7 @@ class DemoAgentApplicationTest {
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
         assertThat(json).containsEntry("status", "healthy");
         assertThat(json).containsEntry("app", "demo-agent-service");
-        assertThat(json).containsEntry("version", "0.1.0");
+        assertThat(json).containsEntry("version", "0.1.1");
         assertThat(json).containsEntry("process_up", true);
         assertThat(json).containsEntry("agent_loaded", true);
     }
@@ -105,7 +111,7 @@ class DemoAgentApplicationTest {
     @SuppressWarnings("unchecked")
     void demoApplicationServesQueryApiViaCoreHandler() throws Exception {
         ResponseEntity<String> resp = postJson("/v1/query",
-            Map.of("message", "hello", "conversation_id", "demo-c1", "stream", false));
+                Map.of("message", "hello", "conversation_id", "demo-c1", "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
@@ -118,14 +124,25 @@ class DemoAgentApplicationTest {
     @Test
     @SuppressWarnings("unchecked")
     void demoApplicationServesResetConversationApi() throws Exception {
-        postJson("/v1/query", Map.of("message", "hello", "conversation_id", "demo-c1", "stream", false));
+        String conversationId = "demo-reset-context";
+        postJson("/v1/query", Map.of("message", "remember-this", "conversation_id", conversationId, "stream", false));
+        postJson("/v1/query", Map.of("message", "before-reset", "conversation_id", conversationId, "stream", false));
+        assertThat(userMessagesSeenByModel()).containsExactly("remember-this", "before-reset");
 
-        ResponseEntity<String> reset = postJson("/v1/reset_conversation", Map.of("conversation_id", "demo-c1"));
+        ResponseEntity<String> reset = postJson("/v1/reset_conversation", Map.of("conversation_id", conversationId));
 
         assertThat(reset.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(reset.getBody(), Map.class);
         assertThat(json).containsEntry("status", "ok");
-        assertThat(json.get("message")).asString().contains("demo-c1");
+        assertThat(json.get("message")).asString().contains(conversationId);
+
+        postJson("/v1/query", Map.of("message", "after-reset", "conversation_id", conversationId, "stream", false));
+        assertThat(userMessagesSeenByModel()).containsExactly("after-reset");
+    }
+
+    private static List<String> userMessagesSeenByModel() {
+        return LAST_MODEL_MESSAGES.get().stream().filter(message -> "user".equals(String.valueOf(message.get("role"))))
+                .map(message -> String.valueOf(message.get("content"))).toList();
     }
 
     private ResponseEntity<String> postJson(String path, Map<String, Object> body) {
@@ -153,39 +170,41 @@ class DemoAgentApplicationTest {
 
         @Override
         public AssistantMessage invoke(Object messages, Object tools, Float temperature, Float topP, String model,
-            Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout, Map<String, Object> kwargs) {
-            String lastUser = convertMessagesToDict(messages).stream()
-                .filter(message -> "user".equals(String.valueOf(message.get("role"))))
-                .map(message -> String.valueOf(message.get("content")))
-                .reduce((first, second) -> second)
-                .orElse("");
+                Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
+                Map<String, Object> kwargs) {
+            List<Map<String, Object>> convertedMessages = convertMessagesToDict(messages);
+            LAST_MODEL_MESSAGES.set(convertedMessages.stream().<Map<String, Object>>map(LinkedHashMap::new).toList());
+            String lastUser = convertedMessages.stream()
+                    .filter(message -> "user".equals(String.valueOf(message.get("role"))))
+                    .map(message -> String.valueOf(message.get("content"))).reduce((first, second) -> second)
+                    .orElse("");
             return new AssistantMessage("echo:" + lastUser);
         }
 
         @Override
         public Iterator<AssistantMessageChunk> stream(Object messages, Object tools, Float temperature, Float topP,
-            String model, Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
-            Map<String, Object> kwargs) {
+                String model, Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
+                Map<String, Object> kwargs) {
             return List.<AssistantMessageChunk>of().iterator();
         }
 
         @Override
         public ImageGenerationResponse generateImage(List<UserMessage> messages, String model, String size,
-            String negativePrompt, int n, boolean promptExtend, boolean watermark, int seed,
-            Map<String, Object> kwargs) {
+                String negativePrompt, int n, boolean promptExtend, boolean watermark, int seed,
+                Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
 
         @Override
         public AudioGenerationResponse generateSpeech(List<UserMessage> messages, String model, String voice,
-            String languageType, Map<String, Object> kwargs) {
+                String languageType, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
 
         @Override
         public VideoGenerationResponse generateVideo(List<UserMessage> messages, String imgUrl, String audioUrl,
-            String model, String size, String resolution, int duration, boolean promptExtend, boolean watermark,
-            String negativePrompt, Integer seed, Map<String, Object> kwargs) {
+                String model, String size, String resolution, int duration, boolean promptExtend, boolean watermark,
+                String negativePrompt, Integer seed, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
     }

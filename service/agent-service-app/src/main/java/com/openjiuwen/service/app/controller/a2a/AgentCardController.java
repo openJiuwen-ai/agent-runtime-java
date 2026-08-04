@@ -8,6 +8,7 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
+import com.openjiuwen.service.spec.security.AuthorizedResource;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -23,8 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Serves the A2A-standard Agent Card on multiple well-known paths. All fields
- * are driven by {@link A2AProperties}
+ * Serves the A2A-standard Agent Card on well-known paths. All fields are driven by {@link A2AProperties}
  * configuration.
  *
  * @since 0.1.0
@@ -37,18 +37,22 @@ public class AgentCardController {
 
     private final ServiceProperties serviceProperties;
 
+    private final A2aPushNotificationCapabilityGate pushNotificationCapabilityGate;
+
     /**
      * Constructs the agent card controller.
      *
      * @param a2aProperties the A2A configuration properties
      * @param identity the agent service identity
      * @param serviceProperties the service properties
+     * @param pushNotificationCapabilityGate the push notification capability gate
      */
     public AgentCardController(A2AProperties a2aProperties, AgentServiceIdentity identity,
-        ServiceProperties serviceProperties) {
+        ServiceProperties serviceProperties, A2aPushNotificationCapabilityGate pushNotificationCapabilityGate) {
         this.a2aProperties = a2aProperties;
         this.identity = identity;
         this.serviceProperties = serviceProperties;
+        this.pushNotificationCapabilityGate = pushNotificationCapabilityGate;
     }
 
     /**
@@ -58,6 +62,7 @@ public class AgentCardController {
      * @return the agent card
      */
     @GetMapping(A2AServicePaths.WELL_KNOWN_AGENT_CARD)
+    @AuthorizedResource(resource = "agent-card", action = "read")
     public AgentCard getStandardCard(HttpServletRequest request) {
         return buildCard(request);
     }
@@ -69,18 +74,8 @@ public class AgentCardController {
      * @return the agent card
      */
     @GetMapping(A2AServicePaths.WELL_KNOWN_AGENT_JSON)
+    @AuthorizedResource(resource = "agent-card", action = "read")
     public AgentCard getCompatCard(HttpServletRequest request) {
-        return buildCard(request);
-    }
-
-    /**
-     * Returns the agent card on the prefixed A2A well-known path.
-     *
-     * @param request the HTTP servlet request
-     * @return the agent card
-     */
-    @GetMapping(A2AServicePaths.A2A_WELL_KNOWN_CARD)
-    public AgentCard getPrefixedCard(HttpServletRequest request) {
         return buildCard(request);
     }
 
@@ -105,8 +100,9 @@ public class AgentCardController {
         return new AgentCard(identity.getAppName(), a2aProperties.getAgentDescription(),
             new AgentProvider(providerOrg, providerUrl), serviceProperties.getVersion(),
             a2aProperties.getDocumentationUrl(),
-            new AgentCapabilities(a2aProperties.isStreaming(), a2aProperties.isPushNotifications(),
-                a2aProperties.isExtendedAgentCard(), List.of()), a2aProperties.getDefaultInputModes(),
+            new AgentCapabilities(a2aProperties.isStreaming(),
+                pushNotificationCapabilityGate.isPushNotificationsEnabled(), a2aProperties.isExtendedAgentCard(),
+                List.of()), a2aProperties.getDefaultInputModes(),
             a2aProperties.getDefaultOutputModes(), skills, Map.of(), List.of(), a2aProperties.getIconUrl(),
             List.of(new AgentInterface("JSONRPC", jsonRpcUrl, null, "1.0")), List.of(), jsonRpcUrl, "JSONRPC",
             List.of());

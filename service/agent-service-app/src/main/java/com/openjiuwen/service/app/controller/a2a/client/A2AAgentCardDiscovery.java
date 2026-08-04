@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
+import com.openjiuwen.service.spec.paths.A2AServicePaths;
 
 import jakarta.annotation.PreDestroy;
 
@@ -17,6 +18,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
+import java.net.URI;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -25,14 +27,26 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Fetches AgentCards from configured remote A2A servers at startup. Successful
- * fetches are cached permanently; failures
- * are retried every 30s.
+ * Fetches AgentCards from configured remote A2A servers at startup and resolves
+ * remote agent URLs at runtime.
+ *
+ * <p>This bean implements {@link RemoteAgentCardResolver} as the baseline
+ * resolver: {@link #resolveJsonRpcUrl} reads the cached card's first interface
+ * URL from {@link A2ARemoteAgentCardRegistry}, and {@link #resolveCardUrl}
+ * derives the agent-card fetch URL by stripping the JSON-RPC endpoint's last
+ * path segment and appending {@link A2AServicePaths#WELL_KNOWN_AGENT_CARD},
+ * preserving any path prefix. Deployments may override with an
+ * {@code A2AGatewayCardResolver} for cross-origin cards.
+ *
+ * <p>Successful startup fetches are cached permanently; failures are retried
+ * every 30s.
  *
  * @since 0.1.0
  */
-public class A2AAgentCardDiscovery {
+public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentCardDiscovery.class);
+
+    private static final String REMOTE_AGENTS_PROPERTY = "openjiuwen.service.a2a.remote-agents";
 
     private static final long RETRY_INTERVAL_SECONDS = 30L;
 
@@ -62,7 +76,7 @@ public class A2AAgentCardDiscovery {
             Thread t = new Thread(r, "a2a-discovery-retry");
             t.setDaemon(true);
             t.setUncaughtExceptionHandler(
-                (thread, ex) -> log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
+                    (thread, ex) -> log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));
             return t;
         });
     }
@@ -75,9 +89,26 @@ public class A2AAgentCardDiscovery {
         if (properties.getRemoteAgents().isEmpty()) {
             return;
         }
+        validateRemoteAgents();
         log.info("Discovering {} remote A2A agent(s)", properties.getRemoteAgents().size());
         for (var remote : properties.getRemoteAgents()) {
             tryDiscover(remote);
+        }
+    }
+
+    private void validateRemoteAgents() {
+        for (int index = 0; index < properties.getRemoteAgents().size(); index++) {
+            RemoteAgentProperties remote = properties.getRemoteAgents().get(index);
+            String propertyPrefix = REMOTE_AGENTS_PROPERTY + "[" + index + "]";
+            validateRequiredProperty(remote.getName(), propertyPrefix + ".name");
+            validateRequiredProperty(remote.getUrl(), propertyPrefix + ".url");
+        }
+    }
+
+    private static void validateRequiredProperty(String value, String propertyPath) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(
+                    "Invalid A2A remote agent configuration: " + propertyPath + " must not be null or blank");
         }
     }
 
@@ -86,7 +117,7 @@ public class A2AAgentCardDiscovery {
             discoverAndRegister(remote);
         } catch (org.springframework.web.client.RestClientException e) {
             log.warn("Failed to discover {}, retry every {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
-                e.getMessage());
+                    e.getMessage());
             ScheduledFuture<?> future = retryExecutor.scheduleWithFixedDelay(() -> {
                 try {
                     discoverAndRegister(remote);
@@ -94,7 +125,7 @@ public class A2AAgentCardDiscovery {
                     cancelRetry(remote.getName());
                 } catch (org.springframework.web.client.RestClientException ex) {
                     log.warn("Retry {} failed, will retry in {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
-                        ex.getMessage());
+                            ex.getMessage());
                 }
             }, RETRY_INTERVAL_SECONDS, RETRY_INTERVAL_SECONDS, TimeUnit.SECONDS);
             retryFutures.put(remote.getName(), future);
@@ -109,14 +140,64 @@ public class A2AAgentCardDiscovery {
     }
 
     private void discoverAndRegister(RemoteAgentProperties remote) {
-        AgentCard card = fetchCard(remote.getUrl());
-        registry.register(remote.getName(), card, remote.getTimeoutSeconds());
+        AgentCard card = fetchCardInternal(remote.getUrl());
+        registry.register(remote.getName(), card, remote.getTimeoutSeconds(), remote.isStreaming());
         log.info("Discovered remote agent '{}'", remote.getName());
     }
 
-    AgentCard fetchCard(String baseUrl) {
+    AgentCard fetchCardInternal(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalArgumentException("baseUrl must not be null or blank");
+        }
         String cardUrl = baseUrl.replaceAll("/$", "") + "/.well-known/agent-card.json";
         return restClient.get().uri(cardUrl).accept(MediaType.APPLICATION_JSON).retrieve().body(AgentCard.class);
+    }
+
+    @Override
+    public String resolveCardUrl(String agentId) {
+        String jsonRpcUrl = resolveJsonRpcUrl(agentId);
+        if (jsonRpcUrl == null || jsonRpcUrl.isBlank()) {
+            return "";
+        }
+        try {
+            URI uri = URI.create(jsonRpcUrl);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null || host.isBlank()) {
+                return "";
+            }
+            StringBuilder base = new StringBuilder().append(scheme).append("://").append(host);
+            int port = uri.getPort();
+            if (port > 0) {
+                base.append(':').append(port);
+            }
+            String path = uri.getRawPath();
+            if (path != null && !path.isBlank() && !"/".equals(path)) {
+                while (path.length() > 1 && path.endsWith("/")) {
+                    path = path.substring(0, path.length() - 1);
+                }
+                int lastSlash = path.lastIndexOf('/');
+                if (lastSlash > 0) {
+                    base.append(path, 0, lastSlash);
+                }
+            }
+            return base.append(A2AServicePaths.WELL_KNOWN_AGENT_CARD).toString();
+        } catch (IllegalArgumentException ex) {
+            return "";
+        }
+    }
+
+    @Override
+    public String resolveJsonRpcUrl(String agentId) {
+        if (agentId == null) {
+            return "";
+        }
+        return registry.resolveUrl(agentId);
+    }
+
+    @Override
+    public boolean supported(String agentId) {
+        return agentId != null && registry.get(agentId).isPresent();
     }
 
     /**
