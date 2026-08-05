@@ -21,6 +21,7 @@ import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.client.A2ATaskSubscriptionClient;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
@@ -239,6 +240,17 @@ public class A2AAutoConfiguration {
     @ConditionalOnMissingBean
     public A2ARemoteAgentCardRegistry a2aRemoteAgentCardRegistry() {
         return new A2ARemoteAgentCardRegistry();
+    }
+
+    /**
+     * Creates the reusable standard A2A Task subscription client.
+     *
+     * @return the Task subscription client
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public A2ATaskSubscriptionClient a2aTaskSubscriptionClient() {
+        return new A2ATaskSubscriptionClient();
     }
 
     /**

@@ -11,9 +11,6 @@ import org.a2aproject.sdk.client.ClientEvent;
 import org.a2aproject.sdk.client.MessageEvent;
 import org.a2aproject.sdk.client.TaskEvent;
 import org.a2aproject.sdk.client.TaskUpdateEvent;
-import org.a2aproject.sdk.client.config.ClientConfig;
-import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
-import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.Artifact;
@@ -46,7 +43,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
-import java.util.function.Supplier;
 
 /**
  * Baseline {@link RemoteAgentCaller} using the official A2A SDK
@@ -191,10 +187,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private Client createClient(A2ARemoteAgentCardRegistry.RemoteAgentEntry entry, boolean isStreaming) {
         AgentCard card = entry.card();
         ClientCacheKey key = new ClientCacheKey(entry.name(), endpoint(card), isStreaming);
-        return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
-                ignored -> Client.builder(card)
-                        .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
-                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig()).build()));
+        return A2AClientSupport.withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
+                ignored -> A2AClientSupport.create(card, isStreaming)));
     }
 
     private static String endpoint(AgentCard card) {
@@ -203,23 +197,6 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             return card.supportedInterfaces().get(0).url();
         }
         return card.url() == null ? "" : card.url();
-    }
-
-    private static <T> T withApplicationClassLoader(Supplier<T> action) {
-        Thread thread = Thread.currentThread();
-        ClassLoader original = thread.getContextClassLoader();
-        ClassLoader applicationClassLoader = A2ARemoteAgentClient.class.getClassLoader();
-        if (applicationClassLoader == null || original == applicationClassLoader) {
-            return action.get();
-        }
-        try {
-            // The A2A SDK discovers transports with ServiceLoader and the current
-            // context class loader; common-pool threads may not see nested boot jars.
-            thread.setContextClassLoader(applicationClassLoader);
-            return action.get();
-        } finally {
-            thread.setContextClassLoader(original);
-        }
     }
 
     /**
@@ -263,7 +240,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         try {
             Future<?> submitted = ioExecutor.submit(() -> {
                 try {
-                    withApplicationClassLoader(() -> {
+                    A2AClientSupport.withApplicationClassLoader(() -> {
                         client.sendMessage(setup.params, List.of(eventConsumer),
                                 error -> completeOutcomeOnStreamEnd(call.agentName(), result, error), null);
                         return null;
