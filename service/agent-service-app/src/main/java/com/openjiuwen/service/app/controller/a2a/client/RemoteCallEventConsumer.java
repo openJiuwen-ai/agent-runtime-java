@@ -56,12 +56,23 @@ public final class RemoteCallEventConsumer {
         if (event instanceof TaskUpdateEvent update) {
             handleUpdate(update, result, streamObserver, remoteTaskIdObserver, callbackMode);
         } else if (event instanceof TaskEvent taskEvent) {
-            completeTask(taskEvent.getTask(), result, remoteTaskIdObserver, callbackMode);
+            acceptTask(taskEvent.getTask(), result, streamObserver, remoteTaskIdObserver, callbackMode);
         } else if (event instanceof MessageEvent messageEvent) {
             completeMessage(messageEvent.getMessage(), result, remoteTaskIdObserver);
         } else {
             LOG.debug("Unknown A2A client event type: {}", event.getClass().getSimpleName());
         }
+    }
+
+    private void acceptTask(Task task, CompletableFuture<RemoteCallOutcome> result,
+            QueryStreamObserver streamObserver, Consumer<String> taskIdObserver, boolean callbackMode) {
+        if (task != null && task.status() != null && task.status().state() != null
+                && !task.status().state().isFinal() && task.artifacts() != null) {
+            for (Artifact artifact : task.artifacts()) {
+                emitArtifact(artifact, result, streamObserver);
+            }
+        }
+        completeTask(task, result, taskIdObserver, callbackMode);
     }
 
     private void handleUpdate(TaskUpdateEvent update, CompletableFuture<RemoteCallOutcome> result,
