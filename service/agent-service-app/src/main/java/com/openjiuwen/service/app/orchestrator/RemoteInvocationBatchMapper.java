@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.orchestrator;
 
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcomeMapper;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -275,16 +276,7 @@ final class RemoteInvocationBatchMapper {
     }
 
     private static String resultCategory(TaskState state) {
-        if (state == null) {
-            return "REMOTE_PROTOCOL_ERROR";
-        }
-        return switch (state) {
-            case TASK_STATE_COMPLETED -> "COMPLETED";
-            case TASK_STATE_INPUT_REQUIRED, TASK_STATE_AUTH_REQUIRED -> "INPUT_REQUIRED";
-            case TASK_STATE_REJECTED -> "REMOTE_REJECTED";
-            case TASK_STATE_FAILED -> "REMOTE_BUSINESS_FAILURE";
-            default -> "REMOTE_PROTOCOL_ERROR";
-        };
+        return RemoteCallOutcomeMapper.resultCategory(state);
     }
 
     private static boolean isResultBearingNonTerminalState(TaskState state) {
