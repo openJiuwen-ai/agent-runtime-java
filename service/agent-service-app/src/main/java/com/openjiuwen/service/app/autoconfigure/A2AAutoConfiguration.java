@@ -51,6 +51,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 
@@ -269,8 +270,8 @@ public class A2AAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public A2ARemoteAgentCardRegistry a2aRemoteAgentCardRegistry() {
-        return new A2ARemoteAgentCardRegistry();
+    public A2ARemoteAgentCardRegistry a2aRemoteAgentCardRegistry(ApplicationEventPublisher eventPublisher) {
+        return new A2ARemoteAgentCardRegistry(eventPublisher);
     }
 
     /**

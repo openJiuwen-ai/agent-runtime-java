@@ -5,26 +5,54 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import org.a2aproject.sdk.spec.AgentCard;
-import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Thread-safe in-memory registry of discovered remote A2A AgentCards.
  *
  * @since 0.1.0
  */
-@Component
 public class A2ARemoteAgentCardRegistry {
+    private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentCardRegistry.class);
+
     /**
      * Default timeout in seconds for remote agent calls.
      */
     static final int DEFAULT_TIMEOUT_SECONDS = 300;
 
+    private final ApplicationEventPublisher eventPublisher;
     private final Map<String, RemoteAgentEntry> entries = new ConcurrentHashMap<>();
+    private final ReentrantLock updateLock = new ReentrantLock();
+
+    private long version;
+
+    /**
+     * Creates a registry without event publication.
+     *
+     * <p>This constructor preserves direct, non-Spring usage. Runtime auto-configuration
+     * supplies an {@link ApplicationEventPublisher}.</p>
+     */
+    public A2ARemoteAgentCardRegistry() {
+        this(event -> {
+        });
+    }
+
+    /**
+     * Creates a registry that publishes complete catalog snapshots after updates.
+     *
+     * @param eventPublisher the Spring application event publisher
+     */
+    public A2ARemoteAgentCardRegistry(ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
+    }
 
     /**
      * Registers a remote agent card using the default timeout.
@@ -42,7 +70,7 @@ public class A2ARemoteAgentCardRegistry {
      * @return an unmodifiable copy of all entries
      */
     public List<RemoteAgentEntry> getAll() {
-        return List.copyOf(entries.values());
+        return snapshot().entries();
     }
 
     /**
@@ -74,9 +102,24 @@ public class A2ARemoteAgentCardRegistry {
     }
 
     /**
+     * Returns the current complete remote-agent catalog.
+     *
+     * @return an immutable, name-sorted catalog snapshot
+     */
+    public RemoteAgentCatalogSnapshot snapshot() {
+        updateLock.lock();
+        try {
+            return createSnapshot();
+        } finally {
+            updateLock.unlock();
+        }
+    }
+
+    /**
      * A registered remote agent entry holding the card and timeout configuration.
      */
-    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds, boolean isStreaming) {}
+    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds, boolean isStreaming) {
+    }
 
     /**
      * Registers a remote agent card with a specific timeout.
@@ -98,6 +141,31 @@ public class A2ARemoteAgentCardRegistry {
      * @param isStreaming whether Runtime should prefer a streaming remote invocation
      */
     public void register(String name, AgentCard card, int timeoutSeconds, boolean isStreaming) {
-        entries.put(name, new RemoteAgentEntry(name, card, timeoutSeconds, isStreaming));
+        RemoteAgentCatalogSnapshot updatedSnapshot;
+        updateLock.lock();
+        try {
+            entries.put(name, new RemoteAgentEntry(name, card, timeoutSeconds, isStreaming));
+            version++;
+            updatedSnapshot = createSnapshot();
+        } finally {
+            updateLock.unlock();
+        }
+        publishCatalogChanged(updatedSnapshot);
+    }
+
+    private RemoteAgentCatalogSnapshot createSnapshot() {
+        List<RemoteAgentEntry> sortedEntries = entries.values().stream()
+                .sorted((left, right) -> left.name().compareTo(right.name())).toList();
+        return new RemoteAgentCatalogSnapshot(version, sortedEntries);
+    }
+
+    private void publishCatalogChanged(RemoteAgentCatalogSnapshot updatedSnapshot) {
+        try {
+            eventPublisher.publishEvent(new RemoteAgentCatalogChangedEvent(updatedSnapshot));
+        } catch (RuntimeException exception) {
+            log.error("Failed to publish remote Agent Card catalog event, version={}", updatedSnapshot.version(),
+                    exception);
+            throw exception;
+        }
     }
 }
