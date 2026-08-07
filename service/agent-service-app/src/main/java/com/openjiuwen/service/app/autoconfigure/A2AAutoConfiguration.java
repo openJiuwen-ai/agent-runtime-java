@@ -266,6 +266,7 @@ public class A2AAutoConfiguration {
     /**
      * Creates the remote agent card registry bean.
      *
+     * @param eventPublisher the Spring application event publisher
      * @return the remote agent card registry
      */
     @Bean

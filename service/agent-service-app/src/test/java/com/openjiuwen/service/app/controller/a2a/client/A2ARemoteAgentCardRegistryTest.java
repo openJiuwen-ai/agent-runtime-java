@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.IntStream;
 
+/** Tests remote Agent Card catalog snapshots and update publication. */
 class A2ARemoteAgentCardRegistryTest {
     @Test
     void initialSnapshotIsEmptyAndImmutable() {
@@ -96,7 +97,13 @@ class A2ARemoteAgentCardRegistryTest {
     }
 
     private static A2ARemoteAgentCardRegistry registryWithEvents(List<RemoteAgentCatalogChangedEvent> events) {
-        ApplicationEventPublisher publisher = event -> events.add((RemoteAgentCatalogChangedEvent) event);
+        ApplicationEventPublisher publisher = event -> {
+            if (event instanceof RemoteAgentCatalogChangedEvent catalogEvent) {
+                events.add(catalogEvent);
+                return;
+            }
+            throw new IllegalArgumentException("Unexpected event type: " + event.getClass().getName());
+        };
         return new A2ARemoteAgentCardRegistry(publisher);
     }
 

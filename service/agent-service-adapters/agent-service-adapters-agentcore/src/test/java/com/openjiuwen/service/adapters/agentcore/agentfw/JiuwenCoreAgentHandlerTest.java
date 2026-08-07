@@ -50,7 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * JiuwenCoreAgentHandlerTest
+ * Tests AgentCore request adaptation, aggregation, and interruption handling.
  *
  * @since 2026-07-03
  */

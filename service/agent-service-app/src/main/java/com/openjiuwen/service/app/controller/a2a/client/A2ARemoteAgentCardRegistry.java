@@ -5,8 +5,6 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import org.a2aproject.sdk.spec.AgentCard;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
@@ -21,8 +19,6 @@ import java.util.concurrent.locks.ReentrantLock;
  * @since 0.1.0
  */
 public class A2ARemoteAgentCardRegistry {
-    private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentCardRegistry.class);
-
     /**
      * Default timeout in seconds for remote agent calls.
      */
@@ -160,12 +156,6 @@ public class A2ARemoteAgentCardRegistry {
     }
 
     private void publishCatalogChanged(RemoteAgentCatalogSnapshot updatedSnapshot) {
-        try {
-            eventPublisher.publishEvent(new RemoteAgentCatalogChangedEvent(updatedSnapshot));
-        } catch (RuntimeException exception) {
-            log.error("Failed to publish remote Agent Card catalog event, version={}", updatedSnapshot.version(),
-                    exception);
-            throw exception;
-        }
+        eventPublisher.publishEvent(new RemoteAgentCatalogChangedEvent(updatedSnapshot));
     }
 }
