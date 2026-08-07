@@ -395,10 +395,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return new QueryResponse(result, conversationId);
     }
 
-    private static boolean supportsInvoke(Object agent) {
-        if (agent == null || agent instanceof String) {
+    static boolean supportsInvoke(Object agent) {
+        if (agent == null || agent instanceof String || agent instanceof DeepAgent) {
             // Resolved at runtime from agent-id; use streaming unless the instance exposes
-            // invoke.
+            // invoke. DeepAgent task-loop interruptions are emitted on its stream and may
+            // not be represented by the aggregate invoke result after an earlier tool call.
             return false;
         }
         for (Method method : agent.getClass().getMethods()) {
