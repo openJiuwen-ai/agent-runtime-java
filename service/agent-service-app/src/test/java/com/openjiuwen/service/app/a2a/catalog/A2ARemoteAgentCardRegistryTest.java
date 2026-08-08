@@ -40,11 +40,10 @@ class A2ARemoteAgentCardRegistryTest {
 
         assertThat(events).hasSize(2);
         assertThat(events.get(0).snapshot().version()).isEqualTo(1L);
-        assertThat(events.get(0).snapshot().entries()).extracting(RemoteAgentEntry::name)
-                .containsExactly("weather");
+        assertThat(events.get(0).snapshot().entries()).extracting(RemoteAgentEntry::name).containsExactly("weather");
         assertThat(events.get(1).snapshot().version()).isEqualTo(2L);
-        assertThat(events.get(1).snapshot().entries()).extracting(RemoteAgentEntry::name)
-                .containsExactly("balance", "weather");
+        assertThat(events.get(1).snapshot().entries()).extracting(RemoteAgentEntry::name).containsExactly("balance",
+                "weather");
         assertThat(registry.getAll()).containsExactlyElementsOf(events.get(1).snapshot().entries());
     }
 
@@ -85,13 +84,13 @@ class A2ARemoteAgentCardRegistryTest {
     }
 
     @Test
-    void publicationFailureKeepsCompletedRegistryUpdateVisible() {
+    void publicationFailureDoesNotFailCompletedRegistryUpdate() {
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry(event -> {
             throw new IllegalStateException("listener failed");
         });
 
-        assertThatThrownBy(() -> registry.register("balance", mock(AgentCard.class)))
-                .isInstanceOf(IllegalStateException.class).hasMessage("listener failed");
+        registry.register("balance", mock(AgentCard.class));
+
         assertThat(registry.snapshot().version()).isEqualTo(1L);
         assertThat(registry.get("balance")).isPresent();
     }

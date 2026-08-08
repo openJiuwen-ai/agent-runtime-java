@@ -156,8 +156,13 @@ public class A2ARemoteAgentCardRegistry {
     }
 
     private void publishCatalogChanged(RemoteAgentCatalogSnapshot updatedSnapshot) {
-        eventPublisher.publishEvent(new RemoteAgentCatalogChangedEvent(updatedSnapshot));
-        log.info("Published remote A2A Agent catalog change catalogVersion={} catalogSize={}",
-                updatedSnapshot.version(), updatedSnapshot.entries().size());
+        try {
+            eventPublisher.publishEvent(new RemoteAgentCatalogChangedEvent(updatedSnapshot));
+            log.info("Published remote A2A Agent catalog change catalogVersion={} catalogSize={}",
+                    updatedSnapshot.version(), updatedSnapshot.entries().size());
+        } catch (RuntimeException exception) {
+            log.error("Failed to publish remote A2A Agent catalog change catalogVersion={} catalogSize={}",
+                    updatedSnapshot.version(), updatedSnapshot.entries().size(), exception);
+        }
     }
 }
