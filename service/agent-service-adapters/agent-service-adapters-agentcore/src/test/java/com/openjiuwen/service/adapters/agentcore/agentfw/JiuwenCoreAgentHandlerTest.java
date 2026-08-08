@@ -29,7 +29,6 @@ import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.core.workflow.WorkflowOutput;
-import com.openjiuwen.harness.deep_agent.DeepAgent;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -245,12 +244,6 @@ class JiuwenCoreAgentHandlerTest {
         assertThat(agent.streamCount.get()).isZero();
         assertThat((Map<String, Object>) first.getResult()).containsEntry("content", "turn1:a");
         assertThat((Map<String, Object>) second.getResult()).containsEntry("content", "turn2:b|prev=a");
-    }
-
-    @Test
-    void deepAgentUsesStreamingPathToPreserveTaskLoopInterruptions() {
-        assertThat(JiuwenCoreAgentHandler.supportsInvoke(mock(DeepAgent.class))).isFalse();
-        assertThat(JiuwenCoreAgentHandler.supportsInvoke(new InvokeEchoAgent())).isTrue();
     }
 
     @Test
