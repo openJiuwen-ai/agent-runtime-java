@@ -20,6 +20,9 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
+
 import org.a2aproject.sdk.client.Client;
 import org.a2aproject.sdk.client.ClientBuilder;
 import org.a2aproject.sdk.client.MessageEvent;
@@ -127,8 +130,7 @@ class A2ARemoteAgentClientClassLoaderTest {
             var outcome = remoteClient.callOutcome(remoteCall("timeout-agent"),
                     mock(RemoteAgentCaller.EventObserver.class));
 
-            assertThatThrownBy(() -> outcome.get(2, TimeUnit.SECONDS))
-                .hasCauseInstanceOf(TimeoutException.class);
+            assertThatThrownBy(() -> outcome.get(2, TimeUnit.SECONDS)).hasCauseInstanceOf(TimeoutException.class);
         } finally {
             release.countDown();
             remoteClient.shutdown();
@@ -153,9 +155,8 @@ class A2ARemoteAgentClientClassLoaderTest {
             var outcome = remoteClient.callOutcome(remoteCall("failing-agent"),
                     mock(RemoteAgentCaller.EventObserver.class));
 
-            assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS))
-                .hasCauseInstanceOf(A2AClientException.class)
-                .hasRootCauseMessage("SDK send failed");
+            assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS)).hasCauseInstanceOf(A2AClientException.class)
+                    .hasRootCauseMessage("SDK send failed");
         } finally {
             remoteClient.shutdown();
         }
@@ -168,8 +169,8 @@ class A2ARemoteAgentClientClassLoaderTest {
         registry.register("runtime-failing-agent", card, 30, false);
         ClientBuilder builder = mock(ClientBuilder.class);
         Client sdkClient = mock(Client.class);
-        doThrow(new IllegalArgumentException("invalid SDK event"))
-            .when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
+        doThrow(new IllegalArgumentException("invalid SDK event")).when(sdkClient)
+                .sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
 
         A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
@@ -179,8 +180,7 @@ class A2ARemoteAgentClientClassLoaderTest {
                     mock(RemoteAgentCaller.EventObserver.class));
 
             assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS))
-                .hasCauseInstanceOf(IllegalArgumentException.class)
-                .hasRootCauseMessage("invalid SDK event");
+                    .hasCauseInstanceOf(IllegalArgumentException.class).hasRootCauseMessage("invalid SDK event");
         } finally {
             remoteClient.shutdown();
         }
@@ -195,10 +195,11 @@ class A2ARemoteAgentClientClassLoaderTest {
         ClientBuilder builder = mock(ClientBuilder.class);
         Client sdkClient = mock(Client.class);
         Message message = Message.builder().role(Message.Role.ROLE_AGENT)
-            .parts(List.<Part<?>>of(new TextPart("hello "), new TextPart("world"))).build();
+                .parts(List.<Part<?>>of(new TextPart("hello "), new TextPart("world"))).build();
         doAnswer(invocation -> {
-            @SuppressWarnings("unchecked") List<java.util.function.BiConsumer<org.a2aproject.sdk.client.ClientEvent,
-                AgentCard>> consumers = invocation.getArgument(1);
+            @SuppressWarnings("unchecked")
+            List<java.util.function.BiConsumer<org.a2aproject.sdk.client.ClientEvent, AgentCard>> consumers = invocation
+                    .getArgument(1);
             consumers.get(0).accept(new MessageEvent(message), card);
             return null;
         }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
@@ -223,14 +224,17 @@ class A2ARemoteAgentClientClassLoaderTest {
         ClientBuilder builder = mock(ClientBuilder.class);
         Client sdkClient = mock(Client.class);
         Task task = Task.builder().id("remote-task").contextId("remote-context")
-            .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
-            .artifacts(List.of(
-                org.a2aproject.sdk.spec.Artifact.builder().artifactId("a").parts(new TextPart("hello ")).build(),
-                org.a2aproject.sdk.spec.Artifact.builder().artifactId("b").parts(new TextPart("world")).build()))
-            .build();
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
+                .artifacts(List.of(
+                        org.a2aproject.sdk.spec.Artifact.builder().artifactId("a").parts(new TextPart("hello "))
+                                .build(),
+                        org.a2aproject.sdk.spec.Artifact.builder().artifactId("b").parts(new TextPart("world"))
+                                .build()))
+                .build();
         doAnswer(invocation -> {
-            @SuppressWarnings("unchecked") List<java.util.function.BiConsumer<org.a2aproject.sdk.client.ClientEvent,
-                AgentCard>> consumers = invocation.getArgument(1);
+            @SuppressWarnings("unchecked")
+            List<java.util.function.BiConsumer<org.a2aproject.sdk.client.ClientEvent, AgentCard>> consumers = invocation
+                    .getArgument(1);
             consumers.get(0).accept(new TaskEvent(task), card);
             return null;
         }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
@@ -255,14 +259,14 @@ class A2ARemoteAgentClientClassLoaderTest {
         ClientBuilder builder = mock(ClientBuilder.class);
         Client sdkClient = mock(Client.class);
         Message statusMessage = Message.builder().role(Message.Role.ROLE_AGENT)
-            .parts(List.<Part<?>>of(new TextPart("status result"))).build();
+                .parts(List.<Part<?>>of(new TextPart("status result"))).build();
         Task task = Task.builder().id("remote-task").contextId("remote-context")
-            .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED, statusMessage, null))
-            .artifacts(List.of())
-            .build();
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED, statusMessage, null)).artifacts(List.of())
+                .build();
         doAnswer(invocation -> {
-            @SuppressWarnings("unchecked") List<java.util.function.BiConsumer<org.a2aproject.sdk.client.ClientEvent,
-                AgentCard>> consumers = invocation.getArgument(1);
+            @SuppressWarnings("unchecked")
+            List<java.util.function.BiConsumer<org.a2aproject.sdk.client.ClientEvent, AgentCard>> consumers = invocation
+                    .getArgument(1);
             consumers.get(0).accept(new TaskEvent(task), card);
             return null;
         }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
@@ -355,10 +359,9 @@ class A2ARemoteAgentClientClassLoaderTest {
         Thread.currentThread().setContextClassLoader(new NoServicesClassLoader(original));
         try {
             A2ARemoteAgentClient client = new A2ARemoteAgentClient(new A2ARemoteAgentCardRegistry());
-            A2ARemoteAgentCardRegistry.RemoteAgentEntry entry =
-                new A2ARemoteAgentCardRegistry.RemoteAgentEntry("remote", testCard(), 30, true);
-            Method createClient = A2ARemoteAgentClient.class.getDeclaredMethod("createClient",
-                    A2ARemoteAgentCardRegistry.RemoteAgentEntry.class, boolean.class);
+            RemoteAgentEntry entry = new RemoteAgentEntry("remote", testCard(), 30, true);
+            Method createClient = A2ARemoteAgentClient.class.getDeclaredMethod("createClient", RemoteAgentEntry.class,
+                    boolean.class);
             createClient.setAccessible(true);
 
             assertThatCode(() -> createClient.invoke(client, entry, true)).doesNotThrowAnyException();
@@ -376,8 +379,8 @@ class A2ARemoteAgentClientClassLoaderTest {
                 .capabilities(new AgentCapabilities(true, false, false, List.of())).defaultInputModes(List.of("text"))
                 .defaultOutputModes(List.of("text")).skills(List.of()).securitySchemes(Collections.emptyMap())
                 .securityRequirements(List.of())
-                .supportedInterfaces(List.of(new AgentInterface("JSONRPC", url, null, "1.0")))
-                .url(url).preferredTransport("JSONRPC").additionalInterfaces(List.of()).build();
+                .supportedInterfaces(List.of(new AgentInterface("JSONRPC", url, null, "1.0"))).url(url)
+                .preferredTransport("JSONRPC").additionalInterfaces(List.of()).build();
     }
 
     private static void stubClient(MockedStatic<Client> factory, AgentCard card, ClientBuilder builder, Client client) {
@@ -392,8 +395,7 @@ class A2ARemoteAgentClientClassLoaderTest {
     }
 
     private static RemoteCall remoteCall(String agentName, boolean isCallerStreaming) {
-        return new RemoteCall(agentName, "hello", "context", null, Map.of(), Map.of(),
-                isCallerStreaming);
+        return new RemoteCall(agentName, "hello", "context", null, Map.of(), Map.of(), isCallerStreaming);
     }
 
     private static final class NoServicesClassLoader extends ClassLoader {

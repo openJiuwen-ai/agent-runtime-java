@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.autoconfigure;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
@@ -20,7 +21,6 @@ import com.openjiuwen.service.app.controller.a2a.NoOpA2aPushNotificationCallback
 import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
 import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;

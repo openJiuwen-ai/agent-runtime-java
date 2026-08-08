@@ -7,9 +7,10 @@ package com.openjiuwen.service.app.autoconfigure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.a2a.catalog.RemoteAgentCatalogChangedEvent;
+import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
-import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCatalogChangedEvent;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
@@ -99,8 +100,7 @@ class A2AAutoConfigurationTest {
 
             assertThat(events).singleElement().satisfies(event -> {
                 assertThat(event.snapshot().version()).isEqualTo(1L);
-                assertThat(event.snapshot().entries()).extracting(A2ARemoteAgentCardRegistry.RemoteAgentEntry::name)
-                        .containsExactly("balance");
+                assertThat(event.snapshot().entries()).extracting(RemoteAgentEntry::name).containsExactly("balance");
             });
         });
     }

@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
 import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
@@ -124,8 +126,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * @param contextId
      *            the context/conversation ID
      */
-    private record RemoteCallSetup(A2ARemoteAgentCardRegistry.RemoteAgentEntry entry, MessageSendParams params,
-            String contextId) {
+    private record RemoteCallSetup(RemoteAgentEntry entry, MessageSendParams params, String contextId) {
     }
 
     private record TaskOutcome(String taskId, TaskState state, String statusText, Task task,
@@ -191,7 +192,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      *            whether the client should be in streaming mode
      * @return the SDK client
      */
-    private Client createClient(A2ARemoteAgentCardRegistry.RemoteAgentEntry entry, boolean isStreaming) {
+    private Client createClient(RemoteAgentEntry entry, boolean isStreaming) {
         AgentCard card = entry.card();
         ClientCacheKey key = new ClientCacheKey(entry.name(), endpoint(card), isStreaming);
         return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
@@ -236,7 +237,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     @Override
     public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
             RemoteAgentCaller.EventObserver eventObserver) {
-        A2ARemoteAgentCardRegistry.RemoteAgentEntry entry = registry.get(call.agentName())
+        RemoteAgentEntry entry = registry.get(call.agentName())
                 .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
         boolean isStreaming = entry.isStreaming() && call.isCallerStreaming();
         return callOutcome(call, eventObserver, isStreaming);

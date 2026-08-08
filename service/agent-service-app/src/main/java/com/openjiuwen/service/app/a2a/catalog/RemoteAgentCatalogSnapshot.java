@@ -2,7 +2,7 @@
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
 
-package com.openjiuwen.service.app.controller.a2a.client;
+package com.openjiuwen.service.app.a2a.catalog;
 
 import java.util.List;
 
@@ -13,7 +13,7 @@ import java.util.List;
  * @param entries complete remote-agent entries sorted by name
  * @since 0.1.1
  */
-public record RemoteAgentCatalogSnapshot(long version, List<A2ARemoteAgentCardRegistry.RemoteAgentEntry> entries) {
+public record RemoteAgentCatalogSnapshot(long version, List<RemoteAgentEntry> entries) {
     /**
      * Creates an immutable snapshot.
      */

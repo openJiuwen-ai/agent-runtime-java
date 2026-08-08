@@ -7,8 +7,9 @@ package com.openjiuwen.service.app.it;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.it.DualRuntimeCallbackIntegrationTest.CallerRuntimeApplication;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -31,6 +32,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -52,12 +54,8 @@ import java.util.Map;
 /**
  * Dual-runtime happy path for A2A callback-mode remote invocation.
  */
-@SpringBootTest(classes = DualRuntimeCallbackIntegrationTest.CallerRuntimeApplication.class,
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = {
-        "spring.application.name=caller-it",
-        "openjiuwen.service.a2a.push-notifications=true"
-    })
+@SpringBootTest(classes = CallerRuntimeApplication.class, webEnvironment = WebEnvironment.RANDOM_PORT, properties = {
+        "spring.application.name=caller-it", "openjiuwen.service.a2a.push-notifications=true"})
 @AutoConfigureTestRestTemplate
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class DualRuntimeCallbackIntegrationTest {
@@ -83,12 +81,8 @@ class DualRuntimeCallbackIntegrationTest {
 
     @BeforeEach
     void startCallee() {
-        callee = new SpringApplicationBuilder(CalleeRuntimeApplication.class)
-            .properties(
-                "server.port=0",
-                "spring.application.name=callee-it",
-                "openjiuwen.service.a2a.push-notifications=true")
-            .run();
+        callee = new SpringApplicationBuilder(CalleeRuntimeApplication.class).properties("server.port=0",
+                "spring.application.name=callee-it", "openjiuwen.service.a2a.push-notifications=true").run();
         registry.register("callee", card(calleePort()), 5, false);
     }
 
@@ -102,15 +96,10 @@ class DualRuntimeCallbackIntegrationTest {
     @Test
     void callerDelegatesToCalleeWaitsForCallbackThenResumesOriginalTask() throws Exception {
         String callbackUrl = "http://127.0.0.1:" + callerPort + "/a2a/push-notifications/callback";
-        Map<String, Object> firstBody = json(postA2a(rpc("SendMessage", "dual-runtime-start", Map.of(
-            "metadata", Map.of(
-                CALLBACK_URL_METADATA, callbackUrl,
-                CALLBACK_ID_METADATA, "push-dual-runtime"),
-            "message", Map.of(
-                "role", "ROLE_USER",
-                "messageId", "msg-dual-runtime-start",
-                "contextId", "ctx-dual-runtime",
-                "parts", List.of(Map.of("kind", "text", "text", "start dual runtime")))))));
+        Map<String, Object> firstBody = json(postA2a(rpc("SendMessage", "dual-runtime-start", Map.of("metadata",
+                Map.of(CALLBACK_URL_METADATA, callbackUrl, CALLBACK_ID_METADATA, "push-dual-runtime"), "message",
+                Map.of("role", "ROLE_USER", "messageId", "msg-dual-runtime-start", "contextId", "ctx-dual-runtime",
+                        "parts", List.of(Map.of("kind", "text", "text", "start dual runtime")))))));
         Map<String, Object> waitingTask = taskFrom(firstBody);
         String taskId = String.valueOf(waitingTask.get("id"));
 
@@ -171,30 +160,17 @@ class DualRuntimeCallbackIntegrationTest {
 
     private static AgentCard card(int port) {
         String url = "http://127.0.0.1:" + port + "/a2a";
-        return AgentCard.builder()
-            .name("callee")
-            .description("callee")
-            .provider(new AgentProvider("", ""))
-            .version("1.0")
-            .capabilities(new AgentCapabilities(false, true, false, List.of()))
-            .defaultInputModes(List.of("text"))
-            .defaultOutputModes(List.of("text"))
-            .skills(List.of())
-            .securitySchemes(Collections.emptyMap())
-            .securityRequirements(List.of())
-            .supportedInterfaces(List.of(new AgentInterface("JSONRPC", url, null, "1.0")))
-            .url(url)
-            .preferredTransport("JSONRPC")
-            .additionalInterfaces(List.of())
-            .build();
+        return AgentCard.builder().name("callee").description("callee").provider(new AgentProvider("", ""))
+                .version("1.0").capabilities(new AgentCapabilities(false, true, false, List.of()))
+                .defaultInputModes(List.of("text")).defaultOutputModes(List.of("text")).skills(List.of())
+                .securitySchemes(Collections.emptyMap()).securityRequirements(List.of())
+                .supportedInterfaces(List.of(new AgentInterface("JSONRPC", url, null, "1.0"))).url(url)
+                .preferredTransport("JSONRPC").additionalInterfaces(List.of()).build();
     }
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    @ComponentScan(basePackages = {
-        "com.openjiuwen.service.app.controller",
-        "com.openjiuwen.service.app.lifecycle"
-    })
+    @ComponentScan(basePackages = {"com.openjiuwen.service.app.controller", "com.openjiuwen.service.app.lifecycle"})
     static class CallerRuntimeApplication {
         @Bean
         @Primary
@@ -205,10 +181,7 @@ class DualRuntimeCallbackIntegrationTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    @ComponentScan(basePackages = {
-        "com.openjiuwen.service.app.controller",
-        "com.openjiuwen.service.app.lifecycle"
-    })
+    @ComponentScan(basePackages = {"com.openjiuwen.service.app.controller", "com.openjiuwen.service.app.lifecycle"})
     static class CalleeRuntimeApplication {
         @Bean
         @Primary
@@ -224,17 +197,13 @@ class DualRuntimeCallbackIntegrationTest {
             if (results instanceof Map<?, ?> remoteResults) {
                 return response(request, "caller resumed:" + remoteResults.get("call-callee"));
             }
-            return new QueryResponse(Map.of(
-                "role", "assistant",
-                "_interrupt", Map.of(
-                    "batchId", "dual-runtime-batch",
-                    "items", List.of(Map.of(
-                        "index", 0,
-                        "toolCallId", "call-callee",
-                        "toolName", "callee-tool",
-                        "message", "delegate:" + request.lastUserQuery(),
-                        "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "callee"))))),
-                request.getConversationId());
+            return new QueryResponse(
+                    Map.of("role", "assistant", "_interrupt",
+                            Map.of("batchId", "dual-runtime-batch", "items",
+                                    List.of(Map.of("index", 0, "toolCallId", "call-callee", "toolName", "callee-tool",
+                                            "message", "delegate:" + request.lastUserQuery(), "context",
+                                            Map.of("_interrupt_kind", "a2a_delegate", "agentName", "callee"))))),
+                    request.getConversationId());
         }
 
         @Override

@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+
 /**
  * SPI for resolving a remote agent's A2A URLs by {@code agentId}.
  *

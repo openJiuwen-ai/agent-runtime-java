@@ -2,7 +2,7 @@
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
 
-package com.openjiuwen.service.app.controller.a2a.client;
+package com.openjiuwen.service.app.a2a.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,10 +40,10 @@ class A2ARemoteAgentCardRegistryTest {
 
         assertThat(events).hasSize(2);
         assertThat(events.get(0).snapshot().version()).isEqualTo(1L);
-        assertThat(events.get(0).snapshot().entries()).extracting(A2ARemoteAgentCardRegistry.RemoteAgentEntry::name)
+        assertThat(events.get(0).snapshot().entries()).extracting(RemoteAgentEntry::name)
                 .containsExactly("weather");
         assertThat(events.get(1).snapshot().version()).isEqualTo(2L);
-        assertThat(events.get(1).snapshot().entries()).extracting(A2ARemoteAgentCardRegistry.RemoteAgentEntry::name)
+        assertThat(events.get(1).snapshot().entries()).extracting(RemoteAgentEntry::name)
                 .containsExactly("balance", "weather");
         assertThat(registry.getAll()).containsExactlyElementsOf(events.get(1).snapshot().entries());
     }
@@ -107,7 +107,7 @@ class A2ARemoteAgentCardRegistryTest {
         return new A2ARemoteAgentCardRegistry(publisher);
     }
 
-    private static A2ARemoteAgentCardRegistry.RemoteAgentEntry entry(String name) {
-        return new A2ARemoteAgentCardRegistry.RemoteAgentEntry(name, mock(AgentCard.class), 30, false);
+    private static RemoteAgentEntry entry(String name) {
+        return new RemoteAgentEntry(name, mock(AgentCard.class), 30, false);
     }
 }

@@ -2,9 +2,11 @@
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
 
-package com.openjiuwen.service.app.controller.a2a.client;
+package com.openjiuwen.service.app.a2a.catalog;
 
 import org.a2aproject.sdk.spec.AgentCard;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
@@ -19,6 +21,8 @@ import java.util.concurrent.locks.ReentrantLock;
  * @since 0.1.0
  */
 public class A2ARemoteAgentCardRegistry {
+    private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentCardRegistry.class);
+
     /**
      * Default timeout in seconds for remote agent calls.
      */
@@ -112,12 +116,6 @@ public class A2ARemoteAgentCardRegistry {
     }
 
     /**
-     * A registered remote agent entry holding the card and timeout configuration.
-     */
-    public record RemoteAgentEntry(String name, AgentCard card, int timeoutSeconds, boolean isStreaming) {
-    }
-
-    /**
      * Registers a remote agent card with a specific timeout.
      *
      * @param name the agent name
@@ -146,6 +144,8 @@ public class A2ARemoteAgentCardRegistry {
         } finally {
             updateLock.unlock();
         }
+        log.info("Registered remote A2A Agent Card agentName={} catalogVersion={} catalogSize={} streaming={}", name,
+                updatedSnapshot.version(), updatedSnapshot.entries().size(), isStreaming);
         publishCatalogChanged(updatedSnapshot);
     }
 
@@ -157,5 +157,7 @@ public class A2ARemoteAgentCardRegistry {
 
     private void publishCatalogChanged(RemoteAgentCatalogSnapshot updatedSnapshot) {
         eventPublisher.publishEvent(new RemoteAgentCatalogChangedEvent(updatedSnapshot));
+        log.info("Published remote A2A Agent catalog change catalogVersion={} catalogSize={}",
+                updatedSnapshot.version(), updatedSnapshot.entries().size());
     }
 }
