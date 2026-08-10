@@ -35,8 +35,9 @@ public final class QuerySseSupport {
      * @return the chunk's data or a fallback map
      */
     public static Object payload(QueryChunk chunk) {
-        if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())) {
-            return remoteEventData((TaskArtifactUpdateEvent) chunk.getData());
+        if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())
+                && chunk.getData() instanceof TaskArtifactUpdateEvent update) {
+            return remoteEventData(update);
         }
         if (chunk.getData() != null) {
             return chunk.getData();

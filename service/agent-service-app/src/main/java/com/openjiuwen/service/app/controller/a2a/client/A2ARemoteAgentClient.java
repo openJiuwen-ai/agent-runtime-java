@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
+
 import jakarta.annotation.PreDestroy;
 
 import org.a2aproject.sdk.client.Client;
@@ -231,7 +232,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * @return structured remote outcome
      */
     @Override
-    public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, RemoteAgentCaller.EventObserver eventObserver) {
+    public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
+            RemoteAgentCaller.EventObserver eventObserver) {
         A2ARemoteAgentCardRegistry.RemoteAgentEntry entry = registry.get(call.agentName())
                 .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
         boolean isStreaming = entry.isStreaming() && call.isCallerStreaming();

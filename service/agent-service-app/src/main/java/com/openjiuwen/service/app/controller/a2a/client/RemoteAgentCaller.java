@@ -21,6 +21,7 @@ import java.util.concurrent.CompletableFuture;
  * @since 0.1.0
  */
 public interface RemoteAgentCaller {
+    /** Metadata key used for remote agent delegation, status, and output events. */
     String AGENT_EVENT_METADATA = "agentEvent";
 
     /**
@@ -47,8 +48,18 @@ public interface RemoteAgentCaller {
 
     /** Receives complete A2A status and Artifact updates. */
     interface EventObserver {
+        /**
+         * Receives a remote task status update.
+         *
+         * @param event complete A2A status update
+         */
         void onStatus(TaskStatusUpdateEvent event);
 
+        /**
+         * Receives a remote task Artifact update.
+         *
+         * @param event complete A2A Artifact update
+         */
         void onArtifact(TaskArtifactUpdateEvent event);
     }
 }

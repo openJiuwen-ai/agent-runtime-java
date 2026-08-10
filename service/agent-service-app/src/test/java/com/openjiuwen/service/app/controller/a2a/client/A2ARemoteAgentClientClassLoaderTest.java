@@ -92,7 +92,8 @@ class A2ARemoteAgentClientClassLoaderTest {
             A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
             CompletableFuture<RemoteCallOutcome> outcome = null;
             try {
-                outcome = remoteClient.callOutcome(remoteCall("sync-agent"), mock(RemoteAgentCaller.EventObserver.class));
+                outcome = remoteClient.callOutcome(remoteCall("sync-agent"),
+                        mock(RemoteAgentCaller.EventObserver.class));
                 callReturned.countDown();
                 releaser.get(3, TimeUnit.SECONDS);
                 assertThat(returnedBeforeRelease).isTrue();

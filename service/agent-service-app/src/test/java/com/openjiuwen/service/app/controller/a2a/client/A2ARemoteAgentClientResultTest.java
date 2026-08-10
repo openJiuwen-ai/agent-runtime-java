@@ -161,9 +161,6 @@ class A2ARemoteAgentClientResultTest {
 
     @Test
     void answerArtifactDoesNotOverrideLaterFailedStatus() throws Exception {
-        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
-        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
-        RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);
         Artifact answer = new Artifact("artifact-answer", null, null,
                 List.<Part<?>>of(new TextPart(GSON.toJson(envelope("answer", Map.of("output", "premature"))))),
                 Map.of(), List.of());
@@ -174,6 +171,9 @@ class A2ARemoteAgentClientResultTest {
                 boolean.class, boolean.class);
         eventMethod.setAccessible(true);
 
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);
         TaskArtifactUpdateEvent artifactUpdate = new TaskArtifactUpdateEvent("remote-task", answer, "remote-context",
                 false, true, Map.of());
         eventMethod.invoke(client, new TaskUpdateEvent(workingTask, artifactUpdate), result, observer, false, true);
@@ -195,7 +195,7 @@ class A2ARemoteAgentClientResultTest {
     }
 
     @Test
-    void nonStreamingTaskProjectsArtifactsBeforeStatusAndIgnoresLateEvents() throws Exception {
+    void nonStreamingTaskProjectsArtifactsThenIgnoresLateEvents() throws Exception {
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);

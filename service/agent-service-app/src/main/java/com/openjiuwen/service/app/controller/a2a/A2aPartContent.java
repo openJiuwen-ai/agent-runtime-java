@@ -101,5 +101,4 @@ public final class A2aPartContent {
         }
         return hasTerminal ? terminal : content.toString();
     }
-
 }

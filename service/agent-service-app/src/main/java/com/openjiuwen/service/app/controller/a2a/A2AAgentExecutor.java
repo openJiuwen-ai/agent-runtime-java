@@ -181,8 +181,8 @@ public class A2AAgentExecutor implements AgentExecutor {
             interrupted.set(true);
             return;
         }
-        if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())) {
-            TaskArtifactUpdateEvent update = (TaskArtifactUpdateEvent) chunk.getData();
+        if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())
+                && chunk.getData() instanceof TaskArtifactUpdateEvent update) {
             emitter.emitEvent(new TaskArtifactUpdateEvent(msgCtx.getTaskId(), update.artifact(),
                     msgCtx.getContextId(), update.append(), update.lastChunk(), update.metadata()));
             return;

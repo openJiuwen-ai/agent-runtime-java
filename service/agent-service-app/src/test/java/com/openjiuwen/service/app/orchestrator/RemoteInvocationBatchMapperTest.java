@@ -221,7 +221,8 @@ class RemoteInvocationBatchMapperTest {
         Artifact artifact = Artifact.builder().artifactId("artifact-premature").parts(new TextPart("premature"))
                 .build();
         Task task = Task.builder().id("remote-task").contextId("remote-context")
-                .status(new TaskStatus(TaskState.TASK_STATE_FAILED, message, null)).artifacts(List.of(artifact)).build();
+                .status(new TaskStatus(TaskState.TASK_STATE_FAILED, message, null)).artifacts(List.of(artifact))
+                .build();
 
         RemoteCallOutcome outcome = mapper.callbackOutcome(task);
 

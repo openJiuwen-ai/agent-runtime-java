@@ -357,7 +357,7 @@ final class RemoteInvocationBatchCoordinator {
                 batch.request.isStream());
         CompletableFuture<RemoteCallOutcome> future;
         try {
-            future = client.callOutcome(call, memberEventObserver(batch, member));
+            future = client.callOutcome(call, new MemberEventObserver(batch, member));
         } catch (RuntimeException ex) {
             finishInvocation(invocation, null, ex);
             return;
@@ -486,75 +486,77 @@ final class RemoteInvocationBatchCoordinator {
         }
     }
 
-    private EventObserver memberEventObserver(RemoteInvocationBatch batch, Member member) {
-        boolean projectEvents = batch.request.isStream();
-        return new EventObserver() {
-            private boolean delegationPublished;
+    private final class MemberEventObserver implements EventObserver {
+        private final RemoteInvocationBatch batch;
 
-            private TaskState lastStatus;
+        private final Member member;
 
-            private List<Part<?>> lastStatusParts = List.of();
+        private final boolean shouldProjectEvents;
 
-            private synchronized boolean observeRemoteTask(String remoteTaskId) {
-                if (state.isResolved(batch)) {
-                    return false;
-                }
-                if (remoteTaskId == null || remoteTaskId.isBlank()) {
-                    throw new IllegalArgumentException("RemoteAgentCaller event has a blank task id");
-                }
-                if (member.remoteTaskId != null && !member.remoteTaskId.isBlank()
-                        && !member.remoteTaskId.equals(remoteTaskId)) {
-                    throw new IllegalStateException("RemoteAgentCaller event task id does not match the call task id");
-                }
-                if (member.remoteTaskId == null || member.remoteTaskId.isBlank()) {
-                    state.captureRemoteTaskId(batch, member, remoteTaskId);
-                }
-                if (projectEvents && !delegationPublished) {
-                    publishDelegation(batch, member, remoteTaskId);
-                    delegationPublished = true;
-                }
-                return true;
+        private boolean isDelegationPublished;
+
+        private TaskState lastStatus;
+
+        private List<Part<?>> lastStatusParts = List.of();
+
+        private MemberEventObserver(RemoteInvocationBatch batch, Member member) {
+            this.batch = batch;
+            this.member = member;
+            this.shouldProjectEvents = batch.request.isStream();
+        }
+
+        private synchronized boolean observeRemoteTask(String remoteTaskId) {
+            if (state.isResolved(batch)) {
+                return false;
             }
-
-            @Override
-            public synchronized void onStatus(TaskStatusUpdateEvent event) {
-                if (!observeRemoteTask(event.taskId())) {
-                    return;
-                }
-                if (!projectEvents || state.isResolved(batch)) {
-                    return;
-                }
-                TaskState currentStatus = event.status().state();
-                String normalized = normalizeState(currentStatus);
-                List<Part<?>> parts = event.status().message() == null || event.status().message().parts() == null
-                        || event.status().message().parts().isEmpty()
-                                ? List.of(new TextPart(normalized))
-                                : event.status().message().parts();
-                if (lastStatus != null && (lastStatus.isFinal()
-                        || currentStatus == lastStatus && parts.equals(lastStatusParts))) {
-                    return;
-                }
-                lastStatus = currentStatus;
-                lastStatusParts = List.copyOf(parts);
-                Artifact artifact = Artifact.builder()
-                        .artifactId("status:" + remoteAgentId(member) + ":" + event.taskId()).parts(parts)
-                        .metadata(statusMetadata(
-                                remoteAgentId(member), event.taskId(), event.status().state())).build();
-                forwardRemoteArtifact(batch, member, new TaskArtifactUpdateEvent(event.taskId(), artifact,
-                        event.contextId(), false, true, event.metadata()));
+            if (remoteTaskId == null || remoteTaskId.isBlank()) {
+                throw new IllegalArgumentException("RemoteAgentCaller event has a blank task id");
             }
-
-            @Override
-            public void onArtifact(TaskArtifactUpdateEvent event) {
-                if (!observeRemoteTask(event.taskId())) {
-                    return;
-                }
-                if (!projectEvents || state.isResolved(batch)) {
-                    return;
-                }
-                forwardRemoteArtifact(batch, member, event);
+            if (member.remoteTaskId != null && !member.remoteTaskId.isBlank()
+                    && !member.remoteTaskId.equals(remoteTaskId)) {
+                throw new IllegalStateException("RemoteAgentCaller event task id does not match the call task id");
             }
-        };
+            if (member.remoteTaskId == null || member.remoteTaskId.isBlank()) {
+                state.captureRemoteTaskId(batch, member, remoteTaskId);
+            }
+            if (shouldProjectEvents && !isDelegationPublished) {
+                publishDelegation(batch, member, remoteTaskId);
+                isDelegationPublished = true;
+            }
+            return true;
+        }
+
+        @Override
+        public synchronized void onStatus(TaskStatusUpdateEvent event) {
+            if (!observeRemoteTask(event.taskId()) || !shouldProjectEvents || state.isResolved(batch)) {
+                return;
+            }
+            TaskState currentStatus = event.status().state();
+            String normalized = normalizeState(currentStatus);
+            List<Part<?>> parts = event.status().message() == null || event.status().message().parts() == null
+                    || event.status().message().parts().isEmpty()
+                            ? List.of(new TextPart(normalized))
+                            : event.status().message().parts();
+            if (lastStatus != null && (lastStatus.isFinal()
+                    || currentStatus == lastStatus && parts.equals(lastStatusParts))) {
+                return;
+            }
+            lastStatus = currentStatus;
+            lastStatusParts = List.copyOf(parts);
+            Artifact artifact = Artifact.builder()
+                    .artifactId("status:" + remoteAgentId(member) + ":" + event.taskId()).parts(parts)
+                    .metadata(statusMetadata(remoteAgentId(member), event.taskId(), currentStatus)).build();
+            forwardRemoteArtifact(batch, member, new TaskArtifactUpdateEvent(event.taskId(), artifact,
+                    event.contextId(), false, true, event.metadata()));
+        }
+
+        @Override
+        public void onArtifact(TaskArtifactUpdateEvent event) {
+            if (!observeRemoteTask(event.taskId()) || !shouldProjectEvents || state.isResolved(batch)) {
+                return;
+            }
+            forwardRemoteArtifact(batch, member, event);
+        }
     }
 
     private void publishDelegation(RemoteInvocationBatch batch, Member member, String remoteTaskId) {
@@ -733,5 +735,4 @@ final class RemoteInvocationBatchCoordinator {
     record BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
             Map<String, Object> interrupt, boolean shouldResume) {
     }
-
 }
