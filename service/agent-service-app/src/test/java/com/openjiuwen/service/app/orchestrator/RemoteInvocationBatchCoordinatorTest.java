@@ -108,7 +108,7 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     @Test
-    void statusProjectionIsDeduplicatedAndTerminalStateIsSticky() {
+    void statusProjectionPreservesEventOrderAndTerminalStateIsSticky() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
         AtomicReference<EventObserver> remoteObserver = new AtomicReference<>();
@@ -129,6 +129,7 @@ class RemoteInvocationBatchCoordinatorTest {
         remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "searching"));
         remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "searching"));
         remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "generating"));
+        remoteObserver.get().onArtifact(remoteArtifact("remote-a", "progress"));
         remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_COMPLETED, "done"));
         remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "late"));
         remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_FAILED, "conflict"));
@@ -140,12 +141,15 @@ class RemoteInvocationBatchCoordinatorTest {
                 .filter(update -> "status".equals(agentEvent(update).get("type")))
                 .toList();
         assertThat(statuses).hasSize(3);
-        assertThat(statuses).extracting(update -> update.artifact().artifactId()).containsOnly(
-                statuses.get(0).artifact().artifactId());
+        assertThat(statuses).extracting(update -> update.artifact().artifactId()).doesNotHaveDuplicates()
+                .allSatisfy(id -> assertThat(id).startsWith("status:agent-call-a:remote-a:"));
         assertThat(statuses).extracting(update -> String.valueOf(agentEvent(update).get("state")))
                 .containsExactly("working", "working", "completed");
         assertThat(statuses).extracting(RemoteInvocationBatchCoordinatorTest::firstText)
                 .containsExactly("searching", "generating", "done");
+        assertThat(outputs).extracting(QueryChunk::getData).map(TaskArtifactUpdateEvent.class::cast)
+                .extracting(update -> String.valueOf(agentEvent(update).get("type")))
+                .containsExactly("delegation", "status", "status", "output", "status");
     }
 
     @Test

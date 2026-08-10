@@ -42,6 +42,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -544,7 +545,8 @@ final class RemoteInvocationBatchCoordinator {
             lastStatus = currentStatus;
             lastStatusParts = List.copyOf(parts);
             Artifact artifact = Artifact.builder()
-                    .artifactId("status:" + remoteAgentId(member) + ":" + event.taskId()).parts(parts)
+                    .artifactId("status:" + remoteAgentId(member) + ":" + event.taskId() + ":" + UUID.randomUUID())
+                    .parts(parts)
                     .metadata(statusMetadata(remoteAgentId(member), event.taskId(), currentStatus)).build();
             forwardRemoteArtifact(batch, member, new TaskArtifactUpdateEvent(event.taskId(), artifact,
                     event.contextId(), false, true, event.metadata()));
