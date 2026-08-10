@@ -17,6 +17,7 @@ import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.AgentCard;
+import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.MessageSendConfiguration;
 import org.a2aproject.sdk.spec.MessageSendParams;
@@ -251,7 +252,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 && setup.params.configuration().taskPushNotificationConfig() != null;
         BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> {
             try {
-                handleClientEvent(event, result, eventObserver, isCallbackMode);
+                handleClientEvent(event, result, eventObserver, isCallbackMode, isStreaming);
             } catch (RuntimeException ex) {
                 result.completeExceptionally(ex);
             }
@@ -289,7 +290,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     private void handleClientEvent(ClientEvent event, CompletableFuture<RemoteCallOutcome> result,
-            RemoteAgentCaller.EventObserver eventObserver, boolean isCallbackMode) {
+            RemoteAgentCaller.EventObserver eventObserver, boolean isCallbackMode, boolean isStreaming) {
         if (event instanceof TaskUpdateEvent tue) {
             if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
                 if (!result.isDone()) {
@@ -301,7 +302,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 log.debug("Unknown update event type: {}", tue.getUpdateEvent().getClass().getSimpleName());
             }
         } else if (event instanceof TaskEvent te) {
-            handleOutcomeTask(te, result, eventObserver, isCallbackMode);
+            handleOutcomeTask(te, result, eventObserver, isCallbackMode, isStreaming);
         } else if (event instanceof MessageEvent me) {
             handleOutcomeMessage(me, result);
         } else {
@@ -323,6 +324,9 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private void handleOutcomeStatus(TaskStatusUpdateEvent event, Task task,
             CompletableFuture<RemoteCallOutcome> result, RemoteAgentCaller.EventObserver eventObserver,
             boolean isCallbackMode) {
+        if (result.isDone()) {
+            return;
+        }
         TaskState state = event.status().state();
         eventObserver.onStatus(event);
         String statusText = event.status().message() != null ? extractText(event.status().message().parts()) : "";
@@ -330,9 +334,18 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     private void handleOutcomeTask(TaskEvent event, CompletableFuture<RemoteCallOutcome> result,
-            RemoteAgentCaller.EventObserver eventObserver, boolean isCallbackMode) {
+            RemoteAgentCaller.EventObserver eventObserver, boolean isCallbackMode, boolean isStreaming) {
+        if (result.isDone()) {
+            return;
+        }
         Task task = event.getTask();
         TaskState state = task.status().state();
+        if (!isStreaming && task.artifacts() != null) {
+            for (Artifact artifact : task.artifacts()) {
+                eventObserver.onArtifact(new TaskArtifactUpdateEvent(task.id(), artifact, task.contextId(),
+                        false, true, Map.of()));
+            }
+        }
         eventObserver.onStatus(new TaskStatusUpdateEvent(task.id(), task.status(), task.contextId(), Map.of()));
         String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";
         completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task), result, isCallbackMode);

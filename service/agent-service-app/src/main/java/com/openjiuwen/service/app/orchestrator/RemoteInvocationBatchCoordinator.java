@@ -489,9 +489,16 @@ final class RemoteInvocationBatchCoordinator {
     private EventObserver memberEventObserver(RemoteInvocationBatch batch, Member member) {
         boolean projectEvents = batch.request.isStream();
         return new EventObserver() {
-            private String lastStatus;
+            private boolean delegationPublished;
 
-            private synchronized void observeRemoteTask(String remoteTaskId) {
+            private TaskState lastStatus;
+
+            private List<Part<?>> lastStatusParts = List.of();
+
+            private synchronized boolean observeRemoteTask(String remoteTaskId) {
+                if (state.isResolved(batch)) {
+                    return false;
+                }
                 if (remoteTaskId == null || remoteTaskId.isBlank()) {
                     throw new IllegalArgumentException("RemoteAgentCaller event has a blank task id");
                 }
@@ -502,27 +509,33 @@ final class RemoteInvocationBatchCoordinator {
                 if (member.remoteTaskId == null || member.remoteTaskId.isBlank()) {
                     state.captureRemoteTaskId(batch, member, remoteTaskId);
                 }
-                if (projectEvents && lastStatus == null) {
+                if (projectEvents && !delegationPublished) {
                     publishDelegation(batch, member, remoteTaskId);
-                    lastStatus = "";
+                    delegationPublished = true;
                 }
+                return true;
             }
 
             @Override
             public synchronized void onStatus(TaskStatusUpdateEvent event) {
-                observeRemoteTask(event.taskId());
+                if (!observeRemoteTask(event.taskId())) {
+                    return;
+                }
                 if (!projectEvents || state.isResolved(batch)) {
                     return;
                 }
-                String normalized = normalizeState(event.status().state());
-                if (isTerminalState(lastStatus) || normalized.equals(lastStatus)) {
-                    return;
-                }
-                lastStatus = normalized;
+                TaskState currentStatus = event.status().state();
+                String normalized = normalizeState(currentStatus);
                 List<Part<?>> parts = event.status().message() == null || event.status().message().parts() == null
                         || event.status().message().parts().isEmpty()
                                 ? List.of(new TextPart(normalized))
                                 : event.status().message().parts();
+                if (lastStatus != null && (lastStatus.isFinal()
+                        || currentStatus == lastStatus && parts.equals(lastStatusParts))) {
+                    return;
+                }
+                lastStatus = currentStatus;
+                lastStatusParts = List.copyOf(parts);
                 Artifact artifact = Artifact.builder()
                         .artifactId("status:" + remoteAgentId(member) + ":" + event.taskId()).parts(parts)
                         .metadata(statusMetadata(
@@ -533,7 +546,9 @@ final class RemoteInvocationBatchCoordinator {
 
             @Override
             public void onArtifact(TaskArtifactUpdateEvent event) {
-                observeRemoteTask(event.taskId());
+                if (!observeRemoteTask(event.taskId())) {
+                    return;
+                }
                 if (!projectEvents || state.isResolved(batch)) {
                     return;
                 }
@@ -609,11 +624,6 @@ final class RemoteInvocationBatchCoordinator {
 
     private static String normalizeState(TaskState state) {
         return state.name().replaceFirst("^TASK_STATE_", "").toLowerCase(Locale.ROOT);
-    }
-
-    private static boolean isTerminalState(String state) {
-        return "completed".equals(state) || "failed".equals(state) || "canceled".equals(state)
-                || "rejected".equals(state);
     }
 
     private void startNextQueuedAfterReleasedSlot() {
