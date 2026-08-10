@@ -760,6 +760,7 @@ class RemoteInvocationBatchCoordinatorTest {
             mock(QueryStreamObserver.class));
         assertThat(initial.isDone()).isFalse();
         Map<String, String> initialContexts = captureInitialContexts(client);
+        assertInitialContexts(initialContexts);
 
         RemoteInvocationBatchMapper mapper = new RemoteInvocationBatchMapper();
         outcomes.get("call-a").complete(mapper.callbackOutcome(inputRequiredTask("remote-a", "input-a")));
@@ -799,6 +800,10 @@ class RemoteInvocationBatchCoordinatorTest {
         verify(client, times(3)).callOutcome(calls.capture(), any());
         Map<String, String> contexts = new LinkedHashMap<>();
         calls.getAllValues().forEach(call -> contexts.put(call.message(), call.contextId()));
+        return contexts;
+    }
+
+    private static void assertInitialContexts(Map<String, String> contexts) {
         assertThat(contexts.values()).doesNotHaveDuplicates();
         assertThat(contexts.get("message-call-a")).startsWith("conversation-1_").endsWith("_call-a")
                 .doesNotContain(":");
@@ -806,7 +811,6 @@ class RemoteInvocationBatchCoordinatorTest {
                 .doesNotContain(":");
         assertThat(contexts.get("message-call-c")).startsWith("conversation-1_").endsWith("_call-c")
                 .doesNotContain(":");
-        return contexts;
     }
 
     private static void assertResumedContexts(A2ARemoteAgentClient client,
