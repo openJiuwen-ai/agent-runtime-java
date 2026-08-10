@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.orchestrator;
 
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller.EventObserver;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
@@ -19,9 +20,14 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
+import org.a2aproject.sdk.spec.Artifact;
+import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
+import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
+import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +38,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -217,12 +224,8 @@ final class RemoteInvocationBatchCoordinator {
                 return true;
             }
         }
-        rememberEarlyCallback(task);
-        return false;
-    }
-
-    private void rememberEarlyCallback(Task task) {
         state.rememberEarlyCallback(task);
+        return false;
     }
 
     private boolean recoverShadow(Task shadow, Map<?, ?> rawBatch, Task task) {
@@ -352,14 +355,9 @@ final class RemoteInvocationBatchCoordinator {
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
                 optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
                 batch.request.isStream());
-        QueryStreamObserver outputObserver = memberOutputObserver(batch, member);
         CompletableFuture<RemoteCallOutcome> future;
         try {
-            future = client.callOutcome(call, outputObserver, remoteTaskId -> {
-                if (remoteTaskId != null && !remoteTaskId.isBlank()) {
-                    state.captureRemoteTaskId(batch, member, remoteTaskId);
-                }
-            });
+            future = client.callOutcome(call, memberEventObserver(batch, member));
         } catch (RuntimeException ex) {
             finishInvocation(invocation, null, ex);
             return;
@@ -488,53 +486,134 @@ final class RemoteInvocationBatchCoordinator {
         }
     }
 
-    private QueryStreamObserver memberOutputObserver(RemoteInvocationBatch batch, Member member) {
-        return new QueryStreamObserver() {
+    private EventObserver memberEventObserver(RemoteInvocationBatch batch, Member member) {
+        boolean projectEvents = batch.request.isStream();
+        return new EventObserver() {
+            private String lastStatus;
+
+            private synchronized void observeRemoteTask(String remoteTaskId) {
+                if (remoteTaskId == null || remoteTaskId.isBlank()) {
+                    throw new IllegalArgumentException("RemoteAgentCaller event has a blank task id");
+                }
+                if (member.remoteTaskId != null && !member.remoteTaskId.isBlank()
+                        && !member.remoteTaskId.equals(remoteTaskId)) {
+                    throw new IllegalStateException("RemoteAgentCaller event task id does not match the call task id");
+                }
+                if (member.remoteTaskId == null || member.remoteTaskId.isBlank()) {
+                    state.captureRemoteTaskId(batch, member, remoteTaskId);
+                }
+                if (projectEvents && lastStatus == null) {
+                    publishDelegation(batch, member, remoteTaskId);
+                    lastStatus = "";
+                }
+            }
+
             @Override
-            public void onNext(QueryChunk chunk) {
-                if (state.isResolved(batch)) {
+            public synchronized void onStatus(TaskStatusUpdateEvent event) {
+                observeRemoteTask(event.taskId());
+                if (!projectEvents || state.isResolved(batch)) {
                     return;
                 }
-                if (chunk != null) {
-                    forwardRemoteOutput(batch, member, chunk.getData());
+                String normalized = normalizeState(event.status().state());
+                if (isTerminalState(lastStatus) || normalized.equals(lastStatus)) {
+                    return;
                 }
+                lastStatus = normalized;
+                List<Part<?>> parts = event.status().message() == null || event.status().message().parts() == null
+                        || event.status().message().parts().isEmpty()
+                                ? List.of(new TextPart(normalized))
+                                : event.status().message().parts();
+                Artifact artifact = Artifact.builder()
+                        .artifactId("status:" + remoteAgentId(member) + ":" + event.taskId()).parts(parts)
+                        .metadata(statusMetadata(
+                                remoteAgentId(member), event.taskId(), event.status().state())).build();
+                forwardRemoteArtifact(batch, member, new TaskArtifactUpdateEvent(event.taskId(), artifact,
+                        event.contextId(), false, true, event.metadata()));
             }
 
             @Override
-            public void onComplete() {
-            }
-
-            @Override
-            public void onError(Throwable error) {
-            }
-
-            @Override
-            public boolean isCancelled() {
-                return batch.observer.isCancelled();
+            public void onArtifact(TaskArtifactUpdateEvent event) {
+                observeRemoteTask(event.taskId());
+                if (!projectEvents || state.isResolved(batch)) {
+                    return;
+                }
+                forwardRemoteArtifact(batch, member, event);
             }
         };
     }
 
-    private void forwardRemoteOutput(RemoteInvocationBatch batch, Member member, Object content) {
-        Map<String, Object> projection = new LinkedHashMap<>();
-        projection.put("kind", "remote_agent_output");
-        projection.put("batchId", batch.batchId);
-        projection.put("toolCallId", member.toolCallId);
-        projection.put("target", member.agentName.isBlank() ? member.toolName : member.agentName);
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("content", content == null ? "" : content);
-        data.put("projection", projection);
+    private void publishDelegation(RemoteInvocationBatch batch, Member member, String remoteTaskId) {
+        String text = member.message == null || member.message.isBlank()
+                ? "任务已委派给 " + remoteAgentId(member)
+                : member.message;
+        Artifact artifact = Artifact.builder().artifactId("delegation:" + batch.parentTaskId + ":" + remoteTaskId)
+                .parts(new TextPart(text))
+                .metadata(delegationMetadata(agentId, batch.parentTaskId,
+                        remoteAgentId(member), remoteTaskId)).build();
+        forwardRemoteArtifact(batch, member, new TaskArtifactUpdateEvent(remoteTaskId, artifact,
+                remoteContextId(batch, member), false, true, Map.of()));
+    }
+
+    private void forwardRemoteArtifact(RemoteInvocationBatch batch, Member member, TaskArtifactUpdateEvent update) {
+        Artifact original = update.artifact();
+        Map<String, Object> metadata = original.metadata() == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(original.metadata());
+        metadata.remove(com.openjiuwen.service.app.controller.a2a.A2aPartContent.TERMINAL_RESULT_METADATA);
+
+        Object existingEvent = metadata.get(RemoteAgentCaller.AGENT_EVENT_METADATA);
+        if (existingEvent == null) {
+            metadata = outputMetadata(metadata, remoteAgentId(member), update.taskId());
+        }
+        String projectedArtifactId = existingEvent == null
+                ? "remote:" + remoteAgentId(member) + ":" + update.taskId() + ":" + original.artifactId()
+                : original.artifactId();
+        Artifact projected = Artifact.builder(original).artifactId(projectedArtifactId).metadata(metadata).build();
         try {
-            batch.observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT, data));
+            batch.observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT,
+                    new TaskArtifactUpdateEvent(update.taskId(), projected, update.contextId(), update.append(),
+                            update.lastChunk(), update.metadata())));
         } catch (IllegalStateException ex) {
-            failRemoteOutput(batch, ex);
+            if (state.failBatch(batch)) {
+                batch.completion.completeExceptionally(ex);
+            }
         }
     }
 
-    private void failRemoteOutput(RemoteInvocationBatch batch, IllegalStateException cause) {
-        if (state.failBatch(batch)) {
-            batch.completion.completeExceptionally(cause);
-        }
+    private static String remoteAgentId(Member member) {
+        return member.agentName.isBlank() ? member.toolName : member.agentName;
+    }
+
+    private static Map<String, Object> outputMetadata(Map<String, Object> metadata, String agentId, String taskId) {
+        Map<String, Object> result = new LinkedHashMap<>(metadata);
+        result.put(RemoteAgentCaller.AGENT_EVENT_METADATA,
+                Map.of("type", "output", "source", agentRef(agentId, taskId)));
+        return result;
+    }
+
+    private static Map<String, Object> delegationMetadata(String sourceAgentId, String sourceTaskId,
+            String targetAgentId, String targetTaskId) {
+        return Map.of(RemoteAgentCaller.AGENT_EVENT_METADATA,
+                Map.of("type", "delegation", "source", agentRef(sourceAgentId, sourceTaskId),
+                        "target", agentRef(targetAgentId, targetTaskId)));
+    }
+
+    private static Map<String, Object> statusMetadata(String agentId, String taskId, TaskState state) {
+        return Map.of(RemoteAgentCaller.AGENT_EVENT_METADATA,
+                Map.of("type", "status", "source", agentRef(agentId, taskId), "state", normalizeState(state)));
+    }
+
+    private static Map<String, Object> agentRef(String agentId, String taskId) {
+        return Map.of("agentId", agentId, "taskId", taskId);
+    }
+
+    private static String normalizeState(TaskState state) {
+        return state.name().replaceFirst("^TASK_STATE_", "").toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean isTerminalState(String state) {
+        return "completed".equals(state) || "failed".equals(state) || "canceled".equals(state)
+                || "rejected".equals(state);
     }
 
     private void startNextQueuedAfterReleasedSlot() {
@@ -644,4 +723,5 @@ final class RemoteInvocationBatchCoordinator {
     record BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
             Map<String, Object> interrupt, boolean shouldResume) {
     }
+
 }

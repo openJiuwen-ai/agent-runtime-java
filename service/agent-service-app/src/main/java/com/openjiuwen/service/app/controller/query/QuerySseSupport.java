@@ -6,10 +6,17 @@ package com.openjiuwen.service.app.controller.query;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.spec.dto.QueryChunk;
+
+import org.a2aproject.sdk.spec.DataPart;
+import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
+import org.a2aproject.sdk.spec.TextPart;
 
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -28,12 +35,38 @@ public final class QuerySseSupport {
      * @return the chunk's data or a fallback map
      */
     public static Object payload(QueryChunk chunk) {
+        if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())) {
+            return remoteEventData((TaskArtifactUpdateEvent) chunk.getData());
+        }
         if (chunk.getData() != null) {
             return chunk.getData();
         }
         Map<String, Object> fallback = new LinkedHashMap<>();
         fallback.put("type", chunk.getType());
         return fallback;
+    }
+
+    private static Map<String, Object> remoteEventData(TaskArtifactUpdateEvent update) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put(RemoteAgentCaller.AGENT_EVENT_METADATA,
+                update.artifact().metadata().get(RemoteAgentCaller.AGENT_EVENT_METADATA));
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("content", content(update.artifact().parts()));
+        data.put("metadata", metadata);
+        return data;
+    }
+
+    private static Object content(List<Part<?>> parts) {
+        if (parts.size() == 1) {
+            Part<?> part = parts.get(0);
+            if (part instanceof TextPart textPart) {
+                return textPart.text();
+            }
+            if (part instanceof DataPart dataPart) {
+                return dataPart.data();
+            }
+        }
+        return parts;
     }
 
     /**

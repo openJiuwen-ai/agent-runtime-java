@@ -4,24 +4,13 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
-import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
+import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
 
 /**
  * SPI for invoking a remote agent identified by {@code agentName}.
- *
- * <p>Implementations:
- * <ul>
- *   <li>{@link A2ARemoteAgentClient} — baseline, A2A SDK via
- *       {@code Client.builder(card).withTransport(JSONRPCTransport.class, config)};
- *       taps the remote answer artifact and routes intermediate business chunks
- *       to the observer.</li>
- *   <li>{@code A2AGatewayRemoteAgentCaller} (deployment module) —
- *       {@code gatewayBaseUrl + "/" + agentName + jsonRpcPath} routing; consumes
- *       {@code responseContent} to append an assistant message to {@code messages}.</li>
- * </ul>
  *
  * <p>The primary consumer is {@code RemoteInvocationBatchCoordinator}, which
  * fans out parallel {@link #callOutcome} invocations and aggregates their
@@ -32,17 +21,16 @@ import java.util.function.Consumer;
  * @since 0.1.0
  */
 public interface RemoteAgentCaller {
+    String AGENT_EVENT_METADATA = "agentEvent";
+
     /**
      * Invokes the remote agent asynchronously and returns a structured outcome.
      *
      * <p>Implementations MUST:
      * <ul>
      *   <li>resolve the remote agent entry by {@link RemoteCall#agentName()}</li>
-     *   <li>forward intermediate business chunks (streaming artifacts) to
-     *       {@code streamObserver} when non-null; remote task-state events belong
-     *       in the returned {@link RemoteCallOutcome}</li>
-     *   <li>notify {@code remoteTaskIdObserver} of the remote task id as soon as
-     *       it is known, so the batch coordinator can persist it for resume</li>
+     *   <li>deliver complete streaming Artifact and status updates to
+     *       {@code eventObserver} without rebuilding their business Parts</li>
      *   <li>complete the returned future with a {@link RemoteCallOutcome} on
      *       terminal remote state (COMPLETED / FAILED / INPUT_REQUIRED / etc.),
      *       or complete it exceptionally on transport failure / timeout</li>
@@ -51,23 +39,16 @@ public interface RemoteAgentCaller {
      * <p>The future MUST be cancelable — the coordinator cancels it when the
      * caller cancels the batch.
      *
-     * @param call                 the remote call coordinates
-     * @param streamObserver       observer for intermediate business chunks; may be {@code null}
-     * @param remoteTaskIdObserver observer for the remote task id; may be {@code null}
+     * @param call the remote call coordinates
+     * @param eventObserver observer for complete remote A2A events
      * @return a future completing with the structured remote outcome
      */
-    CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, QueryStreamObserver streamObserver,
-            Consumer<String> remoteTaskIdObserver);
+    CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, EventObserver eventObserver);
 
-    /**
-     * Whether this caller supports routing to {@code agentName}.
-     *
-     * <p>Used when multiple Caller beans coexist (e.g. Default + A2AGateway). The
-     * auto-configuration selects a single primary Caller by {@code @Primary} or
-     * {@code @Order}; this method is a fallback for runtime selection in mixed deployments.
-     *
-     * @param agentName the target agent name
-     * @return true if this caller can route to {@code agentName}
-     */
-    boolean supported(String agentName);
+    /** Receives complete A2A status and Artifact updates. */
+    interface EventObserver {
+        void onStatus(TaskStatusUpdateEvent event);
+
+        void onArtifact(TaskArtifactUpdateEvent event);
+    }
 }

@@ -5,10 +5,6 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
-import com.openjiuwen.service.app.controller.a2a.AgentCoreEnvelopeText;
-import com.openjiuwen.service.spec.dto.QueryChunk;
-import com.openjiuwen.service.spec.spi.QueryStreamObserver;
-
 import jakarta.annotation.PreDestroy;
 
 import org.a2aproject.sdk.client.Client;
@@ -21,8 +17,6 @@ import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.AgentCard;
-import org.a2aproject.sdk.spec.Artifact;
-import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.MessageSendConfiguration;
 import org.a2aproject.sdk.spec.MessageSendParams;
@@ -52,17 +46,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
  * Baseline {@link RemoteAgentCaller} using the official A2A SDK
  * {@code Client.builder(card).withTransport(JSONRPCTransport.class, config)} pattern.
  *
- * <p>Exposes a single {@link #callOutcome(RemoteCall, QueryStreamObserver, Consumer)}
+ * <p>Exposes a single {@link #callOutcome(RemoteCall, RemoteAgentCaller.EventObserver)}
  * entry point used by {@code RemoteInvocationBatchCoordinator} for both single-agent
- * and parallel batch remote invocations. Streaming artifacts are forwarded to the
- * optional {@code streamObserver}; the structured {@link RemoteCallOutcome} carries
+ * and parallel batch remote invocations. Complete streaming events are forwarded to the
+ * optional {@code eventObserver}; the structured {@link RemoteCallOutcome} carries
  * the terminal task state, the resolved business text, and any input-required
  * prompt back to the coordinator.
  *
@@ -233,21 +226,20 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * the runtime batch coordinator.
      *
      * @param call remote call coordinates
-     * @param streamObserver observer for remote business output
-     * @param remoteTaskIdObserver observer for remote task IDs used by batch persistence
+     * @param eventObserver observer for complete remote A2A events
      * @return structured remote outcome
      */
     @Override
-    public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, QueryStreamObserver streamObserver,
-            Consumer<String> remoteTaskIdObserver) {
+    public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, RemoteAgentCaller.EventObserver eventObserver) {
         A2ARemoteAgentCardRegistry.RemoteAgentEntry entry = registry.get(call.agentName())
                 .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
         boolean isStreaming = entry.isStreaming() && call.isCallerStreaming();
-        return callOutcome(call, streamObserver, remoteTaskIdObserver, isStreaming);
+        return callOutcome(call, eventObserver, isStreaming);
     }
 
-    private CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, QueryStreamObserver streamObserver,
-            Consumer<String> remoteTaskIdObserver, boolean isStreaming) {
+    private CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
+            RemoteAgentCaller.EventObserver eventObserver,
+            boolean isStreaming) {
         var setup = prepareCall(call);
         log.info("A2A call agent={} streaming={} taskId={} contextId={} textLen={}", call.agentName(), isStreaming,
                 call.taskId() != null ? call.taskId() : "new", setup.contextId,
@@ -257,8 +249,13 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
         boolean isCallbackMode = setup.params.configuration() != null
                 && setup.params.configuration().taskPushNotificationConfig() != null;
-        BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> handleClientEvent(event, result,
-                streamObserver, remoteTaskIdObserver, isCallbackMode);
+        BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> {
+            try {
+                handleClientEvent(event, result, eventObserver, isCallbackMode);
+            } catch (RuntimeException ex) {
+                result.completeExceptionally(ex);
+            }
+        };
         Client client = createClient(setup.entry, isStreaming);
         AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
         try {
@@ -291,26 +288,22 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         return result;
     }
 
-    @Override
-    public boolean supported(String agentName) {
-        return agentName != null && registry.get(agentName).isPresent();
-    }
-
     private void handleClientEvent(ClientEvent event, CompletableFuture<RemoteCallOutcome> result,
-            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver, boolean isCallbackMode) {
+            RemoteAgentCaller.EventObserver eventObserver, boolean isCallbackMode) {
         if (event instanceof TaskUpdateEvent tue) {
             if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
-                notifyRemoteTaskId(remoteTaskIdObserver, aue.taskId(), tue.getTask().status().state());
-                handleOutcomeArtifact(aue, result, streamObserver);
+                if (!result.isDone()) {
+                    eventObserver.onArtifact(aue);
+                }
             } else if (tue.getUpdateEvent() instanceof TaskStatusUpdateEvent sue) {
-                handleOutcomeStatus(sue, tue.getTask(), result, remoteTaskIdObserver, isCallbackMode);
+                handleOutcomeStatus(sue, tue.getTask(), result, eventObserver, isCallbackMode);
             } else {
                 log.debug("Unknown update event type: {}", tue.getUpdateEvent().getClass().getSimpleName());
             }
         } else if (event instanceof TaskEvent te) {
-            handleOutcomeTask(te, result, remoteTaskIdObserver, isCallbackMode);
+            handleOutcomeTask(te, result, eventObserver, isCallbackMode);
         } else if (event instanceof MessageEvent me) {
-            handleOutcomeMessage(me, result, remoteTaskIdObserver);
+            handleOutcomeMessage(me, result);
         } else {
             log.debug("Unknown event type: {}", event.getClass().getSimpleName());
         }
@@ -327,54 +320,26 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         return result.completeExceptionally(failure);
     }
 
-    private void handleOutcomeArtifact(TaskArtifactUpdateEvent event, CompletableFuture<RemoteCallOutcome> result,
-            QueryStreamObserver streamObserver) {
-        if (result.isDone()) {
-            return;
-        }
-        Artifact artifact = event.artifact();
-        if (artifact == null || artifact.parts() == null) {
-            return;
-        }
-        if (streamObserver != null) {
-            for (Part<?> part : artifact.parts()) {
-                if (part instanceof TextPart textPart && !textPart.text().isEmpty()) {
-                    streamObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, textPart.text()));
-                    continue;
-                }
-                if (part instanceof DataPart dataPart) {
-                    streamObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, dataPart.data()));
-                }
-            }
-        }
-    }
-
     private void handleOutcomeStatus(TaskStatusUpdateEvent event, Task task,
-            CompletableFuture<RemoteCallOutcome> result, Consumer<String> remoteTaskIdObserver,
+            CompletableFuture<RemoteCallOutcome> result, RemoteAgentCaller.EventObserver eventObserver,
             boolean isCallbackMode) {
         TaskState state = event.status().state();
+        eventObserver.onStatus(event);
         String statusText = event.status().message() != null ? extractText(event.status().message().parts()) : "";
-        completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task), result, remoteTaskIdObserver,
-                isCallbackMode);
+        completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task), result, isCallbackMode);
     }
 
     private void handleOutcomeTask(TaskEvent event, CompletableFuture<RemoteCallOutcome> result,
-            Consumer<String> remoteTaskIdObserver, boolean isCallbackMode) {
+            RemoteAgentCaller.EventObserver eventObserver, boolean isCallbackMode) {
         Task task = event.getTask();
         TaskState state = task.status().state();
+        eventObserver.onStatus(new TaskStatusUpdateEvent(task.id(), task.status(), task.contextId(), Map.of()));
         String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";
-        completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task), result, remoteTaskIdObserver,
-                isCallbackMode);
+        completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task), result, isCallbackMode);
     }
 
     private static void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
-            Consumer<String> remoteTaskIdObserver) {
-        completeTaskOutcome(outcome, result, remoteTaskIdObserver, false);
-    }
-
-    private static void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
-            Consumer<String> remoteTaskIdObserver, boolean isCallbackMode) {
-        notifyRemoteTaskId(remoteTaskIdObserver, outcome.taskId(), outcome.state());
+            boolean isCallbackMode) {
         if (result.isDone()) {
             return;
         }
@@ -392,7 +357,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         if (!outcome.state().isFinal()) {
             return;
         }
-        String taskText = outcome.task() == null ? "" : extractTaskResult(outcome.task());
+        String taskText = outcome.task() == null ? "" : A2aPartContent.extractTaskResult(outcome.task());
         String resultText = outcome.state() == TaskState.TASK_STATE_COMPLETED
                 ? (taskText.isBlank() ? outcome.statusText() : taskText)
                 : (outcome.statusText().isBlank() ? taskText : outcome.statusText());
@@ -400,23 +365,13 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 resultText, null));
     }
 
-    private void handleOutcomeMessage(MessageEvent event, CompletableFuture<RemoteCallOutcome> result,
-            Consumer<String> remoteTaskIdObserver) {
+    private void handleOutcomeMessage(MessageEvent event, CompletableFuture<RemoteCallOutcome> result) {
         if (result.isDone() || event.getMessage() == null) {
             return;
         }
         Message message = event.getMessage();
-        notifyRemoteTaskId(remoteTaskIdObserver, message.taskId(), TaskState.TASK_STATE_COMPLETED);
         result.complete(new RemoteCallOutcome(message.taskId(), TaskState.TASK_STATE_COMPLETED, "COMPLETED",
-                extractBusinessParts(message.parts()), null));
-    }
-
-    private static String extractTaskResult(Task task) {
-        return A2aPartContent.extractTaskResult(task);
-    }
-
-    private static String extractBusinessParts(List<Part<?>> parts) {
-        return A2aPartContent.extract(parts);
+                A2aPartContent.extract(message.parts()), null));
     }
 
     /**
@@ -439,54 +394,17 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private record ClientCacheKey(String agentName, String endpoint, boolean isStreaming) {
     }
 
-    private static void notifyRemoteTaskId(Consumer<String> observer, String remoteTaskId, TaskState state) {
-        if (observer == null) {
-            return;
-        }
-        try {
-            observer.accept(remoteTaskId);
-        } catch (IllegalArgumentException | IllegalStateException ex) {
-            log.warn("Remote task ID observer rejected update taskId={} state={}", remoteTaskId, state, ex);
-        }
-    }
-
     static String resultCategory(TaskState state) {
-        if (state == null) {
-            return "REMOTE_PROTOCOL_ERROR";
+        if (state == TaskState.TASK_STATE_COMPLETED) {
+            return "COMPLETED";
         }
-        return switch (state) {
-            case TASK_STATE_COMPLETED -> "COMPLETED";
-            case TASK_STATE_INPUT_REQUIRED, TASK_STATE_AUTH_REQUIRED -> "INPUT_REQUIRED";
-            case TASK_STATE_REJECTED -> "REMOTE_REJECTED";
-            case TASK_STATE_FAILED -> "REMOTE_BUSINESS_FAILURE";
-            default -> "REMOTE_PROTOCOL_ERROR";
-        };
-    }
-
-    /**
-     * Interprets an artifact's raw text as an AgentCore terminal stream envelope.
-     * Recognized final types are unwrapped to their business text, falling back to
-     * the raw text when the payload carries no recognizable text field. Other
-     * envelope types return empty so callers can preserve them as streaming chunks.
-     *
-     * @param raw
-     *            the artifact's concatenated text (a JSON envelope, or plain text)
-     * @return the terminal business text, or empty if this is not a final envelope
-     */
-    static Optional<String> answerText(String raw) {
-        return AgentCoreEnvelopeText.terminalText(raw);
-    }
-
-    /**
-     * Extracts the business text from a normalized chunk payload, preferring the
-     * nested {@code payload} map over the top level.
-     *
-     * @param data
-     *            the chunk data
-     * @return the business text, or empty if the chunk carries no text field
-     */
-    static Optional<String> extractBusinessText(Object data) {
-        return AgentCoreEnvelopeText.businessText(data);
+        if (state.isInterrupted()) {
+            return "INPUT_REQUIRED";
+        }
+        if (state == TaskState.TASK_STATE_FAILED) {
+            return "REMOTE_BUSINESS_FAILURE";
+        }
+        return "REMOTE_" + state.name().replaceFirst("^TASK_STATE_", "");
     }
 
     private static String extractText(List<Part<?>> parts) {
