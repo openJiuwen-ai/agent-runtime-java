@@ -25,6 +25,7 @@ import org.a2aproject.sdk.server.events.EventQueue;
 import org.a2aproject.sdk.server.events.EventQueueClosedException;
 import org.a2aproject.sdk.server.events.EventQueueItem;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
+import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
@@ -117,7 +118,40 @@ class A2AAgentExecutorTest {
                 .filter(TaskArtifactUpdateEvent.class::isInstance).map(TaskArtifactUpdateEvent.class::cast).toList();
         assertThat(artifacts).hasSize(2);
         assertThat(artifacts.get(0).artifact().metadata()).isNullOrEmpty();
-        assertThat(artifacts.get(1).artifact().metadata()).containsEntry(A2aPartContent.TERMINAL_RESULT_METADATA, true);
+        assertThat(artifacts.get(1).artifact().metadata())
+                .containsEntry(A2aPartContent.TERMINAL_RESULT_METADATA, true)
+                .doesNotContainKey("agentEvent");
+    }
+
+    @Test
+    void remoteArtifactReparentingPreservesArtifactAndEventFields() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        Artifact artifact = Artifact.builder().artifactId("remote-artifact").name("original-name")
+                .description("original-description").parts(new TextPart("remote-output"))
+                .metadata(Map.of("business", "kept")).build();
+        Map<String, Object> eventMetadata = Map.of("trace", "remote-event");
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT,
+                    new TaskArtifactUpdateEvent("remote-task", artifact, "remote-context", true, false,
+                            eventMetadata)));
+            observer.onComplete();
+        })).when(orchestrator).streamQuery(any(), any());
+        RequestContext context = requestContext("parent-task", "parent-context", true);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of()))
+                .execute(context, new AgentEmitter(context, queue));
+
+        List<TaskArtifactUpdateEvent> artifacts = queue.events.stream()
+                .filter(TaskArtifactUpdateEvent.class::isInstance).map(TaskArtifactUpdateEvent.class::cast).toList();
+        assertThat(artifacts).singleElement().satisfies(event -> {
+            assertThat(event.taskId()).isEqualTo("parent-task");
+            assertThat(event.contextId()).isEqualTo("parent-context");
+            assertThat(event.artifact()).isSameAs(artifact);
+            assertThat(event.append()).isTrue();
+            assertThat(event.lastChunk()).isFalse();
+            assertThat(event.metadata()).isEqualTo(eventMetadata);
+        });
     }
 
     @Test

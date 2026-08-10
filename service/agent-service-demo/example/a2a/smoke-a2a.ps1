@@ -200,11 +200,16 @@ function Read-SseTask {
     if ($stableTaskIds.Count -ne 1) {
         throw "SSE response did not contain one stable taskId: $($taskIds -join ',')"
     }
+    $agentEvents = @($events | ForEach-Object {
+        if ($_.result.artifactUpdate) {
+            $_.result.artifactUpdate.artifact.metadata.agentEvent
+        }
+    } | Where-Object { $_ })
+    if (-not ($agentEvents | Where-Object { [string]$_.type -eq "delegation" })) {
+        throw "SSE response did not contain a remote-agent delegation event"
+    }
     $payload = $events | ConvertTo-Json -Depth 50 -Compress
     $lowerPayload = $payload.ToLowerInvariant()
-    if (-not $lowerPayload.Contains("_remote_invocation")) {
-        throw "SSE response did not contain remote-agent progress"
-    }
     foreach ($expected in @($ExpectedText, $SecondExpectedText, $ThirdExpectedText)) {
         if ($expected -and -not $lowerPayload.Contains($expected.ToLowerInvariant())) {
             throw "SSE response did not contain expected text: $expected"
@@ -231,11 +236,12 @@ function Read-SyncTask {
     if (-not $task.id) {
         throw "synchronous response did not contain task.id"
     }
+    $agentEvents = @($task.artifacts | ForEach-Object { $_.metadata.agentEvent } | Where-Object { $_ })
+    if ($agentEvents.Count -ne 0) {
+        throw "synchronous response unexpectedly contained agentEvent process metadata"
+    }
     $payload = $Response | ConvertTo-Json -Depth 50 -Compress
     $lowerPayload = $payload.ToLowerInvariant()
-    if ($lowerPayload.Contains("_remote_invocation")) {
-        throw "synchronous response unexpectedly contained remote-agent progress"
-    }
     foreach ($expected in @($ExpectedText, $SecondExpectedText, $ThirdExpectedText)) {
         if ($expected -and -not $lowerPayload.Contains($expected.ToLowerInvariant())) {
             throw "synchronous response did not contain expected text: $expected"

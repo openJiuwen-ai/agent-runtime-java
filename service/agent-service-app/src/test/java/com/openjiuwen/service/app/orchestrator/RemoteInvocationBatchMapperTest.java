@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.orchestrator;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
@@ -16,6 +17,7 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.DataPart;
+import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
@@ -199,6 +201,58 @@ class RemoteInvocationBatchMapperTest {
         RemoteCallOutcome outcome = mapper.callbackOutcome(task);
 
         assertThat(outcome.result()).isEqualTo("final answer");
+    }
+
+    @Test
+    void callbackOutcomeUsesStatusMessageWhenCompletedTaskHasNoArtifacts() {
+        Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(new TextPart("status result")).build();
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED, message, null)).artifacts(List.of()).build();
+
+        RemoteCallOutcome outcome = mapper.callbackOutcome(task);
+
+        assertThat(outcome.remoteState()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
+        assertThat(outcome.result()).isEqualTo("status result");
+    }
+
+    @Test
+    void callbackOutcomeUsesFailureStatusBeforeArtifacts() {
+        Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(new TextPart("declined")).build();
+        Artifact artifact = Artifact.builder().artifactId("artifact-premature").parts(new TextPart("premature"))
+                .build();
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_FAILED, message, null)).artifacts(List.of(artifact)).build();
+
+        RemoteCallOutcome outcome = mapper.callbackOutcome(task);
+
+        assertThat(outcome.remoteState()).isEqualTo(TaskState.TASK_STATE_FAILED);
+        assertThat(outcome.result()).isEqualTo("declined");
+    }
+
+    @Test
+    void callbackOutcomeTreatsWorkingSnapshotWithResultAsCompleted() {
+        Artifact artifact = Artifact.builder().artifactId("artifact-result").parts(new TextPart("callback result"))
+                .metadata(Map.of("_agentcore_terminal", true)).build();
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_WORKING)).artifacts(List.of(artifact)).build();
+
+        RemoteCallOutcome outcome = mapper.callbackOutcome(task);
+
+        assertThat(outcome.remoteState()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
+        assertThat(outcome.result()).isEqualTo("callback result");
+    }
+
+    @Test
+    void callbackOutcomeClassifiesMissingStatusAsProtocolError() {
+        Task task = mock(Task.class);
+        when(task.id()).thenReturn("remote-task");
+        when(task.artifacts()).thenReturn(List.of());
+
+        RemoteCallOutcome outcome = mapper.callbackOutcome(task);
+
+        assertThat(outcome.remoteState()).isNull();
+        assertThat(outcome.resultCategory()).isEqualTo("REMOTE_PROTOCOL_ERROR");
+        assertThat(outcome.result()).isEmpty();
     }
 
     private static Map<String, Object> interruptMember(int index, String toolCallId, boolean shouldResume) {

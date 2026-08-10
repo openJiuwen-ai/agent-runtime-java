@@ -182,10 +182,17 @@ if expected_state not in states:
 if not task_ids or len(set(task_ids)) != 1:
     raise SystemExit(f"SSE response did not contain one stable taskId: {task_ids}")
 
-combined = json.dumps(events, ensure_ascii=False).lower()
-if "_remote_invocation" not in combined:
+agent_events = []
+for event in events:
+    artifact = (((event.get("result") or {}).get("artifactUpdate") or {}).get("artifact") or {})
+    agent_event = (artifact.get("metadata") or {}).get("agentEvent")
+    if agent_event:
+        agent_events.append(agent_event)
+if not any(agent_event.get("type") == "delegation" for agent_event in agent_events):
+    combined = json.dumps(events, ensure_ascii=False).lower()
     print(combined[:4000], file=sys.stderr)
-    raise SystemExit("SSE response did not contain remote-agent progress")
+    raise SystemExit("SSE response did not contain a remote-agent delegation event")
+combined = json.dumps(events, ensure_ascii=False).lower()
 for expected in (expected_text, second_expected_text, third_expected_text):
     if expected and expected.lower() not in combined:
         print(combined[:4000], file=sys.stderr)
@@ -217,10 +224,15 @@ if state != expected_state:
 task_id = task.get("id")
 if not task_id:
     raise SystemExit("synchronous response did not contain task.id")
-combined = json.dumps(response, ensure_ascii=False).lower()
-if "_remote_invocation" in combined:
+agent_events = [
+    (artifact.get("metadata") or {}).get("agentEvent")
+    for artifact in task.get("artifacts") or []
+]
+if any(agent_events):
+    combined = json.dumps(response, ensure_ascii=False).lower()
     print(combined[:4000], file=sys.stderr)
-    raise SystemExit("synchronous response unexpectedly contained remote-agent progress")
+    raise SystemExit("synchronous response unexpectedly contained agentEvent process metadata")
+combined = json.dumps(response, ensure_ascii=False).lower()
 for expected in (expected_text, second_expected_text, third_expected_text):
     if expected and expected.lower() not in combined:
         print(combined[:4000], file=sys.stderr)

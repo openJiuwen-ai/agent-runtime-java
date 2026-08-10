@@ -92,7 +92,7 @@ class A2ARemoteAgentClientClassLoaderTest {
             A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
             CompletableFuture<RemoteCallOutcome> outcome = null;
             try {
-                outcome = remoteClient.callOutcome(remoteCall("sync-agent"), null, null);
+                outcome = remoteClient.callOutcome(remoteCall("sync-agent"), mock(RemoteAgentCaller.EventObserver.class));
                 callReturned.countDown();
                 releaser.get(3, TimeUnit.SECONDS);
                 assertThat(returnedBeforeRelease).isTrue();
@@ -123,7 +123,8 @@ class A2ARemoteAgentClientClassLoaderTest {
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
-            var outcome = remoteClient.callOutcome(remoteCall("timeout-agent"), null, null);
+            var outcome = remoteClient.callOutcome(remoteCall("timeout-agent"),
+                    mock(RemoteAgentCaller.EventObserver.class));
 
             assertThatThrownBy(() -> outcome.get(2, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(TimeoutException.class);
@@ -148,7 +149,8 @@ class A2ARemoteAgentClientClassLoaderTest {
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
-            var outcome = remoteClient.callOutcome(remoteCall("failing-agent"), null, null);
+            var outcome = remoteClient.callOutcome(remoteCall("failing-agent"),
+                    mock(RemoteAgentCaller.EventObserver.class));
 
             assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(A2AClientException.class)
@@ -172,7 +174,8 @@ class A2ARemoteAgentClientClassLoaderTest {
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
-            var outcome = remoteClient.callOutcome(remoteCall("runtime-failing-agent"), null, null);
+            var outcome = remoteClient.callOutcome(remoteCall("runtime-failing-agent"),
+                    mock(RemoteAgentCaller.EventObserver.class));
 
             assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(IllegalArgumentException.class)
@@ -202,7 +205,8 @@ class A2ARemoteAgentClientClassLoaderTest {
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
-            var outcome = remoteClient.callOutcome(remoteCall("message-agent"), null, null)
+            var outcome = remoteClient.callOutcome(remoteCall("message-agent"),
+                    mock(RemoteAgentCaller.EventObserver.class))
                 .get(2, TimeUnit.SECONDS);
 
             assertThat(outcome.remoteState()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
@@ -234,7 +238,8 @@ class A2ARemoteAgentClientClassLoaderTest {
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
-            var outcome = remoteClient.callOutcome(remoteCall("task-agent"), null, null)
+            var outcome = remoteClient.callOutcome(remoteCall("task-agent"),
+                    mock(RemoteAgentCaller.EventObserver.class))
                 .get(2, TimeUnit.SECONDS);
 
             assertThat(outcome.result()).isEqualTo("hello world");
@@ -265,7 +270,8 @@ class A2ARemoteAgentClientClassLoaderTest {
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
-            var outcome = remoteClient.callOutcome(remoteCall("status-agent"), null, null)
+            var outcome = remoteClient.callOutcome(remoteCall("status-agent"),
+                    mock(RemoteAgentCaller.EventObserver.class))
                 .get(2, TimeUnit.SECONDS);
 
             assertThat(outcome.result()).isEqualTo("status result");
@@ -289,8 +295,10 @@ class A2ARemoteAgentClientClassLoaderTest {
             stubClient(clientFactory, firstCard, firstBuilder, firstClient);
             stubClient(clientFactory, secondCard, secondBuilder, secondClient);
 
-            var first = remoteClient.callOutcome(remoteCall("first"), null, null);
-            var second = remoteClient.callOutcome(remoteCall("second"), null, null);
+            var first = remoteClient.callOutcome(remoteCall("first"),
+                    mock(RemoteAgentCaller.EventObserver.class));
+            var second = remoteClient.callOutcome(remoteCall("second"),
+                    mock(RemoteAgentCaller.EventObserver.class));
 
             verify(firstBuilder).build();
             verify(secondBuilder).build();
@@ -319,9 +327,12 @@ class A2ARemoteAgentClientClassLoaderTest {
                     .thenReturn(builder);
             when(builder.build()).thenReturn(sdkClient);
 
-            var unconfigured = remoteClient.callOutcome(remoteCall("sync-agent", true), null, null);
-            var callerSync = remoteClient.callOutcome(remoteCall("stream-agent", false), null, null);
-            var enabled = remoteClient.callOutcome(remoteCall("stream-agent", true), null, null);
+            var unconfigured = remoteClient.callOutcome(remoteCall("sync-agent", true),
+                    mock(RemoteAgentCaller.EventObserver.class));
+            var callerSync = remoteClient.callOutcome(remoteCall("stream-agent", false),
+                    mock(RemoteAgentCaller.EventObserver.class));
+            var enabled = remoteClient.callOutcome(remoteCall("stream-agent", true),
+                    mock(RemoteAgentCaller.EventObserver.class));
             verify(sdkClient, timeout(1000).times(3)).sendMessage(params.capture(), anyList(), any(), isNull());
             unconfigured.cancel(false);
             callerSync.cancel(false);

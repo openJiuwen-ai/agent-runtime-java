@@ -6,9 +6,8 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.Mockito.mock;
 
-import com.openjiuwen.service.spec.dto.QueryChunk;
-import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -32,25 +31,6 @@ import java.util.concurrent.TimeUnit;
  * @since 0.1.0
  */
 class A2ARemoteAgentClientStreamingLifecycleTest {
-    private static final QueryStreamObserver NOOP_OBSERVER = new QueryStreamObserver() {
-        @Override
-        public void onNext(QueryChunk chunk) {
-        }
-
-        @Override
-        public void onComplete() {
-        }
-
-        @Override
-        public void onError(Throwable error) {
-        }
-
-        @Override
-        public boolean isCancelled() {
-            return false;
-        }
-    };
-
     private HttpServer server;
 
     @AfterEach
@@ -73,7 +53,7 @@ class A2ARemoteAgentClientStreamingLifecycleTest {
 
         var result = client.callOutcome(
                 new RemoteCall("remote", "hello", "ctx", null, Map.of(), Map.of(), true),
-                NOOP_OBSERVER, null);
+                mock(RemoteAgentCaller.EventObserver.class));
 
         Throwable thrown = catchThrowable(() -> result.get(5, TimeUnit.SECONDS));
         assertThat(thrown).isInstanceOfSatisfying(ExecutionException.class,
