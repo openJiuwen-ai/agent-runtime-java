@@ -143,6 +143,20 @@ class A2aJsonRpcControllerTest {
     }
 
     @Test
+    void serializesStreamingFramesWithRequestScopedSerializer() throws Exception {
+        A2aJsonRpcResponseSerializer.StreamingEventSerializer serializer =
+                A2aJsonRpcResponseSerializer.forStreamingRequest("request-1");
+
+        JsonObject firstFrame = JsonParser.parseString(serializer.serialize(completedTask())).getAsJsonObject();
+        JsonObject secondFrame = JsonParser.parseString(serializer.serialize(completedTask())).getAsJsonObject();
+
+        assertThat(firstFrame.get("id").getAsString()).isEqualTo("request-1");
+        assertThat(secondFrame.get("id").getAsString()).isEqualTo("request-1");
+        assertThat(firstFrame.getAsJsonObject("result").getAsJsonObject("task").get("id").getAsString())
+                .isEqualTo("task-1");
+    }
+
+    @Test
     void structuredPartRoundTripsThroughStandardA2aSdkJsonMapper() throws Exception {
         String json = A2aJsonRpcController
                 .serializeA2aJson(new DataPart(Map.of("type", "llm_output", "payload", Map.of("content", "working"))));

@@ -22,7 +22,7 @@ import org.a2aproject.sdk.spec.StreamingEventKind;
  * <p>The HTTP controller and non-HTTP adapters must use this class rather than independently
  * rebuilding JSON-RPC envelopes. That keeps their externally observable responses identical.
  *
- * @since 0.1.0
+ * @since 0.1.1
  */
 public final class A2aJsonRpcResponseSerializer {
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
@@ -53,8 +53,11 @@ public final class A2aJsonRpcResponseSerializer {
      */
     public static String streamingEvent(Object requestId, StreamingEventKind event)
             throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException {
-        return "{\"jsonrpc\":\"" + A2AMessage.JSONRPC_VERSION + "\",\"id\":" + GSON.toJson(requestId)
-                + ",\"result\":" + serialize(event) + "}";
+        return forStreamingRequest(requestId).serialize(event);
+    }
+
+    static StreamingEventSerializer forStreamingRequest(Object requestId) {
+        return new StreamingEventSerializer(GSON.toJson(requestId));
     }
 
     /**
@@ -90,5 +93,19 @@ public final class A2aJsonRpcResponseSerializer {
     public static String serialize(Object value)
             throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException {
         return GSON.toJson(JsonParser.parseString(JsonUtil.toJson(value)));
+    }
+
+    static final class StreamingEventSerializer {
+        private final String requestIdJson;
+
+        private StreamingEventSerializer(String requestIdJson) {
+            this.requestIdJson = requestIdJson;
+        }
+
+        String serialize(StreamingEventKind event)
+                throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException {
+            return "{\"jsonrpc\":\"" + A2AMessage.JSONRPC_VERSION + "\",\"id\":" + requestIdJson
+                    + ",\"result\":" + A2aJsonRpcResponseSerializer.serialize(event) + "}";
+        }
     }
 }

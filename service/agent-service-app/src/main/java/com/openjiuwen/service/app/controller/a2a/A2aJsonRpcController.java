@@ -109,6 +109,8 @@ public class A2aJsonRpcController {
 
     private ResponseEntity<SseEmitter> streamToSse(Flow.Publisher<StreamingEventKind> publisher, Object requestId) {
         SseEmitter emitter = new SseEmitter(0L);
+        A2aJsonRpcResponseSerializer.StreamingEventSerializer eventSerializer =
+                A2aJsonRpcResponseSerializer.forStreamingRequest(requestId);
         CompletableFuture.runAsync(() -> publisher.subscribe(new Flow.Subscriber<>() {
             private Flow.Subscription sub;
 
@@ -129,7 +131,7 @@ public class A2aJsonRpcController {
              */
             public void onNext(StreamingEventKind e) {
                 try {
-                    String data = A2aJsonRpcResponseSerializer.streamingEvent(requestId, e);
+                    String data = eventSerializer.serialize(e);
                     emitter.send(SseEmitter.event().name("jsonrpc").data(data));
                     sub.request(1);
                 } catch (org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException | java.io.IOException

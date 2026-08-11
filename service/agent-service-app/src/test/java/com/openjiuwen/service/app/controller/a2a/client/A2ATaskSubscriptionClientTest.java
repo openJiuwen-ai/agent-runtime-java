@@ -34,13 +34,9 @@ class A2ATaskSubscriptionClientTest {
 
     @Test
     void opensSubscribeToTaskSseWithStreamReference() throws Exception {
-        AtomicReference<String> requestBody = new AtomicReference<>();
-        AtomicReference<String> streamReference = new AtomicReference<>();
-        CountDownLatch requested = new CountDownLatch(1);
+        SubscriptionRequestCapture capture = new SubscriptionRequestCapture();
         CountDownLatch completed = new CountDownLatch(1);
-        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/a2a", exchange -> respond(exchange, requestBody, streamReference, requested));
-        server.start();
+        startSubscriptionEndpoint(capture);
 
         A2ATaskSubscriptionClient client = new A2ATaskSubscriptionClient();
         String endpoint = "http://127.0.0.1:" + server.getAddress().getPort();
@@ -48,10 +44,10 @@ class A2ATaskSubscriptionClientTest {
                 new A2ATaskSubscriptionClient.TaskSubscriptionRequest(endpoint, "task-1", "stream-1"),
                 ignored -> { }, completed::countDown, ignored -> { });
 
-        assertThat(requested.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(capture.requested.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
-        assertThat(streamReference.get()).isEqualTo("stream-1");
-        assertThat(requestBody.get()).contains("\"method\":\"SubscribeToTask\"")
+        assertThat(capture.streamReference.get()).isEqualTo("stream-1");
+        assertThat(capture.requestBody.get()).contains("\"method\":\"SubscribeToTask\"")
                 .contains("\"id\":\"task-1\"");
         subscription.close();
     }
@@ -64,14 +60,27 @@ class A2ATaskSubscriptionClientTest {
                 .isEqualTo("http://runtime:8080/a2a");
     }
 
-    private static void respond(HttpExchange exchange, AtomicReference<String> requestBody,
-            AtomicReference<String> streamReference, CountDownLatch requested) throws IOException {
-        requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-        streamReference.set(exchange.getRequestHeaders().getFirst(A2ATaskSubscriptionClient.STREAM_REFERENCE_HEADER));
-        requested.countDown();
+    private void startSubscriptionEndpoint(SubscriptionRequestCapture capture) throws IOException {
+        HttpServer subscriptionServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        subscriptionServer.createContext("/a2a", exchange -> respond(exchange, capture));
+        subscriptionServer.start();
+        server = subscriptionServer;
+    }
+
+    private static void respond(HttpExchange exchange, SubscriptionRequestCapture capture) throws IOException {
+        capture.requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        capture.streamReference.set(
+                exchange.getRequestHeaders().getFirst(A2ATaskSubscriptionClient.STREAM_REFERENCE_HEADER));
+        capture.requested.countDown();
         exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
         exchange.sendResponseHeaders(200, 0);
         exchange.getResponseBody().close();
         exchange.close();
+    }
+
+    private static final class SubscriptionRequestCapture {
+        private final AtomicReference<String> requestBody = new AtomicReference<>();
+        private final AtomicReference<String> streamReference = new AtomicReference<>();
+        private final CountDownLatch requested = new CountDownLatch(1);
     }
 }
