@@ -203,7 +203,7 @@ class A2AEnabledServeOrchestratorTest {
         verify(observer).onNext(argThat(chunk -> QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())
             && interrupt.equals(chunk.getData())));
         verify(observer).onComplete();
-        verify(a2aClient, never()).callOutcome(any(), any(), any());
+        verify(a2aClient, never()).callOutcome(any(), any());
     }
 
     @Test
@@ -221,7 +221,7 @@ class A2AEnabledServeOrchestratorTest {
 
         verify(observer).onError(argThat(error -> error instanceof IllegalArgumentException
             && error.getMessage().contains("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED")));
-        verify(a2aClient, never()).callOutcome(any(), any(), any());
+        verify(a2aClient, never()).callOutcome(any(), any());
     }
 
     @Test
@@ -235,7 +235,7 @@ class A2AEnabledServeOrchestratorTest {
         assertThatThrownBy(() -> orchestrator.query(req("c-mixed-query")))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED");
-        verify(a2aClient, never()).callOutcome(any(), any(), any());
+        verify(a2aClient, never()).callOutcome(any(), any());
     }
 
     @Test
@@ -243,11 +243,9 @@ class A2AEnabledServeOrchestratorTest {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
-        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             assertThat(call.isCallerStreaming()).isFalse();
-            QueryStreamObserver remoteObserver = invocation.getArgument(1);
-            remoteObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "remote-progress"));
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
                 "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
         });
@@ -289,7 +287,7 @@ class A2AEnabledServeOrchestratorTest {
         verify(observer).onNext(argThat(chunk -> QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())
             && interrupt.equals(chunk.getData())));
         verify(observer).onComplete();
-        verify(a2aClient, never()).callOutcome(any(), any(), any());
+        verify(a2aClient, never()).callOutcome(any(), any());
     }
 
     @Test
@@ -309,7 +307,7 @@ class A2AEnabledServeOrchestratorTest {
 
         verify(observer).onError(argThat(error -> error instanceof IllegalArgumentException
             && error.getMessage().contains("CORE_INTERRUPT_CORRELATION_MISSING")));
-        verify(a2aClient, never()).callOutcome(any(), any(), any());
+        verify(a2aClient, never()).callOutcome(any(), any());
     }
 
     @Test
@@ -318,7 +316,7 @@ class A2AEnabledServeOrchestratorTest {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
-        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             assertThat(call.isCallerStreaming()).isTrue();
             String id = call.message().substring("message-".length());
@@ -357,7 +355,7 @@ class A2AEnabledServeOrchestratorTest {
 
         orchestrator.streamQuery(request, observer);
 
-        verify(a2aClient, times(3)).callOutcome(any(), any(), any());
+        verify(a2aClient, times(3)).callOutcome(any(), any());
         assertThat(localRuns.get()).isEqualTo(2);
         assertThat(taskStore.get("shadow:test-agent:parent-batch")).isNull();
         verify(observer).onComplete();
@@ -369,7 +367,7 @@ class A2AEnabledServeOrchestratorTest {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
-        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
                 "remote-" + call.agentName(),
@@ -400,7 +398,7 @@ class A2AEnabledServeOrchestratorTest {
         orchestrator.streamQuery(request, observer);
 
         assertThat(localRuns.get()).isEqualTo(1);
-        verify(a2aClient, times(1)).callOutcome(any(), any(), any());
+        verify(a2aClient, times(1)).callOutcome(any(), any());
         verify(observer).onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "intent-answer"));
         verify(observer).onComplete();
         verify(observer, never()).onNext(argThat(chunk -> chunk != null
@@ -413,7 +411,7 @@ class A2AEnabledServeOrchestratorTest {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
-        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
                 "remote-" + call.agentName(),
@@ -483,7 +481,7 @@ class A2AEnabledServeOrchestratorTest {
         verify(observer).onError(argThat(error ->
             error instanceof IllegalArgumentException
                 && "CORE_INTERRUPT_RESUME_MIXED_UNSUPPORTED".equals(error.getMessage())));
-        verify(a2aClient, never()).callOutcome(any(), any(), any());
+        verify(a2aClient, never()).callOutcome(any(), any());
     }
 
     @Test
@@ -491,7 +489,7 @@ class A2AEnabledServeOrchestratorTest {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
-        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             String id = call.message().substring("message-".length());
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
@@ -525,7 +523,7 @@ class A2AEnabledServeOrchestratorTest {
         taskStore = spy(new InMemoryTaskStore());
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
-        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
                 "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
@@ -565,7 +563,7 @@ class A2AEnabledServeOrchestratorTest {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
-        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
                 "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
@@ -607,7 +605,7 @@ class A2AEnabledServeOrchestratorTest {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
-        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
                 "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
@@ -642,7 +640,7 @@ class A2AEnabledServeOrchestratorTest {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
-        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             return CompletableFuture.completedFuture(new RemoteCallOutcome(
                 "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
@@ -679,7 +677,7 @@ class A2AEnabledServeOrchestratorTest {
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
             "test-agent", 16, 256, 30);
         AtomicInteger remoteCalls = new AtomicInteger();
-        when(a2aClient.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             remoteCalls.incrementAndGet();
             return CompletableFuture.completedFuture(new RemoteCallOutcome(

@@ -165,7 +165,7 @@ curl -sS http://localhost:18093/.well-known/agent-card.json | python3 -m json.to
 
 以下命令使用 Bash 或 Git Bash。所有业务报文都发送到 Agent A，不直接调用 Agent B、C 或 D。
 
-非流式响应的任务 ID 位于 `result.task.id`，任务状态位于 `result.task.status.state`，响应不会包含远端 Agent 的中间流式进度。流式响应由多行 `data:` 事件组成，任务 ID 位于 `result.statusUpdate.taskId`，任务状态位于 `result.statusUpdate.status.state`；其中带有 `_remote_invocation` metadata 的 artifact 是逐跳透传的远端 Agent 进度。
+非流式响应的任务 ID 位于 `result.task.id`，任务状态位于 `result.task.status.state`，响应不会包含远端 Agent 的中间流式进度。流式响应由多行 `data:` 事件组成，任务 ID 位于 `result.statusUpdate.taskId`，任务状态位于 `result.statusUpdate.status.state`。远端过程通过 `artifactUpdate` 投影：外层 `taskId` 始终属于 Agent A 的当前 Task，`artifact.metadata.agentEvent` 使用 `delegation`、`output`、`status` 表示直接委派边、实际输出来源和下游节点状态。
 
 首轮中断后，从响应中复制 `taskId`，将恢复报文中的 `TASK_ID_FROM_FIRST_RESPONSE` 替换为该值。中断首轮应出现 `TASK_STATE_INPUT_REQUIRED`，恢复后应出现 `TASK_STATE_COMPLETED`，并且两轮的 `taskId` 必须相同。
 

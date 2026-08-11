@@ -62,34 +62,6 @@ class ChunkMapperTest {
         assertThat(data(chunk)).isEqualTo(Map.of("type", "llm_output", "payload", Map.of("content", "working")));
     }
 
-    @Test
-    void remoteOutputKeepsSourceMetadataAndPlainText() {
-        Map<String, Object> projection = Map.of("kind", "remote_agent_output", "batchId", "batch-a",
-                "toolCallId", "call-a", "target", "agent-a");
-        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT,
-                Map.of("content", "working", "projection", projection));
-
-        TextPart part = part(chunk);
-
-        assertThat(part.text()).isEqualTo("working");
-        assertThat(part.metadata()).containsEntry("_remote_invocation", projection);
-    }
-
-    @Test
-    void structuredRemoteOutputKeepsSourceMetadata() {
-        Map<String, Object> projection = Map.of("kind", "remote_agent_output", "batchId", "batch-a",
-                "toolCallId", "call-a", "target", "agent-a");
-        Map<String, Object> content = envelope("llm_output", Map.of("content", "working"));
-        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT,
-                Map.of("content", content, "projection", projection));
-
-        DataPart part = dataPart(chunk);
-
-        assertThat(part.data()).isEqualTo(content);
-        assertThat(part.metadata()).containsEntry("_remote_invocation", projection);
-        assertThat(mapper.isTerminalResult(chunk)).isFalse();
-    }
-
     private String text(QueryChunk chunk) {
         return part(chunk).text();
     }

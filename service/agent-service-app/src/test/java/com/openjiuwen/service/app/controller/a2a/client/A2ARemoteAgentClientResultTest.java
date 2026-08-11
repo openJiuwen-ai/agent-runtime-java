@@ -5,15 +5,21 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParser;
 import com.openjiuwen.service.app.controller.a2a.ChunkMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
-import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
+import org.a2aproject.sdk.client.ClientEvent;
+import org.a2aproject.sdk.client.TaskEvent;
+import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.Message;
@@ -24,9 +30,9 @@ import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
@@ -35,82 +41,10 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Unit tests for the answer discrimination and business-text extraction in
- * {@link RemoteAgentAnswerExtractor} and {@link A2ARemoteAgentClient}. The remote
- * caller keeps the AgentCore stream envelope in the forwarded stream (uniform
- * format) and unwraps terminal {@code answer} and {@code workflow_final} envelopes
- * into the tool result fed back to our LLM.
+ * Unit tests for terminal result selection in {@link A2ARemoteAgentClient}.
  */
-class RemoteAgentAnswerExtractorTest {
+class A2ARemoteAgentClientResultTest {
     private static final Gson GSON = new Gson();
-
-    @Test
-    @DisplayName("answer envelope is unwrapped to its payload business text")
-    void answerEnvelopeUnwrapped() {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("output", "2");
-        payload.put("result_type", "answer");
-        String raw = GSON.toJson(envelope("answer", payload));
-
-        assertThat(RemoteAgentAnswerExtractor.extractAnswer(raw)).contains("2");
-    }
-
-    @Test
-    void answerEnvelopeWithStructuredOutputIsUnwrappedAsJson() {
-        Map<String, Object> output = Map.of("auto_result", "Expense claim approved");
-        String raw = GSON.toJson(envelope("answer", Map.of("output", output)));
-
-        assertThat(JsonParser.parseString(RemoteAgentAnswerExtractor.extractAnswer(raw).orElseThrow()))
-                .isEqualTo(GSON.toJsonTree(output));
-    }
-
-    @Test
-    @DisplayName("workflow_final envelope is unwrapped to its response business text")
-    void workflowFinalEnvelopeUnwrapped() {
-        String raw = GSON.toJson(envelope("workflow_final", Map.of("response", "expense approved")));
-
-        assertThat(A2ARemoteAgentClient.answerText(raw)).contains("expense approved");
-    }
-
-    @Test
-    @DisplayName("non-answer chunk is left enveloped (forwarded to the caller's stream verbatim)")
-    void intermediateChunkNotAnswer() {
-        // This llm_output delta even carries text "2", but it must NOT be treated as
-        // the answer.
-        Map<String, Object> payload = Map.of("content", "2");
-        String raw = GSON.toJson(envelope("llm_output", payload));
-
-        assertThat(RemoteAgentAnswerExtractor.extractAnswer(raw)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("answer envelope without a text field falls back to the raw envelope text")
-    void answerWithoutTextFallsBackToRaw() {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("trace_id", "abc");
-        String raw = GSON.toJson(envelope("answer", payload));
-
-        assertThat(RemoteAgentAnswerExtractor.extractAnswer(raw)).contains(raw);
-    }
-
-    @Test
-    @DisplayName("plain (non-JSON) text is not an answer envelope")
-    void plainTextNotAnswer() {
-        assertThat(RemoteAgentAnswerExtractor.extractAnswer("hello")).isEmpty();
-    }
-
-    @Test
-    @DisplayName("extractBusinessText prefers payload text keys, then top level")
-    void extractBusinessTextVariants() {
-        assertThat(RemoteAgentAnswerExtractor.extractBusinessText("2")).contains("2");
-        assertThat(RemoteAgentAnswerExtractor.extractBusinessText("   ")).isEmpty();
-        assertThat(RemoteAgentAnswerExtractor.extractBusinessText(null)).isEmpty();
-        assertThat(RemoteAgentAnswerExtractor.extractBusinessText(42)).isEmpty();
-
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("delta", "hel");
-        assertThat(RemoteAgentAnswerExtractor.extractBusinessText(envelope("chunk", payload))).contains("hel");
-    }
 
     @Test
     void remoteStatesMapToStableResultCategories() {
@@ -120,13 +54,16 @@ class RemoteAgentAnswerExtractorTest {
         assertThat(A2ARemoteAgentClient.resultCategory(TaskState.TASK_STATE_REJECTED)).isEqualTo("REMOTE_REJECTED");
         assertThat(A2ARemoteAgentClient.resultCategory(TaskState.TASK_STATE_FAILED))
                 .isEqualTo("REMOTE_BUSINESS_FAILURE");
+        assertThat(A2ARemoteAgentClient.resultCategory(TaskState.TASK_STATE_CANCELED)).isEqualTo("REMOTE_CANCELED");
+        assertThat(A2ARemoteAgentClient.resultCategory(TaskState.UNRECOGNIZED)).isEqualTo("REMOTE_UNRECOGNIZED");
     }
 
     @Test
     void plainA2aArtifactIsReturnedWhenCompletedStatusArrives() throws Exception {
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
-                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class,
+                RemoteAgentCaller.EventObserver.class,
                 boolean.class);
         statusMethod.setAccessible(true);
         for (String expected : List.of("balance=100", "{\"balance\":\"100\"}")) {
@@ -139,8 +76,7 @@ class RemoteAgentAnswerExtractorTest {
             statusMethod.invoke(client,
                     new TaskStatusUpdateEvent("remote-task", new TaskStatus(TaskState.TASK_STATE_COMPLETED, null, null),
                             "remote-context", Map.of()),
-                    task, result, (java.util.function.Consumer<String>) ignored -> {
-                    }, false);
+                    task, result, mock(RemoteAgentCaller.EventObserver.class), false);
 
             assertThat(result.getNow(null).result()).isEqualTo(expected);
         }
@@ -149,7 +85,8 @@ class RemoteAgentAnswerExtractorTest {
     @Test
     void workflowFinalArtifactIsUnwrappedWhenCompletedStatusArrives() throws Exception {
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
-                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class,
+                RemoteAgentCaller.EventObserver.class,
                 boolean.class);
         statusMethod.setAccessible(true);
         String expected = "Agent D expense review completed";
@@ -164,8 +101,7 @@ class RemoteAgentAnswerExtractorTest {
         statusMethod.invoke(
                 client, new TaskStatusUpdateEvent("remote-task",
                         new TaskStatus(TaskState.TASK_STATE_COMPLETED, null, null), "remote-context", Map.of()),
-                task, result, (java.util.function.Consumer<String>) ignored -> {
-                }, false);
+                task, result, mock(RemoteAgentCaller.EventObserver.class), false);
 
         assertThat(result.getNow(null).result()).isEqualTo(expected);
     }
@@ -188,13 +124,13 @@ class RemoteAgentAnswerExtractorTest {
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
-                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class,
+                RemoteAgentCaller.EventObserver.class,
                 boolean.class);
         statusMethod.setAccessible(true);
 
         statusMethod.invoke(client, new TaskStatusUpdateEvent("remote-task", task.status(), "remote-context", Map.of()),
-                task, result, (java.util.function.Consumer<String>) ignored -> {
-                }, false);
+                task, result, mock(RemoteAgentCaller.EventObserver.class), false);
 
         assertThat(JsonParser.parseString(result.getNow(null).result())).isEqualTo(GSON.toJsonTree(output));
     }
@@ -212,91 +148,111 @@ class RemoteAgentAnswerExtractorTest {
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
-                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class,
+                RemoteAgentCaller.EventObserver.class,
                 boolean.class);
         statusMethod.setAccessible(true);
 
         statusMethod.invoke(client, new TaskStatusUpdateEvent("remote-task", task.status(), "remote-context", Map.of()),
-                task, result, (java.util.function.Consumer<String>) ignored -> {
-                }, false);
+                task, result, mock(RemoteAgentCaller.EventObserver.class), false);
 
         assertThat(result.getNow(null).result()).isEqualTo("final answer");
     }
 
     @Test
     void answerArtifactDoesNotOverrideLaterFailedStatus() throws Exception {
-        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
-        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         Artifact answer = new Artifact("artifact-answer", null, null,
                 List.<Part<?>>of(new TextPart(GSON.toJson(envelope("answer", Map.of("output", "premature"))))),
                 Map.of(), List.of());
-        Method artifactMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeArtifact",
-                TaskArtifactUpdateEvent.class, CompletableFuture.class, QueryStreamObserver.class);
-        artifactMethod.setAccessible(true);
+        Task workingTask = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_WORKING)).artifacts(List.of(answer)).build();
+        Method eventMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleClientEvent",
+                ClientEvent.class, CompletableFuture.class, RemoteAgentCaller.EventObserver.class,
+                boolean.class, boolean.class);
+        eventMethod.setAccessible(true);
 
-        artifactMethod.invoke(client,
-                new TaskArtifactUpdateEvent("remote-task", answer, "remote-context", false, true, Map.of()), result,
-                mock(QueryStreamObserver.class));
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);
+        TaskArtifactUpdateEvent artifactUpdate = new TaskArtifactUpdateEvent("remote-task", answer, "remote-context",
+                false, true, Map.of());
+        eventMethod.invoke(client, new TaskUpdateEvent(workingTask, artifactUpdate), result, observer, false, true);
         assertThat(result).isNotDone();
+        ArgumentCaptor<TaskArtifactUpdateEvent> updateCaptor = ArgumentCaptor.forClass(TaskArtifactUpdateEvent.class);
+        verify(observer).onArtifact(updateCaptor.capture());
+        assertThat(updateCaptor.getValue().artifact()).isSameAs(answer);
 
         Message failure = Message.builder().role(Message.Role.ROLE_AGENT)
                 .parts(List.<Part<?>>of(new TextPart("declined"))).build();
         Task failedTask = Task.builder().id("remote-task").contextId("remote-context")
                 .status(new TaskStatus(TaskState.TASK_STATE_FAILED, failure, null)).artifacts(List.of(answer)).build();
-        Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
-                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
-                boolean.class);
-        statusMethod.setAccessible(true);
-        statusMethod.invoke(client,
-                new TaskStatusUpdateEvent("remote-task", failedTask.status(), "remote-context", Map.of()), failedTask,
-                result, (java.util.function.Consumer<String>) ignored -> {
-                }, false);
+        TaskStatusUpdateEvent statusUpdate = new TaskStatusUpdateEvent("remote-task", failedTask.status(),
+                "remote-context", Map.of());
+        eventMethod.invoke(client, new TaskUpdateEvent(failedTask, statusUpdate), result, observer, false, true);
 
         assertThat(result.getNow(null).remoteState()).isEqualTo(TaskState.TASK_STATE_FAILED);
         assertThat(result.getNow(null).result()).isEqualTo("declined");
     }
 
     @Test
-    void structuredArtifactIsForwardedAsStructuredQueryChunk() throws Exception {
+    void nonStreamingTaskProjectsArtifactsThenIgnoresLateEvents() throws Exception {
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
-        Map<String, Object> data = envelope("llm_output", Map.of("content", "working"));
-        Artifact artifact = new Artifact("artifact-data", null, null, List.<Part<?>>of(new DataPart(data)), Map.of(),
-                List.of());
-        Method artifactMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeArtifact",
-                TaskArtifactUpdateEvent.class, CompletableFuture.class, QueryStreamObserver.class);
-        artifactMethod.setAccessible(true);
-        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);
+        Artifact artifact = Artifact.builder().artifactId("artifact-final").parts(new TextPart("final")).build();
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(artifact)).build();
+        Method eventMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleClientEvent",
+                ClientEvent.class, CompletableFuture.class, RemoteAgentCaller.EventObserver.class,
+                boolean.class, boolean.class);
+        eventMethod.setAccessible(true);
 
-        artifactMethod.invoke(client,
-                new TaskArtifactUpdateEvent("remote-task", artifact, "remote-context", false, true, Map.of()), result,
-                observer);
+        eventMethod.invoke(client, new TaskEvent(task), result, observer, false, false);
 
-        ArgumentCaptor<QueryChunk> chunkCaptor = ArgumentCaptor.forClass(QueryChunk.class);
-        verify(observer).onNext(chunkCaptor.capture());
-        assertThat(chunkCaptor.getValue().getData()).isEqualTo(data);
+        InOrder order = inOrder(observer);
+        ArgumentCaptor<TaskArtifactUpdateEvent> artifactCaptor = ArgumentCaptor.forClass(
+                TaskArtifactUpdateEvent.class);
+        order.verify(observer).onArtifact(artifactCaptor.capture());
+        order.verify(observer).onStatus(any(TaskStatusUpdateEvent.class));
+        assertThat(artifactCaptor.getValue().artifact()).isSameAs(artifact);
+        assertThat(artifactCaptor.getValue().append()).isFalse();
+        assertThat(artifactCaptor.getValue().lastChunk()).isTrue();
+        assertThat(result.getNow(null).result()).isEqualTo("final");
+
+        clearInvocations(observer);
+        TaskStatusUpdateEvent lateStatus = new TaskStatusUpdateEvent("remote-task",
+                new TaskStatus(TaskState.TASK_STATE_WORKING), "remote-context", Map.of());
+        eventMethod.invoke(client, new TaskUpdateEvent(task, lateStatus), result, observer, false, true);
+        eventMethod.invoke(client, new TaskEvent(task), result, observer, false, false);
+        verifyNoInteractions(observer);
     }
 
     @Test
-    void internalProjectionPartsAreExcludedFromCompletedResult() throws Exception {
-        Artifact artifact = new Artifact("artifact-business", null, null,
-                List.<Part<?>>of(new TextPart("internal", Map.of("_remote_invocation", Map.of("toolCallId", "call-a"))),
-                        new DataPart(Map.of("progress", "internal"),
-                                Map.of("_remote_invocation", Map.of("toolCallId", "call-a"))),
-                        new TextPart("business")),
-                Map.of(), List.of());
+    void nestedAgentEventsAreExcludedFromCompletedResult() throws Exception {
+        Artifact delegation = Artifact.builder().artifactId("artifact-delegation").parts(new TextPart("delegate"))
+                .metadata(Map.of("agentEvent", Map.of("type", "delegation",
+                        "source", Map.of("agentId", "parent", "taskId", "remote-task"),
+                        "target", Map.of("agentId", "child", "taskId", "child-task"))))
+                .build();
+        Artifact nestedOutput = Artifact.builder().artifactId("artifact-nested").parts(new TextPart("nested"))
+                .metadata(Map.of("agentEvent", Map.of("type", "output",
+                        "source", Map.of("agentId", "child", "taskId", "child-task"))))
+                .build();
+        Artifact artifact = Artifact.builder().artifactId("artifact-business").parts(new TextPart("business"))
+                .build();
         Task task = Task.builder().id("remote-task").contextId("remote-context")
-                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(artifact)).build();
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
+                .artifacts(List.of(delegation, nestedOutput, artifact)).build();
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
-                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class, java.util.function.Consumer.class,
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class,
+                RemoteAgentCaller.EventObserver.class,
                 boolean.class);
         statusMethod.setAccessible(true);
 
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         statusMethod.invoke(client, new TaskStatusUpdateEvent("remote-task", task.status(), "remote-context", Map.of()),
-                task, result, (java.util.function.Consumer<String>) ignored -> {
-                }, false);
+                task, result, mock(RemoteAgentCaller.EventObserver.class), false);
 
         assertThat(result.getNow(null).result()).isEqualTo("business");
     }

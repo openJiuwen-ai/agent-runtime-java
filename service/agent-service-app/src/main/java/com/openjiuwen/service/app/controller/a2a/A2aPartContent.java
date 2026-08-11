@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -14,7 +15,6 @@ import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TextPart;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -27,8 +27,6 @@ public final class A2aPartContent {
     public static final String TERMINAL_RESULT_METADATA = "_agentcore_terminal";
 
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
-
-    private static final String REMOTE_INVOCATION_METADATA = "_remote_invocation";
 
     private A2aPartContent() {
     }
@@ -45,9 +43,6 @@ public final class A2aPartContent {
         }
         StringBuilder content = new StringBuilder();
         for (Part<?> part : parts) {
-            if (isInternalProjection(part)) {
-                continue;
-            }
             if (part instanceof TextPart textPart) {
                 content.append(textPart.text());
                 continue;
@@ -85,8 +80,13 @@ public final class A2aPartContent {
         String terminal = "";
         boolean hasTerminal = false;
         for (Artifact artifact : task.artifacts()) {
+            if (artifact.metadata() != null
+                    && artifact.metadata().containsKey(RemoteAgentCaller.AGENT_EVENT_METADATA)) {
+                continue;
+            }
             String artifactContent = extract(artifact.parts());
-            if (isTerminalArtifact(artifact)) {
+            if (artifact.metadata() != null
+                    && Boolean.TRUE.equals(artifact.metadata().get(TERMINAL_RESULT_METADATA))) {
                 terminal = artifactContent;
                 hasTerminal = true;
                 continue;
@@ -100,23 +100,5 @@ public final class A2aPartContent {
             }
         }
         return hasTerminal ? terminal : content.toString();
-    }
-
-    private static boolean isTerminalArtifact(Artifact artifact) {
-        return artifact.metadata() != null && Boolean.TRUE.equals(artifact.metadata().get(TERMINAL_RESULT_METADATA));
-    }
-
-    private static boolean isInternalProjection(Part<?> part) {
-        if (part instanceof TextPart textPart) {
-            return hasRemoteInvocationMetadata(textPart.metadata());
-        }
-        if (part instanceof DataPart dataPart) {
-            return hasRemoteInvocationMetadata(dataPart.metadata());
-        }
-        return false;
-    }
-
-    private static boolean hasRemoteInvocationMetadata(Map<String, Object> metadata) {
-        return metadata != null && metadata.containsKey(REMOTE_INVOCATION_METADATA);
     }
 }

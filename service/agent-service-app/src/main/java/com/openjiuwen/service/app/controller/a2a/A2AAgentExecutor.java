@@ -17,6 +17,7 @@ import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -178,6 +179,12 @@ public class A2AAgentExecutor implements AgentExecutor {
             }
             closeEventQueue(emitter, msgCtx.getTaskId());
             interrupted.set(true);
+            return;
+        }
+        if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())
+                && chunk.getData() instanceof TaskArtifactUpdateEvent update) {
+            emitter.emitEvent(new TaskArtifactUpdateEvent(msgCtx.getTaskId(), update.artifact(),
+                    msgCtx.getContextId(), update.append(), update.lastChunk(), update.metadata()));
             return;
         }
         List<Part<?>> parts = chunkMapper.toParts(chunk);

@@ -16,6 +16,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller.EventObserver;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -25,8 +27,13 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.Artifact;
+import org.a2aproject.sdk.spec.Message;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
+import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
+import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -61,7 +68,7 @@ class RemoteInvocationBatchCoordinatorTest {
             batch("batch-1", "call-a", "call-b", "call-c"), request("parent-1", Map.of()),
             mock(QueryStreamObserver.class));
 
-        verify(client, times(3)).callOutcome(any(), any(), any());
+        verify(client, times(3)).callOutcome(any(), any());
         outcomes.get("call-c").complete(completed("remote-c", "result-c"));
         outcomes.get("call-a").complete(completed("remote-a", "result-a"));
         outcomes.get("call-b").complete(completed("remote-b", "result-b"));
@@ -76,8 +83,8 @@ class RemoteInvocationBatchCoordinatorTest {
     void concurrentRemoteOutputsKeepSourceMetadataWithoutStateProjections() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
-        AtomicReference<QueryStreamObserver> outputObserver = new AtomicReference<>();
-        when(client.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        AtomicReference<EventObserver> outputObserver = new AtomicReference<>();
+        when(client.callOutcome(any(), any())).thenAnswer(invocation -> {
             outputObserver.set(invocation.getArgument(1));
             return outcome;
         });
@@ -97,15 +104,131 @@ class RemoteInvocationBatchCoordinatorTest {
         result.join();
 
         assertRemoteOutputs(emittedBeforeCompletion);
-        assertThat(outputs).hasSize(REMOTE_OUTPUT_COUNT);
+        assertThat(outputs).hasSize(REMOTE_OUTPUT_COUNT + 1);
+    }
+
+    @Test
+    void statusProjectionPreservesEventOrderAndTerminalStateIsSticky() {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
+        AtomicReference<EventObserver> remoteObserver = new AtomicReference<>();
+        when(client.callOutcome(any(), any())).thenAnswer(invocation -> {
+            remoteObserver.set(invocation.getArgument(1));
+            return outcome;
+        });
+        List<QueryChunk> outputs = new ArrayList<>();
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> {
+            outputs.add(invocation.getArgument(0));
+            return null;
+        }).when(observer).onNext(any());
+        RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
+        CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
+                batch("batch-status", "call-a"), request("parent-status", Map.of()), observer);
+
+        remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "searching"));
+        remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "searching"));
+        remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "generating"));
+        remoteObserver.get().onArtifact(remoteArtifact("remote-a", "progress"));
+        remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_COMPLETED, "done"));
+        remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "late"));
+        remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_FAILED, "conflict"));
+        outcome.complete(completed("remote-a", "result-a"));
+        result.join();
+
+        List<TaskArtifactUpdateEvent> statuses = outputs.stream().map(QueryChunk::getData)
+                .map(TaskArtifactUpdateEvent.class::cast)
+                .filter(update -> "status".equals(agentEvent(update).get("type")))
+                .toList();
+        assertThat(statuses).hasSize(3);
+        assertThat(statuses).extracting(update -> update.artifact().artifactId()).doesNotHaveDuplicates()
+                .allSatisfy(id -> assertThat(id).startsWith("status:agent-call-a:remote-a:"));
+        assertThat(statuses).extracting(update -> String.valueOf(agentEvent(update).get("state")))
+                .containsExactly("working", "working", "completed");
+        assertThat(statuses).extracting(RemoteInvocationBatchCoordinatorTest::firstText)
+                .containsExactly("searching", "generating", "done");
+        assertThat(outputs).extracting(QueryChunk::getData).map(TaskArtifactUpdateEvent.class::cast)
+                .extracting(update -> String.valueOf(agentEvent(update).get("type")))
+                .containsExactly("delegation", "status", "status", "output", "status");
+    }
+
+    @Test
+    void eventsAfterBatchResolutionAreIgnored() {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
+        AtomicReference<EventObserver> remoteObserver = new AtomicReference<>();
+        when(client.callOutcome(any(), any())).thenAnswer(invocation -> {
+            remoteObserver.set(invocation.getArgument(1));
+            return outcome;
+        });
+        List<QueryChunk> outputs = new ArrayList<>();
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> outputs.add(invocation.getArgument(0))).when(observer).onNext(any());
+        RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
+        CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
+                batch("batch-late-event", "call-a"), request("parent-late-event", Map.of()), observer);
+
+        outcome.complete(completed("remote-a", "result-a"));
+        result.join();
+        remoteObserver.get().onArtifact(remoteArtifact("remote-a", "late output"));
+        remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "late status"));
+
+        assertThat(outputs).isEmpty();
+    }
+
+    @Test
+    void nestedSourceAndArtifactIdentitySurviveOpaqueReparenting() {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
+        AtomicReference<EventObserver> remoteObserver = new AtomicReference<>();
+        when(client.callOutcome(any(), any())).thenAnswer(invocation -> {
+            remoteObserver.set(invocation.getArgument(1));
+            return outcome;
+        });
+        List<QueryChunk> outputs = new ArrayList<>();
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> {
+            outputs.add(invocation.getArgument(0));
+            return null;
+        }).when(observer).onNext(any());
+        RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
+        CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
+                batch("batch-nested", "call-a"), request("parent-nested", Map.of()), observer);
+        assertThat(result).isNotDone();
+        Map<String, Object> metadata = new LinkedHashMap<>(
+                Map.of("business", "kept", "_agentcore_terminal", true));
+        metadata.put("agentEvent", outputEvent("D", "task-d"));
+        Artifact first = Artifact.builder().artifactId("artifact-d").parts(new TextPart("D-1"))
+                .metadata(metadata).build();
+        Artifact second = Artifact.builder().artifactId("artifact-d").parts(new TextPart("D-2"))
+                .metadata(metadata).build();
+        remoteObserver.get().onArtifact(
+                new TaskArtifactUpdateEvent("remote-a", first, "remote-context", false, false, Map.of()));
+        remoteObserver.get().onArtifact(
+                new TaskArtifactUpdateEvent("remote-a", second, "remote-context", true, true, Map.of()));
+        outcome.complete(completed("remote-a", "result-a"));
+        result.join();
+
+        List<TaskArtifactUpdateEvent> nested = outputs.stream().map(QueryChunk::getData)
+                .map(TaskArtifactUpdateEvent.class::cast)
+                .filter(update -> "D".equals(agentSource(update).get("agentId")))
+                .toList();
+        assertThat(nested).hasSize(2);
+        assertThat(nested).allSatisfy(update -> assertThat(update.artifact().artifactId()).isEqualTo("artifact-d"));
+        assertThat(nested).allSatisfy(update -> {
+            assertThat(update.artifact().metadata()).containsEntry("business", "kept")
+                    .doesNotContainKey("_agentcore_terminal");
+            assertThat(agentSource(update).get("agentId")).isEqualTo("D");
+            assertThat(agentSource(update).get("taskId")).isEqualTo("task-d");
+        });
     }
 
     @Test
     void batchDoesNotResolveBeforeQueuedRemoteOutputsAreDelivered() throws Exception {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = new LinkedHashMap<>();
-        Map<String, QueryStreamObserver> outputObservers = new LinkedHashMap<>();
-        when(client.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        Map<String, EventObserver> outputObservers = new LinkedHashMap<>();
+        when(client.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             String id = call.message().substring("message-".length());
             outputObservers.put(id, invocation.getArgument(1));
@@ -116,7 +239,8 @@ class RemoteInvocationBatchCoordinatorTest {
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
         doAnswer(invocation -> {
             QueryChunk chunk = invocation.getArgument(0);
-            if (chunk.getData() instanceof Map<?, ?> data && "blocked-output".equals(data.get("content"))) {
+            if (chunk.getData() instanceof TaskArtifactUpdateEvent update
+                    && "blocked-output".equals(firstText(update))) {
                 outputEntered.countDown();
                 releaseOutput.await(5, TimeUnit.SECONDS);
             }
@@ -128,7 +252,7 @@ class RemoteInvocationBatchCoordinatorTest {
             request("parent-output-barrier", Map.of()), observer);
         assertThat(result).isNotDone();
         CompletableFuture<Void> blockedCallback = CompletableFuture.runAsync(() -> outputObservers.get("call-a")
-            .onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "blocked-output")));
+                .onArtifact(remoteArtifact("remote-a", "blocked-output")));
         assertThat(outputEntered.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(blockedCallback).isNotDone();
 
@@ -162,15 +286,15 @@ class RemoteInvocationBatchCoordinatorTest {
             mock(QueryStreamObserver.class));
 
         ArgumentCaptor<RemoteCall> calls = ArgumentCaptor.forClass(RemoteCall.class);
-        verify(client).callOutcome(calls.capture(), any(), any());
+        verify(client).callOutcome(calls.capture(), any());
         assertThat(calls.getValue().message()).isEqualTo("message-call-a");
 
         outcomes.get("call-a").complete(completed("remote-a", "result-a"));
-        verify(client, times(2)).callOutcome(calls.capture(), any(), any());
+        verify(client, times(2)).callOutcome(calls.capture(), any());
         assertThat(calls.getAllValues().get(calls.getAllValues().size() - 1).message()).isEqualTo("message-call-b");
 
         outcomes.get("call-b").complete(completed("remote-b", "result-b"));
-        verify(client, times(3)).callOutcome(calls.capture(), any(), any());
+        verify(client, times(3)).callOutcome(calls.capture(), any());
         assertThat(calls.getAllValues().get(calls.getAllValues().size() - 1).message()).isEqualTo("message-call-c");
         outcomes.get("call-c").complete(completed("remote-c", "result-c"));
         assertThat(result.join().isReadyToResume()).isTrue();
@@ -189,7 +313,7 @@ class RemoteInvocationBatchCoordinatorTest {
         TimeUnit.MILLISECONDS.sleep(1500);
         outcomes.get("call-a").complete(completed("remote-a", "result-a"));
 
-        verify(client).callOutcome(any(), any(), any());
+        verify(client).callOutcome(any(), any());
         assertThat(result.join().results().get("call-b").toString()).contains("REMOTE_OVERLOADED");
     }
 
@@ -205,7 +329,7 @@ class RemoteInvocationBatchCoordinatorTest {
             mock(QueryStreamObserver.class));
         outcomes.get("call-a").complete(completed("remote-a", "result-a"));
 
-        verify(client).callOutcome(any(), any(), any());
+        verify(client).callOutcome(any(), any());
         assertThat(result.join().results().get("call-b").toString()).contains("REMOTE_OVERLOADED");
     }
 
@@ -222,7 +346,7 @@ class RemoteInvocationBatchCoordinatorTest {
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> second =
             coordinator.execute(interrupt, request, mock(QueryStreamObserver.class));
 
-        verify(client, times(3)).callOutcome(any(), any(), any());
+        verify(client, times(3)).callOutcome(any(), any());
         outcomes.get("call-a").complete(completed("remote-a", "result-a"));
         outcomes.get("call-b").complete(completed("remote-b", "result-b"));
         outcomes.get("call-c").complete(completed("remote-c", "result-c"));
@@ -285,7 +409,7 @@ class RemoteInvocationBatchCoordinatorTest {
             RemoteCall call = invocation.getArgument(0);
             return "remote-b".equals(call.taskId()) ? resumedB : CompletableFuture.failedFuture(
                 new AssertionError("Unexpected resume target: " + call.taskId()));
-        }).when(client).callOutcome(any(), any(), any());
+        }).when(client).callOutcome(any(), any());
         ServeRequest resumeRequest = request("parent-resume",
             Map.of("runtime.remoteToolInputs", Map.of("call-b", "answer-b")));
 
@@ -318,7 +442,7 @@ class RemoteInvocationBatchCoordinatorTest {
         assertThat(resumed).isPresent();
         assertThatThrownBy(() -> resumed.orElseThrow().join())
             .hasRootCauseMessage("REMOTE_BATCH_PARENT_MISMATCH");
-        verify(fixture.client, times(3)).callOutcome(any(), any(), any());
+        verify(fixture.client, times(3)).callOutcome(any(), any());
     }
 
     @Test
@@ -355,8 +479,8 @@ class RemoteInvocationBatchCoordinatorTest {
     void remoteOutputFailureFailsBatchAfterStartingRemoteCall() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
-        AtomicReference<QueryStreamObserver> outputObserver = new AtomicReference<>();
-        when(client.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        AtomicReference<EventObserver> outputObserver = new AtomicReference<>();
+        when(client.callOutcome(any(), any())).thenAnswer(invocation -> {
             outputObserver.set(invocation.getArgument(1));
             return outcome;
         });
@@ -367,18 +491,18 @@ class RemoteInvocationBatchCoordinatorTest {
 
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-output-failure", "call-a"), request("parent-output-failure", Map.of()), observer);
-        outputObserver.get().onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "remote output"));
+        outputObserver.get().onArtifact(remoteArtifact("remote-a", "remote output"));
 
         assertThatThrownBy(result::join)
             .hasCauseInstanceOf(RuntimeException.class)
             .hasRootCauseMessage("output sink unavailable");
-        verify(client).callOutcome(any(), any(), any());
+        verify(client).callOutcome(any(), any());
     }
 
     @Test
     void rateLimitedRemoteFailureUsesStableResultCategory() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
-        when(client.callOutcome(any(), any(), any()))
+        when(client.callOutcome(any(), any()))
             .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("HTTP 429 Too Many Requests")));
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
 
@@ -393,7 +517,7 @@ class RemoteInvocationBatchCoordinatorTest {
     @Test
     void rejectedLocalIoSubmissionUsesOverloadedResultCategory() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
-        when(client.callOutcome(any(), any(), any()))
+        when(client.callOutcome(any(), any()))
             .thenReturn(CompletableFuture.failedFuture(new RejectedExecutionException("I/O executor saturated")));
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
 
@@ -407,7 +531,7 @@ class RemoteInvocationBatchCoordinatorTest {
     @Test
     void malformedRemoteResponseUsesProtocolErrorCategory() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
-        when(client.callOutcome(any(), any(), any()))
+        when(client.callOutcome(any(), any()))
             .thenReturn(CompletableFuture.failedFuture(
                 new IllegalStateException("Malformed JSON-RPC response from remote agent")));
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
@@ -422,7 +546,7 @@ class RemoteInvocationBatchCoordinatorTest {
     @Test
     void synchronousClientRuntimeFailureSettlesMember() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
-        when(client.callOutcome(any(), any(), any()))
+        when(client.callOutcome(any(), any()))
             .thenThrow(new IllegalArgumentException("invalid remote client configuration"));
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
 
@@ -436,7 +560,7 @@ class RemoteInvocationBatchCoordinatorTest {
     @Test
     void coordinatorGeneratesBatchId() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
-        when(client.callOutcome(any(), any(), any()))
+        when(client.callOutcome(any(), any()))
             .thenReturn(CompletableFuture.completedFuture(completed("remote-a", "result-a")));
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
 
@@ -452,7 +576,7 @@ class RemoteInvocationBatchCoordinatorTest {
     void timedOutMemberReturnsStableStructuredResult() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
-        when(client.callOutcome(any(), any(), any())).thenReturn(outcome);
+        when(client.callOutcome(any(), any())).thenReturn(outcome);
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(
             new InMemoryTaskStore(), client, "test-agent", 1, 10, 30);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
@@ -491,7 +615,7 @@ class RemoteInvocationBatchCoordinatorTest {
             coordinator.resume(request, mock(QueryStreamObserver.class));
         assertThat(retry).isPresent();
         assertThat(retry.orElseThrow().join().isReadyToResume()).isTrue();
-        verify(client).callOutcome(any(), any(), any());
+        verify(client).callOutcome(any(), any());
     }
 
     @Test
@@ -575,7 +699,7 @@ class RemoteInvocationBatchCoordinatorTest {
         initial.join();
 
         CompletableFuture<RemoteCallOutcome> resumedB = new CompletableFuture<>();
-        org.mockito.Mockito.doReturn(resumedB).when(client).callOutcome(any(), any(), any());
+        org.mockito.Mockito.doReturn(resumedB).when(client).callOutcome(any(), any());
         Optional<CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> resumed = coordinator.resume(
             request("parent-failed-snapshot", Map.of("runtime.remoteToolInputs", Map.of("call-b", "answer-b"))),
             mock(QueryStreamObserver.class));
@@ -590,7 +714,7 @@ class RemoteInvocationBatchCoordinatorTest {
     @Test
     void outboundMetadataOnlyKeepsNonControlFields() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
-        when(client.callOutcome(any(), any(), any()))
+        when(client.callOutcome(any(), any()))
             .thenReturn(CompletableFuture.completedFuture(completed("remote-a", "result-a")));
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
         ServeRequest request = request("parent-metadata", Map.of(
@@ -603,7 +727,7 @@ class RemoteInvocationBatchCoordinatorTest {
         coordinator.execute(batch("batch-metadata", "call-a"), request, mock(QueryStreamObserver.class)).join();
 
         ArgumentCaptor<RemoteCall> call = ArgumentCaptor.forClass(RemoteCall.class);
-        verify(client).callOutcome(call.capture(), any(), any());
+        verify(client).callOutcome(call.capture(), any());
         assertThat(call.getValue().metadata()).containsOnly(Map.entry("traceId", "trace-1"));
     }
 
@@ -614,7 +738,7 @@ class RemoteInvocationBatchCoordinatorTest {
         org.mockito.Mockito.doThrow(new IllegalStateException("task store unavailable"))
             .when(store).save(any(), anyBoolean());
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
-        when(client.callOutcome(any(), any(), any()))
+        when(client.callOutcome(any(), any()))
             .thenReturn(CompletableFuture.completedFuture(inputRequired("remote-a", "input-a")));
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
             "test-agent", 1, 10, 30);
@@ -639,21 +763,13 @@ class RemoteInvocationBatchCoordinatorTest {
             batch("batch-context", "call-a", "call-b", "call-c"), request("parent-context", Map.of()),
             mock(QueryStreamObserver.class));
         assertThat(initial.isDone()).isFalse();
-        ArgumentCaptor<RemoteCall> initialCalls = ArgumentCaptor.forClass(RemoteCall.class);
-        verify(client, times(3)).callOutcome(initialCalls.capture(), any(), any());
-        Map<String, String> initialContexts = new LinkedHashMap<>();
-        initialCalls.getAllValues().forEach(call -> initialContexts.put(call.message(), call.contextId()));
-        assertThat(initialContexts.values()).doesNotHaveDuplicates();
-        assertThat(initialContexts.get("message-call-a")).startsWith("conversation-1_").endsWith("_call-a")
-            .doesNotContain(":");
-        assertThat(initialContexts.get("message-call-b")).startsWith("conversation-1_").endsWith("_call-b")
-            .doesNotContain(":");
-        assertThat(initialContexts.get("message-call-c")).startsWith("conversation-1_").endsWith("_call-c")
-            .doesNotContain(":");
+        Map<String, String> initialContexts = captureInitialContexts(client);
+        assertInitialContexts(initialContexts);
 
-        outcomes.get("call-a").complete(inputRequired("remote-a", "input-a"));
-        outcomes.get("call-b").complete(inputRequired("remote-b", "input-b"));
-        outcomes.get("call-c").complete(inputRequired("remote-c", "input-c"));
+        RemoteInvocationBatchMapper mapper = new RemoteInvocationBatchMapper();
+        outcomes.get("call-a").complete(mapper.callbackOutcome(inputRequiredTask("remote-a", "input-a")));
+        outcomes.get("call-b").complete(mapper.callbackOutcome(inputRequiredTask("remote-b", "input-b")));
+        outcomes.get("call-c").complete(mapper.callbackOutcome(inputRequiredTask("remote-c", "input-c")));
         initial.join();
 
         Map<String, CompletableFuture<RemoteCallOutcome>> resumedOutcomes = new LinkedHashMap<>();
@@ -662,7 +778,7 @@ class RemoteInvocationBatchCoordinatorTest {
         }
         org.mockito.Mockito.clearInvocations(client);
         doAnswer(invocation -> resumedOutcomes.get(invocation.<RemoteCall>getArgument(0).taskId()))
-            .when(client).callOutcome(any(), any(), any());
+            .when(client).callOutcome(any(), any());
         ServeRequest resumeRequest = request("parent-context", Map.of("runtime.remoteToolInputs", Map.of(
             "call-a", "answer-a", "call-b", "answer-b", "call-c", "answer-c")));
 
@@ -670,19 +786,47 @@ class RemoteInvocationBatchCoordinatorTest {
             coordinator.resume(resumeRequest, mock(QueryStreamObserver.class));
         assertThat(resumed).isPresent();
 
-        ArgumentCaptor<RemoteCall> resumedCalls = ArgumentCaptor.forClass(RemoteCall.class);
-        verify(client, times(3)).callOutcome(resumedCalls.capture(), any(), any());
-        Map<String, String> expectedContextByTask = Map.of(
-            "remote-a", initialContexts.get("message-call-a"),
-            "remote-b", initialContexts.get("message-call-b"),
-            "remote-c", initialContexts.get("message-call-c"));
-        assertThat(resumedCalls.getAllValues())
-            .allSatisfy(call -> assertThat(call.contextId()).isEqualTo(expectedContextByTask.get(call.taskId())));
+        assertResumedContexts(client, initialContexts);
 
-        resumedOutcomes.get("remote-a").complete(completed("remote-a", "result-a"));
-        resumedOutcomes.get("remote-b").complete(completed("remote-b", "result-b"));
-        resumedOutcomes.get("remote-c").complete(completed("remote-c", "result-c"));
-        assertThat(resumed.orElseThrow().join().isReadyToResume()).isTrue();
+        resumedOutcomes.get("remote-a").complete(mapper.callbackOutcome(completedTask("remote-a", "result-a")));
+        resumedOutcomes.get("remote-b").complete(mapper.callbackOutcome(completedTask("remote-b", "result-b")));
+        resumedOutcomes.get("remote-c").complete(mapper.callbackOutcome(completedTask("remote-c", "result-c")));
+        RemoteInvocationBatchCoordinator.BatchResolution resolution = resumed.orElseThrow().join();
+        assertThat(resolution.isReadyToResume()).isTrue();
+        assertThat(resolution.results()).containsExactly(
+                Map.entry("call-a", "result-a"),
+                Map.entry("call-b", "result-b"),
+                Map.entry("call-c", "result-c"));
+    }
+
+    private static Map<String, String> captureInitialContexts(A2ARemoteAgentClient client) {
+        ArgumentCaptor<RemoteCall> calls = ArgumentCaptor.forClass(RemoteCall.class);
+        verify(client, times(3)).callOutcome(calls.capture(), any());
+        Map<String, String> contexts = new LinkedHashMap<>();
+        calls.getAllValues().forEach(call -> contexts.put(call.message(), call.contextId()));
+        return contexts;
+    }
+
+    private static void assertInitialContexts(Map<String, String> contexts) {
+        assertThat(contexts.values()).doesNotHaveDuplicates();
+        assertThat(contexts.get("message-call-a")).startsWith("conversation-1_").endsWith("_call-a")
+                .doesNotContain(":");
+        assertThat(contexts.get("message-call-b")).startsWith("conversation-1_").endsWith("_call-b")
+                .doesNotContain(":");
+        assertThat(contexts.get("message-call-c")).startsWith("conversation-1_").endsWith("_call-c")
+                .doesNotContain(":");
+    }
+
+    private static void assertResumedContexts(A2ARemoteAgentClient client,
+            Map<String, String> initialContexts) {
+        ArgumentCaptor<RemoteCall> calls = ArgumentCaptor.forClass(RemoteCall.class);
+        verify(client, times(3)).callOutcome(calls.capture(), any());
+        Map<String, String> expected = Map.of(
+                "remote-a", initialContexts.get("message-call-a"),
+                "remote-b", initialContexts.get("message-call-b"),
+                "remote-c", initialContexts.get("message-call-c"));
+        assertThat(calls.getAllValues())
+                .allSatisfy(call -> assertThat(call.contextId()).isEqualTo(expected.get(call.taskId())));
     }
 
     private static RemoteInvocationBatchCoordinator coordinator(A2ARemoteAgentClient client, int maxConcurrency) {
@@ -690,7 +834,7 @@ class RemoteInvocationBatchCoordinatorTest {
             10, 30);
     }
 
-    private static void emitConcurrentOutputs(QueryStreamObserver observer) {
+    private static void emitConcurrentOutputs(EventObserver observer) {
         CountDownLatch start = new CountDownLatch(1);
         List<CompletableFuture<Void>> callbacks = new ArrayList<>();
         for (int index = 0; index < REMOTE_OUTPUT_COUNT; index++) {
@@ -700,7 +844,7 @@ class RemoteInvocationBatchCoordinatorTest {
                 } catch (InterruptedException ex) {
                     throw new IllegalStateException(ex);
                 }
-                observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "progress"));
+                observer.onArtifact(remoteArtifact("remote-a", "progress"));
             }));
         }
         start.countDown();
@@ -708,24 +852,50 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     private static void assertRemoteOutputs(List<QueryChunk> outputs) {
-        assertThat(outputs).hasSize(REMOTE_OUTPUT_COUNT);
-        Map<?, ?> firstData = (Map<?, ?>) outputs.get(0).getData();
-        Map<?, ?> firstProjection = (Map<?, ?>) firstData.get("projection");
-        Object batchId = firstProjection.get("batchId");
-        assertThat(String.valueOf(batchId)).isNotBlank();
-        assertThat(outputs).allSatisfy(chunk -> {
+        List<QueryChunk> businessOutputs = outputs.stream()
+                .filter(chunk -> chunk.getData() instanceof TaskArtifactUpdateEvent update
+                        && "output".equals(agentEvent(update).get("type")))
+                .toList();
+        assertThat(businessOutputs).hasSize(REMOTE_OUTPUT_COUNT);
+        assertThat(businessOutputs).allSatisfy(chunk -> {
             assertThat(chunk.getType()).isEqualTo(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT);
-            assertThat(chunk.getData()).isInstanceOfSatisfying(Map.class, data -> {
-                assertThat(data.get("content")).isEqualTo("progress");
-                assertThat(data.get("projection")).isInstanceOfSatisfying(Map.class, projection -> {
-                    assertThat(projection).containsEntry("kind", "remote_agent_output")
-                        .containsEntry("batchId", batchId)
-                        .containsEntry("toolCallId", "call-a")
-                        .containsEntry("target", "agent-call-a")
-                        .doesNotContainKeys("phase", "sequence", "resultCategory", "latencyMs");
-                });
+            assertThat(chunk.getData()).isInstanceOfSatisfying(TaskArtifactUpdateEvent.class, update -> {
+                assertThat(firstText(update)).isEqualTo("progress");
+                assertThat(agentSource(update).get("agentId")).isEqualTo("agent-call-a");
+                assertThat(agentSource(update).get("taskId")).isEqualTo("remote-a");
             });
         });
+    }
+
+    private static String firstText(TaskArtifactUpdateEvent update) {
+        Object part = update.artifact().parts().get(0);
+        if (part instanceof TextPart textPart) {
+            return textPart.text();
+        }
+        throw new AssertionError("Expected first Artifact part to be text");
+    }
+
+    private static Map<?, ?> agentEvent(TaskArtifactUpdateEvent update) {
+        return (Map<?, ?>) update.artifact().metadata().get(RemoteAgentCaller.AGENT_EVENT_METADATA);
+    }
+
+    private static Map<?, ?> agentSource(TaskArtifactUpdateEvent update) {
+        return (Map<?, ?>) agentEvent(update).get("source");
+    }
+
+    private static Map<String, Object> outputEvent(String agentId, String taskId) {
+        return Map.of("type", "output", "source", Map.of("agentId", agentId, "taskId", taskId));
+    }
+
+    private static TaskArtifactUpdateEvent remoteArtifact(String taskId, String text) {
+        Artifact artifact = Artifact.builder().artifactId("artifact-progress").parts(new TextPart(text)).build();
+        return new TaskArtifactUpdateEvent(taskId, artifact, "remote-context", true, false, Map.of());
+    }
+
+    private static TaskStatusUpdateEvent status(String taskId, TaskState state, String text) {
+        Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(new TextPart(text)).build();
+        TaskStatus status = new TaskStatus(state, message, null);
+        return new TaskStatusUpdateEvent(taskId, status, "remote-context", Map.of());
     }
 
     private static WaitingBatch waitingBatch(String parentTaskId) {
@@ -752,7 +922,7 @@ class RemoteInvocationBatchCoordinatorTest {
         for (String id : List.of("call-a", "call-b", "call-c")) {
             outcomes.put(id, new CompletableFuture<>());
         }
-        when(client.callOutcome(any(), any(), any())).thenAnswer(invocation -> {
+        when(client.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             String id = call.message().substring("message-".length());
             return outcomes.get(id);
@@ -787,5 +957,23 @@ class RemoteInvocationBatchCoordinatorTest {
 
     private static RemoteCallOutcome inputRequired(String taskId, String prompt) {
         return new RemoteCallOutcome(taskId, TaskState.TASK_STATE_INPUT_REQUIRED, "INPUT_REQUIRED", null, prompt);
+    }
+
+    private static Task inputRequiredTask(String taskId, String prompt) {
+        Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(new TextPart(prompt)).build();
+        return Task.builder().id(taskId).contextId("context-" + taskId)
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, message, null)).artifacts(List.of())
+                .build();
+    }
+
+    private static Task completedTask(String taskId, String result) {
+        Artifact nested = Artifact.builder().artifactId("nested-" + taskId).parts(new TextPart("nested-progress"))
+                .metadata(Map.of(RemoteAgentCaller.AGENT_EVENT_METADATA,
+                        Map.of("type", "output", "source", Map.of("agentId", "nested", "taskId", "nested-task"))))
+                .build();
+        Artifact terminal = Artifact.builder().artifactId("terminal-" + taskId).parts(new TextPart(result))
+                .metadata(Map.of("_agentcore_terminal", true)).build();
+        return Task.builder().id(taskId).contextId("context-" + taskId)
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(nested, terminal)).build();
     }
 }

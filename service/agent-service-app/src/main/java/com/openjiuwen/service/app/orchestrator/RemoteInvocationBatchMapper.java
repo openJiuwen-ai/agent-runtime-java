@@ -278,13 +278,16 @@ final class RemoteInvocationBatchMapper {
         if (state == null) {
             return "REMOTE_PROTOCOL_ERROR";
         }
-        return switch (state) {
-            case TASK_STATE_COMPLETED -> "COMPLETED";
-            case TASK_STATE_INPUT_REQUIRED, TASK_STATE_AUTH_REQUIRED -> "INPUT_REQUIRED";
-            case TASK_STATE_REJECTED -> "REMOTE_REJECTED";
-            case TASK_STATE_FAILED -> "REMOTE_BUSINESS_FAILURE";
-            default -> "REMOTE_PROTOCOL_ERROR";
-        };
+        if (state == TaskState.TASK_STATE_COMPLETED) {
+            return "COMPLETED";
+        }
+        if (state.isInterrupted()) {
+            return "INPUT_REQUIRED";
+        }
+        if (state == TaskState.TASK_STATE_FAILED) {
+            return "REMOTE_BUSINESS_FAILURE";
+        }
+        return "REMOTE_" + state.name().replaceFirst("^TASK_STATE_", "");
     }
 
     private static boolean isResultBearingNonTerminalState(TaskState state) {
