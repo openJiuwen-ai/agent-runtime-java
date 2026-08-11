@@ -53,6 +53,7 @@ public final class A2ATaskSubscriptionClient {
         TaskSubscription subscription = new TaskSubscription(active, client);
         ClientCallContext context = new ClientCallContext(Map.of(),
                 Map.of(STREAM_REFERENCE_HEADER, request.streamReference()));
+        boolean isSubscribed = false;
         try {
             A2AClientSupport.withApplicationClassLoader(() -> {
                 client.subscribeToTask(new TaskIdParams(request.taskId()),
@@ -72,10 +73,12 @@ public final class A2ATaskSubscriptionClient {
                         }, context);
                 return null;
             });
+            isSubscribed = true;
             return subscription;
-        } catch (RuntimeException failure) {
-            subscription.close();
-            throw failure;
+        } finally {
+            if (!isSubscribed) {
+                subscription.close();
+            }
         }
     }
 

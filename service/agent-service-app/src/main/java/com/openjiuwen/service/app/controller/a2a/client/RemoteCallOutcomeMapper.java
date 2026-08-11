@@ -31,13 +31,13 @@ public final class RemoteCallOutcomeMapper {
      * @param state observed A2A task state
      * @param statusText text carried by the task status message
      * @param task optional complete task snapshot
-     * @param callbackMode whether a non-final task means that callback completion is pending
+     * @param isCallbackMode whether a non-final task means that callback completion is pending
      * @return an outcome for final, interrupted, or callback-pending state; otherwise empty
      */
     public Optional<RemoteCallOutcome> mapTask(String taskId, TaskState state, String statusText, Task task,
-            boolean callbackMode) {
+            boolean isCallbackMode) {
         String normalizedStatusText = statusText == null ? "" : statusText;
-        if (callbackMode && state != null && !state.isFinal()) {
+        if (isCallbackMode && state != null && !state.isFinal()) {
             return Optional.of(new RemoteCallOutcome(taskId, TaskState.TASK_STATE_INPUT_REQUIRED,
                     "INPUT_REQUIRED", null, "Remote callback pending"));
         }
@@ -61,15 +61,15 @@ public final class RemoteCallOutcomeMapper {
      * Maps a complete A2A Task snapshot.
      *
      * @param task task snapshot
-     * @param callbackMode whether a non-final task means that callback completion is pending
+     * @param isCallbackMode whether a non-final task means that callback completion is pending
      * @return mapped outcome when the snapshot represents a Runtime-visible outcome
      */
-    public Optional<RemoteCallOutcome> mapTask(Task task, boolean callbackMode) {
+    public Optional<RemoteCallOutcome> mapTask(Task task, boolean isCallbackMode) {
         if (task == null || task.status() == null) {
             return Optional.empty();
         }
         String statusText = task.status().message() == null ? "" : extractText(task.status().message().parts());
-        return mapTask(task.id(), task.status().state(), statusText, task, callbackMode);
+        return mapTask(task.id(), task.status().state(), statusText, task, isCallbackMode);
     }
 
     /**

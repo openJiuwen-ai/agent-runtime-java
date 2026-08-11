@@ -21,9 +21,9 @@ final class A2AClientSupport {
     private A2AClientSupport() {
     }
 
-    static Client create(AgentCard card, boolean streaming) {
+    static Client create(AgentCard card, boolean isStreaming) {
         return withApplicationClassLoader(() -> Client.builder(card)
-                .clientConfig(new ClientConfig.Builder().setStreaming(streaming).build())
+                .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
                 .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig()).build());
     }
 

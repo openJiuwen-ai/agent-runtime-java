@@ -21,6 +21,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * Verifies transport-neutral A2A event consumption and outcome mapping.
+ *
+ * @since 0.1.1
+ */
 class RemoteCallEventConsumerTest {
     @Test
     void forwardsArtifactsAlreadyPresentInWorkingTaskSnapshot() {

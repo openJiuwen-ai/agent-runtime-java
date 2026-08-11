@@ -37,7 +37,9 @@ public final class RemoteCallEventConsumer {
 
     private final RemoteCallOutcomeMapper outcomeMapper;
 
-    /** Creates the event consumer with the standard Runtime outcome mapper. */
+    /**
+     * Creates the event consumer with the standard Runtime outcome mapper.
+     */
     public RemoteCallEventConsumer() {
         this.outcomeMapper = new RemoteCallOutcomeMapper();
     }
@@ -49,14 +51,14 @@ public final class RemoteCallEventConsumer {
      * @param result owning remote-call future
      * @param streamObserver optional business chunk observer
      * @param remoteTaskIdObserver optional task-id observer
-     * @param callbackMode whether terminal completion is delivered by callback
+     * @param isCallbackMode whether terminal completion is delivered by callback
      */
     public void accept(ClientEvent event, CompletableFuture<RemoteCallOutcome> result,
-            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver, boolean callbackMode) {
+            QueryStreamObserver streamObserver, Consumer<String> remoteTaskIdObserver, boolean isCallbackMode) {
         if (event instanceof TaskUpdateEvent update) {
-            handleUpdate(update, result, streamObserver, remoteTaskIdObserver, callbackMode);
+            handleUpdate(update, result, streamObserver, remoteTaskIdObserver, isCallbackMode);
         } else if (event instanceof TaskEvent taskEvent) {
-            acceptTask(taskEvent.getTask(), result, streamObserver, remoteTaskIdObserver, callbackMode);
+            acceptTask(taskEvent.getTask(), result, streamObserver, remoteTaskIdObserver, isCallbackMode);
         } else if (event instanceof MessageEvent messageEvent) {
             completeMessage(messageEvent.getMessage(), result, remoteTaskIdObserver);
         } else {
@@ -65,23 +67,26 @@ public final class RemoteCallEventConsumer {
     }
 
     private void acceptTask(Task task, CompletableFuture<RemoteCallOutcome> result,
-            QueryStreamObserver streamObserver, Consumer<String> taskIdObserver, boolean callbackMode) {
+            QueryStreamObserver streamObserver, Consumer<String> taskIdObserver, boolean isCallbackMode) {
         if (task != null && task.status() != null && task.status().state() != null
                 && !task.status().state().isFinal() && task.artifacts() != null) {
             for (Artifact artifact : task.artifacts()) {
                 emitArtifact(artifact, result, streamObserver);
             }
         }
-        completeTask(task, result, taskIdObserver, callbackMode);
+        completeTask(task, result, taskIdObserver, isCallbackMode);
     }
 
     private void handleUpdate(TaskUpdateEvent update, CompletableFuture<RemoteCallOutcome> result,
-            QueryStreamObserver streamObserver, Consumer<String> taskIdObserver, boolean callbackMode) {
-        if (update.getUpdateEvent() instanceof TaskArtifactUpdateEvent artifactUpdate) {
+            QueryStreamObserver streamObserver, Consumer<String> taskIdObserver, boolean isCallbackMode) {
+        Object updateEvent = update.getUpdateEvent();
+        if (updateEvent instanceof TaskArtifactUpdateEvent artifactUpdate) {
             notifyTaskId(taskIdObserver, artifactUpdate.taskId(), update.getTask().status().state());
             acceptArtifact(artifactUpdate, result, streamObserver);
-        } else if (update.getUpdateEvent() instanceof TaskStatusUpdateEvent statusUpdate) {
-            acceptStatus(statusUpdate, update.getTask(), result, taskIdObserver, callbackMode);
+        } else if (updateEvent instanceof TaskStatusUpdateEvent statusUpdate) {
+            acceptStatus(statusUpdate, update.getTask(), result, taskIdObserver, isCallbackMode);
+        } else {
+            LOG.debug("Unknown A2A task update event type: {}", typeName(updateEvent));
         }
     }
 
@@ -91,25 +96,27 @@ public final class RemoteCallEventConsumer {
     }
 
     void acceptStatus(TaskStatusUpdateEvent statusUpdate, Task task, CompletableFuture<RemoteCallOutcome> result,
-            Consumer<String> taskIdObserver, boolean callbackMode) {
+            Consumer<String> taskIdObserver, boolean isCallbackMode) {
         String statusText = statusUpdate.status().message() == null
                 ? "" : extractText(statusUpdate.status().message().parts());
-        completeTask(statusUpdate.taskId(), statusUpdate.status().state(), statusText, task, result,
-                taskIdObserver, callbackMode);
+        TaskObservation observation = new TaskObservation(statusUpdate.taskId(), statusUpdate.status().state(),
+                statusText, task);
+        completeTask(observation, result, taskIdObserver, isCallbackMode);
     }
 
     private void completeTask(Task task, CompletableFuture<RemoteCallOutcome> result,
-            Consumer<String> taskIdObserver, boolean callbackMode) {
+            Consumer<String> taskIdObserver, boolean isCallbackMode) {
         TaskState state = task.status().state();
         String statusText = task.status().message() == null ? "" : extractText(task.status().message().parts());
-        completeTask(task.id(), state, statusText, task, result, taskIdObserver, callbackMode);
+        completeTask(new TaskObservation(task.id(), state, statusText, task), result, taskIdObserver, isCallbackMode);
     }
 
-    private void completeTask(String taskId, TaskState state, String statusText, Task task,
-            CompletableFuture<RemoteCallOutcome> result, Consumer<String> taskIdObserver, boolean callbackMode) {
-        notifyTaskId(taskIdObserver, taskId, state);
+    private void completeTask(TaskObservation observation, CompletableFuture<RemoteCallOutcome> result,
+            Consumer<String> taskIdObserver, boolean isCallbackMode) {
+        notifyTaskId(taskIdObserver, observation.taskId(), observation.state());
         if (!result.isDone()) {
-            outcomeMapper.mapTask(taskId, state, statusText, task, callbackMode).ifPresent(result::complete);
+            outcomeMapper.mapTask(observation.taskId(), observation.state(), observation.statusText(),
+                    observation.task(), isCallbackMode).ifPresent(result::complete);
         }
     }
 
@@ -132,6 +139,8 @@ public final class RemoteCallEventConsumer {
                 streamObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, textPart.text()));
             } else if (part instanceof DataPart dataPart) {
                 streamObserver.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, dataPart.data()));
+            } else {
+                LOG.debug("Unsupported A2A artifact part type: {}", typeName(part));
             }
         }
     }
@@ -158,5 +167,12 @@ public final class RemoteCallEventConsumer {
             }
         }
         return text.toString();
+    }
+
+    private static String typeName(Object value) {
+        return value == null ? "null" : value.getClass().getSimpleName();
+    }
+
+    private record TaskObservation(String taskId, TaskState state, String statusText, Task task) {
     }
 }

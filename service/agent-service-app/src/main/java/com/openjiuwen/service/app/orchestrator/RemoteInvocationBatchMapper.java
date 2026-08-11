@@ -276,8 +276,6 @@ final class RemoteInvocationBatchMapper {
     }
 
     private static String resultCategory(TaskState state) {
-        return RemoteCallOutcomeMapper.resultCategory(state);
-    private static String resultCategory(TaskState state) {
         if (state == null) {
             return "REMOTE_PROTOCOL_ERROR";
         }
