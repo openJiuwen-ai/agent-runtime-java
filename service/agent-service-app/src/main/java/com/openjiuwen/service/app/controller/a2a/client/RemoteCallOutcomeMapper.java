@@ -101,7 +101,7 @@ public final class RemoteCallOutcomeMapper {
             case TASK_STATE_INPUT_REQUIRED, TASK_STATE_AUTH_REQUIRED -> "INPUT_REQUIRED";
             case TASK_STATE_REJECTED -> "REMOTE_REJECTED";
             case TASK_STATE_FAILED -> "REMOTE_BUSINESS_FAILURE";
-            default -> "REMOTE_PROTOCOL_ERROR";
+            default -> "REMOTE_" + state.name().replaceFirst("^TASK_STATE_", "");
         };
     }
 
