@@ -13,11 +13,11 @@ import java.util.Optional;
  *
  * @param code stable symbolic error code
  * @param numericCode optional framework-specific numeric code
- * @param retryable whether the originating framework marks the error retryable
+ * @param isRetryable whether the originating framework marks the error retryable
  * @param origin framework layer that produced the error
  * @since 0.1.0
  */
-public record AgentError(String code, Integer numericCode, boolean retryable, String origin) {
+public record AgentError(String code, Integer numericCode, boolean isRetryable, String origin) {
     /** Namespaced A2A message metadata key. */
     public static final String METADATA_KEY = "openjiuwen.error";
 
@@ -35,7 +35,7 @@ public record AgentError(String code, Integer numericCode, boolean retryable, St
         if (numericCode != null) {
             value.put("numericCode", numericCode);
         }
-        value.put("retryable", retryable);
+        value.put("retryable", isRetryable);
         if (origin != null && !origin.isBlank()) {
             value.put("origin", origin);
         }
@@ -67,8 +67,8 @@ public record AgentError(String code, Integer numericCode, boolean retryable, St
             return Optional.empty();
         }
         Integer numericCode = map.get("numericCode") instanceof Number number ? number.intValue() : null;
-        boolean retryable = map.get("retryable") instanceof Boolean flag && flag;
-        return Optional.of(new AgentError(code, numericCode, retryable, stringValue(map.get("origin"))));
+        boolean isRetryable = map.get("retryable") instanceof Boolean isRetryableValue && isRetryableValue;
+        return Optional.of(new AgentError(code, numericCode, isRetryable, stringValue(map.get("origin"))));
     }
 
     private static String stringValue(Object value) {

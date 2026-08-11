@@ -90,10 +90,10 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         sendTerminalTask(task, true);
     }
 
-    private void sendTerminalTask(Task task, boolean allowConfigRecheck) {
+    private void sendTerminalTask(Task task, boolean shouldRecheckConfig) {
         Optional<TaskPushNotificationConfig> config = firstConfig(task.id());
         if (config.isEmpty()) {
-            if (allowConfigRecheck) {
+            if (shouldRecheckConfig) {
                 scheduleConfigRecheck(task);
             }
             return;
@@ -117,14 +117,15 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         if (!pendingConfigRechecks.add(task.id())) {
             return;
         }
-        CompletableFuture.delayedExecutor(configRecheckDelay.toMillis(), TimeUnit.MILLISECONDS).execute(() -> {
+        CompletableFuture.runAsync(() -> {
             pendingConfigRechecks.remove(task.id());
-            try {
-                sendTerminalTask(task, false);
-            } catch (RuntimeException ex) {
-                log.warn("A2A push notification config recheck failed for task {}", task.id(), ex);
-            }
-        });
+            sendTerminalTask(task, false);
+        }, CompletableFuture.delayedExecutor(configRecheckDelay.toMillis(), TimeUnit.MILLISECONDS))
+                .whenComplete((ignored, failure) -> {
+                    if (failure != null) {
+                        log.warn("A2A push notification config recheck failed for task {}", task.id(), failure);
+                    }
+                });
     }
 
     private boolean isCallbackState(Task task) {

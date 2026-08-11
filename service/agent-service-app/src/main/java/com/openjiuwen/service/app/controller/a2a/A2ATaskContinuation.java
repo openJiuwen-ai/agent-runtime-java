@@ -19,10 +19,12 @@ import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Re-enters the existing A2A task event pipeline for a callback continuation.
@@ -87,8 +89,8 @@ public class A2ATaskContinuation {
 
     private void continueTask(String taskId, String continuationId, ServeRequest request) {
         try {
-            Task task = awaitInputRequired(taskId);
-            if (task == null) {
+            Optional<Task> task = awaitInputRequired(taskId);
+            if (task.isEmpty()) {
                 log.warn("A2A callback continuation parent is unavailable or not resumable taskId={}", taskId);
                 return;
             }
@@ -97,13 +99,12 @@ public class A2ATaskContinuation {
                 log.warn("A2A callback continuation has no agent executor taskId={}", taskId);
                 return;
             }
-            RequestContext context = new RequestContext.Builder().setTaskId(task.id()).setContextId(task.contextId())
-                    .setTask(task).build();
-            EventQueue queue = queueManager.createOrTap(task.id());
+            Task resumableTask = task.get();
+            RequestContext context = new RequestContext.Builder().setTaskId(resumableTask.id())
+                    .setContextId(resumableTask.contextId()).setTask(resumableTask).build();
+            EventQueue queue = queueManager.createOrTap(resumableTask.id());
             try {
                 agentExecutor.continueTask(context, request, new AgentEmitter(context, queue));
-            } catch (RuntimeException ex) {
-                log.error("A2A callback continuation failed taskId={}", taskId, ex);
             } finally {
                 queue.close(false, true);
             }
@@ -112,25 +113,23 @@ public class A2ATaskContinuation {
         }
     }
 
-    private Task awaitInputRequired(String taskId) {
+    private Optional<Task> awaitInputRequired(String taskId) {
         Instant deadline = Instant.now().plus(INPUT_REQUIRED_WAIT);
         while (Instant.now().isBefore(deadline)) {
             Task task = taskStore.get(taskId);
             if (task != null && task.status() != null) {
                 if (task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED) {
-                    return task;
+                    return Optional.of(task);
                 }
                 if (task.status().state().isFinal()) {
-                    return null;
+                    return Optional.empty();
                 }
             }
-            try {
-                Thread.sleep(INPUT_REQUIRED_POLL_MS);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                return null;
+            LockSupport.parkNanos(Duration.ofMillis(INPUT_REQUIRED_POLL_MS).toNanos());
+            if (Thread.currentThread().isInterrupted()) {
+                return Optional.empty();
             }
         }
-        return null;
+        return Optional.empty();
     }
 }

@@ -264,17 +264,13 @@ final class RemoteInvocationBatchCoordinator {
         String shadowState = batchMapper.shadowState(batch);
         saveShadow(batch, shadowState);
         if ("READY_TO_RESUME".equals(shadowState)) {
-            submitContinuation(batch.request, batch.parentTaskId);
+            submitContinuation(batch.request);
         }
         return true;
     }
 
-    private void submitContinuation(ServeRequest request, String parentTaskId) {
-        try {
-            continuation.accept(request);
-        } catch (RuntimeException ex) {
-            log.warn("Failed to submit callback continuation parentTaskId={}", parentTaskId, ex);
-        }
+    private void submitContinuation(ServeRequest request) {
+        continuation.accept(request);
     }
 
     private Optional<CompletableFuture<BatchResolution>> resumeReadyBatch(RemoteInvocationBatch batch,

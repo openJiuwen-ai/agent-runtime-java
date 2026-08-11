@@ -28,6 +28,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -115,16 +117,32 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
         emitter.startWork();
 
-        try {
+        // The direct executor keeps this boundary synchronous while exposing runtime failures as task events.
+        CompletableFuture<Void> execution = CompletableFuture.runAsync(() -> {
             if (req.isStream()) {
                 executeStreaming(msgCtx, ctx, req, emitter);
             } else {
                 executeQuery(msgCtx, ctx, req, emitter);
             }
-        } catch (RuntimeException ex) {
-            log.error("Agent execution failed for contextId={}", ctx.getContextId(), ex);
-            failAndDrain(emitter, msgCtx, ex);
+        }, Runnable::run);
+        Optional<Throwable> failure = execution
+                .handle((ignored, error) -> Optional.ofNullable(error).map(A2AAgentExecutor::completionCause)).join();
+        if (failure.isEmpty()) {
+            return;
         }
+        Throwable error = failure.get();
+        if (error instanceof RuntimeException runtimeException) {
+            log.error("Agent execution failed for contextId={}", ctx.getContextId(), runtimeException);
+            failAndDrain(emitter, msgCtx, runtimeException);
+        } else if (error instanceof Error unrecoverableError) {
+            throw unrecoverableError;
+        } else {
+            throw new IllegalStateException("Unexpected agent execution failure", error);
+        }
+    }
+
+    private static Throwable completionCause(Throwable failure) {
+        return failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
     }
 
     private void executeStreaming(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
@@ -358,9 +376,9 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private static String publicErrorMessage(Throwable error, boolean isStructured) {
-        boolean wasPreviouslyHandled = error instanceof IllegalArgumentException
+        boolean isPreviouslyHandled = error instanceof IllegalArgumentException
                 || error instanceof IllegalStateException || error instanceof NullPointerException;
-        if ((isStructured || wasPreviouslyHandled) && error.getMessage() != null && !error.getMessage().isBlank()) {
+        if ((isStructured || isPreviouslyHandled) && error.getMessage() != null && !error.getMessage().isBlank()) {
             return error.getMessage();
         }
         return "Agent execution failed";

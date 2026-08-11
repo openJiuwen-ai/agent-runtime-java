@@ -44,6 +44,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -258,15 +260,32 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     @Override
     public QueryResponse query(ServeRequest request) {
-        try {
+        // The direct executor preserves the synchronous AgentHandler contract while retaining the original failure.
+        CompletableFuture<QueryResponse> execution = CompletableFuture.supplyAsync(() -> {
             if (supportsInvoke(agent)) {
                 Object rawResult = Runner.runAgent(agent, buildInputs(request), runnerSession(request), null);
                 return toQueryResponse(rawResult, request.getConversationId());
             }
             return queryViaStreaming(request);
-        } catch (RuntimeException ex) {
-            throw structuredFailure(ex);
+        }, Runnable::run);
+        Optional<Throwable> failure = execution
+                .handle((response, error) -> Optional.ofNullable(error).map(JiuwenCoreAgentHandler::completionCause))
+                .join();
+        if (failure.isPresent()) {
+            Throwable error = failure.get();
+            if (error instanceof RuntimeException runtimeException) {
+                throw structuredFailure(runtimeException);
+            }
+            if (error instanceof Error unrecoverableError) {
+                throw unrecoverableError;
+            }
+            throw new IllegalStateException("Unexpected agent-core execution failure", error);
         }
+        return execution.join();
+    }
+
+    private static Throwable completionCause(Throwable failure) {
+        return failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
     }
 
     private QueryResponse queryViaStreaming(ServeRequest request) {

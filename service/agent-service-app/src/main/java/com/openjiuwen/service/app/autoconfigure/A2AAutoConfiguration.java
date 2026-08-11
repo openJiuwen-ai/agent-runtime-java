@@ -235,12 +235,13 @@ public class A2AAutoConfiguration {
     /**
      * Creates the internal execution resources shared by the SDK request handler and callback continuations.
      *
+     * @param eventBusProcessor the SDK event bus processor
      * @return the A2A execution resources
      */
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean
-    A2AExecutionResources a2aExecutionResources() {
-        return new A2AExecutionResources();
+    A2AExecutionResources a2aExecutionResources(MainEventBusProcessor eventBusProcessor) {
+        return new A2AExecutionResources(eventBusProcessor);
     }
 
     /**
@@ -311,6 +312,7 @@ public class A2AAutoConfiguration {
      * @param streamRegistry the active stream registry
      * @param agentId the application name used as the agent identifier for shadow task namespacing
      * @param props A2A runtime properties
+     * @param continuation the callback task continuation adapter
      * @return the A2A-enabled serve orchestrator
      */
     @Bean
@@ -342,26 +344,29 @@ public class A2AAutoConfiguration {
      * @param taskStore the task store
      * @param queueManager the queue manager
      * @param pushConfigStore the push notification config store
-     * @param eventBusProcessor the event bus processor
+     * @param executionResources the internal A2A execution resources
      * @return the request handler
      */
     @Bean
     @ConditionalOnMissingBean
     public RequestHandler a2aRequestHandler(A2AAgentExecutor agentExecutor, TaskStore taskStore,
             QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
-            MainEventBusProcessor eventBusProcessor,
             A2AExecutionResources executionResources) {
-        return DefaultRequestHandler.create(agentExecutor, taskStore, queueManager, pushConfigStore, eventBusProcessor,
-                executionResources.agentExecutor(), executionResources.eventConsumerExecutor());
+        return DefaultRequestHandler.create(agentExecutor, taskStore, queueManager, pushConfigStore,
+                executionResources.eventBusProcessor(), executionResources.agentExecutor(),
+                executionResources.eventConsumerExecutor());
     }
 }
 
 final class A2AExecutionResources {
+    private final MainEventBusProcessor eventBusProcessor;
+
     private final ThreadPoolExecutor agentExecutor;
 
     private final ThreadPoolExecutor eventConsumerExecutor;
 
-    A2AExecutionResources() {
+    A2AExecutionResources(MainEventBusProcessor eventBusProcessor) {
+        this.eventBusProcessor = eventBusProcessor;
         int cores = Runtime.getRuntime().availableProcessors();
         this.agentExecutor = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>());
@@ -371,6 +376,10 @@ final class A2AExecutionResources {
 
     Executor agentExecutor() {
         return agentExecutor;
+    }
+
+    MainEventBusProcessor eventBusProcessor() {
+        return eventBusProcessor;
     }
 
     Executor eventConsumerExecutor() {

@@ -334,7 +334,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         eventObserver.onStatus(event);
         String statusText = event.status().message() != null ? extractText(event.status().message().parts()) : "";
         completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task,
-                remoteError(event.status().message())), result, isCallbackMode);
+                remoteError(event.status().message()).orElse(null)), result, isCallbackMode);
     }
 
     private void handleOutcomeTask(TaskEvent event, CompletableFuture<RemoteCallOutcome> result,
@@ -353,7 +353,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         eventObserver.onStatus(new TaskStatusUpdateEvent(task.id(), task.status(), task.contextId(), Map.of()));
         String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";
         completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task,
-                remoteError(task.status().message())), result, isCallbackMode);
+                remoteError(task.status().message()).orElse(null)), result, isCallbackMode);
     }
 
     private static void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
@@ -438,7 +438,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         return sb.toString();
     }
 
-    private static AgentError remoteError(Message message) {
-        return message == null ? null : AgentError.fromMetadata(message.metadata()).orElse(null);
+    private static Optional<AgentError> remoteError(Message message) {
+        return message == null ? Optional.empty() : AgentError.fromMetadata(message.metadata());
     }
 }
