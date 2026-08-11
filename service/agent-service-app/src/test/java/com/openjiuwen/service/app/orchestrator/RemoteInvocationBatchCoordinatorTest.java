@@ -688,7 +688,7 @@ class RemoteInvocationBatchCoordinatorTest {
     void terminalCallbackSchedulesContinuationWithParentIdentity() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
-        when(client.callOutcome(any(), any(), any())).thenReturn(outcome);
+        when(client.callOutcome(any(), any())).thenReturn(outcome);
         InMemoryTaskStore store = new InMemoryTaskStore();
         AtomicInteger continuations = new AtomicInteger();
         AtomicReference<ServeRequest> continuationRequest = new AtomicReference<>();
