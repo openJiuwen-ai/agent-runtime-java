@@ -4,9 +4,11 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
+import com.openjiuwen.service.spec.dto.AgentError;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.spi.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
@@ -46,6 +48,8 @@ public class A2AAgentExecutor implements AgentExecutor {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
 
     private static final String INTERRUPT = "_interrupt";
+
+    private static final String GENERIC_EXECUTION_ERROR = "AGENT_EXECUTION_FAILED";
 
     /**
      * Dead-time bound for waiting on the in-flight queue to drain before closing
@@ -94,10 +98,19 @@ public class A2AAgentExecutor implements AgentExecutor {
             }
         }
         req.setMetadata(metadata);
-        log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
-                msgCtx.getContextId(), req.getConversationId(), isInputRequiredResume, req.isStream());
+        executeRequest(ctx, msgCtx, req, emitter, task == null);
+    }
 
-        if (task == null) {
+    void continueTask(RequestContext ctx, ServeRequest request, AgentEmitter emitter) {
+        executeRequest(ctx, A2AMessageContext.from(ctx), request, emitter, false);
+    }
+
+    private void executeRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
+            boolean isNewTask) {
+        log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
+                msgCtx.getContextId(), req.getConversationId(), !isNewTask, req.isStream());
+
+        if (isNewTask) {
             emitter.submit();
         }
         emitter.startWork();
@@ -108,7 +121,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             } else {
                 executeQuery(msgCtx, ctx, req, emitter);
             }
-        } catch (IllegalArgumentException | IllegalStateException | NullPointerException ex) {
+        } catch (RuntimeException ex) {
             log.error("Agent execution failed for contextId={}", ctx.getContextId(), ex);
             failAndDrain(emitter, msgCtx, ex);
         }
@@ -209,6 +222,12 @@ public class A2AAgentExecutor implements AgentExecutor {
             }
             return "Agent streaming execution failed";
         });
+        if (data instanceof Map<?, ?> map) {
+            Optional<AgentError> error = AgentError.fromMetadata(map);
+            if (error.isPresent()) {
+                return new AgentExecutionException(message, error.get(), null);
+            }
+        }
         return new IllegalStateException(message);
     }
 
@@ -321,9 +340,12 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private void failAndDrain(AgentEmitter emitter, A2AMessageContext msgCtx, Throwable error) {
-        String errorMessage = error.getMessage() == null ? "Agent execution failed" : error.getMessage();
+        Optional<AgentError> structuredError = structuredError(error);
+        String errorMessage = publicErrorMessage(error, structuredError.isPresent());
+        AgentError descriptor = structuredError.orElseGet(
+                () -> new AgentError(GENERIC_EXECUTION_ERROR, null, false, "RUNTIME"));
         Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(errorMessage)))
-                .build();
+                .metadata(Map.of(AgentError.METADATA_KEY, descriptor.toMap())).build();
         emitter.fail(message);
         String taskId = msgCtx.getTaskId();
         try {
@@ -333,6 +355,27 @@ public class A2AAgentExecutor implements AgentExecutor {
         } catch (ReflectiveOperationException | SecurityException e) {
             log.debug("A2A failAndDrain: eventQueue unavailable taskId={}", taskId, e);
         }
+    }
+
+    private static String publicErrorMessage(Throwable error, boolean isStructured) {
+        boolean wasPreviouslyHandled = error instanceof IllegalArgumentException
+                || error instanceof IllegalStateException || error instanceof NullPointerException;
+        if ((isStructured || wasPreviouslyHandled) && error.getMessage() != null && !error.getMessage().isBlank()) {
+            return error.getMessage();
+        }
+        return "Agent execution failed";
+    }
+
+    private static Optional<AgentError> structuredError(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof AgentExecutionException executionException
+                    && executionException.getError() != null) {
+                return Optional.of(executionException.getError());
+            }
+            current = current.getCause();
+        }
+        return Optional.empty();
     }
 
     private static Optional<org.a2aproject.sdk.server.events.EventQueue> emitterEventQueue(AgentEmitter emitter)

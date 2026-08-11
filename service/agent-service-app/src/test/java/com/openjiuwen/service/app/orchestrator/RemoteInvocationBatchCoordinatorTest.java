@@ -48,6 +48,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -681,6 +682,33 @@ class RemoteInvocationBatchCoordinatorTest {
         assertThat(resolution.results().get("call-a")).isEqualTo("result-a");
         assertThat(resolution.results().get("call-b").toString()).contains("REMOTE_BUSINESS_FAILURE");
         assertThat(resolution.results().get("call-c")).isEqualTo("result-c");
+    }
+
+    @Test
+    void terminalCallbackSchedulesContinuationWithParentIdentity() {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
+        when(client.callOutcome(any(), any(), any())).thenReturn(outcome);
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        AtomicInteger continuations = new AtomicInteger();
+        AtomicReference<ServeRequest> continuationRequest = new AtomicReference<>();
+        RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
+                "test-agent", 1, 10, 30, request -> {
+                    continuationRequest.set(request);
+                    continuations.incrementAndGet();
+                });
+        coordinator.execute(batch("batch-callback", "call-a"), request("parent-callback", Map.of()),
+                mock(QueryStreamObserver.class));
+        outcome.complete(inputRequired("remote-a", "callback pending"));
+        Task callbackTask = Task.builder().id("remote-a").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+
+        assertThat(coordinator.recoverCallback(callbackTask)).isTrue();
+
+        assertThat(continuations).hasValue(1);
+        assertThat(continuationRequest.get().getMetadata())
+                .containsEntry("runtime.parentTaskId", "parent-callback")
+                .containsKey("runtime.remoteBatchId");
     }
 
     @Test

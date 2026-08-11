@@ -31,8 +31,11 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Sends A2A task terminal notifications to a callback receiver.
@@ -46,6 +49,8 @@ public class HttpPushNotificationSender implements PushNotificationSender {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(10);
 
+    private static final Duration CONFIG_RECHECK_DELAY = Duration.ofSeconds(1);
+
     private final PushNotificationConfigStore configStore;
 
     private final HttpClient httpClient;
@@ -54,13 +59,23 @@ public class HttpPushNotificationSender implements PushNotificationSender {
 
     private final ConcurrentMap<String, Object> deliveryLocks = new ConcurrentHashMap<>();
 
+    private final Set<String> pendingConfigRechecks = ConcurrentHashMap.newKeySet();
+
+    private final Duration configRecheckDelay;
+
     public HttpPushNotificationSender(PushNotificationConfigStore configStore) {
-        this(configStore, newDefaultHttpClient());
+        this(configStore, newDefaultHttpClient(), CONFIG_RECHECK_DELAY);
     }
 
     HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient) {
+        this(configStore, httpClient, CONFIG_RECHECK_DELAY);
+    }
+
+    HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient,
+            Duration configRecheckDelay) {
         this.configStore = configStore;
         this.httpClient = httpClient;
+        this.configRecheckDelay = configRecheckDelay;
     }
 
     static HttpClient newDefaultHttpClient() {
@@ -72,8 +87,18 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         if (!isCallbackState(task)) {
             return;
         }
+        sendTerminalTask(task, true);
+    }
+
+    private void sendTerminalTask(Task task, boolean allowConfigRecheck) {
         Optional<TaskPushNotificationConfig> config = firstConfig(task.id());
-        if (config.isEmpty() || config.get().url() == null || config.get().url().isBlank()) {
+        if (config.isEmpty()) {
+            if (allowConfigRecheck) {
+                scheduleConfigRecheck(task);
+            }
+            return;
+        }
+        if (config.get().url() == null || config.get().url().isBlank()) {
             return;
         }
         Optional<URI> callbackUri = A2aPushNotificationCallbackUrlPolicy.callbackUri(config.get().url());
@@ -86,6 +111,20 @@ public class HttpPushNotificationSender implements PushNotificationSender {
             }
             deliver(task, config.get(), callbackUri, notificationId);
         }
+    }
+
+    private void scheduleConfigRecheck(Task task) {
+        if (!pendingConfigRechecks.add(task.id())) {
+            return;
+        }
+        CompletableFuture.delayedExecutor(configRecheckDelay.toMillis(), TimeUnit.MILLISECONDS).execute(() -> {
+            pendingConfigRechecks.remove(task.id());
+            try {
+                sendTerminalTask(task, false);
+            } catch (RuntimeException ex) {
+                log.warn("A2A push notification config recheck failed for task {}", task.id(), ex);
+            }
+        });
     }
 
     private boolean isCallbackState(Task task) {

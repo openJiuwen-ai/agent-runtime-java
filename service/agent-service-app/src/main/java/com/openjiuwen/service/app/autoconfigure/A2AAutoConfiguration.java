@@ -10,6 +10,7 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
+import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCapabilityGate;
@@ -54,6 +55,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 
 import java.util.Map;
+import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -231,6 +233,35 @@ public class A2AAutoConfiguration {
     }
 
     /**
+     * Creates the internal execution resources shared by the SDK request handler and callback continuations.
+     *
+     * @return the A2A execution resources
+     */
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean
+    A2AExecutionResources a2aExecutionResources() {
+        return new A2AExecutionResources();
+    }
+
+    /**
+     * Creates the callback task continuation adapter.
+     *
+     * @param taskStore the A2A task store
+     * @param queueManager the SDK queue manager
+     * @param agentExecutorProvider lazy agent executor provider to avoid a bean cycle
+     * @param executionResources the internal A2A execution resources
+     * @return the task continuation adapter
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public A2ATaskContinuation a2aTaskContinuation(TaskStore taskStore, QueueManager queueManager,
+            ObjectProvider<A2AAgentExecutor> agentExecutorProvider,
+            A2AExecutionResources executionResources) {
+        return new A2ATaskContinuation(taskStore, queueManager, agentExecutorProvider,
+                executionResources.agentExecutor());
+    }
+
+    /**
      * Creates the remote agent card registry bean.
      *
      * @return the remote agent card registry
@@ -286,10 +317,11 @@ public class A2AAutoConfiguration {
     @ConditionalOnMissingBean(ServeOrchestrator.class)
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
             RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry,
-            @Value("${spring.application.name:agent}") String agentId, A2AProperties props) {
+            @Value("${spring.application.name:agent}") String agentId, A2AProperties props,
+            A2ATaskContinuation continuation) {
         A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId,
-                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds());
+                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds(), continuation);
     }
 
     /**
@@ -317,11 +349,36 @@ public class A2AAutoConfiguration {
     @ConditionalOnMissingBean
     public RequestHandler a2aRequestHandler(A2AAgentExecutor agentExecutor, TaskStore taskStore,
             QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
-            MainEventBusProcessor eventBusProcessor) {
-        int cores = Runtime.getRuntime().availableProcessors();
-        var agentPool = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
-        var ioPool = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+            MainEventBusProcessor eventBusProcessor,
+            A2AExecutionResources executionResources) {
         return DefaultRequestHandler.create(agentExecutor, taskStore, queueManager, pushConfigStore, eventBusProcessor,
-                agentPool, ioPool);
+                executionResources.agentExecutor(), executionResources.eventConsumerExecutor());
+    }
+}
+
+final class A2AExecutionResources {
+    private final ThreadPoolExecutor agentExecutor;
+
+    private final ThreadPoolExecutor eventConsumerExecutor;
+
+    A2AExecutionResources() {
+        int cores = Runtime.getRuntime().availableProcessors();
+        this.agentExecutor = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>());
+        this.eventConsumerExecutor = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>());
+    }
+
+    Executor agentExecutor() {
+        return agentExecutor;
+    }
+
+    Executor eventConsumerExecutor() {
+        return eventConsumerExecutor;
+    }
+
+    void shutdown() {
+        agentExecutor.shutdown();
+        eventConsumerExecutor.shutdown();
     }
 }

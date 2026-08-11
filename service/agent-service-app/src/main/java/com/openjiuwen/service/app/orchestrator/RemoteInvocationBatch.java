@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import com.openjiuwen.service.spec.dto.AgentError;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import java.time.Instant;
@@ -66,6 +67,8 @@ final class RemoteInvocationBatch {
 
         String errorMessage;
 
+        AgentError remoteError;
+
         Instant queuedAt = Instant.now();
 
         Instant startedAt;
@@ -83,6 +86,7 @@ final class RemoteInvocationBatch {
         void fail(MemberState failedState, String category, String failureMessage) {
             resultCategory = category;
             errorMessage = failureMessage;
+            remoteError = null;
             completedAt = Instant.now();
             state = failedState;
         }

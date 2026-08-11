@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
+import com.openjiuwen.core.common.exception.BaseError;
 import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
@@ -23,9 +24,11 @@ import com.openjiuwen.core.workflow.WorkflowOutput;
 import com.openjiuwen.harness.deep_agent.DeepAgent;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
+import com.openjiuwen.service.spec.dto.AgentError;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.spi.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
@@ -245,18 +248,25 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         } catch (CancellationException ex) {
             observer.onComplete();
         } catch (Exception ex) {
-            observer.onNext(new QueryChunk("error", errorEvent(ex)));
-            observer.onError(ex);
+            RuntimeException failure = ex instanceof RuntimeException runtimeException
+                    ? structuredFailure(runtimeException)
+                    : new RuntimeException(ex);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, errorEvent(failure)));
+            observer.onError(failure);
         }
     }
 
     @Override
     public QueryResponse query(ServeRequest request) {
-        if (supportsInvoke(agent)) {
-            Object rawResult = Runner.runAgent(agent, buildInputs(request), runnerSession(request), null);
-            return toQueryResponse(rawResult, request.getConversationId());
+        try {
+            if (supportsInvoke(agent)) {
+                Object rawResult = Runner.runAgent(agent, buildInputs(request), runnerSession(request), null);
+                return toQueryResponse(rawResult, request.getConversationId());
+            }
+            return queryViaStreaming(request);
+        } catch (RuntimeException ex) {
+            throw structuredFailure(ex);
         }
-        return queryViaStreaming(request);
     }
 
     private QueryResponse queryViaStreaming(ServeRequest request) {
@@ -622,7 +632,30 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private static RuntimeException toStreamException(Object normalized) {
         String message = extractContent(normalized, STREAM_CONTENT_KEYS, false).filter(content -> !content.isBlank())
                 .orElse("AgentCore streaming execution failed");
+        if (normalized instanceof Map<?, ?> map) {
+            Optional<AgentError> error = AgentError.fromMetadata(map);
+            if (error.isPresent()) {
+                return new AgentExecutionException(message, error.get(), null);
+            }
+        }
         return new IllegalStateException(message);
+    }
+
+    private static RuntimeException structuredFailure(RuntimeException failure) {
+        if (failure instanceof AgentExecutionException) {
+            return failure;
+        }
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof BaseError baseError) {
+                String code = baseError.getStatus() == null ? "AGENT_CORE_ERROR" : baseError.getStatus().name();
+                AgentError descriptor = new AgentError(code, baseError.getCode(), baseError.isRecoverable(),
+                        "AGENT_CORE");
+                return new AgentExecutionException(baseError.getMessage(), descriptor, failure);
+            }
+            current = current.getCause();
+        }
+        return failure;
     }
 
     /**
@@ -710,6 +743,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Map<String, Object> error = new LinkedHashMap<>();
         error.put("type", "error");
         error.put("error", ex.getMessage() != null ? ex.getMessage() : ex.toString());
+        if (ex instanceof AgentExecutionException executionException && executionException.getError() != null) {
+            error.put(AgentError.METADATA_KEY, executionException.getError().toMap());
+        }
         return error;
     }
 

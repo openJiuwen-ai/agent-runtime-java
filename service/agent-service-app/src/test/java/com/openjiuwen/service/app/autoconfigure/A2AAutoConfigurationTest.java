@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
+import java.util.concurrent.Executor;
+
 /**
  * Auto-configuration tests for A2A SDK configuration.
  */
@@ -28,6 +30,11 @@ class A2AAutoConfigurationTest {
             .withConfiguration(AutoConfigurations.of(A2AAutoConfiguration.class))
             .withBean(ServeOrchestrator.class, () -> mock(ServeOrchestrator.class))
             .withBean(RequestHandler.class, () -> mock(RequestHandler.class));
+
+    @Test
+    void internalA2aExecutorsAreNotPublishedByType() {
+        contextRunner.run(context -> assertThat(context.getBeansOfType(Executor.class)).isEmpty());
+    }
 
     @Test
     void a2aConfigProviderUsesSpringApplicationProperty() {

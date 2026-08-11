@@ -8,6 +8,7 @@ import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
+import com.openjiuwen.service.spec.dto.AgentError;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import org.a2aproject.sdk.spec.Part;
@@ -143,6 +144,7 @@ final class RemoteInvocationBatchMapper {
                     ? "Remote task did not complete"
                     : outcome.result();
             member.fail(MemberState.FAILED, outcome.resultCategory(), message);
+            member.remoteError = outcome.remoteError();
         }
     }
 
@@ -161,7 +163,10 @@ final class RemoteInvocationBatchMapper {
         String resultText = state == TaskState.TASK_STATE_COMPLETED
                 ? (taskText.isBlank() ? statusText : taskText)
                 : (statusText.isBlank() ? taskText : statusText);
-        return new RemoteCallOutcome(task.id(), state, resultCategory(state), resultText, null);
+        AgentError remoteError = status == null || status.message() == null
+                ? null
+                : AgentError.fromMetadata(status.message().metadata()).orElse(null);
+        return new RemoteCallOutcome(task.id(), state, resultCategory(state), resultText, null, remoteError);
     }
 
     Map<String, Object> snapshot(RemoteInvocationBatch batch, String state) {
@@ -170,6 +175,7 @@ final class RemoteInvocationBatchMapper {
         snapshot.put("parentTaskId", batch.parentTaskId);
         snapshot.put("resume", batch.shouldResume);
         snapshot.put("state", state);
+        snapshot.put("request", requestSnapshot(batch.request));
         List<Map<String, Object>> members = new ArrayList<>();
         for (Member member : batch.members) {
             Map<String, Object> value = new LinkedHashMap<>();
@@ -191,6 +197,29 @@ final class RemoteInvocationBatchMapper {
         }
         snapshot.put("members", members);
         return snapshot;
+    }
+
+    ServeRequest continuationRequest(Map<?, ?> rawBatch, ServeRequest fallback) {
+        if (!(rawBatch.get("request") instanceof Map<?, ?> rawRequest)) {
+            return fallback;
+        }
+        ServeRequest request = new ServeRequest();
+        request.setConversationId(stringValue(rawRequest.get("conversationId")));
+        request.setStream(!(rawRequest.get("stream") instanceof Boolean isStream) || isStream);
+        request.setUserId(optionalNonBlank(stringValue(rawRequest.get("userId"))).orElse(null));
+        request.setSpaceId(optionalNonBlank(stringValue(rawRequest.get("spaceId"))).orElse(null));
+        request.setTenantId(optionalNonBlank(stringValue(rawRequest.get("tenantId"))).orElse(null));
+        if (rawRequest.get("messages") instanceof List<?> messages) {
+            List<Map<String, Object>> copiedMessages = new ArrayList<>();
+            for (Object message : messages) {
+                if (message instanceof Map<?, ?> map) {
+                    copiedMessages.add(copyMap(map));
+                }
+            }
+            request.setMessages(copiedMessages);
+        }
+        request.setMetadata(rawRequest.get("metadata") instanceof Map<?, ?> metadata ? copyMap(metadata) : Map.of());
+        return request;
     }
 
     String shadowState(RemoteInvocationBatch batch) {
@@ -220,6 +249,7 @@ final class RemoteInvocationBatchMapper {
         if (member.resultCategory == null) {
             member.resultCategory = optionalNonBlank(stringValue(error.get("code"))).orElse(null);
         }
+        member.remoteError = AgentError.fromValue(error.get("remoteError")).orElse(null);
     }
 
     private static List<Map<String, Object>> interruptItems(Map<String, Object> interrupt) {
@@ -271,7 +301,28 @@ final class RemoteInvocationBatchMapper {
         error.put("code", member.resultCategory == null ? "REMOTE_FAILED" : member.resultCategory);
         error.put("message", member.errorMessage == null ? "Remote invocation failed" : member.errorMessage);
         error.put("remoteAgentId", member.agentName.isBlank() ? member.toolName : member.agentName);
+        if (member.remoteError != null) {
+            error.put("remoteError", member.remoteError.toMap());
+        }
         return error;
+    }
+
+    private static Map<String, Object> requestSnapshot(ServeRequest request) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("conversationId", request.getConversationId());
+        snapshot.put("stream", request.isStream());
+        putIfNotBlank(snapshot, "userId", request.getUserId());
+        putIfNotBlank(snapshot, "spaceId", request.getSpaceId());
+        putIfNotBlank(snapshot, "tenantId", request.getTenantId());
+        List<Map<String, Object>> messages = new ArrayList<>();
+        if (request.getMessages() != null) {
+            request.getMessages().forEach(message -> messages.add(new LinkedHashMap<>(message)));
+        }
+        snapshot.put("messages", messages);
+        snapshot.put("metadata", request.getMetadata() == null
+                ? Map.of()
+                : new LinkedHashMap<>(request.getMetadata()));
+        return snapshot;
     }
 
     private static String resultCategory(TaskState state) {

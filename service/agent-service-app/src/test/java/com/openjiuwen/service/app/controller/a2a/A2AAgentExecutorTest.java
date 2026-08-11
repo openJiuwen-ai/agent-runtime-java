@@ -13,9 +13,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.openjiuwen.service.spec.dto.AgentError;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.spi.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
@@ -223,9 +225,9 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void failurePathEmitsFailedStatusWithBusinessError() {
+    void arbitraryRuntimeFailureEmitsFailedStatusWithBusinessError() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
-        when(orchestrator.query(any())).thenThrow(new IllegalStateException("remote boom"));
+        when(orchestrator.query(any())).thenThrow(new UnsupportedOperationException("remote boom"));
         RequestContext context = requestContext("task-1", "ctx-1", false);
         A2AProtocolAdapter adapter = requestAdapter(false, Map.of());
         CapturingEventQueue queue = new CapturingEventQueue();
@@ -235,8 +237,49 @@ class A2AAgentExecutorTest {
         assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
                 .map(TaskStatusUpdateEvent.class::cast)
                 .filteredOn(event -> event.status().state() == TaskState.TASK_STATE_FAILED).singleElement()
-                .satisfies(event -> assertThat(event.status().message().parts()).singleElement().isInstanceOfSatisfying(
-                        TextPart.class, part -> assertThat(part.text()).isEqualTo("remote boom")));
+                .satisfies(event -> {
+                    assertThat(event.status().message().parts()).singleElement().isInstanceOfSatisfying(
+                            TextPart.class, part -> assertThat(part.text()).isEqualTo("Agent execution failed"));
+                    assertThat(event.status().message().metadata()).containsEntry(AgentError.METADATA_KEY,
+                            Map.of("schemaVersion", "1", "code", "AGENT_EXECUTION_FAILED", "retryable", false,
+                                    "origin", "RUNTIME"));
+                });
+    }
+
+    @Test
+    void previouslyHandledFailureKeepsBusinessMessage() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenThrow(new IllegalStateException("remote boom"));
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of())).execute(context,
+                new AgentEmitter(context, queue));
+
+        assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast)
+                .filteredOn(event -> event.status().state() == TaskState.TASK_STATE_FAILED).singleElement()
+                .satisfies(event -> assertThat(event.status().message().parts()).singleElement()
+                        .isInstanceOfSatisfying(TextPart.class,
+                                part -> assertThat(part.text()).isEqualTo("remote boom")));
+    }
+
+    @Test
+    void structuredFailureMetadataIsPreservedOnFailedStatus() {
+        AgentError error = new AgentError("MODEL_CALL_FAILED", 181001, false, "AGENT_CORE");
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenThrow(new AgentExecutionException("model failed", error, null));
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of())).execute(context,
+                new AgentEmitter(context, queue));
+
+        assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast)
+                .filteredOn(event -> event.status().state() == TaskState.TASK_STATE_FAILED).singleElement()
+                .satisfies(event -> assertThat(event.status().message().metadata())
+                        .containsEntry(AgentError.METADATA_KEY, error.toMap()));
     }
 
     @Test
