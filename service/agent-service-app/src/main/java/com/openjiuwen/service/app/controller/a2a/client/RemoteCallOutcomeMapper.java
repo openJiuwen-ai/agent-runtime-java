@@ -18,7 +18,7 @@ import java.util.Optional;
 /**
  * Maps transport-neutral A2A responses to the outcome consumed by Runtime orchestration.
  *
- * <p>HTTP and Agent Bus callers should decode their wire payloads into standard A2A
+ * <p>Transport-specific callers should decode their wire payloads into standard A2A
  * objects and delegate the business-state mapping to this class.
  *
  * @since 0.1.1

@@ -24,15 +24,12 @@ import java.util.function.Consumer;
 /**
  * Opens the standard A2A {@code SubscribeToTask} HTTP/SSE data channel.
  *
- * <p>The caller supplies an opaque stream reference as an HTTP header. Token chunks and SSE
- * frames stay on this point-to-point channel and are never placed on Agent Bus.
+ * <p>Transport adapters may attach request headers for authentication, tracing, or other
+ * endpoint-specific concerns. This client does not interpret those headers.
  *
  * @since 0.1.1
  */
 public final class A2ATaskSubscriptionClient {
-    /** Header carrying the opaque FEAT-017 stream continuation reference. */
-    public static final String STREAM_REFERENCE_HEADER = "X-OpenJiuwen-Stream-Ref";
-
     /**
      * Opens a Task subscription.
      *
@@ -51,8 +48,7 @@ public final class A2ATaskSubscriptionClient {
         Client client = A2AClientSupport.create(agentCard(request.endpointUrl()), true);
         AtomicBoolean active = new AtomicBoolean(true);
         TaskSubscription subscription = new TaskSubscription(active, client);
-        ClientCallContext context = new ClientCallContext(Map.of(),
-                Map.of(STREAM_REFERENCE_HEADER, request.streamReference()));
+        ClientCallContext context = new ClientCallContext(Map.of(), request.requestHeaders());
         boolean isSubscribed = false;
         try {
             A2AClientSupport.withApplicationClassLoader(() -> {
@@ -121,14 +117,30 @@ public final class A2ATaskSubscriptionClient {
      *
      * @param endpointUrl target Runtime origin or A2A endpoint
      * @param taskId target Task identifier
-     * @param streamReference opaque stream continuation reference
+     * @param requestHeaders optional HTTP request headers passed to the A2A transport
      */
-    public record TaskSubscriptionRequest(String endpointUrl, String taskId, String streamReference) {
+    public record TaskSubscriptionRequest(String endpointUrl, String taskId, Map<String, String> requestHeaders) {
         public TaskSubscriptionRequest {
             require(endpointUrl, "endpointUrl");
             require(taskId, "taskId");
-            require(streamReference, "streamReference");
+            requestHeaders = immutableHeaders(requestHeaders);
         }
+
+        /**
+         * Creates a subscription without transport-specific request headers.
+         *
+         * @param endpointUrl target Runtime origin or A2A endpoint
+         * @param taskId target Task identifier
+         */
+        public TaskSubscriptionRequest(String endpointUrl, String taskId) {
+            this(endpointUrl, taskId, Map.of());
+        }
+    }
+
+    private static Map<String, String> immutableHeaders(Map<String, String> headers) {
+        return headers == null || headers.isEmpty()
+                ? Map.of()
+                : Map.copyOf(headers);
     }
 
     /** Local handle that suppresses later callbacks after the owning call is complete. */
