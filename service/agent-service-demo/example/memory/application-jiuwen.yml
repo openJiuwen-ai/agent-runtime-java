@@ -3,6 +3,7 @@ openjiuwen:
     middleware:
       memory:
         provider: jiuwen
-        endpoint: ${JIUWEN_ENDPOINT:http://1.94.231.141:8516}
-        encrypted-api-key: ${JIUWEN_API_KEY:mem-key-2026}
+        endpoint: ${JIUWEN_ENDPOINT:http://localhost:8516}
+        encrypted-api-key: ${JIUWEN_API_KEY:}
+        user-id: ${JIUWEN_USER_ID:demo-user}
         rerank: false
