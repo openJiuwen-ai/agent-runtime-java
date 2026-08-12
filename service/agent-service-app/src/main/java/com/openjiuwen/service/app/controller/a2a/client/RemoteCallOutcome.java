@@ -4,7 +4,7 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
-import com.openjiuwen.service.spec.dto.AgentError;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 
 import org.a2aproject.sdk.spec.TaskState;
 
@@ -21,10 +21,10 @@ import org.a2aproject.sdk.spec.TaskState;
  *                       remote is in a non-final or input-required state
  * @param inputPrompt    the input-required prompt; non-{@code null} only when
  *                       {@code remoteState} is interrupted
- * @param remoteError    specific remote error descriptor, when reported
+ * @param remoteFailure  specific remote failure descriptor, when reported
  */
 public record RemoteCallOutcome(String remoteTaskId, TaskState remoteState, String resultCategory, String result,
-        String inputPrompt, AgentError remoteError) {
+        String inputPrompt, AgentFailureDescriptor remoteFailure) {
     /**
      * Backward-compatible constructor for outcomes without a structured remote error.
      *

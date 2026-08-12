@@ -4,8 +4,9 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
-import com.openjiuwen.service.spec.dto.AgentError;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 
 import jakarta.annotation.PreDestroy;
 
@@ -128,7 +129,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             String contextId) {
     }
 
-    private record TaskOutcome(String taskId, TaskState state, String statusText, Task task, AgentError remoteError) {
+    private record TaskOutcome(String taskId, TaskState state, String statusText, Task task,
+            AgentFailureDescriptor remoteFailure) {
     }
 
     /**
@@ -334,7 +336,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         eventObserver.onStatus(event);
         String statusText = event.status().message() != null ? extractText(event.status().message().parts()) : "";
         completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task,
-                remoteError(event.status().message()).orElse(null)), result, isCallbackMode);
+                remoteFailure(event.status().message()).orElse(null)), result, isCallbackMode);
     }
 
     private void handleOutcomeTask(TaskEvent event, CompletableFuture<RemoteCallOutcome> result,
@@ -353,7 +355,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         eventObserver.onStatus(new TaskStatusUpdateEvent(task.id(), task.status(), task.contextId(), Map.of()));
         String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";
         completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task,
-                remoteError(task.status().message()).orElse(null)), result, isCallbackMode);
+                remoteFailure(task.status().message()).orElse(null)), result, isCallbackMode);
     }
 
     private static void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
@@ -380,7 +382,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 ? (taskText.isBlank() ? outcome.statusText() : taskText)
                 : (outcome.statusText().isBlank() ? taskText : outcome.statusText());
         result.complete(new RemoteCallOutcome(outcome.taskId(), outcome.state(), resultCategory(outcome.state()),
-                resultText, null, outcome.remoteError()));
+                resultText, null, outcome.remoteFailure()));
     }
 
     private void handleOutcomeMessage(MessageEvent event, CompletableFuture<RemoteCallOutcome> result) {
@@ -438,7 +440,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         return sb.toString();
     }
 
-    private static Optional<AgentError> remoteError(Message message) {
-        return message == null ? Optional.empty() : AgentError.fromMetadata(message.metadata());
+    private static Optional<AgentFailureDescriptor> remoteFailure(Message message) {
+        return message == null ? Optional.empty() : A2aErrorMetadata.decode(message.metadata());
     }
 }

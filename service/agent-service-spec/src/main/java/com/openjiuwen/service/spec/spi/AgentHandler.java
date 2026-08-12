@@ -6,6 +6,7 @@ package com.openjiuwen.service.spec.spi;
 
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 
 /**
  * Agent framework adapter SPI (AgentFWAdapters).
@@ -18,6 +19,7 @@ public interface AgentHandler {
      *
      * @param request the serve request
      * @return the aggregated query response
+     * @throws AgentExecutionException when an adapter reports a structured execution failure
      */
     QueryResponse query(ServeRequest request);
 
@@ -26,6 +28,8 @@ public interface AgentHandler {
      *
      * @param request the serve request
      * @param observer the stream observer
+     * @see AgentExecutionException structured failure type passed to
+     *      {@link QueryStreamObserver#onError(Throwable)}
      */
     void streamQuery(ServeRequest request, QueryStreamObserver observer);
 

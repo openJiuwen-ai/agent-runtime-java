@@ -9,10 +9,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
-import com.openjiuwen.service.spec.dto.AgentError;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
@@ -290,9 +291,9 @@ class RemoteInvocationBatchMapperTest {
 
     @Test
     void callbackOutcomeKeepsCoarseAndSpecificErrors() {
-        AgentError remoteError = new AgentError("MODEL_CALL_FAILED", 181001, false, "AGENT_CORE");
+        AgentFailureDescriptor remoteFailure = new AgentFailureDescriptor("MODEL_CALL_FAILED", 181001, false);
         Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart("model failed")))
-                .metadata(Map.of(AgentError.METADATA_KEY, remoteError.toMap())).build();
+                .metadata(Map.of(A2aErrorMetadata.KEY, A2aErrorMetadata.encode(remoteFailure))).build();
         Task task = Task.builder().id("remote-task").contextId("remote-context")
                 .status(new TaskStatus(TaskState.TASK_STATE_FAILED, message, null)).build();
 
@@ -302,10 +303,10 @@ class RemoteInvocationBatchMapperTest {
         Object toolResult = mapper.resolution(batch(List.of(member), true)).results().get("call-a");
 
         assertThat(outcome.resultCategory()).isEqualTo("REMOTE_BUSINESS_FAILURE");
-        assertThat(outcome.remoteError()).isEqualTo(remoteError);
+        assertThat(outcome.remoteFailure()).isEqualTo(remoteFailure);
         assertThat(toolResult).isInstanceOfSatisfying(Map.class, result -> {
             assertThat(result).containsEntry("code", "REMOTE_BUSINESS_FAILURE");
-            assertThat(result).containsEntry("remoteError", remoteError.toMap());
+            assertThat(result).containsEntry("remoteError", A2aErrorMetadata.encode(remoteFailure));
         });
     }
 
@@ -320,7 +321,7 @@ class RemoteInvocationBatchMapperTest {
         Member member = member("call-a");
         mapper.applyOutcome(member, outcome, null);
 
-        assertThat(outcome.remoteError()).isNull();
+        assertThat(outcome.remoteFailure()).isNull();
         assertThat(mapper.resolution(batch(List.of(member), true)).results().get("call-a"))
                 .isEqualTo(Map.of("ok", false, "code", "REMOTE_BUSINESS_FAILURE", "message", "declined",
                         "remoteAgentId", "agent-call-a"));

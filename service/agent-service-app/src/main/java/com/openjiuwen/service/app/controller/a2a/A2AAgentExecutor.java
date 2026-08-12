@@ -4,11 +4,11 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
-import com.openjiuwen.service.spec.dto.AgentError;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
-import com.openjiuwen.service.spec.spi.AgentExecutionException;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
@@ -18,8 +18,8 @@ import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
-import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
+import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,8 +28,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -117,32 +115,16 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
         emitter.startWork();
 
-        // The direct executor keeps this boundary synchronous while exposing runtime failures as task events.
-        CompletableFuture<Void> execution = CompletableFuture.runAsync(() -> {
+        try {
             if (req.isStream()) {
                 executeStreaming(msgCtx, ctx, req, emitter);
             } else {
                 executeQuery(msgCtx, ctx, req, emitter);
             }
-        }, Runnable::run);
-        Optional<Throwable> failure = execution
-                .handle((ignored, error) -> Optional.ofNullable(error).map(A2AAgentExecutor::completionCause)).join();
-        if (failure.isEmpty()) {
-            return;
+        } catch (RuntimeException failure) {
+            log.error("Agent execution failed for contextId={}", ctx.getContextId(), failure);
+            failAndDrain(emitter, msgCtx, failure);
         }
-        Throwable error = failure.get();
-        if (error instanceof RuntimeException runtimeException) {
-            log.error("Agent execution failed for contextId={}", ctx.getContextId(), runtimeException);
-            failAndDrain(emitter, msgCtx, runtimeException);
-        } else if (error instanceof Error unrecoverableError) {
-            throw unrecoverableError;
-        } else {
-            throw new IllegalStateException("Unexpected agent execution failure", error);
-        }
-    }
-
-    private static Throwable completionCause(Throwable failure) {
-        return failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
     }
 
     private void executeStreaming(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
@@ -240,11 +222,9 @@ public class A2AAgentExecutor implements AgentExecutor {
             }
             return "Agent streaming execution failed";
         });
-        if (data instanceof Map<?, ?> map) {
-            Optional<AgentError> error = AgentError.fromMetadata(map);
-            if (error.isPresent()) {
-                return new AgentExecutionException(message, error.get(), null);
-            }
+        Optional<AgentFailureDescriptor> descriptor = failureDescriptor(data);
+        if (descriptor.isPresent()) {
+            return new AgentExecutionException(message, descriptor.get(), null);
         }
         return new IllegalStateException(message);
     }
@@ -358,12 +338,12 @@ public class A2AAgentExecutor implements AgentExecutor {
     }
 
     private void failAndDrain(AgentEmitter emitter, A2AMessageContext msgCtx, Throwable error) {
-        Optional<AgentError> structuredError = structuredError(error);
+        Optional<AgentFailureDescriptor> structuredError = structuredError(error);
         String errorMessage = publicErrorMessage(error, structuredError.isPresent());
-        AgentError descriptor = structuredError.orElseGet(
-                () -> new AgentError(GENERIC_EXECUTION_ERROR, null, false, "RUNTIME"));
+        AgentFailureDescriptor descriptor = structuredError.orElseGet(
+                () -> new AgentFailureDescriptor(GENERIC_EXECUTION_ERROR, null, false));
         Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(errorMessage)))
-                .metadata(Map.of(AgentError.METADATA_KEY, descriptor.toMap())).build();
+                .metadata(Map.of(A2aErrorMetadata.KEY, A2aErrorMetadata.encode(descriptor))).build();
         emitter.fail(message);
         String taskId = msgCtx.getTaskId();
         try {
@@ -384,16 +364,35 @@ public class A2AAgentExecutor implements AgentExecutor {
         return "Agent execution failed";
     }
 
-    private static Optional<AgentError> structuredError(Throwable failure) {
+    private static Optional<AgentFailureDescriptor> structuredError(Throwable failure) {
         Throwable current = failure;
         while (current != null) {
-            if (current instanceof AgentExecutionException executionException
-                    && executionException.getError() != null) {
-                return Optional.of(executionException.getError());
+            if (current instanceof AgentExecutionException executionException) {
+                return Optional.of(executionException.getDescriptor());
             }
             current = current.getCause();
         }
         return Optional.empty();
+    }
+
+    private static Optional<AgentFailureDescriptor> failureDescriptor(Object data) {
+        if (!(data instanceof Map<?, ?> map)) {
+            return Optional.empty();
+        }
+        Object value = map.get("failure");
+        if (value instanceof AgentFailureDescriptor descriptor) {
+            return Optional.of(descriptor);
+        }
+        if (!(value instanceof Map<?, ?> descriptor)) {
+            return Optional.empty();
+        }
+        String code = descriptor.get("code") == null ? "" : String.valueOf(descriptor.get("code"));
+        if (code.isBlank()) {
+            return Optional.empty();
+        }
+        Integer numericCode = descriptor.get("numericCode") instanceof Number number ? number.intValue() : null;
+        boolean isRetryable = descriptor.get("retryable") instanceof Boolean retryable && retryable;
+        return Optional.of(new AgentFailureDescriptor(code, numericCode, isRetryable));
     }
 
     private static Optional<org.a2aproject.sdk.server.events.EventQueue> emitterEventQueue(AgentEmitter emitter)

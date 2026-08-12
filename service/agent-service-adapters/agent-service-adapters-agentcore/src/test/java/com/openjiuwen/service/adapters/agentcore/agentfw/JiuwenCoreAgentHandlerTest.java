@@ -30,11 +30,11 @@ import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.core.workflow.WorkflowOutput;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
-import com.openjiuwen.service.spec.dto.AgentError;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
-import com.openjiuwen.service.spec.spi.AgentExecutionException;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.junit.jupiter.api.Test;
@@ -160,8 +160,8 @@ class JiuwenCoreAgentHandlerTest {
         assertThatThrownBy(() -> handler.query(request("c-core-error", "fail")))
                 .isInstanceOfSatisfying(AgentExecutionException.class, failure -> {
                     assertThat(failure).hasMessage("model unavailable");
-                    assertThat(failure.getError()).isEqualTo(
-                            new AgentError("MODEL_CALL_FAILED", 181001, false, "AGENT_CORE"));
+                    assertThat(failure.getDescriptor()).isEqualTo(
+                            new AgentFailureDescriptor("MODEL_CALL_FAILED", 181001, false));
                 });
     }
 

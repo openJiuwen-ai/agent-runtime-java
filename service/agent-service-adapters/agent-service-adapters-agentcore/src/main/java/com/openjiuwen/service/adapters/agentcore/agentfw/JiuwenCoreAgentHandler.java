@@ -24,11 +24,11 @@ import com.openjiuwen.core.workflow.WorkflowOutput;
 import com.openjiuwen.harness.deep_agent.DeepAgent;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
-import com.openjiuwen.service.spec.dto.AgentError;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
-import com.openjiuwen.service.spec.spi.AgentExecutionException;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
@@ -44,8 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -260,32 +258,15 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     @Override
     public QueryResponse query(ServeRequest request) {
-        // The direct executor preserves the synchronous AgentHandler contract while retaining the original failure.
-        CompletableFuture<QueryResponse> execution = CompletableFuture.supplyAsync(() -> {
+        try {
             if (supportsInvoke(agent)) {
                 Object rawResult = Runner.runAgent(agent, buildInputs(request), runnerSession(request), null);
                 return toQueryResponse(rawResult, request.getConversationId());
             }
             return queryViaStreaming(request);
-        }, Runnable::run);
-        Optional<Throwable> failure = execution
-                .handle((response, error) -> Optional.ofNullable(error).map(JiuwenCoreAgentHandler::completionCause))
-                .join();
-        if (failure.isPresent()) {
-            Throwable error = failure.get();
-            if (error instanceof RuntimeException runtimeException) {
-                throw structuredFailure(runtimeException);
-            }
-            if (error instanceof Error unrecoverableError) {
-                throw unrecoverableError;
-            }
-            throw new IllegalStateException("Unexpected agent-core execution failure", error);
+        } catch (RuntimeException failure) {
+            throw structuredFailure(failure);
         }
-        return execution.join();
-    }
-
-    private static Throwable completionCause(Throwable failure) {
-        return failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
     }
 
     private QueryResponse queryViaStreaming(ServeRequest request) {
@@ -651,12 +632,6 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private static RuntimeException toStreamException(Object normalized) {
         String message = extractContent(normalized, STREAM_CONTENT_KEYS, false).filter(content -> !content.isBlank())
                 .orElse("AgentCore streaming execution failed");
-        if (normalized instanceof Map<?, ?> map) {
-            Optional<AgentError> error = AgentError.fromMetadata(map);
-            if (error.isPresent()) {
-                return new AgentExecutionException(message, error.get(), null);
-            }
-        }
         return new IllegalStateException(message);
     }
 
@@ -668,8 +643,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         while (current != null) {
             if (current instanceof BaseError baseError) {
                 String code = baseError.getStatus() == null ? "AGENT_CORE_ERROR" : baseError.getStatus().name();
-                AgentError descriptor = new AgentError(code, baseError.getCode(), baseError.isRecoverable(),
-                        "AGENT_CORE");
+                AgentFailureDescriptor descriptor = new AgentFailureDescriptor(code, baseError.getCode(),
+                        baseError.isRecoverable());
                 return new AgentExecutionException(baseError.getMessage(), descriptor, failure);
             }
             current = current.getCause();
@@ -762,8 +737,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Map<String, Object> error = new LinkedHashMap<>();
         error.put("type", "error");
         error.put("error", ex.getMessage() != null ? ex.getMessage() : ex.toString());
-        if (ex instanceof AgentExecutionException executionException && executionException.getError() != null) {
-            error.put(AgentError.METADATA_KEY, executionException.getError().toMap());
+        if (ex instanceof AgentExecutionException executionException) {
+            error.put("failure", executionException.getDescriptor());
         }
         return error;
     }

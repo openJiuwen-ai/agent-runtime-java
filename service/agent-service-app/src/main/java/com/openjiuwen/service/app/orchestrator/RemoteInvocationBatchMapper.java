@@ -4,11 +4,12 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
-import com.openjiuwen.service.spec.dto.AgentError;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import org.a2aproject.sdk.spec.Part;
@@ -144,7 +145,7 @@ final class RemoteInvocationBatchMapper {
                     ? "Remote task did not complete"
                     : outcome.result();
             member.fail(MemberState.FAILED, outcome.resultCategory(), message);
-            member.remoteError = outcome.remoteError();
+            member.remoteFailure = outcome.remoteFailure();
         }
     }
 
@@ -163,10 +164,10 @@ final class RemoteInvocationBatchMapper {
         String resultText = state == TaskState.TASK_STATE_COMPLETED
                 ? (taskText.isBlank() ? statusText : taskText)
                 : (statusText.isBlank() ? taskText : statusText);
-        AgentError remoteError = status == null || status.message() == null
+        AgentFailureDescriptor remoteFailure = status == null || status.message() == null
                 ? null
-                : AgentError.fromMetadata(status.message().metadata()).orElse(null);
-        return new RemoteCallOutcome(task.id(), state, resultCategory(state), resultText, null, remoteError);
+                : A2aErrorMetadata.decode(status.message().metadata()).orElse(null);
+        return new RemoteCallOutcome(task.id(), state, resultCategory(state), resultText, null, remoteFailure);
     }
 
     Map<String, Object> snapshot(RemoteInvocationBatch batch, String state) {
@@ -249,7 +250,7 @@ final class RemoteInvocationBatchMapper {
         if (member.resultCategory == null) {
             member.resultCategory = optionalNonBlank(stringValue(error.get("code"))).orElse(null);
         }
-        member.remoteError = AgentError.fromValue(error.get("remoteError")).orElse(null);
+        member.remoteFailure = A2aErrorMetadata.decodeValue(error.get("remoteError")).orElse(null);
     }
 
     private static List<Map<String, Object>> interruptItems(Map<String, Object> interrupt) {
@@ -301,8 +302,8 @@ final class RemoteInvocationBatchMapper {
         error.put("code", member.resultCategory == null ? "REMOTE_FAILED" : member.resultCategory);
         error.put("message", member.errorMessage == null ? "Remote invocation failed" : member.errorMessage);
         error.put("remoteAgentId", member.agentName.isBlank() ? member.toolName : member.agentName);
-        if (member.remoteError != null) {
-            error.put("remoteError", member.remoteError.toMap());
+        if (member.remoteFailure != null) {
+            error.put("remoteError", A2aErrorMetadata.encode(member.remoteFailure));
         }
         return error;
     }
