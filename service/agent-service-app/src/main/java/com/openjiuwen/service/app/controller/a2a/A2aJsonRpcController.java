@@ -9,6 +9,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
@@ -29,6 +30,7 @@ import org.a2aproject.sdk.spec.TaskIdParams;
 import org.a2aproject.sdk.spec.TaskQueryParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -55,6 +57,8 @@ public class A2aJsonRpcController {
 
     private final RequestHandler requestHandler;
 
+    private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
+
     /**
      * Constructs the JSON-RPC controller.
      *
@@ -62,6 +66,11 @@ public class A2aJsonRpcController {
      */
     public A2aJsonRpcController(RequestHandler requestHandler) {
         this.requestHandler = requestHandler;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setAdmissionGateProvider(ObjectProvider<TaskAdmissionGate> admissionGateProvider) {
+        this.admissionGateProvider = admissionGateProvider;
     }
 
     /**
@@ -87,20 +96,48 @@ public class A2aJsonRpcController {
         ServerCallContext ctx = buildCallContext(servletRequest);
 
         try {
+            TaskAdmissionGate admissionGate = admissionGateProvider != null
+                    ? admissionGateProvider.getIfAvailable() : null;
             return switch (method) {
                 case A2AMethods.SEND_MESSAGE_METHOD -> {
                     ctx.getState().put("_a2a_stream", false);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     validateInlinePushNotificationConfig(params);
-                    EventKind result = requestHandler.onMessageSend(params, ctx);
-                    yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
+                    if (admissionGate != null && !admissionGate.tryAcquire()) {
+                        yield ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
+                                .body(admissionErrorBody(id));
+                    }
+                    boolean acquired = (admissionGate != null);
+                    try {
+                        EventKind result = requestHandler.onMessageSend(params, ctx);
+                        acquired = false;
+                        yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
+                    } catch (RuntimeException e) {
+                        if (acquired && admissionGate != null) {
+                            admissionGate.release();
+                        }
+                        throw e;
+                    }
                 }
                 case A2AMethods.SEND_STREAMING_MESSAGE_METHOD -> {
                     ctx.getState().put("_a2a_stream", true);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     validateInlinePushNotificationConfig(params);
-                    Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
-                    yield streamToSse(pub, id);
+                    if (admissionGate != null && !admissionGate.tryAcquire()) {
+                        yield ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
+                                .body(admissionErrorBody(id));
+                    }
+                    boolean acquired = (admissionGate != null);
+                    try {
+                        Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
+                        acquired = false;
+                        yield streamToSse(pub, id);
+                    } catch (RuntimeException e) {
+                        if (acquired && admissionGate != null) {
+                            admissionGate.release();
+                        }
+                        throw e;
+                    }
                 }
                 case A2AMethods.GET_TASK_METHOD -> handleGetTask(request.payload(), id, ctx);
                 case A2AMethods.SUBSCRIBE_TO_TASK_METHOD -> handleSubscribeToTask(request.payload(), id, ctx);
@@ -234,5 +271,11 @@ public class A2aJsonRpcController {
             ctx.getState().put(A2AMessageContext.INGRESS_HEADERS_STATE_KEY, ingressHeaders);
         }
         return ctx;
+    }
+
+    private static String admissionErrorBody(Object id) {
+        String idJson = id != null ? GSON.toJson(id) : "null";
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + idJson
+                + ",\"error\":{\"code\":-32603,\"message\":\"Service Unavailable: concurrent task limit reached\"}}";
     }
 }
