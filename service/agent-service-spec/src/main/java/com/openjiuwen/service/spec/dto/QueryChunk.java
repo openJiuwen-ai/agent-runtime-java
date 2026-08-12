@@ -19,6 +19,9 @@ public class QueryChunk {
     /** Streaming intermediate chunk type. */
     public static final String TYPE_CHUNK = "chunk";
 
+    /** Remote agent business output carrying source provenance. */
+    public static final String TYPE_REMOTE_AGENT_OUTPUT = "remote_agent_output";
+
     /** Error chunk type. */
     public static final String TYPE_ERROR = "error";
 

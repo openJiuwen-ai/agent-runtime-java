@@ -14,6 +14,8 @@
 | --- | --- |
 | `/health` | 返回进程和 Agent 就绪状态。 |
 
+**不受** `openjiuwen.service.security.auth` 鉴权 AOP 影响，便于负载均衡与 K8s 探针。
+
 ## 响应字段
 
 | Field | Source |

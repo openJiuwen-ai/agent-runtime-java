@@ -15,10 +15,14 @@ import org.a2aproject.sdk.server.agentexecution.RequestContext;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,18 +36,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * AgentHandler chain.
  *
  * <p>
- * Delegates stream/chunk handling to the orchestrator. Interrupt detection and
- * resume logic belong to the orchestrator layer, not here.
+ * Delegates execution to the orchestrator and owns the A2A protocol projection:
+ * interrupt data is stored in task status metadata and restored only for an
+ * {@code INPUT_REQUIRED} task resume.
  *
  * @since 0.1.0
  */
 public class A2AAgentExecutor implements AgentExecutor {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
 
+    private static final String INTERRUPT = "_interrupt";
+
     /**
-     * Dead-time bound for waiting on the in-flight queue to drain before
-     * force-closing the stream. The wait returns as soon as the queue actually
-     * drains, so this only caps the worst case; it is set generously because under
+     * Dead-time bound for waiting on the in-flight queue to drain before closing
+     * the stream. The wait returns as soon as the queue actually drains; on timeout
+     * the queue stays open so a late interrupted status can still be delivered. The
+     * bound is set generously because under
      * a high-latency Redis task store the event-bus processor persists each
      * backed-up streaming event with a blocking round-trip, so a large backlog can
      * take a while to clear.
@@ -74,11 +82,22 @@ public class A2AAgentExecutor implements AgentExecutor {
             req.setStream(isStream);
         }
 
-        boolean isResume = ctx.getTask() != null;
+        Task task = ctx.getTask();
+        boolean isInputRequiredResume = task != null && task.status() != null
+                && task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED;
+        Map<String, Object> metadata = new LinkedHashMap<>(req.getMetadata());
+        metadata.remove(INTERRUPT);
+        if (isInputRequiredResume) {
+            Optional<Map<?, ?>> storedInterrupt = findStoredInterrupt(task);
+            if (storedInterrupt.isPresent()) {
+                metadata.put(INTERRUPT, storedInterrupt.get());
+            }
+        }
+        req.setMetadata(metadata);
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
-            msgCtx.getContextId(), req.getConversationId(), isResume, req.isStream());
+                msgCtx.getContextId(), req.getConversationId(), isInputRequiredResume, req.isStream());
 
-        if (!isResume) {
+        if (task == null) {
             emitter.submit();
         }
         emitter.startWork();
@@ -89,47 +108,32 @@ public class A2AAgentExecutor implements AgentExecutor {
             } else {
                 executeQuery(msgCtx, ctx, req, emitter);
             }
-        } catch (IllegalStateException | NullPointerException ex) {
+        } catch (IllegalArgumentException | IllegalStateException | NullPointerException ex) {
             log.error("Agent execution failed for contextId={}", ctx.getContextId(), ex);
-            emitter.fail();
+            failAndDrain(emitter, msgCtx, ex);
         }
     }
 
     private void executeStreaming(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
-        AgentEmitter emitter) {
+            AgentEmitter emitter) {
         AtomicBoolean cancelled = new AtomicBoolean(false);
         AtomicBoolean interrupted = new AtomicBoolean(false);
+        AtomicBoolean failed = new AtomicBoolean(false);
         activeCancellations.put(ctx.getContextId(), cancelled);
         try {
             orchestrator.streamQuery(req, new QueryStreamObserver() {
                 @Override
                 public void onNext(QueryChunk chunk) {
-                    if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
-                        log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
-                            msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> m ? m.get("message") : null);
-                        Message statusMsg = toStatusMessage(chunk).orElse(null);
-                        emitter.requiresInput(statusMsg);
-                        closeEventQueue(emitter, msgCtx.getTaskId());
-                        interrupted.set(true);
-                        return;
-                    }
-                    // Transparent passthrough: forward the AgentCore stream chunk verbatim
-                    // (the {type,index,payload} envelope), including the final answer, keeping
-                    // one uniform stream format. The envelope's own "type" field lets the
-                    // delegating caller pick out the answer to feed its LLM without this layer
-                    // rewriting the payload — see A2ARemoteAgentClient#handleArtifact.
-                    List<Part<?>> parts = chunkMapper.toParts(chunk);
-                    if (parts.isEmpty()) {
-                        return;
-                    }
-                    emitter.addArtifact(parts);
+                    handleStreamingChunk(chunk, msgCtx, emitter, interrupted, failed);
                 }
 
                 @Override
                 public void onComplete() {
                     if (interrupted.get()) {
                         log.info("A2A stream ended after interrupt (COMPLETED suppressed) taskId={}",
-                            msgCtx.getTaskId());
+                                msgCtx.getTaskId());
+                    } else if (failed.get()) {
+                        log.info("A2A stream ended after failure (COMPLETED suppressed) taskId={}", msgCtx.getTaskId());
                     } else {
                         log.info("A2A stream complete taskId={}", msgCtx.getTaskId());
                         emitter.complete();
@@ -139,8 +143,10 @@ public class A2AAgentExecutor implements AgentExecutor {
                 @Override
                 public void onError(Throwable error) {
                     log.error("A2A agent stream error taskId={} contextId={}", msgCtx.getTaskId(),
-                        msgCtx.getContextId(), error);
-                    emitter.fail();
+                            msgCtx.getContextId(), error);
+                    if (failed.compareAndSet(false, true)) {
+                        failAndDrain(emitter, msgCtx, error);
+                    }
                 }
 
                 @Override
@@ -153,18 +159,71 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
+    private void handleStreamingChunk(QueryChunk chunk, A2AMessageContext msgCtx, AgentEmitter emitter,
+            AtomicBoolean interrupted, AtomicBoolean failed) {
+        if (interrupted.get() || failed.get()) {
+            return;
+        }
+        if (QueryChunk.TYPE_ERROR.equals(chunk.getType())) {
+            failed.set(true);
+            failAndDrain(emitter, msgCtx, streamChunkFailure(chunk));
+            return;
+        }
+        if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
+            log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
+                    msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> map ? map.get("message") : null);
+            if (chunk.getData() instanceof Map<?, ?> interruptData) {
+                emitter.requiresInput(statusMessage(interruptData));
+            } else {
+                emitter.requiresInput();
+            }
+            closeEventQueue(emitter, msgCtx.getTaskId());
+            interrupted.set(true);
+            return;
+        }
+        if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())
+                && chunk.getData() instanceof TaskArtifactUpdateEvent update) {
+            emitter.emitEvent(new TaskArtifactUpdateEvent(msgCtx.getTaskId(), update.artifact(),
+                    msgCtx.getContextId(), update.append(), update.lastChunk(), update.metadata()));
+            return;
+        }
+        List<Part<?>> parts = chunkMapper.toParts(chunk);
+        if (!parts.isEmpty()) {
+            if (chunkMapper.isTerminalResult(chunk)) {
+                emitter.addArtifact(parts, null, null, Map.of(A2aPartContent.TERMINAL_RESULT_METADATA, true));
+            } else {
+                emitter.addArtifact(parts);
+            }
+        }
+    }
+
+    private static RuntimeException streamChunkFailure(QueryChunk chunk) {
+        Object data = chunk.getData();
+        Optional<String> businessMessage = AgentCoreEnvelopeText.businessText(data);
+        String message = businessMessage.orElseGet(() -> {
+            if (data instanceof Map<?, ?> map && map.get("error") != null) {
+                return String.valueOf(map.get("error"));
+            }
+            if (data instanceof String text && !text.isBlank()) {
+                return text;
+            }
+            return "Agent streaming execution failed";
+        });
+        return new IllegalStateException(message);
+    }
+
     private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter) {
         QueryResponse response = orchestrator.query(req);
-        if (response.getResult() instanceof Map<?, ?> result && result.get(
-            "_interrupt") instanceof Map<?, ?> interruptData) {
+        if (response.getResult() instanceof Map<?, ?> result
+                && result.get(INTERRUPT) instanceof Map<?, ?> interruptData) {
             log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
-            Message statusMsg = toStatusMessageFromMap(interruptData).orElse(null);
-            emitter.requiresInput(statusMsg);
+            emitter.requiresInput(statusMessage(interruptData));
             closeEventQueue(emitter, msgCtx.getTaskId());
         } else if (response.getResult() instanceof Map<?, ?> result) {
             Object content = result.get("content");
             if (content != null) {
-                emitter.addArtifact(List.of(new TextPart(String.valueOf(content))));
+                emitter.addArtifact(List.of(new TextPart(String.valueOf(content))), null, null,
+                        Map.of(A2aPartContent.TERMINAL_RESULT_METADATA, true));
             }
             completeAndDrain(emitter, msgCtx.getTaskId());
         } else {
@@ -172,18 +231,40 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
-    private static Optional<Message> toStatusMessage(QueryChunk chunk) {
-        if (chunk.getData() instanceof Map<?, ?> m && m.get("message") instanceof String s && !s.isBlank()) {
-            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(s))).build());
+    private static Message statusMessage(Map<?, ?> interruptData) {
+        String message = interruptData.get("message") instanceof String text && !text.isBlank()
+                ? text
+                : "Input required";
+        return Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(message)))
+                .metadata(Map.of(INTERRUPT, interruptData)).build();
+    }
+
+    private static Optional<Map<?, ?>> findStoredInterrupt(Task task) {
+        Optional<Message> statusMessage = Optional.ofNullable(task.status()).map(status -> status.message());
+        if (statusMessage.isPresent()) {
+            return statusMessage.flatMap(A2AAgentExecutor::interruptFrom);
+        }
+
+        List<Message> history = task.history();
+        if (history == null) {
+            return Optional.empty();
+        }
+        for (int index = history.size() - 1; index >= 0; index--) {
+            Optional<Message> agentMessage = Optional.ofNullable(history.get(index))
+                    .filter(message -> message.role() == Message.Role.ROLE_AGENT);
+            if (agentMessage.isPresent()) {
+                return agentMessage.flatMap(A2AAgentExecutor::interruptFrom);
+            }
         }
         return Optional.empty();
     }
 
-    private static Optional<Message> toStatusMessageFromMap(Map<?, ?> interruptData) {
-        if (interruptData.get("message") instanceof String s && !s.isBlank()) {
-            return Optional.of(Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(s))).build());
+    private static Optional<Map<?, ?>> interruptFrom(Message message) {
+        if (message == null || message.role() != Message.Role.ROLE_AGENT || message.metadata() == null
+                || !(message.metadata().get(INTERRUPT) instanceof Map<?, ?> interruptData)) {
+            return Optional.empty();
         }
-        return Optional.empty();
+        return Optional.of(interruptData);
     }
 
     /**
@@ -210,30 +291,52 @@ public class A2AAgentExecutor implements AgentExecutor {
         try {
             Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
             if (queue.isPresent()) {
-                org.a2aproject.sdk.server.events.EventQueue q = queue.get();
-                awaitInFlightDrained(q, taskId);
-                q.close(false, false);
+                closeWhenDrained(queue.get(), taskId, CLOSE_DRAIN_TIMEOUT_MS);
             }
-            log.info("A2A eventQueue closed (INPUT_REQUIRED preserved) taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
             log.warn("A2A closeEventQueue failed, falling back to complete() taskId={}", taskId, e);
             emitter.complete();
         }
     }
 
+    static void closeWhenDrained(org.a2aproject.sdk.server.events.EventQueue queue, String taskId, long timeoutMs) {
+        if (awaitInFlightDrained(queue, taskId, timeoutMs)) {
+            queue.close(false, false);
+            log.info("A2A eventQueue closed (INPUT_REQUIRED preserved) taskId={}", taskId);
+            return;
+        }
+        log.warn("A2A eventQueue still has in-flight events after {}ms; leaving it open to preserve INPUT_REQUIRED "
+                + "delivery taskId={}", timeoutMs, taskId);
+    }
+
     private static void completeAndDrain(AgentEmitter emitter, String taskId) {
         emitter.complete();
         try {
             Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
-            queue.ifPresent(q -> awaitInFlightDrained(q, taskId));
+            queue.ifPresent(q -> awaitInFlightDrained(q, taskId, CLOSE_DRAIN_TIMEOUT_MS));
             log.info("A2A eventQueue drained after COMPLETED taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
             log.debug("A2A completeAndDrain: eventQueue unavailable taskId={}", taskId, e);
         }
     }
 
+    private void failAndDrain(AgentEmitter emitter, A2AMessageContext msgCtx, Throwable error) {
+        String errorMessage = error.getMessage() == null ? "Agent execution failed" : error.getMessage();
+        Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart(errorMessage)))
+                .build();
+        emitter.fail(message);
+        String taskId = msgCtx.getTaskId();
+        try {
+            Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
+            queue.ifPresent(q -> awaitInFlightDrained(q, taskId, CLOSE_DRAIN_TIMEOUT_MS));
+            log.info("A2A eventQueue drained after FAILED taskId={}", taskId);
+        } catch (ReflectiveOperationException | SecurityException e) {
+            log.debug("A2A failAndDrain: eventQueue unavailable taskId={}", taskId, e);
+        }
+    }
+
     private static Optional<org.a2aproject.sdk.server.events.EventQueue> emitterEventQueue(AgentEmitter emitter)
-        throws ReflectiveOperationException {
+            throws ReflectiveOperationException {
         var f = AgentEmitter.class.getDeclaredField("eventQueue");
         f.setAccessible(true);
         Object queueObj = f.get(emitter);
@@ -250,16 +353,20 @@ public class A2AAgentExecutor implements AgentExecutor {
      * child queue. {@code MainQueue.size()} only returns to zero after
      * {@code distributeToChildren()} and the matching semaphore release, so this is
      * the reliable "safe to close" signal. Returns early as soon as the queue
-     * drains and only blocks up to {@link #CLOSE_DRAIN_TIMEOUT_MS}; falls back to
-     * an immediate close if the topology or {@code size()} cannot be read
-     * reflectively.
+     * drains and only blocks up to the supplied timeout. A timeout or unavailable
+     * queue size is reported to the caller so it can avoid closing ahead of an
+     * in-flight interrupted status.
      *
      * @param childQueue
      *            the emitter's (child) event queue
      * @param taskId
      *            the A2A task ID for logging
+     * @param timeoutMs
+     *            maximum time to wait for in-flight events
+     * @return {@code true} when the queue drained before the timeout
      */
-    private static void awaitInFlightDrained(org.a2aproject.sdk.server.events.EventQueue childQueue, String taskId) {
+    private static boolean awaitInFlightDrained(org.a2aproject.sdk.server.events.EventQueue childQueue, String taskId,
+            long timeoutMs) {
         Object sizeTarget = childQueue;
         try {
             var parentField = childQueue.getClass().getDeclaredField("parent");
@@ -271,24 +378,24 @@ public class A2AAgentExecutor implements AgentExecutor {
         } catch (ReflectiveOperationException | SecurityException e) {
             log.debug("A2A awaitInFlightDrained: no parent queue, polling child queue taskId={}", taskId);
         }
-        long deadline = System.currentTimeMillis() + CLOSE_DRAIN_TIMEOUT_MS;
+        long deadline = System.currentTimeMillis() + timeoutMs;
         try {
             var sizeMethod = sizeTarget.getClass().getMethod("size");
             sizeMethod.setAccessible(true);
             while (System.currentTimeMillis() < deadline) {
                 Object size = sizeMethod.invoke(sizeTarget);
                 if (size instanceof Integer i && i <= 0) {
-                    return;
+                    return true;
                 }
                 Thread.sleep(CLOSE_DRAIN_POLL_MS);
             }
-            log.warn("A2A awaitInFlightDrained timed out after {}ms, closing anyway taskId={}", CLOSE_DRAIN_TIMEOUT_MS,
-                taskId);
+            return false;
         } catch (InterruptedException e) {
             log.debug("A2A awaitInFlightDrained interrupted taskId={}", taskId);
         } catch (ReflectiveOperationException | SecurityException e) {
-            log.debug("A2A awaitInFlightDrained: size() unavailable, closing immediately taskId={}", taskId);
+            log.debug("A2A awaitInFlightDrained: size() unavailable taskId={}", taskId);
         }
+        return false;
     }
 
     @Override

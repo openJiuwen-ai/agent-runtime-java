@@ -22,6 +22,21 @@ public final class CredentialSceneType {
     /** Long-term memory provider API key credential. */
     public static final int MEMORY_API_KEY = 3;
 
+    /** MCP outbound auth token credential. */
+    public static final int MCP_AUTH_TOKEN = 10;
+
+    /** Remote(A2A) outbound auth token credential. */
+    public static final int REMOTE_AUTH_TOKEN = 11;
+
+    /** Sandbox outbound auth token credential. */
+    public static final int SANDBOX_AUTH_TOKEN = 12;
+
+    /** Ingress TLS key store password credential. */
+    public static final int TLS_KEYSTORE_PASSWORD = 13;
+
+    /** Ingress/outbound TLS trust store password credential. */
+    public static final int TLS_TRUSTSTORE_PASSWORD = 14;
+
     private CredentialSceneType() {
     }
 }

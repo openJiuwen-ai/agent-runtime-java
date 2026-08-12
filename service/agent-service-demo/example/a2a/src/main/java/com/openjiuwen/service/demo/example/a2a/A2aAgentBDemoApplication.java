@@ -17,8 +17,7 @@ import org.springframework.context.annotation.Bean;
 
 /**
  * Agent B (port 18091): a ReAct LLM agent that keeps the original local calc
- * tool and adds an A2A delegation tool to Agent C for the three-agent demo
- * path.
+ * tool and adds A2A delegation tools to Agent C and Agent D.
  * <p>
  * Start this agent after Agent C and before Agent A.
  * </p>
@@ -30,9 +29,9 @@ public class A2aAgentBDemoApplication {
     private static final String AGENT_ID = "demo-a2a-agent-b";
 
     public static void main(String[] args) {
-        new SpringApplicationBuilder(A2aAgentBDemoApplication.class).properties(
-            "spring.config.import=" + "optional:classpath:application-base.yml,"
-                + "optional:classpath:application-base_local.yml," + "optional:classpath:application-a2a-agent-b.yml,"
+        new SpringApplicationBuilder(A2aAgentBDemoApplication.class).properties("spring.config.import="
+                + "optional:classpath:application-base.yml," + "optional:classpath:application-base_local.yml,"
+                + "optional:classpath:application-a2a-agent-b.yml,"
                 + "optional:classpath:application-a2a-redis.local.yml").run(args);
     }
 
@@ -40,9 +39,11 @@ public class A2aAgentBDemoApplication {
     AgentHandler agentBHandler(LlmConfigResolver llmConfigResolver) {
         ResolvedLlmConfig llmConfig = llmConfigResolver.resolveRequired();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Agent B (A2A Demo)",
-            "ReAct agent with local calc and Agent C delegation tools for A2A demo", llmConfig);
+                "ReAct agent with local calc, Agent C food delegation, and Agent D expense workflow routing",
+                llmConfig);
         agent.registerRail(new CalcInterruptRail());
         agent.registerRail(new BToCDelegateRail());
+        agent.registerRail(new BToDDelegateRail());
         return new JiuwenCoreAgentHandler(agent);
     }
 }

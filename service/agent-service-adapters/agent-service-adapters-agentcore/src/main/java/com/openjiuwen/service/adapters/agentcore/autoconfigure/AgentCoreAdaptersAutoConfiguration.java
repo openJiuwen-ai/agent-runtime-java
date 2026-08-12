@@ -19,12 +19,15 @@ import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreSandbo
 import com.openjiuwen.service.adapters.agentcore.external.DefaultExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
+import com.openjiuwen.service.adapters.common.autoconfigure.ExternalSecurityAutoConfiguration;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.context.annotation.Import;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -37,6 +40,7 @@ import org.springframework.context.annotation.Bean;
  * @since 2026-06-24
  */
 @AutoConfiguration
+@Import(ExternalSecurityAutoConfiguration.class)
 @EnableConfigurationProperties(AgentCoreExternalProperties.class)
 public class AgentCoreAdaptersAutoConfiguration {
     /**
@@ -70,6 +74,7 @@ public class AgentCoreAdaptersAutoConfiguration {
      * @param remoteDecoratorFactory remote client decorator factory
      * @param mcpClientProviders custom MCP client providers
      * @param remoteClientProviders custom remote client providers
+     * @param outboundSecuritySupport outboundSecuritySupport
      * @return external service adapter registrar bean
      */
     @Bean
@@ -78,9 +83,11 @@ public class AgentCoreAdaptersAutoConfiguration {
         AgentCoreMcpClientDecoratorFactory decoratorFactory,
         AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
         ObjectProvider<McpClientProvider> mcpClientProviders,
-        ObjectProvider<RemoteClientProvider> remoteClientProviders) {
+        ObjectProvider<RemoteClientProvider> remoteClientProviders,
+        ExternalOutboundSecuritySupport outboundSecuritySupport) {
         return new DefaultExternalSvcAdapterRegistrar(properties, decoratorFactory, remoteDecoratorFactory,
-            mcpClientProviders.orderedStream().toList(), remoteClientProviders.orderedStream().toList());
+            mcpClientProviders.orderedStream().toList(), remoteClientProviders.orderedStream().toList(),
+            outboundSecuritySupport);
     }
 
     /**
@@ -90,6 +97,7 @@ public class AgentCoreAdaptersAutoConfiguration {
      * @param properties external adapter properties
      * @param remoteDecoratorFactory remote client decorator factory
      * @param remoteClientProviders custom remote client providers
+     * @param outboundSecuritySupport outboundSecuritySupport
      * @return default remote client factory bean
      */
     @Bean
@@ -97,9 +105,10 @@ public class AgentCoreAdaptersAutoConfiguration {
     @ConditionalOnMissingBean(AgentCoreRemoteClientFactory.class)
     public AgentCoreRemoteClientFactory agentCoreRemoteClientFactory(AgentCoreExternalProperties properties,
         AgentCoreRemoteClientDecoratorFactory remoteDecoratorFactory,
-        ObjectProvider<RemoteClientProvider> remoteClientProviders) {
+        ObjectProvider<RemoteClientProvider> remoteClientProviders,
+        ExternalOutboundSecuritySupport outboundSecuritySupport) {
         return new DefaultAgentCoreRemoteClientFactory(properties, remoteDecoratorFactory,
-            remoteClientProviders.orderedStream().toList());
+            remoteClientProviders.orderedStream().toList(), outboundSecuritySupport);
     }
 
     /**
@@ -107,13 +116,15 @@ public class AgentCoreAdaptersAutoConfiguration {
      * enabled.
      *
      * @param properties external adapter properties
+     * @param outboundSecuritySupport outboundSecuritySupport
      * @return default sandbox client factory bean
      */
     @Bean
     @ConditionalOnProperty(prefix = "openjiuwen.service.external.sandbox", name = "enabled", havingValue = "true")
     @ConditionalOnMissingBean(AgentCoreSandboxClientFactory.class)
-    public AgentCoreSandboxClientFactory agentCoreSandboxClientFactory(AgentCoreExternalProperties properties) {
-        return new DefaultAgentCoreSandboxClientFactory(properties);
+    public AgentCoreSandboxClientFactory agentCoreSandboxClientFactory(AgentCoreExternalProperties properties,
+        ExternalOutboundSecuritySupport outboundSecuritySupport) {
+        return new DefaultAgentCoreSandboxClientFactory(properties, outboundSecuritySupport);
     }
 
     /**

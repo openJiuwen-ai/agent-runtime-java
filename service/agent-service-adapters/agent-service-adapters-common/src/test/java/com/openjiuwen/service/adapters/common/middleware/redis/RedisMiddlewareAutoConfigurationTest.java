@@ -113,6 +113,29 @@ class RedisMiddlewareAutoConfigurationTest {
     }
 
     @Test
+    void failsFastWhenStandaloneHostIsMissing() {
+        AtomicInteger decryptCalls = new AtomicInteger();
+        contextRunner.withBean(CredentialDecryptor.class, () -> countingDecryptor(decryptCalls))
+                .withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
+                        "openjiuwen.service.middleware.redis.default.type=standalone",
+                        "openjiuwen.service.middleware.redis.default.encrypted-password=ENC(secret)")
+                .run(context -> {
+                    assertThat(context.getStartupFailure()).hasRootCauseMessage(
+                            "openjiuwen.service.middleware.redis.default.host is required when type=standalone");
+                    assertThat(decryptCalls).hasValue(0);
+                });
+    }
+
+    @Test
+    void failsFastWhenStandaloneHostIsBlank() {
+        contextRunner
+                .withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
+                        "openjiuwen.service.middleware.redis.default.host=   ")
+                .run(context -> assertThat(context.getStartupFailure()).hasRootCauseMessage(
+                        "openjiuwen.service.middleware.redis.default.host is required when type=standalone"));
+    }
+
+    @Test
     void failsFastWhenCheckpointerTtlIsNotPositive() {
         contextRunner
                 .withPropertyValues("openjiuwen.service.middleware.checkpointer.type=redis",
@@ -120,6 +143,25 @@ class RedisMiddlewareAutoConfigurationTest {
                         "openjiuwen.service.middleware.redis.default.host=redis.local")
                 .run(context -> assertThat(context.getStartupFailure()).hasRootCauseMessage(
                         "openjiuwen.service.middleware.checkpointer.ttl-seconds must be greater than 0"));
+    }
+
+    @Test
+    void doesNotCreateRedisClientWhenCheckpointerTypeIsMysql() {
+        contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=mysql",
+                "openjiuwen.service.middleware.redis.default.host=redis.local")
+                .run(context -> assertThat(context).doesNotHaveBean(RuntimeRedisClient.class));
+    }
+
+    @Test
+    void doesNotCreateRedisClientWhenCheckpointerTypeIsPersistence() {
+        contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=persistence")
+                .run(context -> assertThat(context).doesNotHaveBean(RuntimeRedisClient.class));
+    }
+
+    @Test
+    void doesNotCreateRedisClientWhenCheckpointerTypeIsBlank() {
+        contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=")
+                .run(context -> assertThat(context).doesNotHaveBean(RuntimeRedisClient.class));
     }
 
     @Test
@@ -162,6 +204,22 @@ class RedisMiddlewareAutoConfigurationTest {
             @Override
             public String decrypt(String ciphertext, int sceneType) {
                 scene.set(sceneType);
+                return "redis-password";
+            }
+        };
+    }
+
+    private static CredentialDecryptor countingDecryptor(AtomicInteger calls) {
+        return new CredentialDecryptor() {
+            @Override
+            public String decrypt(String ciphertext) {
+                calls.incrementAndGet();
+                return "redis-password";
+            }
+
+            @Override
+            public String decrypt(String ciphertext, int sceneType) {
+                calls.incrementAndGet();
                 return "redis-password";
             }
         };

@@ -65,6 +65,8 @@
         <module>agent-service-demo/example/sandbox</module>
         <module>agent-service-demo/example/memory</module>
         <module>agent-service-demo/example/a2a</module>
+        <module>agent-service-demo/example/security</module>
+        <module>agent-service-demo/example/outbound-security</module>
     </modules>
     <!-- Aggregator (packaging=pom): skip spring-boot:run so -pl bootstrap -am works -->
     <build>

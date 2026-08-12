@@ -16,6 +16,7 @@ import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDecryptor;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.JedisPooledRuntimeRedisClient;
+import com.openjiuwen.service.adapters.common.middleware.redis.RedisConnectionAssembler;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisJedisClientFactory;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -204,7 +205,7 @@ class RedisCheckpointerMiddlewareIT {
 
     private static RuntimeRedisClient runtimeRedisClient(MiddlewareProperties properties,
             CredentialDecryptor decryptor) {
-        MiddlewareProperties.RedisEndpoint endpoint = properties.getRedis().get("default");
+        var endpoint = RedisConnectionAssembler.resolve(properties, "default");
         String password = decryptor.decrypt(endpoint.getEncryptedPassword(), CredentialSceneType.REDIS_PASSWORD);
         return new JedisPooledRuntimeRedisClient(RedisJedisClientFactory.createPooled(endpoint, password));
     }

@@ -67,6 +67,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Tag("smoke")
 @SpringBootTest(classes = MemoryDemoApplication.class,
+    properties = "openjiuwen.service.middleware.checkpointer.type=in_memory",
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -120,7 +121,6 @@ class JiuwenMemoryAgentEndToEndTest {
         registry.add("openjiuwen.service.middleware.memory.provider", () -> "jiuwen");
         registry.add("openjiuwen.service.middleware.memory.endpoint", JIUWEN_SERVER::endpoint);
         registry.add("openjiuwen.service.middleware.memory.encrypted-api-key", () -> "jiuwen-test-key");
-        registry.add("openjiuwen.service.middleware.memory.user-id", () -> USER_ID);
         registry.add("openjiuwen.service.middleware.memory.request-scoped-session", () -> "true");
         registry.add("openjiuwen.service.middleware.memory.timeout-ms", () -> "3000");
         registry.add("openjiuwen.service.middleware.memory.retry.max", () -> "0");

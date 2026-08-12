@@ -61,6 +61,30 @@ class LlmConfigResolverTest {
     }
 
     @Test
+    void resolve_configFileChanged_keepsCacheUntilNewResolver() throws Exception {
+        Path file = tempDir.resolve("apiconfig.json");
+        writeFileConfig(file, "https://old.example/v1");
+        LlmProperties properties = fileProperties(file);
+        AtomicInteger invocationCount = new AtomicInteger();
+        CredentialDecryptor decryptor = sceneAwareDecryptor(invocationCount, new AtomicInteger());
+        LlmConfigResolver resolver = resolver(properties, decryptor);
+
+        ResolvedLlmConfig first = resolver.resolveRequired();
+        writeFileConfig(file, "https://new.example/v1");
+        ResolvedLlmConfig second = resolver.resolveRequired();
+
+        assertThat(second).isSameAs(first);
+        assertThat(second.getApiBase()).isEqualTo("https://old.example/v1");
+        assertThat(invocationCount.get()).isOne();
+
+        ResolvedLlmConfig fresh = resolver(properties, decryptor).resolveRequired();
+
+        assertThat(fresh).isNotSameAs(first);
+        assertThat(fresh.getApiBase()).isEqualTo("https://new.example/v1");
+        assertThat(invocationCount.get()).isEqualTo(2);
+    }
+
+    @Test
     void resolve_prefersSpringPropertiesOverFileValues() throws Exception {
         Path file = tempDir.resolve("apiconfig.json");
         Files.writeString(file, """
@@ -105,6 +129,17 @@ class LlmConfigResolverTest {
     }
 
     @Test
+    void resolve_blankSpringAndMissingFileProvider_usesDefault() {
+        LlmProperties properties = new LlmProperties();
+        properties.setProvider("   ");
+        LlmConfigResolver resolver = resolver(properties, ciphertext -> ciphertext);
+
+        ResolvedLlmConfig config = resolver.resolve();
+
+        assertThat(config.getProvider()).isEqualTo("OpenAI");
+    }
+
+    @Test
     void resolveRequired_rejectsMissingOutboundProperties() {
         LlmConfigResolver resolver = new LlmConfigResolver(new LlmProperties(), new MockEnvironment(),
             ciphertext -> ciphertext);
@@ -112,6 +147,82 @@ class LlmConfigResolverTest {
         assertThatThrownBy(resolver::resolveRequired)
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("openjiuwen.service.llm.api-key");
+    }
+
+    @Test
+    void resolveRequired_rejectsBlankApiKey() {
+        LlmProperties properties = configuredProperties();
+        properties.setApiKey("   ");
+        LlmConfigResolver resolver = resolver(properties, ciphertext -> ciphertext);
+
+        assertThatThrownBy(resolver::resolveRequired)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.api-key");
+    }
+
+    @Test
+    void resolveRequired_rejectsMissingApiBase() {
+        LlmProperties properties = configuredProperties();
+        properties.setApiBase("   ");
+        LlmConfigResolver resolver = resolver(properties, ciphertext -> ciphertext);
+
+        assertThatThrownBy(resolver::resolveRequired)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.api-base");
+    }
+
+    @Test
+    void resolveRequired_rejectsMissingModelName() {
+        LlmProperties properties = configuredProperties();
+        properties.setModelName("   ");
+        LlmConfigResolver resolver = resolver(properties, ciphertext -> ciphertext);
+
+        assertThatThrownBy(resolver::resolveRequired)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.model-name");
+    }
+
+    @Test
+    void resolveRequired_rejectsDecryptorReturningNull() {
+        LlmProperties properties = configuredProperties();
+        LlmConfigResolver resolver = resolver(properties, ciphertext -> null);
+
+        assertThatThrownBy(resolver::resolveRequired)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.api-key");
+    }
+
+    @Test
+    void resolve_rejectsInvalidTemperature() {
+        assertInvalidTemperature(-0.1D);
+        assertInvalidTemperature(Double.NaN);
+        assertInvalidTemperature(Double.POSITIVE_INFINITY);
+    }
+
+    @Test
+    void resolve_rejectsInvalidTopP() {
+        assertInvalidTopP(-0.1D);
+        assertInvalidTopP(1.1D);
+        assertInvalidTopP(Double.NaN);
+        assertInvalidTopP(Double.POSITIVE_INFINITY);
+    }
+
+    @Test
+    void resolve_rejectsNonPositiveTimeout() {
+        assertInvalidTimeout(Duration.ZERO);
+        assertInvalidTimeout(Duration.ofSeconds(-1));
+    }
+
+    @Test
+    void resolve_rejectsNonPositiveContextWindowLimit() {
+        assertInvalidContextWindowLimit(0);
+        assertInvalidContextWindowLimit(-1);
+    }
+
+    @Test
+    void resolve_rejectsNonPositiveMaxIterations() {
+        assertInvalidMaxIterations(0);
+        assertInvalidMaxIterations(-1);
     }
 
     @Test
@@ -135,6 +246,73 @@ class LlmConfigResolverTest {
                 return ciphertext.replace("ENC:", "plain:");
             }
         };
+    }
+
+    private static LlmConfigResolver resolver(LlmProperties properties, CredentialDecryptor decryptor) {
+        return new LlmConfigResolver(properties, new MockEnvironment(), decryptor);
+    }
+
+    private static void assertInvalidTemperature(double value) {
+        LlmProperties properties = new LlmProperties();
+        properties.setTemperature(value);
+
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolve())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.temperature");
+    }
+
+    private static void assertInvalidTopP(double value) {
+        LlmProperties properties = new LlmProperties();
+        properties.setTopP(value);
+
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolve())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.top-p");
+    }
+
+    private static void assertInvalidTimeout(Duration value) {
+        LlmProperties properties = new LlmProperties();
+        properties.setTimeout(value);
+
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolve())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.timeout");
+    }
+
+    private static void assertInvalidContextWindowLimit(int value) {
+        LlmProperties properties = new LlmProperties();
+        properties.setContextWindowLimit(value);
+
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolve())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.context-window-limit");
+    }
+
+    private static void assertInvalidMaxIterations(int value) {
+        LlmProperties properties = new LlmProperties();
+        properties.setMaxIterations(value);
+
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolve())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("openjiuwen.service.llm.max-iterations");
+    }
+
+    private static LlmProperties fileProperties(Path file) {
+        LlmProperties properties = new LlmProperties();
+        properties.setConfigFile(file.toString());
+        return properties;
+    }
+
+    private static void writeFileConfig(Path file, String apiBase) throws Exception {
+        Files.writeString(file, """
+            {
+              "API_BASE": "%s",
+              "API_KEY": "ENC:file-key",
+              "MODEL_PROVIDER": "FileProvider",
+              "MODEL_NAME": "file-model",
+              "LLM_SSL_VERIFY": false
+            }
+            """.formatted(apiBase));
     }
 
     private static LlmProperties configuredProperties() {

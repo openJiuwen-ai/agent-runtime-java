@@ -13,6 +13,7 @@ import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * Unit tests for {@link ExampleReActAgentFactory}.
@@ -40,9 +41,17 @@ class ExampleReActAgentFactoryTest {
             throw new AssertionError("ReActAgent must expose a ReActAgentConfig");
         }
 
+        assertThat(agentConfig.getModelClientConfig().getClientProvider()).isEqualTo("OpenAI");
+        assertThat(agentConfig.getModelClientConfig().getApiKey()).isEqualTo("test-key");
+        assertThat(agentConfig.getModelClientConfig().getApiBase()).isEqualTo("https://localhost/v1");
         assertThat(agentConfig.getModelClientConfig().getTimeout()).isEqualTo(1.5D);
+        assertThat(agentConfig.getModelClientConfig().isVerifySsl()).isFalse();
+        assertThat(agentConfig.getModelConfigObj().getModelName()).isEqualTo("test-model");
         assertThat(agentConfig.getModelConfigObj().getTemperature()).isEqualTo(0.2D);
         assertThat(agentConfig.getModelConfigObj().getTopP()).isEqualTo(0.7D);
+        assertThat(agentConfig.getPromptTemplate()).containsExactly(
+            Map.of("role", "system", "content", "Test prompt"));
+        assertThat(agentConfig.getContextEngineConfig().getDefaultWindowRoundNum()).isEqualTo(12);
         assertThat(agentConfig.getMaxIterations()).isEqualTo(4);
     }
 }

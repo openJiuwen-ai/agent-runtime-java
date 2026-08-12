@@ -194,11 +194,18 @@ openjiuwen:
         enabled: true
         servers:
           - server-id: default
-            service-url: http://localhost:18090
+            service-url: http://127.0.0.1:8321
             sandbox-type: jiuwenbox
 ```
 
 Demo：`example/sandbox/application-sandbox.yml`、独立模块 `agent-service-demo-sandbox`。
+
+## 出站安全（Issue #25）
+
+MCP / Remote / Sandbox 每个 endpoint 可配置 `tls` / `auth` 子树；`tls.ref: global` 复用 `openjiuwen.service.security.tls.*`（与入站 #24 共用前缀）。出站 HTTP 客户端经 `ExternalTlsConfigResolver`、`SslContextFactory` 构建 TLS；鉴权材料经 `ExternalAuthMaterialMerger` 合并内置 bearer/header 与 `ExternalAuthenticator` SPI（SPI 同名 header 覆盖内置）。
+
+- 配置与 E2E：`openjiuwen.service.external.*[].tls` / `auth` — 见 [外部服务 §9](开发与扩展/外部服务.md#9-出站-tls-与鉴权-issue-25)。
+- 入站对称能力：见 [安全加固](开发与扩展/安全加固.md)。
 
 ## 自动装配规则
 
@@ -240,4 +247,4 @@ AgentHandler agentHandler() {
 - [HTTP 对话面](HTTP对话面.md) — Ingress 契约
 - [A2A 开发指导](A2A/开发指导.md) — 进程内 A2A Server 与 Orchestrator 远端委派
 - Core Runner：[agent-core-java · 执行器 Runner](https://gitcode.com/openJiuwen/agent-core-java)（仓内 `documents/zh/2.开发指南/高阶用法/`，版本见 [Agent Core 依赖](Agent Core 依赖.md)）
-- Demo 总览：[agent-service-demo/README.md](../../service/agent-service-demo/README.md)
+- Demo 总览：[agent-service-demo/README.md](../../../service/agent-service-demo/README.md)

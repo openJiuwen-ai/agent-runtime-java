@@ -37,6 +37,7 @@ import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRe
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -65,6 +66,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Tag("smoke")
 @SpringBootTest(classes = MemoryDemoApplication.class,
+    properties = "openjiuwen.service.middleware.checkpointer.type=in_memory",
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -122,7 +124,6 @@ class MemoryAgentEndToEndTest {
         registry.add("openjiuwen.service.middleware.memory.encrypted-api-key", () -> "mock-key");
         registry.add("openjiuwen.service.middleware.memory.auth-header-mode", () -> "token");
         registry.add("openjiuwen.service.middleware.memory.path-style", () -> "v3");
-        registry.add("openjiuwen.service.middleware.memory.user-id", () -> "memory-e2e-user");
         registry.add("openjiuwen.service.middleware.memory.request-scoped-session", () -> "true");
         registry.add("openjiuwen.service.middleware.memory.timeout-ms", () -> "3000");
         registry.add("openjiuwen.service.middleware.memory.retry.max", () -> "0");
@@ -146,6 +147,10 @@ class MemoryAgentEndToEndTest {
         Runner.release("memory-e2e-get");
         Runner.release("memory-e2e-delete");
         Runner.release("memory-e2e-add");
+        Runner.release("memory-e2e-stream");
+        Runner.release("memory-e2e-prefetch-failure");
+        Runner.release("memory-e2e-syncturn-failure");
+        Runner.release("memory-e2e-empty-prefetch");
     }
 
     @AfterAll
@@ -165,6 +170,75 @@ class MemoryAgentEndToEndTest {
         verifyMemoryGetTool();
         verifyMemoryDeleteTool();
         verifyMemoryAddTool();
+    }
+
+    @Test
+    void streamQueryPrefetchesAndSyncsTurnAfterCompletion() {
+        ResponseEntity<String> streamResponse = streamQuery("memory-e2e-stream",
+            "请流式回答：我喜欢喝什么咖啡？");
+
+        assertThat(streamResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(streamResponse.getBody()).contains("拿铁咖啡");
+        assertThat(MEM0_SERVER.searchBodies()).anySatisfy(body -> {
+            assertThat(body).containsEntry("query", "请流式回答：我喜欢喝什么咖啡？");
+            assertThat(filters(body)).containsEntry("user_id", USER_ID);
+            assertThat(filters(body)).doesNotContainKey("agent_id");
+        });
+        assertThat(MEM0_SERVER.addBodies()).anySatisfy(body -> {
+            assertThat(body).containsEntry("user_id", USER_ID);
+            assertThat(body).doesNotContainKey("agent_id");
+            assertThat(messages(body)).anySatisfy(message -> assertThat(message)
+                .containsEntry("role", "user")
+                .containsEntry("content", "请流式回答：我喜欢喝什么咖啡？"));
+            assertThat(messages(body)).anySatisfy(message -> assertThat(message)
+                .containsEntry("role", "assistant")
+                .containsEntry("content", "根据长期记忆，用户喜欢拿铁咖啡。"));
+        });
+    }
+
+    @Test
+    void prefetchFailureDoesNotFailQuery() throws IOException {
+        MEM0_SERVER.failSearch();
+
+        ResponseEntity<String> response = postQuery("memory-e2e-prefetch-failure",
+            "请直接回答：即使记忆检索失败也要回复。");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resultContent(response)).contains("拿铁咖啡");
+        assertThat(MEM0_SERVER.searchRequests()).isPositive();
+    }
+
+    @Test
+    void syncTurnFailureDoesNotFailQuery() throws IOException {
+        MEM0_SERVER.failAdd();
+
+        ResponseEntity<String> response = postQuery("memory-e2e-syncturn-failure",
+            "请直接回答：即使记忆写入失败也要回复。");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resultContent(response)).contains("拿铁咖啡");
+        assertThat(MEM0_SERVER.addRequests()).isPositive();
+    }
+
+    @Test
+    void emptyPrefetchResultSkipsMemoryContextAndStillSyncsTurn() throws IOException {
+        MEM0_SERVER.clearMemories();
+        String message = "请直接回答：没有长期记忆也要回复。";
+
+        ResponseEntity<String> response = postQuery("memory-e2e-empty-prefetch", message);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(MEM0_SERVER.searchRequests()).isEqualTo(1);
+        assertThat(USER_MESSAGES_SEEN_BY_MODEL).anySatisfy(observedMessage -> assertThat(observedMessage)
+            .contains(message)
+            .doesNotContain("<memory-context>")
+            .doesNotContain("<user-message>"));
+        assertThat(MEM0_SERVER.addBodies()).anySatisfy(body -> {
+            assertThat(body).containsEntry("user_id", USER_ID);
+            assertThat(messages(body)).anySatisfy(item -> assertThat(item)
+                .containsEntry("role", "user")
+                .containsEntry("content", message));
+        });
     }
 
     private void verifyLifecyclePrefetchAndSyncTurn() throws IOException {
@@ -216,7 +290,11 @@ class MemoryAgentEndToEndTest {
         assertThat(TOOL_LISTS_SEEN_BY_MODEL).anyMatch(tools -> tools.contains(SEARCH_TOOL_NAME));
         assertThat(MEM0_SERVER.searchBodies())
             .as("prefetch search plus memory_search tool call should both reach mem0")
-            .anySatisfy(body -> assertThat(body).containsEntry("query", SEARCH_QUERY));
+            .anySatisfy(body -> {
+                assertThat(body).containsEntry("query", SEARCH_QUERY);
+                assertThat(filters(body)).containsEntry("user_id", USER_ID);
+                assertThat(filters(body)).doesNotContainKey("agent_id");
+            });
     }
 
     private void verifyMemoryGetTool() throws IOException {
@@ -243,8 +321,12 @@ class MemoryAgentEndToEndTest {
         assertThat(resultContent(addResponse)).contains("Fact stored");
         assertThat(TOOL_LISTS_SEEN_BY_MODEL).anyMatch(tools -> tools.contains(ADD_TOOL_NAME));
         assertThat(MEM0_SERVER.addBodies())
-            .anySatisfy(body -> assertThat(messages(body))
-                .anySatisfy(message -> assertThat(message).containsEntry("content", STORED_CONTENT)));
+            .anySatisfy(body -> {
+                assertThat(body).containsEntry("user_id", USER_ID);
+                assertThat(body).doesNotContainKey("agent_id");
+                assertThat(messages(body))
+                    .anySatisfy(message -> assertThat(message).containsEntry("content", STORED_CONTENT));
+            });
         assertThat(MEM0_SERVER.containsMemoryText(STORED_CONTENT)).isTrue();
     }
 
@@ -256,6 +338,17 @@ class MemoryAgentEndToEndTest {
             "user_id", USER_ID,
             "message", message,
             "stream", false), headers), String.class);
+    }
+
+    private ResponseEntity<String> streamQuery(String conversationId, String message) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setAccept(List.of(MediaType.TEXT_EVENT_STREAM));
+        return rest.exchange("/v1/query", HttpMethod.POST, new HttpEntity<>(Map.of(
+            "conversation_id", conversationId,
+            "user_id", USER_ID,
+            "message", message,
+            "stream", true), headers), String.class);
     }
 
     private String resultContent(ResponseEntity<String> response) throws IOException {
@@ -343,7 +436,18 @@ class MemoryAgentEndToEndTest {
         public Iterator<AssistantMessageChunk> stream(Object messages, Object tools, Float temperature, Float topP,
             String model, Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
             Map<String, Object> kwargs) {
-            return List.<AssistantMessageChunk>of().iterator();
+            TOOL_LISTS_SEEN_BY_MODEL.add(serializeTools(tools));
+            List<Map<String, Object>> converted = new ArrayList<>(convertMessagesToDict(messages));
+            String lastUserMessage = converted.stream()
+                .filter(message -> "user".equals(String.valueOf(message.get("role"))))
+                .map(message -> String.valueOf(message.get("content")))
+                .reduce((first, second) -> second)
+                .orElse("");
+            USER_MESSAGES_SEEN_BY_MODEL.add(lastUserMessage);
+            return List.of(
+                AssistantMessageChunk.builder().role("assistant").content("根据长期记忆，").build(),
+                AssistantMessageChunk.builder().role("assistant").content("用户喜欢拿铁咖啡。").build())
+                .iterator();
         }
 
         private static ToolCall selectToolCall(String userMessage) {
@@ -433,6 +537,10 @@ class MemoryAgentEndToEndTest {
 
         private final AtomicInteger idSequence = new AtomicInteger(2);
 
+        private final AtomicBoolean shouldFailSearch = new AtomicBoolean(false);
+
+        private final AtomicBoolean shouldFailAdd = new AtomicBoolean(false);
+
         private final List<Map<String, Object>> addBodies = new CopyOnWriteArrayList<>();
 
         private final List<Map<String, Object>> searchBodies = new CopyOnWriteArrayList<>();
@@ -462,10 +570,16 @@ class MemoryAgentEndToEndTest {
             getRequests.set(0);
             deleteRequests.set(0);
             idSequence.set(2);
+            shouldFailSearch.set(false);
+            shouldFailAdd.set(false);
             addBodies.clear();
             searchBodies.clear();
             memories.clear();
             seedMemory(MEMORY_ID, SEED_MEMORY);
+        }
+
+        private void clearMemories() {
+            memories.clear();
         }
 
         private void seedMemory(String id, String text) {
@@ -492,6 +606,10 @@ class MemoryAgentEndToEndTest {
             return searchRequests.get();
         }
 
+        private int addRequests() {
+            return addRequests.get();
+        }
+
         private int getRequests() {
             return getRequests.get();
         }
@@ -508,6 +626,14 @@ class MemoryAgentEndToEndTest {
             return List.copyOf(searchBodies);
         }
 
+        private void failSearch() {
+            shouldFailSearch.set(true);
+        }
+
+        private void failAdd() {
+            shouldFailAdd.set(true);
+        }
+
         private void stop() {
             server.stop(0);
         }
@@ -516,13 +642,23 @@ class MemoryAgentEndToEndTest {
             String method = exchange.getRequestMethod();
             String path = exchange.getRequestURI().getPath();
             if ("POST".equals(method) && "/v3/memories/search/".equals(path)) {
+                Map<String, Object> body = readBody(exchange);
                 searchRequests.incrementAndGet();
-                searchBodies.add(readBody(exchange));
-                writeJson(exchange, 200, Map.of("results", searchResults()));
+                searchBodies.add(body);
+                if (shouldFailSearch.get()) {
+                    writeJson(exchange, 500, Map.of("message", "forced search failure"));
+                    return;
+                }
+                writeJson(exchange, 200, Map.of("results", searchResults(body)));
                 return;
             }
             if ("POST".equals(method) && "/v3/memories/add/".equals(path)) {
                 addRequests.incrementAndGet();
+                if (shouldFailAdd.get()) {
+                    addBodies.add(readBody(exchange));
+                    writeJson(exchange, 500, Map.of("message", "forced add failure"));
+                    return;
+                }
                 Map<String, Object> stored = storeAddedMemory(exchange);
                 writeJson(exchange, 200, Map.of("results", stored.isEmpty() ? List.of() : List.of(stored)));
                 return;
@@ -552,14 +688,25 @@ class MemoryAgentEndToEndTest {
             writeJson(exchange, 404, Map.of("message", "mem0 route not found: " + method + " " + path));
         }
 
-        private List<Map<String, Object>> searchResults() {
+        private List<Map<String, Object>> searchResults(Map<String, Object> body) {
+            String userId = filterValue(body, "user_id");
             return memories.values().stream()
+                .filter(record -> userId.isBlank() || userId.equals(String.valueOf(record.get("user_id"))))
                 .map(record -> {
                     Map<String, Object> result = new java.util.LinkedHashMap<>(record);
                     result.put("score", 0.9);
                     return result;
                 })
                 .toList();
+        }
+
+        private String filterValue(Map<String, Object> body, String key) {
+            Object filters = body.get("filters");
+            if (filters instanceof Map<?, ?> map) {
+                Object value = map.get(key);
+                return value != null ? String.valueOf(value) : "";
+            }
+            return "";
         }
 
         private Map<String, Object> storeAddedMemory(HttpExchange exchange) throws IOException {

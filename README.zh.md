@@ -87,12 +87,12 @@ curl -s http://localhost:8090/.well-known/agent-card.json
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-app</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-adapters-agentcore</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 ```
 
@@ -222,3 +222,5 @@ agent-runtime-java/                 # Agent Distributed Runtime（Java）
 ## 开源许可证
 
 本项目依据 [Apache License 2.0](LICENSE) 授权。
+
+本产品仅作为流程编排工具，不包含 AI 模型能力；用户在连接 AI 模型用于特定业务场景时，需自行承担欧盟 AI 法案等相关合规义务。

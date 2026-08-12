@@ -141,7 +141,7 @@ public class MiddlewareProperties {
     public static class RedisEndpoint {
         private String type = "standalone";
 
-        private String host = "localhost";
+        private String host;
 
         private int port = 6379;
 
@@ -211,7 +211,7 @@ public class MiddlewareProperties {
     }
 
     /**
-     * Long-term memory (mem0) configuration.
+     * Long-term memory service configuration.
      *
      * <p>Implements {@link ExternalCallPolicy} so the governance timeout/retry/circuit/audit
      * settings map directly into the runtime {@code ExternalCallExecutor}.
@@ -226,8 +226,6 @@ public class MiddlewareProperties {
         private String endpoint = "https://api.mem0.ai";
 
         private String encryptedApiKey = "";
-
-        private String userId = "";
 
         private boolean shouldUseRequestScopedSession = false;
 
@@ -275,14 +273,6 @@ public class MiddlewareProperties {
 
         public void setEncryptedApiKey(String encryptedApiKey) {
             this.encryptedApiKey = encryptedApiKey != null ? encryptedApiKey : "";
-        }
-
-        public String getUserId() {
-            return userId;
-        }
-
-        public void setUserId(String userId) {
-            this.userId = userId != null ? userId : "";
         }
 
         public boolean isRequestScopedSession() {

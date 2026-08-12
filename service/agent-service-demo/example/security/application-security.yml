@@ -1,0 +1,13 @@
+# Security demo 默认 profile（本模块 spring-boot:run 时加载）。
+# 完整配置项说明见同目录 application-security.example.yml。
+server:
+  port: 8095
+
+openjiuwen:
+  service:
+    security:
+      enabled: true
+      auth:
+        enabled: true
+      tls:
+        enabled: false
