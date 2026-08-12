@@ -210,7 +210,7 @@ class A2aJsonRpcControllerTest {
     }
 
     @Test
-    void disabledPushNotificationsRejectInlineConfigBeforeCallingSdkHandler() {
+    void disabledPushNotificationsRejectInlineConfigBeforeHandler() {
         RequestHandler requestHandler = mock(RequestHandler.class);
         A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler, new A2AProperties());
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");

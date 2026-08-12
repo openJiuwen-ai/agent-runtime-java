@@ -257,6 +257,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     @Override
+    @SuppressWarnings("G.ERR.02")
     public QueryResponse query(ServeRequest request) {
         try {
             if (supportsInvoke(agent)) {

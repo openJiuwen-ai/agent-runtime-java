@@ -9,10 +9,10 @@ package com.openjiuwen.service.spec.dto;
  *
  * @param code stable symbolic error code
  * @param numericCode optional framework-specific numeric code
- * @param retryable whether the originating framework marks the failure retryable
+ * @param isRetryable whether the originating framework marks the failure retryable
  * @since 0.1.0
  */
-public record AgentFailureDescriptor(String code, Integer numericCode, boolean retryable) {
+public record AgentFailureDescriptor(String code, Integer numericCode, boolean isRetryable) {
     /**
      * Creates a failure descriptor.
      *

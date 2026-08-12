@@ -37,7 +37,7 @@ public final class A2aErrorMetadata {
         if (descriptor.numericCode() != null) {
             value.put("numericCode", descriptor.numericCode());
         }
-        value.put("retryable", descriptor.retryable());
+        value.put("retryable", descriptor.isRetryable());
         return value;
     }
 
@@ -66,7 +66,7 @@ public final class A2aErrorMetadata {
             return Optional.empty();
         }
         Integer numericCode = map.get("numericCode") instanceof Number number ? number.intValue() : null;
-        boolean isRetryable = map.get("retryable") instanceof Boolean retryable && retryable;
+        boolean isRetryable = map.get("retryable") instanceof Boolean isRetryableValue && isRetryableValue;
         return Optional.of(new AgentFailureDescriptor(code, numericCode, isRetryable));
     }
 }

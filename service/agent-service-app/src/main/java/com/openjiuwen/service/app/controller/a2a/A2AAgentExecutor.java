@@ -105,6 +105,7 @@ public class A2AAgentExecutor implements AgentExecutor {
         executeRequest(ctx, A2AMessageContext.from(ctx), request, emitter, false);
     }
 
+    @SuppressWarnings("G.ERR.02")
     private void executeRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
             boolean isNewTask) {
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
@@ -391,7 +392,7 @@ public class A2AAgentExecutor implements AgentExecutor {
             return Optional.empty();
         }
         Integer numericCode = descriptor.get("numericCode") instanceof Number number ? number.intValue() : null;
-        boolean isRetryable = descriptor.get("retryable") instanceof Boolean retryable && retryable;
+        boolean isRetryable = descriptor.get("retryable") instanceof Boolean isRetryableValue && isRetryableValue;
         return Optional.of(new AgentFailureDescriptor(code, numericCode, isRetryable));
     }
 
