@@ -4,6 +4,9 @@
 
 package com.openjiuwen.service.demo.example.concurrency.load;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -20,6 +23,8 @@ import java.util.function.IntFunction;
  * @since 0.1.0
  */
 public final class ConcurrentLoadHarness {
+    private static final Logger log = LoggerFactory.getLogger(ConcurrentLoadHarness.class);
+
     private ConcurrentLoadHarness() {
     }
 
@@ -40,13 +45,12 @@ public final class ConcurrentLoadHarness {
             QueryConcurrentClient.QueryResult result = warmupClient.skillEcho(conversationId, "warmup-" + index,
                 config.stream());
             if (!result.success()) {
-                System.err.println("[warmup] " + result.error());
+                log.warn("[warmup] {}", result.error());
             }
         });
         ConcurrentLoadMetrics metrics = new ConcurrentLoadMetrics();
         metrics.markStarted();
         runSessions(config, index -> {
-            // One HttpClient per worker thread — shared clients serialize long-lived SSE connections.
             QueryConcurrentClient client = new QueryConcurrentClient(config.baseUrl(), config.requestTimeout());
             String conversationId = "bench-q-" + index;
             int rounds = Math.max(1, config.roundsPerSession());
@@ -89,7 +93,7 @@ public final class ConcurrentLoadHarness {
                 ? warmupClient.sendStreamingMessage("a2a-warmup-" + index, "hello from warmup " + index)
                 : warmupClient.sendMessage("a2a-warmup-" + index, "hello from warmup " + index);
             if (!result.success()) {
-                System.err.println("[a2a-warmup] " + result.error());
+                log.warn("[a2a-warmup] {}", result.error());
             }
         });
         ConcurrentLoadMetrics metrics = new ConcurrentLoadMetrics();
@@ -131,8 +135,8 @@ public final class ConcurrentLoadHarness {
             }
             List<String> errors = futures.stream().map(CompletableFuture::join).filter(error -> error != null).toList();
             if (!errors.isEmpty()) {
-                System.err.println("Sample errors (" + Math.min(3, errors.size()) + " shown):");
-                errors.stream().limit(3).forEach(error -> System.err.println("  - " + error));
+                log.warn("Sample errors ({} shown):", Math.min(3, errors.size()));
+                errors.stream().limit(3).forEach(error -> log.warn("  - {}", error));
             }
         } finally {
             executor.shutdown();

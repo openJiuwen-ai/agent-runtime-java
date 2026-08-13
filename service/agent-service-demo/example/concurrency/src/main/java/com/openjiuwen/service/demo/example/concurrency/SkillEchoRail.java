@@ -23,16 +23,19 @@ import java.util.Map;
  * @since 0.1.0
  */
 public class SkillEchoRail extends BaseInterruptRail {
-    private static final Gson GSON = new Gson();
-
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
-    }.getType();
-
     /** Registered tool name for the skill echo rail. */
     public static final String TOOL_NAME = "skill_echo";
 
     static final String RESULT_PREFIX = "ECHO:";
 
+    private static final Gson GSON = new Gson();
+
+    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
+    }.getType();
+
+    /**
+     * Registers the echo tool card on this rail.
+     */
     public SkillEchoRail() {
         super(List.of(TOOL_NAME));
         ToolCard card = ToolCard.builder().id(TOOL_NAME).name(TOOL_NAME)
@@ -51,6 +54,12 @@ public class SkillEchoRail extends BaseInterruptRail {
         return reject(RESULT_PREFIX + token + ";session=" + sessionId);
     }
 
+    /**
+     * Parses the echo token from tool call arguments.
+     *
+     * @param toolCall invoked tool call
+     * @return trimmed token or a fallback value
+     */
     static String extractToken(ToolCall toolCall) {
         try {
             Map<String, Object> args = GSON.fromJson(toolCall.getArguments(), MAP_TYPE);

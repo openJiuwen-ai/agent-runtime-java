@@ -43,6 +43,12 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
         this.delayMs = Math.max(0L, delayMs);
     }
 
+    /**
+     * Applies mock latency then returns a deterministic assistant message.
+     *
+     * @return planned assistant message
+     * @throws Exception when mock latency sleep is interrupted
+     */
     @Override
     public AssistantMessage invoke(Object messages, Object tools, Float temperature, Float topP, String model,
         Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout, Map<String, Object> kwargs)
@@ -52,6 +58,12 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
         return ConcurrencyMockResponsePlanner.plan(convertedMessages);
     }
 
+    /**
+     * Applies mock latency then streams deterministic assistant chunks.
+     *
+     * @return iterator over planned assistant chunks
+     * @throws Exception when mock latency sleep is interrupted
+     */
     @Override
     public Iterator<AssistantMessageChunk> stream(Object messages, Object tools, Float temperature, Float topP,
         String model, Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
@@ -62,6 +74,11 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
         return toChunks(message).iterator();
     }
 
+    /**
+     * Image generation is not supported by the concurrency mock client.
+     *
+     * @throws UnsupportedOperationException always
+     */
     @Override
     public ImageGenerationResponse generateImage(List<UserMessage> messages, String model, String size,
         String negativePrompt, int n, boolean shouldPromptExtend, boolean shouldWatermark, int seed,
@@ -69,12 +86,22 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
         throw new UnsupportedOperationException("concurrency mock LLM does not support image generation");
     }
 
+    /**
+     * Speech generation is not supported by the concurrency mock client.
+     *
+     * @throws UnsupportedOperationException always
+     */
     @Override
     public AudioGenerationResponse generateSpeech(List<UserMessage> messages, String model, String voice,
         String languageType, Map<String, Object> kwargs) {
         throw new UnsupportedOperationException("concurrency mock LLM does not support speech generation");
     }
 
+    /**
+     * Video generation is not supported by the concurrency mock client.
+     *
+     * @throws UnsupportedOperationException always
+     */
     @Override
     public VideoGenerationResponse generateVideo(List<UserMessage> messages, String imgUrl, String audioUrl, String model,
         String size, String resolution, int duration, boolean shouldPromptExtend, boolean shouldWatermark,

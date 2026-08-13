@@ -26,13 +26,15 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 @Tag("integration")
 @EnabledIfSystemProperty(named = "demo.concurrency.e2e.base-url", matches = ".+")
 class DeepAgentRedisConcurrentE2EIT {
+    /**
+     * Validates concurrent query sessions meet the configured success threshold.
+     */
     @Test
     void concurrentSkillEchoSessionsMeetSuccessThreshold() {
         String baseUrl = System.getProperty("demo.concurrency.e2e.base-url");
         ConcurrentLoadConfig config = new ConcurrentLoadConfig("query", baseUrl, "http://localhost:18090", 6, 3, false,
             0, ConcurrentLoadConfig.fromEnvironment().requestTimeout(), 0.80D, 20, 2);
         ConcurrentLoadMetrics metrics = ConcurrentLoadHarness.runQueryLoad(config);
-        System.out.println(metrics.summary());
         assertThat(metrics.successRate()).isGreaterThanOrEqualTo(config.minSuccessRate());
         assertThat(metrics.failureCount()).isLessThanOrEqualTo(2);
     }

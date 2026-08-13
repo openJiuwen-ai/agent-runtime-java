@@ -23,18 +23,21 @@ import java.util.Map;
  * @since 0.1.0
  */
 public class ConcurrentLookupRail extends BaseInterruptRail {
-    private static final Gson GSON = new Gson();
-
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
-    }.getType();
-
     /** Registered tool name for the concurrent lookup rail. */
     public static final String TOOL_NAME = "concurrent_lookup";
 
     static final String RESULT_PREFIX = "LOOKUP:";
 
+    private static final Gson GSON = new Gson();
+
+    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
+    }.getType();
+
     private static final int DEFAULT_DELAY_MS = 50;
 
+    /**
+     * Registers the lookup tool card on this rail.
+     */
     public ConcurrentLookupRail() {
         super(List.of(TOOL_NAME));
         ToolCard card = ToolCard.builder().id(TOOL_NAME).name(TOOL_NAME)
@@ -61,6 +64,12 @@ public class ConcurrentLookupRail extends BaseInterruptRail {
         return reject(RESULT_PREFIX + key + ":done");
     }
 
+    /**
+     * Parses the lookup key from tool call arguments.
+     *
+     * @param toolCall invoked tool call
+     * @return trimmed key or a fallback token
+     */
     static String extractKey(ToolCall toolCall) {
         try {
             Map<String, Object> args = GSON.fromJson(toolCall.getArguments(), MAP_TYPE);
@@ -74,6 +83,12 @@ public class ConcurrentLookupRail extends BaseInterruptRail {
         return "missing-key";
     }
 
+    /**
+     * Parses optional simulated delay from tool call arguments.
+     *
+     * @param toolCall invoked tool call
+     * @return delay in milliseconds, never negative
+     */
     static int extractDelayMs(ToolCall toolCall) {
         try {
             Map<String, Object> args = GSON.fromJson(toolCall.getArguments(), MAP_TYPE);

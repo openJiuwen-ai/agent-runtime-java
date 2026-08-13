@@ -33,16 +33,25 @@ import java.util.List;
 })
 public class ConcurrencyDemoApplication {
     private static final String AGENT_ID = "demo-concurrency-agent";
-
-    private static final Logger LOG = LoggerFactory.getLogger(ConcurrencyDemoApplication.class);
+    private static final Logger log = LoggerFactory.getLogger(ConcurrencyDemoApplication.class);
 
     /** System property / env override for DeepAgent task-loop enablement. */
     static final String ENABLE_TASK_LOOP_PROPERTY = "demo.concurrency.enable-task-loop";
 
+    /**
+     * Starts the concurrency demo Spring Boot application.
+     *
+     * @param args command-line arguments
+     */
     public static void main(String[] args) {
         SpringApplication.run(ConcurrencyDemoApplication.class, args);
     }
 
+    /**
+     * Resolves whether DeepAgent task-loop orchestration is enabled.
+     *
+     * @return {@code true} when task loop is enabled (default)
+     */
     static boolean resolveEnableTaskLoop() {
         String raw = System.getProperty(ENABLE_TASK_LOOP_PROPERTY);
         if (raw == null || raw.isBlank()) {
@@ -51,12 +60,20 @@ public class ConcurrencyDemoApplication {
         return raw == null || raw.isBlank() || Boolean.parseBoolean(raw.trim());
     }
 
+    /**
+     * Registers the concurrency validation DeepAgent as the service handler.
+     *
+     * @param llmConfigResolver LLM configuration resolver
+     * @param llmSupport demo LLM mode support
+     * @param externalSvcAdapterRegistrarProvider optional external service adapters
+     * @return configured agent handler
+     */
     @Bean
     AgentHandler agentHandler(LlmConfigResolver llmConfigResolver, ConcurrencyDemoLlmSupport llmSupport,
         ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
         ResolvedLlmConfig llmConfig = llmSupport.resolveForAgent(llmConfigResolver);
         boolean enableTaskLoop = resolveEnableTaskLoop();
-        LOG.info("Concurrency demo DeepAgent enableTaskLoop={}", enableTaskLoop);
+        log.info("Concurrency demo DeepAgent enableTaskLoop={}", enableTaskLoop);
         DeepAgent agent = ExampleDeepAgentFactory.build(AGENT_ID, "Concurrency Demo DeepAgent",
             "DeepAgent for multi-session concurrent load validation with skill-like tools and Redis checkpoint",
             llmConfig, List.of(new SkillEchoRail(), new ConcurrentLookupRail()), enableTaskLoop);

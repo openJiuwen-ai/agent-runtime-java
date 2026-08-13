@@ -4,6 +4,9 @@
 
 package com.openjiuwen.service.app.controller.query;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -11,9 +14,6 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Dedicated bounded executor for pumping agent stream chunks to {@code SseEmitter}.
@@ -46,6 +46,11 @@ final class QuerySsePumpExecutor {
     private QuerySsePumpExecutor() {
     }
 
+    /**
+     * Returns the shared SSE pump executor.
+     *
+     * @return singleton executor service
+     */
     static ExecutorService executor() {
         return EXECUTOR;
     }
@@ -60,6 +65,12 @@ final class QuerySsePumpExecutor {
         EXECUTOR.execute(task);
     }
 
+    /**
+     * Creates a bounded pump pool for tests or custom wiring.
+     *
+     * @param maxSize maximum worker threads
+     * @return configured thread pool executor
+     */
     static ThreadPoolExecutor newPool(int maxSize) {
         AtomicInteger threadIndex = new AtomicInteger();
         ThreadPoolExecutor executor = new ThreadPoolExecutor(0, maxSize, KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,

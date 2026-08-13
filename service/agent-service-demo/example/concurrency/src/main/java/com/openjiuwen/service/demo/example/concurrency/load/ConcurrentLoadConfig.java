@@ -16,7 +16,9 @@ public record ConcurrentLoadConfig(String mode, String baseUrl, String a2aBaseUr
     boolean stream, int warmupSessions, Duration requestTimeout, double minSuccessRate, int lookupDelayMs,
     int roundsPerSession) {
 
-    /** System property prefix for load runner settings. */
+    /**
+     * System property prefix for load runner settings.
+     */
     public static final String PROP_PREFIX = "demo.concurrency.";
 
     /**
@@ -32,7 +34,7 @@ public record ConcurrentLoadConfig(String mode, String baseUrl, String a2aBaseUr
     }
 
     /**
-     * Whether query-mode load should run.
+     * Returns whether query-mode load should run.
      *
      * @return {@code true} when mode is {@code query} or {@code both}
      */
@@ -41,12 +43,24 @@ public record ConcurrentLoadConfig(String mode, String baseUrl, String a2aBaseUr
     }
 
     /**
-     * Whether A2A-mode load should run.
+     * Returns whether A2A-mode load should run.
      *
      * @return {@code true} when mode is {@code a2a} or {@code both}
      */
     public boolean isA2aMode() {
         return "a2a".equalsIgnoreCase(mode) || "both".equalsIgnoreCase(mode);
+    }
+
+    /**
+     * Returns a concise configuration summary for logging.
+     *
+     * @return formatted configuration string
+     */
+    @Override
+    public String toString() {
+        return "ConcurrentLoadConfig{mode=%s, baseUrl=%s, a2aBaseUrl=%s, sessions=%d, concurrency=%d, stream=%s, warmup=%d, timeout=%s, minSuccessRate=%.2f, lookupDelayMs=%d, roundsPerSession=%d}"
+            .formatted(mode, baseUrl, a2aBaseUrl, sessions, concurrency, stream, warmupSessions, requestTimeout,
+                minSuccessRate, lookupDelayMs, roundsPerSession);
     }
 
     private static String string(String key, String defaultValue) {
@@ -87,12 +101,5 @@ public record ConcurrentLoadConfig(String mode, String baseUrl, String a2aBaseUr
             }
         }
         return "";
-    }
-
-    @Override
-    public String toString() {
-        return "ConcurrentLoadConfig{mode=%s, baseUrl=%s, a2aBaseUrl=%s, sessions=%d, concurrency=%d, stream=%s, warmup=%d, timeout=%s, minSuccessRate=%.2f, lookupDelayMs=%d, roundsPerSession=%d}"
-            .formatted(mode, baseUrl, a2aBaseUrl, sessions, concurrency, stream, warmupSessions, requestTimeout,
-                minSuccessRate, lookupDelayMs, roundsPerSession);
     }
 }

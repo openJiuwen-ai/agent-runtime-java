@@ -25,7 +25,6 @@ import java.util.Map;
  */
 public final class ExampleDeepAgentFactory {
     private static final String LANGUAGE = "zh-CN";
-
     private static final String WORKSPACE_ROOT = "target/deepagents";
 
     private ExampleDeepAgentFactory() {

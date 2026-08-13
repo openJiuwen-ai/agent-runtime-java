@@ -18,17 +18,25 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class ConcurrentLoadMetrics {
     private final AtomicInteger successCount = new AtomicInteger();
+
     private final AtomicInteger failureCount = new AtomicInteger();
+
     private final List<Long> latenciesMs = Collections.synchronizedList(new ArrayList<>());
+
     private final AtomicLong startedAtNanos = new AtomicLong();
+
     private final AtomicLong finishedAtNanos = new AtomicLong();
 
-    /** Marks the start timestamp for duration and QPS calculation. */
+    /**
+     * Marks the start timestamp for duration and QPS calculation.
+     */
     public void markStarted() {
         startedAtNanos.compareAndSet(0L, System.nanoTime());
     }
 
-    /** Marks the finish timestamp for duration and QPS calculation. */
+    /**
+     * Marks the finish timestamp for duration and QPS calculation.
+     */
     public void markFinished() {
         finishedAtNanos.set(System.nanoTime());
     }

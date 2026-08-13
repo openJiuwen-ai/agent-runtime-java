@@ -26,11 +26,23 @@ public final class ConcurrencyMockModelClientFactory implements Model.ModelClien
         this.delayMs = delayMs;
     }
 
+    /**
+     * Returns the registered mock provider name.
+     *
+     * @return provider identifier
+     */
     @Override
     public String providerName() {
         return ConcurrencyMockLlmConstants.PROVIDER;
     }
 
+    /**
+     * Creates a mock model client with configured latency.
+     *
+     * @param modelConfig model request configuration
+     * @param clientConfig transport configuration
+     * @return mock model client instance
+     */
     @Override
     public BaseModelClient create(ModelRequestConfig modelConfig, ModelClientConfig clientConfig) {
         return new ConcurrencyMockModelClient(modelConfig, clientConfig, delayMs);

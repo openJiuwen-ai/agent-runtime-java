@@ -25,13 +25,15 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 @Tag("integration")
 @EnabledIfSystemProperty(named = "demo.concurrency.e2e.a2a-base-url", matches = ".+")
 class A2aConcurrentE2EIT {
+    /**
+     * Validates concurrent A2A sessions meet the configured success threshold.
+     */
     @Test
     void concurrentA2aSessionsMeetSuccessThreshold() {
         String a2aBaseUrl = System.getProperty("demo.concurrency.e2e.a2a-base-url");
         ConcurrentLoadConfig config = new ConcurrentLoadConfig("a2a", "http://localhost:8096", a2aBaseUrl, 4, 2, false,
             0, ConcurrentLoadConfig.fromEnvironment().requestTimeout(), 0.75D, 20, 1);
         ConcurrentLoadMetrics metrics = ConcurrentLoadHarness.runA2aLoad(config);
-        System.out.println(metrics.summary());
         assertThat(metrics.successRate()).isGreaterThanOrEqualTo(config.minSuccessRate());
     }
 }

@@ -19,10 +19,14 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ConcurrencyDemoLlmSupport {
-    private static final Logger LOG = LoggerFactory.getLogger(ConcurrencyDemoLlmSupport.class);
+    private static final Logger log = LoggerFactory.getLogger(ConcurrencyDemoLlmSupport.class);
+
     private static final String MODE_PROPERTY = "demo.concurrency.llm.mode";
+
     private static final String DELAY_PROPERTY = "demo.concurrency.llm.mock-delay-ms";
+
     private static final String SPRING_MODE_PROPERTY = "openjiuwen.service.demo.concurrency.llm.mode";
+
     private static final String SPRING_DELAY_PROPERTY = "openjiuwen.service.demo.concurrency.llm.mock-delay-ms";
 
     private final Environment environment;
@@ -68,13 +72,13 @@ public class ConcurrencyDemoLlmSupport {
      */
     public ResolvedLlmConfig resolveForAgent(LlmConfigResolver llmConfigResolver) {
         if (!isMockMode()) {
-            LOG.info("Concurrency demo LLM mode: REAL");
+            log.info("Concurrency demo LLM mode: REAL");
             return llmConfigResolver.resolveRequired();
         }
         long delayMs = mockDelayMs();
         ConcurrencyMockLlmBootstrap.ensureRegistered(delayMs);
         ResolvedLlmConfig base = llmConfigResolver.resolve();
-        LOG.info("Concurrency demo LLM mode: MOCK (delayMs={}, provider={})", delayMs,
+        log.info("Concurrency demo LLM mode: MOCK (delayMs={}, provider={})", delayMs,
             ConcurrencyMockLlmConstants.PROVIDER);
         return ResolvedLlmConfig.builder()
             .provider(ConcurrencyMockLlmConstants.PROVIDER)

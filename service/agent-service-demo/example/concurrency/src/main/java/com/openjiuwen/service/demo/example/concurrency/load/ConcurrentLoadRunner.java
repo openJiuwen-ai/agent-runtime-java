@@ -4,6 +4,9 @@
 
 package com.openjiuwen.service.demo.example.concurrency.load;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * CLI entry for DeepAgent + Redis + A2A concurrent load validation.
  *
@@ -19,12 +22,19 @@ package com.openjiuwen.service.demo.example.concurrency.load;
  * @since 0.1.0
  */
 public final class ConcurrentLoadRunner {
+    private static final Logger log = LoggerFactory.getLogger(ConcurrentLoadRunner.class);
+
     private ConcurrentLoadRunner() {
     }
 
+    /**
+     * Runs configured query and/or A2A load scenarios and exits with a process code.
+     *
+     * @param args command-line arguments (unused; config comes from system properties)
+     */
     public static void main(String[] args) {
         ConcurrentLoadConfig config = ConcurrentLoadConfig.fromEnvironment();
-        System.out.println("Concurrent load config: " + config);
+        log.info("Concurrent load config: {}", config);
         int exitCode = 0;
         if (config.isQueryMode()) {
             exitCode = Math.max(exitCode, runScenario("query", ConcurrentLoadHarness.runQueryLoad(config), config));
@@ -33,20 +43,28 @@ public final class ConcurrentLoadRunner {
             exitCode = Math.max(exitCode, runScenario("a2a", ConcurrentLoadHarness.runA2aLoad(config), config));
         }
         if (!config.isQueryMode() && !config.isA2aMode()) {
-            System.err.println("Unknown mode: " + config.mode() + " (expected query, a2a, or both)");
+            log.error("Unknown mode: {} (expected query, a2a, or both)", config.mode());
             System.exit(2);
         }
         System.exit(exitCode);
     }
 
+    /**
+     * Logs scenario metrics and compares success rate to the configured threshold.
+     *
+     * @param label scenario label for logging
+     * @param metrics collected load metrics
+     * @param config load configuration containing the threshold
+     * @return {@code 0} when the threshold is met, otherwise {@code 1}
+     */
     private static int runScenario(String label, ConcurrentLoadMetrics metrics, ConcurrentLoadConfig config) {
-        System.out.println("[" + label + "] " + metrics.summary());
+        log.info("[{}] {}", label, metrics.summary());
         if (metrics.successRate() < config.minSuccessRate()) {
-            System.err.printf("[%s] FAIL successRate %.2f%% below threshold %.2f%%%n", label,
+            log.error("[{}] FAIL successRate {}% below threshold {}%", label,
                 metrics.successRate() * 100.0D, config.minSuccessRate() * 100.0D);
             return 1;
         }
-        System.out.println("[" + label + "] PASS");
+        log.info("[{}] PASS", label);
         return 0;
     }
 }

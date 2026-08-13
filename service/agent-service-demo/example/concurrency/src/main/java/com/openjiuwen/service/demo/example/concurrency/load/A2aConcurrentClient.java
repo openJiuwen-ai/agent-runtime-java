@@ -25,7 +25,9 @@ public final class A2aConcurrentClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient;
+
     private final URI baseUri;
+
     private final Duration timeout;
 
     /**
@@ -62,6 +64,22 @@ public final class A2aConcurrentClient {
         return invoke("SendStreamingMessage", contextId, text, true);
     }
 
+    /**
+     * Probes {@code GET /health} on the configured base URL.
+     *
+     * @return {@code true} when HTTP 200 is returned
+     */
+    public boolean healthReady() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder().uri(baseUri.resolve("/health")).timeout(timeout).GET()
+                .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() == 200;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     private A2aResult invoke(String method, String contextId, String text, boolean streaming) {
         long started = System.nanoTime();
         try {
@@ -91,22 +109,6 @@ public final class A2aConcurrentClient {
             return A2aResult.success(latencyMs, payload);
         } catch (Exception ex) {
             return A2aResult.failure(elapsedMs(started), ex.getClass().getSimpleName() + ": " + ex.getMessage());
-        }
-    }
-
-    /**
-     * Probes {@code GET /health} on the configured base URL.
-     *
-     * @return {@code true} when HTTP 200 is returned
-     */
-    public boolean healthReady() {
-        try {
-            HttpRequest request = HttpRequest.newBuilder().uri(baseUri.resolve("/health")).timeout(timeout).GET()
-                .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            return response.statusCode() == 200;
-        } catch (Exception ex) {
-            return false;
         }
     }
 
@@ -148,10 +150,24 @@ public final class A2aConcurrentClient {
      * @param error error message on failure
      */
     public record A2aResult(boolean success, long latencyMs, String payload, String error) {
+        /**
+         * Builds a successful result.
+         *
+         * @param latencyMs observed latency in milliseconds
+         * @param payload response payload
+         * @return success result
+         */
         static A2aResult success(long latencyMs, String payload) {
             return new A2aResult(true, latencyMs, payload, null);
         }
 
+        /**
+         * Builds a failed result.
+         *
+         * @param latencyMs observed latency in milliseconds
+         * @param error error message
+         * @return failure result
+         */
         static A2aResult failure(long latencyMs, String error) {
             return new A2aResult(false, latencyMs, null, error);
         }

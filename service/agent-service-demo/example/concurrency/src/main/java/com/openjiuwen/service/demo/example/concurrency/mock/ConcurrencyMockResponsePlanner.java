@@ -57,17 +57,12 @@ public final class ConcurrencyMockResponsePlanner {
             .build();
     }
 
-    private static AssistantMessage toolCall(String toolName, Map<String, Object> arguments) {
-        ToolCall toolCall = ToolCall.builder()
-            .id("mock-" + toolName + "-" + System.nanoTime())
-            .type("function")
-            .name(toolName)
-            .arguments(GSON.toJson(arguments))
-            .index(0)
-            .build();
-        return AssistantMessage.builder().role("assistant").content("").toolCalls(List.of(toolCall)).build();
-    }
-
+    /**
+     * Returns the latest user message content in the conversation list.
+     *
+     * @param messages converted chat messages
+     * @return latest user content or an empty string
+     */
     static String latestUserContent(List<Map<String, Object>> messages) {
         for (int index = messages.size() - 1; index >= 0; index--) {
             Map<String, Object> message = messages.get(index);
@@ -78,6 +73,12 @@ public final class ConcurrencyMockResponsePlanner {
         return "";
     }
 
+    /**
+     * Returns the latest tool result after the most recent user turn, if any.
+     *
+     * @param messages converted chat messages
+     * @return tool result content or {@code null}
+     */
     static String latestToolResultForCurrentTurn(List<Map<String, Object>> messages) {
         int lastUserIndex = -1;
         for (int index = 0; index < messages.size(); index++) {
@@ -95,5 +96,16 @@ public final class ConcurrencyMockResponsePlanner {
             }
         }
         return null;
+    }
+
+    private static AssistantMessage toolCall(String toolName, Map<String, Object> arguments) {
+        ToolCall toolCall = ToolCall.builder()
+            .id("mock-" + toolName + "-" + System.nanoTime())
+            .type("function")
+            .name(toolName)
+            .arguments(GSON.toJson(arguments))
+            .index(0)
+            .build();
+        return AssistantMessage.builder().role("assistant").content("").toolCalls(List.of(toolCall)).build();
     }
 }

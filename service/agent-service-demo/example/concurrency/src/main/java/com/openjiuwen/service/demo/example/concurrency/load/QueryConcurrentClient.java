@@ -25,7 +25,9 @@ public final class QueryConcurrentClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient;
+
     private final URI baseUri;
+
     private final Duration timeout;
 
     /**
@@ -186,10 +188,24 @@ public final class QueryConcurrentClient {
      * @param error error message on failure
      */
     public record QueryResult(boolean success, long latencyMs, String content, String error) {
+        /**
+         * Builds a successful result.
+         *
+         * @param latencyMs observed latency in milliseconds
+         * @param content extracted response content
+         * @return success result
+         */
         static QueryResult success(long latencyMs, String content) {
             return new QueryResult(true, latencyMs, content, null);
         }
 
+        /**
+         * Builds a failed result.
+         *
+         * @param latencyMs observed latency in milliseconds
+         * @param error error message
+         * @return failure result
+         */
         static QueryResult failure(long latencyMs, String error) {
             return new QueryResult(false, latencyMs, null, error);
         }
