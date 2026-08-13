@@ -9,7 +9,6 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
@@ -24,7 +23,6 @@ import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.EventKind;
 import org.a2aproject.sdk.spec.InternalError;
 import org.a2aproject.sdk.spec.MethodNotFoundError;
-import org.a2aproject.sdk.spec.PushNotificationNotSupportedError;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskIdParams;
@@ -57,17 +55,13 @@ public class A2aJsonRpcController {
 
     private final RequestHandler requestHandler;
 
-    private final A2AProperties a2aProperties;
-
     /**
      * Constructs the JSON-RPC controller.
      *
      * @param requestHandler the A2A SDK request handler
-     * @param a2aProperties the A2A service configuration
      */
-    public A2aJsonRpcController(RequestHandler requestHandler, A2AProperties a2aProperties) {
+    public A2aJsonRpcController(RequestHandler requestHandler) {
         this.requestHandler = requestHandler;
-        this.a2aProperties = a2aProperties;
     }
 
     /**
@@ -193,9 +187,6 @@ public class A2aJsonRpcController {
         if (params == null || params.configuration() == null
                 || params.configuration().taskPushNotificationConfig() == null) {
             return;
-        }
-        if (!a2aProperties.isPushNotifications()) {
-            throw new PushNotificationNotSupportedError();
         }
         A2aPushNotificationCallbackUrlPolicy.validateCallbackUrl(params.configuration().taskPushNotificationConfig());
     }

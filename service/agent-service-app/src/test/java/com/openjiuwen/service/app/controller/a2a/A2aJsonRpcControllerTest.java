@@ -14,7 +14,6 @@ import static org.mockito.Mockito.when;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.openjiuwen.service.app.config.A2AProperties;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.server.ServerCallContext;
@@ -24,7 +23,6 @@ import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.InvalidParamsError;
 import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.Part;
-import org.a2aproject.sdk.spec.PushNotificationNotSupportedError;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskIdParams;
@@ -108,7 +106,7 @@ class A2aJsonRpcControllerTest {
             }
         });
         when(requestHandler.onSubscribeToTask(any(TaskIdParams.class), any())).thenReturn(publisher);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler, new A2AProperties());
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
         String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\""
                 + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
@@ -160,7 +158,7 @@ class A2aJsonRpcControllerTest {
     @Test
     void unsupportedPushCrudMethodsReturnMethodNotFound() {
         RequestHandler requestHandler = mock(RequestHandler.class);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler, new A2AProperties());
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
 
         for (String method : UNSUPPORTED_PUSH_CRUD_METHODS) {
@@ -180,9 +178,7 @@ class A2aJsonRpcControllerTest {
         RequestHandler requestHandler = mock(RequestHandler.class);
         when(requestHandler.onMessageSend(org.mockito.ArgumentMatchers.any(MessageSendParams.class),
                 org.mockito.ArgumentMatchers.any(ServerCallContext.class))).thenReturn(completedTask());
-        A2AProperties properties = new A2AProperties();
-        properties.setPushNotifications(true);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler, properties);
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
 
         controller.handleJsonRpc("""
@@ -210,47 +206,9 @@ class A2aJsonRpcControllerTest {
     }
 
     @Test
-    void disabledPushNotificationsRejectInlineConfigBeforeHandler() {
-        RequestHandler requestHandler = mock(RequestHandler.class);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler, new A2AProperties());
-        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
-
-        for (String method : new String[] {
-            A2AMethods.SEND_MESSAGE_METHOD, A2AMethods.SEND_STREAMING_MESSAGE_METHOD
-        }) {
-            ResponseEntity<?> response = controller.handleJsonRpc("""
-                    {
-                      "jsonrpc": "2.0",
-                      "id": "req-1",
-                      "method": "%s",
-                      "params": {
-                        "message": {
-                          "role": "ROLE_USER",
-                          "messageId": "msg-1",
-                          "contextId": "ctx-1",
-                          "parts": [{"kind": "text", "text": "hello"}]
-                        },
-                        "pushNotificationConfig": {
-                          "id": "push-1",
-                          "callbackUrl": "https://caller.example/a2a/push-notifications/callback"
-                        }
-                      }
-                    }
-                    """.formatted(method), servletRequest);
-
-            JsonObject body = jsonBody(response);
-            assertThat(body.getAsJsonObject("error").get("code").getAsInt())
-                    .isEqualTo(new PushNotificationNotSupportedError().getCode());
-        }
-        verifyNoInteractions(requestHandler);
-    }
-
-    @Test
     void nonHttpInlinePushConfigIsRejectedBeforeCallingSdkHandler() {
         RequestHandler requestHandler = mock(RequestHandler.class);
-        A2AProperties properties = new A2AProperties();
-        properties.setPushNotifications(true);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler, properties);
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
 
         ResponseEntity<?> response = controller.handleJsonRpc("""
