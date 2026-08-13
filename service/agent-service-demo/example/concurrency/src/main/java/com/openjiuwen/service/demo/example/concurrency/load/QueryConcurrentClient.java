@@ -55,11 +55,11 @@ public final class QueryConcurrentClient {
      *
      * @param conversationId stable conversation identifier
      * @param token echo token expected in the response
-     * @param stream whether to use SSE streaming
+     * @param isStream whether to use SSE streaming
      * @return request result with latency and content or error
      */
-    public QueryResult skillEcho(String conversationId, String token, boolean stream) {
-        return query(conversationId, "skill_echo:" + token, stream, token);
+    public QueryResult skillEcho(String conversationId, String token, boolean isStream) {
+        return query(conversationId, "skill_echo:" + token, isStream, token);
     }
 
     /**
@@ -68,11 +68,11 @@ public final class QueryConcurrentClient {
      * @param conversationId stable conversation identifier
      * @param key lookup key expected in the response
      * @param delayMs simulated lookup delay passed to the agent
-     * @param stream whether to use SSE streaming
+     * @param isStream whether to use SSE streaming
      * @return request result with latency and content or error
      */
-    public QueryResult lookup(String conversationId, String key, int delayMs, boolean stream) {
-        return query(conversationId, "lookup:" + key + " delayMs=" + delayMs, stream, key);
+    public QueryResult lookup(String conversationId, String key, int delayMs, boolean isStream) {
+        return query(conversationId, "lookup:" + key + " delayMs=" + delayMs, isStream, key);
     }
 
     /**
@@ -80,17 +80,17 @@ public final class QueryConcurrentClient {
      *
      * @param conversationId stable conversation identifier
      * @param message user message body
-     * @param stream whether to use SSE streaming
+     * @param isStream whether to use SSE streaming
      * @param expectedMarker substring that must appear in the response content
      * @return request result with latency and content or error
      */
-    public QueryResult query(String conversationId, String message, boolean stream, String expectedMarker) {
+    public QueryResult query(String conversationId, String message, boolean isStream, String expectedMarker) {
         long started = System.nanoTime();
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("conversation_id", conversationId);
             body.put("message", message);
-            body.put("stream", stream);
+            body.put("stream", isStream);
             String json = MAPPER.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder().uri(baseUri.resolve("/v1/query"))
                 .timeout(timeout)
@@ -102,7 +102,7 @@ public final class QueryConcurrentClient {
             if (response.statusCode() != 200) {
                 return QueryResult.failure(latencyMs, "HTTP " + response.statusCode() + ": " + response.body());
             }
-            String content = extractContent(response.body(), stream);
+            String content = extractContent(response.body(), isStream);
             if (expectedMarker != null && !expectedMarker.isBlank() && !content.contains(expectedMarker)) {
                 return QueryResult.failure(latencyMs,
                     "missing marker '" + expectedMarker + "' in response: " + abbreviate(content));
@@ -129,8 +129,8 @@ public final class QueryConcurrentClient {
         }
     }
 
-    private static String extractContent(String body, boolean stream) throws Exception {
-        if (!stream) {
+    private static String extractContent(String body, boolean isStream) throws Exception {
+        if (!isStream) {
             JsonNode root = MAPPER.readTree(body);
             JsonNode content = root.path("result").path("content");
             return content.isTextual() ? content.asText() : content.toString();
@@ -182,12 +182,12 @@ public final class QueryConcurrentClient {
     /**
      * Result of a single query HTTP call.
      *
-     * @param success whether the call succeeded
+     * @param isSuccess whether the call succeeded
      * @param latencyMs observed latency in milliseconds
      * @param content extracted agent response content on success
      * @param error error message on failure
      */
-    public record QueryResult(boolean success, long latencyMs, String content, String error) {
+    public record QueryResult(boolean isSuccess, long latencyMs, String content, String error) {
         /**
          * Builds a successful result.
          *

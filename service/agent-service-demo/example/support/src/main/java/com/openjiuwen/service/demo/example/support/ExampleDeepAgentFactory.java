@@ -80,12 +80,12 @@ public final class ExampleDeepAgentFactory {
      *            the resolved LLM and prompt configuration
      * @param rails
      *            the rails to register on the agent
-     * @param enableTaskLoop
+     * @param isTaskLoopEnabled
      *            when {@code true}, invoke/stream use DeepAgent task-loop orchestration
      * @return a configured DeepAgent
      */
     public static DeepAgent build(String agentId, String name, String description, ResolvedLlmConfig config,
-        List<Object> rails, boolean enableTaskLoop) {
+        List<Object> rails, boolean isTaskLoopEnabled) {
         String workspacePath = WORKSPACE_ROOT + "/" + agentId;
         DeepAgentConfig agentConfig = DeepAgentConfig.builder()
             .systemPrompt(config.getSystemPrompt())
@@ -95,7 +95,7 @@ public final class ExampleDeepAgentFactory {
             .rails(rails)
             .model(buildModel(config))
             .restrictToWorkDir(true)
-            .enableTaskLoop(enableTaskLoop)
+            .enableTaskLoop(isTaskLoopEnabled)
             .enableTaskPlanning(false)
             .addGeneralPurposeAgent(false)
             .build();

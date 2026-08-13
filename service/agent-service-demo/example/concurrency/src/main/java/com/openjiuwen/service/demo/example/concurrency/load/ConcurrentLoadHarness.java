@@ -43,8 +43,8 @@ public final class ConcurrentLoadHarness {
             QueryConcurrentClient warmupClient = new QueryConcurrentClient(config.baseUrl(), config.requestTimeout());
             String conversationId = "warmup-" + index;
             QueryConcurrentClient.QueryResult result = warmupClient.skillEcho(conversationId, "warmup-" + index,
-                config.stream());
-            if (!result.success()) {
+                config.isStream());
+            if (!result.isSuccess()) {
                 log.warn("[warmup] {}", result.error());
             }
         });
@@ -58,13 +58,13 @@ public final class ConcurrentLoadHarness {
             for (int round = 0; round < rounds; round++) {
                 QueryConcurrentClient.QueryResult result;
                 if (round % 2 == 0) {
-                    result = client.skillEcho(conversationId, "token-" + index + "-r" + round, config.stream());
+                    result = client.skillEcho(conversationId, "token-" + index + "-r" + round, config.isStream());
                 } else {
                     result = client.lookup(conversationId, "key-" + index + "-r" + round, config.lookupDelayMs(),
-                        config.stream());
+                        config.isStream());
                 }
-                record(metrics, result.success(), result.latencyMs());
-                if (!result.success()) {
+                record(metrics, result.isSuccess(), result.latencyMs());
+                if (!result.isSuccess()) {
                     lastError = result.error();
                     break;
                 }
@@ -89,10 +89,10 @@ public final class ConcurrentLoadHarness {
         }
         runWarmup(config, index -> {
             A2aConcurrentClient warmupClient = new A2aConcurrentClient(config.a2aBaseUrl(), config.requestTimeout());
-            A2aConcurrentClient.A2aResult result = config.stream()
+            A2aConcurrentClient.A2aResult result = config.isStream()
                 ? warmupClient.sendStreamingMessage("a2a-warmup-" + index, "hello from warmup " + index)
                 : warmupClient.sendMessage("a2a-warmup-" + index, "hello from warmup " + index);
-            if (!result.success()) {
+            if (!result.isSuccess()) {
                 log.warn("[a2a-warmup] {}", result.error());
             }
         });
@@ -102,11 +102,11 @@ public final class ConcurrentLoadHarness {
             A2aConcurrentClient client = new A2aConcurrentClient(config.a2aBaseUrl(), config.requestTimeout());
             String contextId = "a2a-bench-" + index;
             String message = "Please calculate 1+1 using calc tool.";
-            A2aConcurrentClient.A2aResult result = config.stream()
+            A2aConcurrentClient.A2aResult result = config.isStream()
                 ? client.sendStreamingMessage(contextId, message)
                 : client.sendMessage(contextId, message);
-            record(metrics, result.success(), result.latencyMs());
-            return result.success() ? null : result.error();
+            record(metrics, result.isSuccess(), result.latencyMs());
+            return result.isSuccess() ? null : result.error();
         });
         metrics.markFinished();
         return metrics;
@@ -148,8 +148,8 @@ public final class ConcurrentLoadHarness {
         }
     }
 
-    private static void record(ConcurrentLoadMetrics metrics, boolean success, long latencyMs) {
-        if (success) {
+    private static void record(ConcurrentLoadMetrics metrics, boolean isSuccess, long latencyMs) {
+        if (isSuccess) {
             metrics.recordSuccess(latencyMs);
         } else {
             metrics.recordFailure(latencyMs);

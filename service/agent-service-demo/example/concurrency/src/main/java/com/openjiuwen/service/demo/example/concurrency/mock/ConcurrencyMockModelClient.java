@@ -46,6 +46,16 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
     /**
      * Applies mock latency then returns a deterministic assistant message.
      *
+     * @param messages chat messages for the model
+     * @param tools available tools for the model
+     * @param temperature sampling temperature
+     * @param topP nucleus sampling probability
+     * @param model model identifier
+     * @param maxTokens maximum tokens to generate
+     * @param stop stop sequence
+     * @param outputParser output parser for the response
+     * @param timeout request timeout in seconds
+     * @param kwargs additional keyword arguments
      * @return planned assistant message
      * @throws Exception when mock latency sleep is interrupted
      */
@@ -61,6 +71,16 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
     /**
      * Applies mock latency then streams deterministic assistant chunks.
      *
+     * @param messages chat messages for the model
+     * @param tools available tools for the model
+     * @param temperature sampling temperature
+     * @param topP nucleus sampling probability
+     * @param model model identifier
+     * @param maxTokens maximum tokens to generate
+     * @param stop stop sequence
+     * @param outputParser output parser for the response
+     * @param timeout request timeout in seconds
+     * @param kwargs additional keyword arguments
      * @return iterator over planned assistant chunks
      * @throws Exception when mock latency sleep is interrupted
      */
@@ -77,6 +97,15 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
     /**
      * Image generation is not supported by the concurrency mock client.
      *
+     * @param messages user messages for image generation
+     * @param model model identifier
+     * @param size desired image size
+     * @param negativePrompt negative prompt text
+     * @param n number of images to generate
+     * @param shouldPromptExtend whether to extend the prompt
+     * @param shouldWatermark whether to add a watermark
+     * @param seed random seed
+     * @param kwargs additional keyword arguments
      * @throws UnsupportedOperationException always
      */
     @Override
@@ -89,6 +118,11 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
     /**
      * Speech generation is not supported by the concurrency mock client.
      *
+     * @param messages user messages for speech generation
+     * @param model model identifier
+     * @param voice voice identifier
+     * @param languageType language type code
+     * @param kwargs additional keyword arguments
      * @throws UnsupportedOperationException always
      */
     @Override
@@ -100,12 +134,24 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
     /**
      * Video generation is not supported by the concurrency mock client.
      *
+     * @param messages user messages for video generation
+     * @param imgUrl image URL for video generation
+     * @param audioUrl audio URL for video generation
+     * @param model model identifier
+     * @param size desired video size
+     * @param resolution video resolution
+     * @param duration video duration in seconds
+     * @param shouldPromptExtend whether to extend the prompt
+     * @param shouldWatermark whether to add a watermark
+     * @param negativePrompt negative prompt text
+     * @param seed random seed
+     * @param kwargs additional keyword arguments
      * @throws UnsupportedOperationException always
      */
     @Override
-    public VideoGenerationResponse generateVideo(List<UserMessage> messages, String imgUrl, String audioUrl, String model,
-        String size, String resolution, int duration, boolean shouldPromptExtend, boolean shouldWatermark,
-        String negativePrompt, Integer seed, Map<String, Object> kwargs) {
+    public VideoGenerationResponse generateVideo(List<UserMessage> messages, String imgUrl, String audioUrl,
+        String model, String size, String resolution, int duration, boolean shouldPromptExtend,
+        boolean shouldWatermark, String negativePrompt, Integer seed, Map<String, Object> kwargs) {
         throw new UnsupportedOperationException("concurrency mock LLM does not support video generation");
     }
 

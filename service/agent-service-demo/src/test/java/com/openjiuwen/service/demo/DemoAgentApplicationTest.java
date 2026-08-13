@@ -190,7 +190,7 @@ class DemoAgentApplicationTest {
 
         @Override
         public ImageGenerationResponse generateImage(List<UserMessage> messages, String model, String size,
-                String negativePrompt, int n, boolean promptExtend, boolean watermark, int seed,
+                String negativePrompt, int n, boolean shouldPromptExtend, boolean shouldWatermark, int seed,
                 Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
@@ -203,7 +203,8 @@ class DemoAgentApplicationTest {
 
         @Override
         public VideoGenerationResponse generateVideo(List<UserMessage> messages, String imgUrl, String audioUrl,
-                String model, String size, String resolution, int duration, boolean promptExtend, boolean watermark,
+                String model, String size, String resolution, int duration, boolean shouldPromptExtend,
+                boolean shouldWatermark,
                 String negativePrompt, Integer seed, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }

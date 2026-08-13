@@ -32,11 +32,12 @@ import java.util.List;
     "com.openjiuwen.service.demo.example.concurrency"
 })
 public class ConcurrencyDemoApplication {
-    private static final String AGENT_ID = "demo-concurrency-agent";
-    private static final Logger log = LoggerFactory.getLogger(ConcurrencyDemoApplication.class);
-
     /** System property / env override for DeepAgent task-loop enablement. */
     static final String ENABLE_TASK_LOOP_PROPERTY = "demo.concurrency.enable-task-loop";
+
+    private static final String AGENT_ID = "demo-concurrency-agent";
+
+    private static final Logger log = LoggerFactory.getLogger(ConcurrencyDemoApplication.class);
 
     /**
      * Starts the concurrency demo Spring Boot application.
@@ -72,11 +73,11 @@ public class ConcurrencyDemoApplication {
     AgentHandler agentHandler(LlmConfigResolver llmConfigResolver, ConcurrencyDemoLlmSupport llmSupport,
         ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
         ResolvedLlmConfig llmConfig = llmSupport.resolveForAgent(llmConfigResolver);
-        boolean enableTaskLoop = resolveEnableTaskLoop();
-        log.info("Concurrency demo DeepAgent enableTaskLoop={}", enableTaskLoop);
+        boolean isTaskLoopEnabled = resolveEnableTaskLoop();
+        log.info("Concurrency demo DeepAgent isTaskLoopEnabled={}", isTaskLoopEnabled);
         DeepAgent agent = ExampleDeepAgentFactory.build(AGENT_ID, "Concurrency Demo DeepAgent",
             "DeepAgent for multi-session concurrent load validation with skill-like tools and Redis checkpoint",
-            llmConfig, List.of(new SkillEchoRail(), new ConcurrentLookupRail()), enableTaskLoop);
+            llmConfig, List.of(new SkillEchoRail(), new ConcurrentLookupRail()), isTaskLoopEnabled);
         return new JiuwenCoreAgentHandler(agent,
             externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
     }

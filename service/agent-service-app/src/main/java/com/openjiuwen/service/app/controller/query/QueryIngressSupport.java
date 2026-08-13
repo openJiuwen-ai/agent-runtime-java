@@ -77,7 +77,7 @@ public final class QueryIngressSupport {
     /**
      * Validation result containing the resolved {@link ServeRequest} or error details.
      */
-    public record ValidationResult(boolean valid, int errorStatus, Map<String, Object> errorBody,
+    public record ValidationResult(boolean isValid, int errorStatus, Map<String, Object> errorBody,
             ServeRequest serveRequest) {
         static ValidationResult ok(ServeRequest serveRequest) {
             return new ValidationResult(true, 0, null, serveRequest);

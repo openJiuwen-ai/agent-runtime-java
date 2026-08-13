@@ -37,7 +37,8 @@ public final class ConcurrencyMockResponsePlanner {
     public static AssistantMessage plan(List<Map<String, Object>> messages) {
         String latestToolResult = latestToolResultForCurrentTurn(messages);
         if (latestToolResult != null) {
-            return AssistantMessage.builder().role("assistant").content("Mock LLM summary: " + latestToolResult).build();
+            return AssistantMessage.builder().role("assistant")
+            .content("Mock LLM summary: " + latestToolResult).build();
         }
         String userRequest = latestUserContent(messages);
         if (userRequest.startsWith("skill_echo:")) {

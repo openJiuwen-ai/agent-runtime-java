@@ -80,7 +80,7 @@ public final class A2aConcurrentClient {
         }
     }
 
-    private A2aResult invoke(String method, String contextId, String text, boolean streaming) {
+    private A2aResult invoke(String method, String contextId, String text, boolean isStreaming) {
         long started = System.nanoTime();
         try {
             Map<String, Object> params = Map.of("message", Map.of("role", "ROLE_USER", "parts",
@@ -94,7 +94,7 @@ public final class A2aConcurrentClient {
             HttpRequest request = HttpRequest.newBuilder().uri(baseUri.resolve("/a2a/"))
                 .timeout(timeout)
                 .header("Content-Type", "application/json; charset=utf-8")
-                .header("Accept", streaming ? "text/event-stream" : "application/json")
+                .header("Accept", isStreaming ? "text/event-stream" : "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -102,7 +102,7 @@ public final class A2aConcurrentClient {
             if (response.statusCode() != 200) {
                 return A2aResult.failure(latencyMs, "HTTP " + response.statusCode() + ": " + response.body());
             }
-            String payload = streaming ? aggregateSse(response.body()) : response.body();
+            String payload = isStreaming ? aggregateSse(response.body()) : response.body();
             if (payload.contains("\"error\"")) {
                 return A2aResult.failure(latencyMs, abbreviate(payload));
             }
@@ -144,12 +144,12 @@ public final class A2aConcurrentClient {
     /**
      * Result of a single A2A HTTP call.
      *
-     * @param success whether the call succeeded
+     * @param isSuccess whether the call succeeded
      * @param latencyMs observed latency in milliseconds
      * @param payload response body on success
      * @param error error message on failure
      */
-    public record A2aResult(boolean success, long latencyMs, String payload, String error) {
+    public record A2aResult(boolean isSuccess, long latencyMs, String payload, String error) {
         /**
          * Builds a successful result.
          *

@@ -32,16 +32,16 @@ class HealthControllerTest {
         assertThat(response.isAgentLoaded()).isTrue();
     }
 
-    private static AgentReadiness readiness(boolean processUp, boolean agentLoaded) {
+    private static AgentReadiness readiness(boolean isProcessUp, boolean isAgentLoaded) {
         return new AgentReadiness() {
             @Override
             public boolean isProcessUp() {
-                return processUp;
+                return isProcessUp;
             }
 
             @Override
             public boolean isAgentLoaded() {
-                return agentLoaded;
+                return isAgentLoaded;
             }
         };
     }

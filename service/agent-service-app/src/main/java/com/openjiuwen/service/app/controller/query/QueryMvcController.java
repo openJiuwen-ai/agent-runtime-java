@@ -99,7 +99,7 @@ public class QueryMvcController {
             jakarta.servlet.http.HttpServletResponse response) throws IOException {
         QueryRequest request = objectMapper.readValue(rawBody, QueryRequest.class);
         QueryIngressSupport.ValidationResult validation = QueryIngressSupport.validateAndBuild(request, headers);
-        if (!validation.valid()) {
+        if (!validation.isValid()) {
             writeJson(response, validation.errorStatus(), validation.errorBody());
             return null;
         }

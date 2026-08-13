@@ -13,7 +13,7 @@ import java.util.Locale;
  * @since 0.1.0
  */
 public record ConcurrentLoadConfig(String mode, String baseUrl, String a2aBaseUrl, int sessions, int concurrency,
-    boolean stream, int warmupSessions, Duration requestTimeout, double minSuccessRate, int lookupDelayMs,
+    boolean isStream, int warmupSessions, Duration requestTimeout, double minSuccessRate, int lookupDelayMs,
     int roundsPerSession) {
 
     /**
@@ -58,8 +58,9 @@ public record ConcurrentLoadConfig(String mode, String baseUrl, String a2aBaseUr
      */
     @Override
     public String toString() {
-        return "ConcurrentLoadConfig{mode=%s, baseUrl=%s, a2aBaseUrl=%s, sessions=%d, concurrency=%d, stream=%s, warmup=%d, timeout=%s, minSuccessRate=%.2f, lookupDelayMs=%d, roundsPerSession=%d}"
-            .formatted(mode, baseUrl, a2aBaseUrl, sessions, concurrency, stream, warmupSessions, requestTimeout,
+        return "ConcurrentLoadConfig{mode=%s, baseUrl=%s, a2aBaseUrl=%s, sessions=%d, concurrency=%d, "
+            + "stream=%s, warmup=%d, timeout=%s, minSuccessRate=%.2f, lookupDelayMs=%d, roundsPerSession=%d}"
+            .formatted(mode, baseUrl, a2aBaseUrl, sessions, concurrency, isStream, warmupSessions, requestTimeout,
                 minSuccessRate, lookupDelayMs, roundsPerSession);
     }
 
