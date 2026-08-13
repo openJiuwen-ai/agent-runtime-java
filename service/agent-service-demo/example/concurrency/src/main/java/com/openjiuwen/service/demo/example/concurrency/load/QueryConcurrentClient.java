@@ -7,6 +7,9 @@ package com.openjiuwen.service.demo.example.concurrency.load;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,6 +25,8 @@ import java.util.concurrent.Executors;
  * @since 0.1.0
  */
 public final class QueryConcurrentClient {
+    private static final Logger log = LoggerFactory.getLogger(QueryConcurrentClient.class);
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient;
@@ -45,6 +50,8 @@ public final class QueryConcurrentClient {
             .executor(Executors.newFixedThreadPool(workers, runnable -> {
                 Thread thread = new Thread(runnable, "concurrency-http-client");
                 thread.setDaemon(true);
+                thread.setUncaughtExceptionHandler((t, ex) -> log.error("Uncaught exception on HTTP worker thread {}",
+                    t.getName(), ex));
                 return thread;
             }))
             .build();
