@@ -87,12 +87,12 @@ More examples (LLM mode, custom handlers, MCP/A2A samples): [service/agent-servi
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-app</artifactId>
-    <version>0.1.1</version>
+    <version>0.1.1.post1</version>
 </dependency>
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-adapters-agentcore</artifactId>
-    <version>0.1.1</version>
+    <version>0.1.1.post1</version>
 </dependency>
 ```
 

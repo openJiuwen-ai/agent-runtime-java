@@ -17,6 +17,7 @@
 | [a2a](a2a/README.md)         | `agent-service-demo-a2a`     | **18090–18093** | 多 Agent 调用、中断与恢复              |
 | [security](security/README.md) | `agent-service-demo-security` | **8095** | TLS / 细粒度鉴权配置与 SPI 示例              |
 | [outbound-security](outbound-security/README.md) | `agent-service-demo-outbound-security` | — | MCP + Sandbox 出站 HTTPS + Bearer E2E（Issue #25） |
+| [concurrency](concurrency/README.md) | `agent-service-demo-concurrency` | **8096** | DeepAgent + Redis + A2A 多会话并发性能与稳定性验证 |
 
 各特性在自身 `application.yml` 里用 `server.port` 覆盖 base 的 8090，可与主 demo **同时运行**。
 

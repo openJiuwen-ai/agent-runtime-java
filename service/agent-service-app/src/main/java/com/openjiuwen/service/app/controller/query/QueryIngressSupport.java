@@ -77,7 +77,7 @@ public final class QueryIngressSupport {
     /**
      * Validation result containing the resolved {@link ServeRequest} or error details.
      */
-    public record ValidationResult(boolean valid, int errorStatus, Map<String, Object> errorBody,
+    public record ValidationResult(boolean isValid, int errorStatus, Map<String, Object> errorBody,
             ServeRequest serveRequest) {
         static ValidationResult ok(ServeRequest serveRequest) {
             return new ValidationResult(true, 0, null, serveRequest);
@@ -137,6 +137,19 @@ public final class QueryIngressSupport {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("type", "error");
         body.put("error", "agent not loaded");
+        return body;
+    }
+
+    /**
+     * Returns a standard error body when the SSE pump thread pool is saturated.
+     *
+     * @return the error body map
+     */
+    public static Map<String, Object> streamPumpSaturated() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("type", "error");
+        body.put("code", "STREAM_PUMP_SATURATED");
+        body.put("error", "stream pump pool saturated");
         return body;
     }
 

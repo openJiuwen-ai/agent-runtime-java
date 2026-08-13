@@ -72,7 +72,7 @@ public class QueryWebFluxController {
 
     private reactor.core.publisher.Mono<ResponseEntity<?>> handleQuery(QueryRequest request, HttpHeaders headers) {
         QueryIngressSupport.ValidationResult validation = QueryIngressSupport.validateAndBuild(request, headers);
-        if (!validation.valid()) {
+        if (!validation.isValid()) {
             return reactor.core.publisher.Mono
                     .just(ResponseEntity.status(validation.errorStatus()).body(validation.errorBody()));
         }

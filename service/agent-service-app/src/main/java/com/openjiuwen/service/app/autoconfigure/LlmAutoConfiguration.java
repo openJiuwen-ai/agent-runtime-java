@@ -13,6 +13,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 
 /**
@@ -21,6 +22,7 @@ import org.springframework.core.env.Environment;
  * @since 0.1.0
  */
 @AutoConfiguration(after = CredentialDecryptorAutoConfiguration.class)
+@Import(CredentialDecryptorAutoConfiguration.class)
 @EnableConfigurationProperties(LlmProperties.class)
 public class LlmAutoConfiguration {
     /**

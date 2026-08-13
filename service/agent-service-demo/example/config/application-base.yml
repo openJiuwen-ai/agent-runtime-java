@@ -19,7 +19,7 @@ openjiuwen:
       timeout: 60s
       context-window-limit: 10
       max-iterations: 5
-    version: 0.1.1
+    version: 0.1.1.post1
     query:
       mvc:
         enabled: true

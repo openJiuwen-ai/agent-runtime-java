@@ -27,21 +27,21 @@ class HealthControllerTest {
 
         assertThat(response.getStatus()).isEqualTo("healthy");
         assertThat(response.getApp()).isEqualTo("agent-service");
-        assertThat(response.getVersion()).isEqualTo("0.1.1");
+        assertThat(response.getVersion()).isEqualTo("0.1.1.post1");
         assertThat(response.isProcessUp()).isTrue();
         assertThat(response.isAgentLoaded()).isTrue();
     }
 
-    private static AgentReadiness readiness(boolean processUp, boolean agentLoaded) {
+    private static AgentReadiness readiness(boolean isProcessUp, boolean isAgentLoaded) {
         return new AgentReadiness() {
             @Override
             public boolean isProcessUp() {
-                return processUp;
+                return isProcessUp;
             }
 
             @Override
             public boolean isAgentLoaded() {
-                return agentLoaded;
+                return isAgentLoaded;
             }
         };
     }

@@ -25,7 +25,6 @@ import java.util.Map;
  */
 public final class ExampleDeepAgentFactory {
     private static final String LANGUAGE = "zh-CN";
-
     private static final String WORKSPACE_ROOT = "target/deepagents";
 
     private ExampleDeepAgentFactory() {
@@ -65,6 +64,28 @@ public final class ExampleDeepAgentFactory {
      */
     public static DeepAgent build(String agentId, String name, String description, ResolvedLlmConfig config,
         List<Object> rails) {
+        return build(agentId, name, description, config, rails, true);
+    }
+
+    /**
+     * Builds a DeepAgent with optional task-loop and custom rails.
+     *
+     * @param agentId
+     *            the agent id
+     * @param name
+     *            the agent display name
+     * @param description
+     *            the agent description
+     * @param config
+     *            the resolved LLM and prompt configuration
+     * @param rails
+     *            the rails to register on the agent
+     * @param isTaskLoopEnabled
+     *            when {@code true}, invoke/stream use DeepAgent task-loop orchestration
+     * @return a configured DeepAgent
+     */
+    public static DeepAgent build(String agentId, String name, String description, ResolvedLlmConfig config,
+        List<Object> rails, boolean isTaskLoopEnabled) {
         String workspacePath = WORKSPACE_ROOT + "/" + agentId;
         DeepAgentConfig agentConfig = DeepAgentConfig.builder()
             .systemPrompt(config.getSystemPrompt())
@@ -74,7 +95,7 @@ public final class ExampleDeepAgentFactory {
             .rails(rails)
             .model(buildModel(config))
             .restrictToWorkDir(true)
-            .enableTaskLoop(true)
+            .enableTaskLoop(isTaskLoopEnabled)
             .enableTaskPlanning(false)
             .addGeneralPurposeAgent(false)
             .build();

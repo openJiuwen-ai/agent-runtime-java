@@ -242,7 +242,7 @@ run_default_version() {
   status="$(request GET "$port" "/health" "$body")"
   assert_status "$status" "200" "default version GET /health"
   assert_json "$body" \
-    'data["app"] == "default-version-app" and data["version"] == "0.1.1" and data["agent_loaded"] == True' \
+    'data["app"] == "default-version-app" and data["version"] == "0.1.1.post1" and data["agent_loaded"] == True' \
     "default version response"
 
   stop_server

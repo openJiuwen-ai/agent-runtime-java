@@ -16,7 +16,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.0.6</version>
+        <version>4.0.7</version>
         <relativePath/>
     </parent>
 
@@ -25,7 +25,7 @@
     </modules>
 
     <properties>
-        <revision>0.1.1</revision>
+        <revision>0.1.1.post1</revision>
         <java.version>17</java.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>

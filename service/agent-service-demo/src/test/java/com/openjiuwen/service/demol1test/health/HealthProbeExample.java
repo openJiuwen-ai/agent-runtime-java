@@ -27,7 +27,7 @@ public class HealthProbeExample {
         SpringApplication application = new SpringApplication(HealthProbeExample.class);
         application.setDefaultProperties(
             Map.of("server.port", "8090", "spring.main.web-application-type", "servlet", "spring.application.name",
-                "health-probe-example", "openjiuwen.service.version", "0.1.1"));
+                "health-probe-example", "openjiuwen.service.version", "0.1.1.post1"));
         application.run(args);
     }
 
