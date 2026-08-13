@@ -14,7 +14,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParser;
+import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.ChunkMapper;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 
 import org.a2aproject.sdk.client.ClientEvent;
@@ -182,8 +184,10 @@ class A2ARemoteAgentClientResultTest {
         verify(observer).onArtifact(updateCaptor.capture());
         assertThat(updateCaptor.getValue().artifact()).isSameAs(answer);
 
+        AgentFailureDescriptor remoteFailure = new AgentFailureDescriptor("MODEL_CALL_FAILED", 181001, false);
         Message failure = Message.builder().role(Message.Role.ROLE_AGENT)
-                .parts(List.<Part<?>>of(new TextPart("declined"))).build();
+                .parts(List.<Part<?>>of(new TextPart("declined")))
+                .metadata(Map.of(A2aErrorMetadata.KEY, A2aErrorMetadata.encode(remoteFailure))).build();
         Task failedTask = Task.builder().id("remote-task").contextId("remote-context")
                 .status(new TaskStatus(TaskState.TASK_STATE_FAILED, failure, null)).artifacts(List.of(answer)).build();
         TaskStatusUpdateEvent statusUpdate = new TaskStatusUpdateEvent("remote-task", failedTask.status(),
@@ -192,6 +196,7 @@ class A2ARemoteAgentClientResultTest {
 
         assertThat(result.getNow(null).remoteState()).isEqualTo(TaskState.TASK_STATE_FAILED);
         assertThat(result.getNow(null).result()).isEqualTo("declined");
+        assertThat(result.getNow(null).remoteFailure()).isEqualTo(remoteFailure);
     }
 
     @Test

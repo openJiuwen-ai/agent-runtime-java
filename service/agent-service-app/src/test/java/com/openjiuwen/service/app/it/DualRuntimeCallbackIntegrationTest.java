@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.it;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -45,7 +46,6 @@ import org.springframework.test.annotation.DirtiesContext;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -100,7 +100,6 @@ class DualRuntimeCallbackIntegrationTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void callerDelegatesToCalleeWaitsForCallbackThenResumesOriginalTask() throws Exception {
         String callbackUrl = "http://127.0.0.1:" + callerPort + "/a2a/push-notifications/callback";
         Map<String, Object> firstBody = json(postA2a(rpc("SendMessage", "dual-runtime-start", Map.of(
@@ -115,61 +114,31 @@ class DualRuntimeCallbackIntegrationTest {
         Map<String, Object> waitingTask = taskFrom(firstBody);
         String taskId = String.valueOf(waitingTask.get("id"));
 
-        assertThat(((Map<String, Object>) waitingTask.get("status")).get("state"))
-            .isEqualTo("TASK_STATE_INPUT_REQUIRED");
+        Task completedTask = awaitCompletedTask(taskId);
 
-        Map<String, Object> readyBatch = awaitReadyRemoteBatch(taskId);
-        List<Map<String, Object>> members = (List<Map<String, Object>>) readyBatch.get("members");
-        assertThat(readyBatch).containsEntry("state", "READY_TO_RESUME");
-        assertThat(members).singleElement().satisfies(member -> assertThat(member)
-            .containsEntry("agentName", "callee")
-            .containsEntry("state", "COMPLETED")
-            .containsEntry("resultCategory", "COMPLETED"));
-        assertThat(String.valueOf(members.get(0).get("result"))).contains("callee result:delegate:start dual runtime");
-
-        Map<String, Object> resumedBody = json(postA2a(rpc("SendMessage", "dual-runtime-resume", Map.of(
-            "message", Map.of(
-                "role", "ROLE_USER",
-                "messageId", "msg-dual-runtime-resume",
-                "taskId", taskId,
-                "contextId", "ctx-dual-runtime",
-                "parts", List.of(Map.of("kind", "text", "text", "continue")))))));
-        Map<String, Object> completedTask = taskFrom(resumedBody);
-
-        assertThat(completedTask.get("id")).isEqualTo(taskId);
-        assertThat(((Map<String, Object>) completedTask.get("status")).get("state"))
-            .isEqualTo("TASK_STATE_COMPLETED");
-        assertThat(allArtifactText(completedTask))
+        assertThat(completedTask.id()).isEqualTo(taskId);
+        assertThat(completedTask.status().state()).isEqualTo(org.a2aproject.sdk.spec.TaskState.TASK_STATE_COMPLETED);
+        assertThat(A2aPartContent.extractTaskResult(completedTask))
             .contains("caller resumed")
             .contains("callee result:delegate:start dual runtime");
+        assertThat(completedTask.history()).allSatisfy(message ->
+                assertThat(A2aPartContent.extract(message.parts())).doesNotContain("continue"));
     }
 
-    private Map<String, Object> awaitReadyRemoteBatch(String taskId) throws Exception {
+    private Task awaitCompletedTask(String taskId) throws Exception {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
-        String shadowTaskId = "shadow:caller-it:" + taskId;
         String lastObserved = "";
         while (Instant.now().isBefore(deadline)) {
-            Task shadow = taskStore.get(shadowTaskId);
-            if (shadow != null && shadow.metadata() != null
-                    && shadow.metadata().get("_remote_batch") instanceof Map<?, ?> batch
-                    && isCompletedBatch(batch)) {
-                Map<String, Object> result = new LinkedHashMap<>();
-                batch.forEach((key, value) -> result.put(String.valueOf(key), value));
-                return result;
+            Task task = taskStore.get(taskId);
+            if (task != null && task.status() != null
+                    && task.status().state() == org.a2aproject.sdk.spec.TaskState.TASK_STATE_COMPLETED) {
+                return task;
             }
-            lastObserved = shadow == null ? "<missing>" : String.valueOf(shadow.metadata());
+            lastObserved = task == null || task.status() == null ? "<missing>" : String.valueOf(task.status().state());
             Thread.sleep(100);
         }
-        throw new AssertionError("remote batch was not recovered for " + shadowTaskId
-            + ", lastObserved=" + lastObserved);
-    }
-
-    private static boolean isCompletedBatch(Map<?, ?> batch) {
-        if (!"READY_TO_RESUME".equals(batch.get("state")) || !(batch.get("members") instanceof List<?> members)) {
-            return false;
-        }
-        return members.stream().allMatch(member -> member instanceof Map<?, ?> item
-                && "COMPLETED".equals(item.get("state")));
+        throw new AssertionError("parent task did not complete automatically: " + taskId
+                + ", lastObserved=" + lastObserved);
     }
 
     private ResponseEntity<String> postA2a(Map<String, Object> body) {
@@ -198,28 +167,6 @@ class DualRuntimeCallbackIntegrationTest {
             return (Map<String, Object>) result.get("task");
         }
         return result;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static String allArtifactText(Map<String, Object> task) {
-        var artifacts = (List<Map<String, Object>>) task.get("artifacts");
-        if (artifacts == null || artifacts.isEmpty()) {
-            return "";
-        }
-        StringBuilder text = new StringBuilder();
-        for (Map<String, Object> artifact : artifacts) {
-            var parts = (List<Map<String, Object>>) artifact.get("parts");
-            if (parts == null) {
-                continue;
-            }
-            for (Map<String, Object> part : parts) {
-                Object value = part.get("text");
-                if (value instanceof String item) {
-                    text.append(item);
-                }
-            }
-        }
-        return text.toString();
     }
 
     private static AgentCard card(int port) {

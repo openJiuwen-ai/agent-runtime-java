@@ -45,6 +45,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * Runtime-owned fan-out/fan-in coordinator for remote-agent tool-call batches.
@@ -102,6 +103,8 @@ final class RemoteInvocationBatchCoordinator {
 
     private final RemoteInvocationCoordinatorState state;
 
+    private final Consumer<ServeRequest> continuation;
+
     /**
      * Creates a coordinator with a global bounded dispatcher.
      *
@@ -114,6 +117,12 @@ final class RemoteInvocationBatchCoordinator {
      */
     RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId, int maxConcurrency,
             int maxQueueSize, long queueTimeoutSeconds) {
+        this(taskStore, client, agentId, maxConcurrency, maxQueueSize, queueTimeoutSeconds, request -> {
+        });
+    }
+
+    RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId, int maxConcurrency,
+            int maxQueueSize, long queueTimeoutSeconds, Consumer<ServeRequest> continuation) {
         if (maxConcurrency <= 0) {
             throw new IllegalArgumentException("maxConcurrency must be greater than zero");
         }
@@ -128,6 +137,7 @@ final class RemoteInvocationBatchCoordinator {
         this.agentId = agentId == null || agentId.isBlank() ? "agent" : agentId;
         this.queueTimeout = Duration.ofSeconds(queueTimeoutSeconds);
         this.state = new RemoteInvocationCoordinatorState(maxConcurrency, maxQueueSize, queueTimeout);
+        this.continuation = continuation;
     }
 
     /**
@@ -234,6 +244,11 @@ final class RemoteInvocationBatchCoordinator {
         ServeRequest request = new ServeRequest();
         request.setConversationId(shadow.contextId());
         request.setMetadata(parentTaskId.isBlank() ? Map.of() : Map.of(PARENT_TASK_ID, parentTaskId));
+        request = batchMapper.continuationRequest(rawBatch, request);
+        Map<String, Object> requestMetadata = new LinkedHashMap<>(request.getMetadata());
+        requestMetadata.put(PARENT_TASK_ID, parentTaskId);
+        requestMetadata.put(REMOTE_BATCH_ID, stringValue(rawBatch.get("batchId")));
+        request.setMetadata(requestMetadata);
         RemoteInvocationBatch batch = batchMapper.restore(rawBatch, request, parentTaskId,
                 new SerialQueryStreamObserver(NOOP_OBSERVER));
         Optional<Member> matched = batch.members.stream().filter(member -> task.id().equals(member.remoteTaskId))
@@ -246,8 +261,16 @@ final class RemoteInvocationBatchCoordinator {
             return true;
         }
         batchMapper.applyOutcome(member, batchMapper.callbackOutcome(task), null);
-        saveShadow(batch, batchMapper.shadowState(batch));
+        String shadowState = batchMapper.shadowState(batch);
+        saveShadow(batch, shadowState);
+        if ("READY_TO_RESUME".equals(shadowState)) {
+            submitContinuation(batch.request);
+        }
         return true;
+    }
+
+    private void submitContinuation(ServeRequest request) {
+        continuation.accept(request);
     }
 
     private Optional<CompletableFuture<BatchResolution>> resumeReadyBatch(RemoteInvocationBatch batch,

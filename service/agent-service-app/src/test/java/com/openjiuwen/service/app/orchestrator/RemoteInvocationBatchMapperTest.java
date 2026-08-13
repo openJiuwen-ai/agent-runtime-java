@@ -9,12 +9,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
+import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.Message;
@@ -121,6 +124,36 @@ class RemoteInvocationBatchMapperTest {
                                 "agent-call-b")),
                 Map.of("index", 0, "toolCallId", "call-c", "toolName", "tool-call-c", "agentName", "agent-call-c",
                         "state", "INPUT_REQUIRED", "inputPrompt", "input-c"));
+    }
+
+    @Test
+    void continuationRequestSurvivesTaskStoreSerialization() {
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("conversation-persisted");
+        request.setStream(false);
+        request.setUserId("user-1");
+        request.setSpaceId("space-1");
+        request.setTenantId("tenant-1");
+        request.setMessages(List.of(Map.of("role", "user", "content", "delegate")));
+        request.setMetadata(Map.of("traceId", "trace-1"));
+        RemoteInvocationBatch batch = new RemoteInvocationBatch("batch-persisted", "parent-persisted", request,
+                observer(), List.of(member("call-a")), true);
+        Map<String, Object> snapshot = mapper.snapshot(batch, "READY_TO_RESUME");
+        Task shadow = Task.builder().id("shadow:test:parent-persisted").contextId(request.getConversationId())
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
+                .metadata(Map.of("_remote_batch", snapshot)).build();
+
+        Task restoredShadow = JsonUtil.OBJECT_MAPPER.fromJson(JsonUtil.OBJECT_MAPPER.toJson(shadow), Task.class);
+        Map<?, ?> restoredSnapshot = (Map<?, ?>) restoredShadow.metadata().get("_remote_batch");
+        ServeRequest restored = mapper.continuationRequest(restoredSnapshot, new ServeRequest());
+
+        assertThat(restored.getConversationId()).isEqualTo("conversation-persisted");
+        assertThat(restored.isStream()).isFalse();
+        assertThat(restored.getUserId()).isEqualTo("user-1");
+        assertThat(restored.getSpaceId()).isEqualTo("space-1");
+        assertThat(restored.getTenantId()).isEqualTo("tenant-1");
+        assertThat(restored.getMessages()).containsExactly(Map.of("role", "user", "content", "delegate"));
+        assertThat(restored.getMetadata()).containsExactlyEntriesOf(Map.of("traceId", "trace-1"));
     }
 
     @Test
@@ -254,6 +287,44 @@ class RemoteInvocationBatchMapperTest {
         assertThat(outcome.remoteState()).isNull();
         assertThat(outcome.resultCategory()).isEqualTo("REMOTE_PROTOCOL_ERROR");
         assertThat(outcome.result()).isEmpty();
+    }
+
+    @Test
+    void callbackOutcomeKeepsCoarseAndSpecificErrors() {
+        AgentFailureDescriptor remoteFailure = new AgentFailureDescriptor("MODEL_CALL_FAILED", 181001, false);
+        Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart("model failed")))
+                .metadata(Map.of(A2aErrorMetadata.KEY, A2aErrorMetadata.encode(remoteFailure))).build();
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_FAILED, message, null)).build();
+
+        RemoteCallOutcome outcome = mapper.callbackOutcome(task);
+        Member member = member("call-a");
+        mapper.applyOutcome(member, outcome, null);
+        Object toolResult = mapper.resolution(batch(List.of(member), true)).results().get("call-a");
+
+        assertThat(outcome.resultCategory()).isEqualTo("REMOTE_BUSINESS_FAILURE");
+        assertThat(outcome.remoteFailure()).isEqualTo(remoteFailure);
+        assertThat(toolResult).isInstanceOfSatisfying(Map.class, result -> {
+            assertThat(result).containsEntry("code", "REMOTE_BUSINESS_FAILURE");
+            assertThat(result).containsEntry("remoteError", A2aErrorMetadata.encode(remoteFailure));
+        });
+    }
+
+    @Test
+    void legacyFailedCallbackKeepsTextOnlyFallback() {
+        Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(List.of(new TextPart("declined")))
+                .build();
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_FAILED, message, null)).build();
+
+        RemoteCallOutcome outcome = mapper.callbackOutcome(task);
+        Member member = member("call-a");
+        mapper.applyOutcome(member, outcome, null);
+
+        assertThat(outcome.remoteFailure()).isNull();
+        assertThat(mapper.resolution(batch(List.of(member), true)).results().get("call-a"))
+                .isEqualTo(Map.of("ok", false, "code", "REMOTE_BUSINESS_FAILURE", "message", "declined",
+                        "remoteAgentId", "agent-call-a"));
     }
 
     private static Map<String, Object> interruptMember(int index, String toolCallId, boolean shouldResume) {

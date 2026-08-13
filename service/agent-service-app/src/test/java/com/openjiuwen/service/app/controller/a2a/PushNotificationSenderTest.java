@@ -153,6 +153,34 @@ class PushNotificationSenderTest {
     }
 
     @Test
+    void terminalTaskWaitsOnceForLatePushConfigWithoutDuplicateDelivery() throws Exception {
+        CountDownLatch received = new CountDownLatch(1);
+        AtomicInteger requests = new AtomicInteger();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/a2a/push-notifications/callback", exchange -> {
+            requests.incrementAndGet();
+            respond(exchange, 200, "{}");
+            received.countDown();
+        });
+        server.start();
+        InMemoryPushNotificationConfigStore store = new InMemoryPushNotificationConfigStore();
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(store,
+                HttpPushNotificationSender.newDefaultHttpClient(), Duration.ofMillis(100));
+        Task task = task("task-late-config", TaskState.TASK_STATE_FAILED);
+        TaskStatusUpdateEvent event = statusEvent("task-late-config", TaskState.TASK_STATE_FAILED);
+
+        sender.sendNotification(event, task);
+        sender.sendNotification(event, task);
+        Thread.sleep(50);
+        store.setInfo(TaskPushNotificationConfig.builder().id("push-late-config").taskId("task-late-config")
+                .url(callbackUrl()).build());
+
+        assertThat(received.await(2, TimeUnit.SECONDS)).isTrue();
+        Thread.sleep(100);
+        assertThat(requests.get()).isEqualTo(1);
+    }
+
+    @Test
     void senderCallbackBodyIsAcceptedByReceiver() {
         A2AProperties properties = new A2AProperties();
         HttpPushNotificationSender sender = new HttpPushNotificationSender(new InMemoryPushNotificationConfigStore());

@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallback;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
@@ -104,11 +105,19 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
         RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
         int maxConcurrency, int maxQueueSize, long queueTimeoutSeconds) {
+        this(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId, maxConcurrency, maxQueueSize,
+                queueTimeoutSeconds, null);
+    }
+
+    public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
+        RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
+        int maxConcurrency, int maxQueueSize, long queueTimeoutSeconds, A2ATaskContinuation continuation) {
         this.agentHandler = agentHandler;
         this.taskStore = taskStore;
         this.streamRegistry = streamRegistry;
         this.batchCoordinator = new RemoteInvocationBatchCoordinator(taskStore, remoteAgentCaller, agentId,
-            maxConcurrency, maxQueueSize, queueTimeoutSeconds);
+            maxConcurrency, maxQueueSize, queueTimeoutSeconds,
+            continuation == null ? request -> { } : continuation::submit);
     }
 
     @Override

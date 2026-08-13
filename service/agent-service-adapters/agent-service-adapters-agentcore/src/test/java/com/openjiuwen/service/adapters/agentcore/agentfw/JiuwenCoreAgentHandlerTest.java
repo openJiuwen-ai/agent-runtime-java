@@ -5,10 +5,13 @@
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.openjiuwen.core.common.exception.BaseError;
+import com.openjiuwen.core.common.exception.StatusCode;
 import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
@@ -27,9 +30,11 @@ import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.core.workflow.WorkflowOutput;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.junit.jupiter.api.Test;
@@ -146,6 +151,18 @@ class JiuwenCoreAgentHandlerTest {
         });
         assertThat(failure.get()).isInstanceOf(IllegalStateException.class).hasMessage("Connection refused");
         assertThat(completed.get()).isFalse();
+    }
+
+    @Test
+    void queryPreservesCoreBaseErrorDescriptor() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new FailingInvokeAgent());
+
+        assertThatThrownBy(() -> handler.query(request("c-core-error", "fail")))
+                .isInstanceOfSatisfying(AgentExecutionException.class, failure -> {
+                    assertThat(failure).hasMessage("model unavailable");
+                    assertThat(failure.getDescriptor()).isEqualTo(
+                            new AgentFailureDescriptor("MODEL_CALL_FAILED", 181001, false));
+                });
     }
 
     @Test
@@ -786,6 +803,20 @@ class JiuwenCoreAgentHandlerTest {
             return List.<Object>of(
                     new OutputSchema("error", 0, Map.of("output", "Connection refused", "result_type", "error")))
                     .iterator();
+        }
+    }
+
+    /** Test agent that raises a structured AgentCore error. */
+    public static class FailingInvokeAgent {
+        /**
+         * Fails synchronously with a stable Core status.
+         *
+         * @param inputs inputs
+         * @param session session
+         * @return never returns
+         */
+        public Object invoke(Object inputs, Session session) {
+            throw new BaseError(StatusCode.MODEL_CALL_FAILED, "model unavailable", null, null);
         }
     }
 
