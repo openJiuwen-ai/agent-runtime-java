@@ -16,8 +16,14 @@ public record ConcurrentLoadConfig(String mode, String baseUrl, String a2aBaseUr
     boolean stream, int warmupSessions, Duration requestTimeout, double minSuccessRate, int lookupDelayMs,
     int roundsPerSession) {
 
+    /** System property prefix for load runner settings. */
     public static final String PROP_PREFIX = "demo.concurrency.";
 
+    /**
+     * Builds configuration from {@code demo.concurrency.*} properties and env vars.
+     *
+     * @return resolved load configuration
+     */
     public static ConcurrentLoadConfig fromEnvironment() {
         return new ConcurrentLoadConfig(string("mode", "query"), string("base-url", "http://localhost:8096"),
             string("a2a-base-url", "http://localhost:18090"), integer("sessions", 20), integer("concurrency", 10),
@@ -25,10 +31,20 @@ public record ConcurrentLoadConfig(String mode, String baseUrl, String a2aBaseUr
             doubleValue("min-success-rate", 0.95D), integer("lookup-delay-ms", 50), integer("rounds-per-session", 2));
     }
 
+    /**
+     * Whether query-mode load should run.
+     *
+     * @return {@code true} when mode is {@code query} or {@code both}
+     */
     public boolean isQueryMode() {
         return "query".equalsIgnoreCase(mode) || "both".equalsIgnoreCase(mode);
     }
 
+    /**
+     * Whether A2A-mode load should run.
+     *
+     * @return {@code true} when mode is {@code a2a} or {@code both}
+     */
     public boolean isA2aMode() {
         return "a2a".equalsIgnoreCase(mode) || "both".equalsIgnoreCase(mode);
     }

@@ -13,9 +13,9 @@ import com.openjiuwen.service.demo.example.concurrency.mock.ConcurrencyDemoLlmSu
 import com.openjiuwen.service.demo.example.support.ExampleDeepAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
@@ -36,6 +36,7 @@ public class ConcurrencyDemoApplication {
 
     private static final Logger LOG = LoggerFactory.getLogger(ConcurrencyDemoApplication.class);
 
+    /** System property / env override for DeepAgent task-loop enablement. */
     static final String ENABLE_TASK_LOOP_PROPERTY = "demo.concurrency.enable-task-loop";
 
     public static void main(String[] args) {

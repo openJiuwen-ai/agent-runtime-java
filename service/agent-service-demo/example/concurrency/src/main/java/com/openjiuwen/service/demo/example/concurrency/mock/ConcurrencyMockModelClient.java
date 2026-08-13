@@ -30,7 +30,15 @@ import java.util.concurrent.TimeUnit;
 public final class ConcurrencyMockModelClient extends BaseModelClient {
     private final long delayMs;
 
-    public ConcurrencyMockModelClient(ModelRequestConfig modelConfig, ModelClientConfig modelClientConfig, long delayMs) {
+    /**
+     * Creates a mock client with fixed invoke/stream latency.
+     *
+     * @param modelConfig model request configuration
+     * @param modelClientConfig transport configuration
+     * @param delayMs fixed delay applied on each LLM call
+     */
+    public ConcurrencyMockModelClient(ModelRequestConfig modelConfig, ModelClientConfig modelClientConfig,
+        long delayMs) {
         super(modelConfig, modelClientConfig);
         this.delayMs = Math.max(0L, delayMs);
     }

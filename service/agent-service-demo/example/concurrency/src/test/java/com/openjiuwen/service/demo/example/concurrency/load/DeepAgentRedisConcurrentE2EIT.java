@@ -13,9 +13,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 /**
  * External E2E concurrent load against a running concurrency demo service.
  *
- * <p>
- * Requires LLM + Redis and a running service:
- * </p>
+ * <p>Requires LLM + Redis and a running service:</p>
  *
  * <pre>
  * mvn -pl agent-service-demo/example/concurrency -am spring-boot:run

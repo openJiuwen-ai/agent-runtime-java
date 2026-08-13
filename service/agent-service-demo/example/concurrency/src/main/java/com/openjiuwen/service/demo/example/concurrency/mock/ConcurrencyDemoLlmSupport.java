@@ -20,25 +20,36 @@ import org.springframework.stereotype.Component;
 @Component
 public class ConcurrencyDemoLlmSupport {
     private static final Logger LOG = LoggerFactory.getLogger(ConcurrencyDemoLlmSupport.class);
-
     private static final String MODE_PROPERTY = "demo.concurrency.llm.mode";
-
     private static final String DELAY_PROPERTY = "demo.concurrency.llm.mock-delay-ms";
-
     private static final String SPRING_MODE_PROPERTY = "openjiuwen.service.demo.concurrency.llm.mode";
-
     private static final String SPRING_DELAY_PROPERTY = "openjiuwen.service.demo.concurrency.llm.mock-delay-ms";
 
     private final Environment environment;
 
+    /**
+     * Creates support bean bound to the Spring environment.
+     *
+     * @param environment Spring environment for property lookup
+     */
     public ConcurrencyDemoLlmSupport(Environment environment) {
         this.environment = environment;
     }
 
+    /**
+     * Returns whether the demo should use the registered mock LLM provider.
+     *
+     * @return {@code true} when mode resolves to {@code mock}
+     */
     public boolean isMockMode() {
         return "mock".equalsIgnoreCase(resolveMode());
     }
 
+    /**
+     * Returns configured per-call mock LLM latency.
+     *
+     * @return delay in milliseconds
+     */
     public long mockDelayMs() {
         return parseLong(firstNonBlank(
             System.getProperty(DELAY_PROPERTY),

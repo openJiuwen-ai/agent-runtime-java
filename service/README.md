@@ -58,4 +58,4 @@ mvn -pl agent-service-demo -am spring-boot:run
 
 ## 版本
 
-与仓库根 `agent-runtime-java` 版本一致（当前 `0.1.1`）。
+与仓库根 `agent-runtime-java` 版本一致（当前 `0.1.1.post1`）。

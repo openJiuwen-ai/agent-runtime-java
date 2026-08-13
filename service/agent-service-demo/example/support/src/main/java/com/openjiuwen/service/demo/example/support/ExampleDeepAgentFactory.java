@@ -71,7 +71,18 @@ public final class ExampleDeepAgentFactory {
     /**
      * Builds a DeepAgent with optional task-loop and custom rails.
      *
-     * @param enableTaskLoop when {@code true}, invoke/stream use DeepAgent task-loop orchestration
+     * @param agentId
+     *            the agent id
+     * @param name
+     *            the agent display name
+     * @param description
+     *            the agent description
+     * @param config
+     *            the resolved LLM and prompt configuration
+     * @param rails
+     *            the rails to register on the agent
+     * @param enableTaskLoop
+     *            when {@code true}, invoke/stream use DeepAgent task-loop orchestration
      * @return a configured DeepAgent
      */
     public static DeepAgent build(String agentId, String name, String description, ResolvedLlmConfig config,

@@ -17,6 +17,11 @@ import com.openjiuwen.core.foundation.llm.schema.ModelRequestConfig;
 public final class ConcurrencyMockModelClientFactory implements Model.ModelClientFactory {
     private final long delayMs;
 
+    /**
+     * Creates a factory that applies the given mock latency to each client.
+     *
+     * @param delayMs fixed delay in milliseconds
+     */
     public ConcurrencyMockModelClientFactory(long delayMs) {
         this.delayMs = delayMs;
     }

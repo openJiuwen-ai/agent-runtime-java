@@ -102,7 +102,7 @@ class DemoAgentApplicationTest {
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
         assertThat(json).containsEntry("status", "healthy");
         assertThat(json).containsEntry("app", "demo-agent-service");
-        assertThat(json).containsEntry("version", "0.1.1");
+        assertThat(json).containsEntry("version", "0.1.1.post1");
         assertThat(json).containsEntry("process_up", true);
         assertThat(json).containsEntry("agent_loaded", true);
     }

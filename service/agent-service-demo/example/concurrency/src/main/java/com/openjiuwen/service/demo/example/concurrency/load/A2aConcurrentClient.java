@@ -4,7 +4,6 @@
 
 package com.openjiuwen.service.demo.example.concurrency.load;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.URI;
@@ -26,21 +25,39 @@ public final class A2aConcurrentClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient;
-
     private final URI baseUri;
-
     private final Duration timeout;
 
+    /**
+     * Creates a client targeting the given A2A base URL.
+     *
+     * @param baseUrl service root URL (without trailing slash)
+     * @param timeout per-request timeout
+     */
     public A2aConcurrentClient(String baseUrl, Duration timeout) {
         this.baseUri = URI.create(trimTrailingSlash(baseUrl));
         this.timeout = timeout;
         this.httpClient = HttpClient.newBuilder().connectTimeout(timeout).build();
     }
 
+    /**
+     * Sends a non-streaming {@code SendMessage} JSON-RPC request.
+     *
+     * @param contextId A2A conversation/context identifier
+     * @param text user message text
+     * @return request result with latency and payload or error
+     */
     public A2aResult sendMessage(String contextId, String text) {
         return invoke("SendMessage", contextId, text, false);
     }
 
+    /**
+     * Sends a streaming {@code SendStreamingMessage} JSON-RPC request.
+     *
+     * @param contextId A2A conversation/context identifier
+     * @param text user message text
+     * @return request result with latency and aggregated SSE payload or error
+     */
     public A2aResult sendStreamingMessage(String contextId, String text) {
         return invoke("SendStreamingMessage", contextId, text, true);
     }
@@ -77,6 +94,11 @@ public final class A2aConcurrentClient {
         }
     }
 
+    /**
+     * Probes {@code GET /health} on the configured base URL.
+     *
+     * @return {@code true} when HTTP 200 is returned
+     */
     public boolean healthReady() {
         try {
             HttpRequest request = HttpRequest.newBuilder().uri(baseUri.resolve("/health")).timeout(timeout).GET()
@@ -117,6 +139,14 @@ public final class A2aConcurrentClient {
         return value.length() <= 240 ? value : value.substring(0, 240) + "...";
     }
 
+    /**
+     * Result of a single A2A HTTP call.
+     *
+     * @param success whether the call succeeded
+     * @param latencyMs observed latency in milliseconds
+     * @param payload response body on success
+     * @param error error message on failure
+     */
     public record A2aResult(boolean success, long latencyMs, String payload, String error) {
         static A2aResult success(long latencyMs, String payload) {
             return new A2aResult(true, latencyMs, payload, null);

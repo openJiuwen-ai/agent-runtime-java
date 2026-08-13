@@ -122,7 +122,7 @@ Orchestrator 检测到此 chunk 后调远端 Agent，根据结果决定 resume �
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-spec</artifactId>
-    <version>0.1.1</version>
+    <version>0.1.1.post1</version>
 </dependency>
 ```
 

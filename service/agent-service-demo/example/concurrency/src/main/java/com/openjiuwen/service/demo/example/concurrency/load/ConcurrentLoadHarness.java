@@ -23,6 +23,12 @@ public final class ConcurrentLoadHarness {
     private ConcurrentLoadHarness() {
     }
 
+    /**
+     * Runs multi-session concurrent load against {@code /v1/query}.
+     *
+     * @param config load configuration
+     * @return collected metrics for the run
+     */
     public static ConcurrentLoadMetrics runQueryLoad(ConcurrentLoadConfig config) {
         QueryConcurrentClient probe = new QueryConcurrentClient(config.baseUrl(), config.requestTimeout());
         if (!probe.healthReady()) {
@@ -65,6 +71,12 @@ public final class ConcurrentLoadHarness {
         return metrics;
     }
 
+    /**
+     * Runs multi-session concurrent load against an A2A endpoint.
+     *
+     * @param config load configuration
+     * @return collected metrics for the run
+     */
     public static ConcurrentLoadMetrics runA2aLoad(ConcurrentLoadConfig config) {
         A2aConcurrentClient probe = new A2aConcurrentClient(config.a2aBaseUrl(), config.requestTimeout());
         if (!probe.healthReady()) {

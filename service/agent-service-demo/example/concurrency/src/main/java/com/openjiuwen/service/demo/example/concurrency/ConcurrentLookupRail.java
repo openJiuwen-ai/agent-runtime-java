@@ -28,6 +28,7 @@ public class ConcurrentLookupRail extends BaseInterruptRail {
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
     }.getType();
 
+    /** Registered tool name for the concurrent lookup rail. */
     public static final String TOOL_NAME = "concurrent_lookup";
 
     static final String RESULT_PREFIX = "LOOKUP:";

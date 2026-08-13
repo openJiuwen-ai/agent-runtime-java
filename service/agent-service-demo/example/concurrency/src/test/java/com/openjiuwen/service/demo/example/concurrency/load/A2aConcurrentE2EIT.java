@@ -13,9 +13,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 /**
  * External E2E concurrent load against running A2A Agent A.
  *
- * <p>
- * Start four A2A agents first (see example/a2a/README.md), optionally with Redis overlay:
- * </p>
+ * <p>Start four A2A agents first (see example/a2a/README.md), optionally with Redis overlay:</p>
  *
  * <pre>
  * mvn -pl agent-service-demo/example/concurrency -am test \

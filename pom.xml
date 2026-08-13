@@ -25,7 +25,7 @@
     </modules>
 
     <properties>
-        <revision>0.1.1</revision>
+        <revision>0.1.1.post1</revision>
         <java.version>17</java.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>

@@ -28,6 +28,7 @@ public class SkillEchoRail extends BaseInterruptRail {
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
     }.getType();
 
+    /** Registered tool name for the skill echo rail. */
     public static final String TOOL_NAME = "skill_echo";
 
     static final String RESULT_PREFIX = "ECHO:";

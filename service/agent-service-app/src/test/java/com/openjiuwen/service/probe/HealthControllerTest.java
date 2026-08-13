@@ -27,7 +27,7 @@ class HealthControllerTest {
 
         assertThat(response.getStatus()).isEqualTo("healthy");
         assertThat(response.getApp()).isEqualTo("agent-service");
-        assertThat(response.getVersion()).isEqualTo("0.1.1");
+        assertThat(response.getVersion()).isEqualTo("0.1.1.post1");
         assertThat(response.isProcessUp()).isTrue();
         assertThat(response.isAgentLoaded()).isTrue();
     }

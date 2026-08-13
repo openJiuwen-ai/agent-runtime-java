@@ -127,7 +127,7 @@ curl -s http://localhost:8090/health
 {
   "status": "healthy",
   "app": "demo-agent-service",
-  "version": "0.1.1",
+  "version": "0.1.1.post1",
   "process_up": true,
   "agent_loaded": true
 }
@@ -189,12 +189,12 @@ curl -s http://localhost:8090/v1/reset_conversation \
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-app</artifactId>
-    <version>0.1.1</version>
+    <version>0.1.1.post1</version>
 </dependency>
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-adapters-agentcore</artifactId>
-    <version>0.1.1</version>
+    <version>0.1.1.post1</version>
 </dependency>
 ```
 
@@ -231,7 +231,7 @@ spring:
 
 openjiuwen:
   service:
-    version: 0.1.1
+    version: 0.1.1.post1
     handler: agentcore
     agent-id: my-registered-agent-id
     query:

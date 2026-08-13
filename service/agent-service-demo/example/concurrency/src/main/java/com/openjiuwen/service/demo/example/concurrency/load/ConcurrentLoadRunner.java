@@ -7,9 +7,7 @@ package com.openjiuwen.service.demo.example.concurrency.load;
 /**
  * CLI entry for DeepAgent + Redis + A2A concurrent load validation.
  *
- * <p>
- * Example:
- * </p>
+ * <p>Example:</p>
  *
  * <pre>
  * mvn -pl agent-service-demo/example/concurrency -am exec:java \

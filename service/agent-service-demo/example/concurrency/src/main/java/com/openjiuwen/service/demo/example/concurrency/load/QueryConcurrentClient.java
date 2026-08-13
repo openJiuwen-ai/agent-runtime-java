@@ -13,7 +13,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 
@@ -26,11 +25,15 @@ public final class QueryConcurrentClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient;
-
     private final URI baseUri;
-
     private final Duration timeout;
 
+    /**
+     * Creates a client with a bounded async executor for concurrent SSE calls.
+     *
+     * @param baseUrl service root URL (without trailing slash)
+     * @param timeout per-request timeout
+     */
     public QueryConcurrentClient(String baseUrl, Duration timeout) {
         this.baseUri = URI.create(trimTrailingSlash(baseUrl));
         this.timeout = timeout;
@@ -45,14 +48,40 @@ public final class QueryConcurrentClient {
             .build();
     }
 
+    /**
+     * Invokes the {@code skill_echo} scenario through {@code /v1/query}.
+     *
+     * @param conversationId stable conversation identifier
+     * @param token echo token expected in the response
+     * @param stream whether to use SSE streaming
+     * @return request result with latency and content or error
+     */
     public QueryResult skillEcho(String conversationId, String token, boolean stream) {
         return query(conversationId, "skill_echo:" + token, stream, token);
     }
 
+    /**
+     * Invokes the {@code concurrent_lookup} scenario through {@code /v1/query}.
+     *
+     * @param conversationId stable conversation identifier
+     * @param key lookup key expected in the response
+     * @param delayMs simulated lookup delay passed to the agent
+     * @param stream whether to use SSE streaming
+     * @return request result with latency and content or error
+     */
     public QueryResult lookup(String conversationId, String key, int delayMs, boolean stream) {
         return query(conversationId, "lookup:" + key + " delayMs=" + delayMs, stream, key);
     }
 
+    /**
+     * Sends a generic query request and optionally validates a response marker.
+     *
+     * @param conversationId stable conversation identifier
+     * @param message user message body
+     * @param stream whether to use SSE streaming
+     * @param expectedMarker substring that must appear in the response content
+     * @return request result with latency and content or error
+     */
     public QueryResult query(String conversationId, String message, boolean stream, String expectedMarker) {
         long started = System.nanoTime();
         try {
@@ -82,6 +111,11 @@ public final class QueryConcurrentClient {
         }
     }
 
+    /**
+     * Probes {@code GET /health} on the configured base URL.
+     *
+     * @return {@code true} when HTTP 200 is returned
+     */
     public boolean healthReady() {
         try {
             HttpRequest request = HttpRequest.newBuilder().uri(baseUri.resolve("/health")).timeout(timeout).GET()
@@ -143,6 +177,14 @@ public final class QueryConcurrentClient {
         return value.length() <= 240 ? value : value.substring(0, 240) + "...";
     }
 
+    /**
+     * Result of a single query HTTP call.
+     *
+     * @param success whether the call succeeded
+     * @param latencyMs observed latency in milliseconds
+     * @param content extracted agent response content on success
+     * @param error error message on failure
+     */
     public record QueryResult(boolean success, long latencyMs, String content, String error) {
         static QueryResult success(long latencyMs, String content) {
             return new QueryResult(true, latencyMs, content, null);
