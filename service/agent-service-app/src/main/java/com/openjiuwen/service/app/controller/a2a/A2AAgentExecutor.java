@@ -30,6 +30,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -105,7 +107,6 @@ public class A2AAgentExecutor implements AgentExecutor {
         executeRequest(ctx, A2AMessageContext.from(ctx), request, emitter, false);
     }
 
-    @SuppressWarnings("G.ERR.02")
     private void executeRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
             boolean isNewTask) {
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
@@ -116,15 +117,29 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
         emitter.startWork();
 
-        try {
+        FutureTask<Void> execution = new FutureTask<>(() -> {
             if (req.isStream()) {
                 executeStreaming(msgCtx, ctx, req, emitter);
             } else {
                 executeQuery(msgCtx, ctx, req, emitter);
             }
-        } catch (RuntimeException failure) {
-            log.error("Agent execution failed for contextId={}", ctx.getContextId(), failure);
-            failAndDrain(emitter, msgCtx, failure);
+            return null;
+        });
+        execution.run();
+        try {
+            execution.get();
+        } catch (InterruptedException failure) {
+            throw new IllegalStateException("A2A execution interrupted", failure);
+        } catch (ExecutionException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            RuntimeException runtimeFailure = cause instanceof RuntimeException runtimeException
+                    ? runtimeException
+                    : new IllegalStateException("Unexpected A2A execution failure", cause);
+            log.error("Agent execution failed for contextId={}", ctx.getContextId(), runtimeFailure);
+            failAndDrain(emitter, msgCtx, runtimeFailure);
         }
     }
 

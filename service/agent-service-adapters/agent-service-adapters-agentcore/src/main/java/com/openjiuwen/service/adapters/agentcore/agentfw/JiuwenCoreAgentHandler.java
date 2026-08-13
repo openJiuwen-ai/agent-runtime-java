@@ -44,6 +44,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -257,16 +259,28 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     @Override
-    @SuppressWarnings("G.ERR.02")
     public QueryResponse query(ServeRequest request) {
-        try {
+        FutureTask<QueryResponse> execution = new FutureTask<>(() -> {
             if (supportsInvoke(agent)) {
                 Object rawResult = Runner.runAgent(agent, buildInputs(request), runnerSession(request), null);
                 return toQueryResponse(rawResult, request.getConversationId());
             }
             return queryViaStreaming(request);
-        } catch (RuntimeException failure) {
-            throw structuredFailure(failure);
+        });
+        execution.run();
+        try {
+            return execution.get();
+        } catch (InterruptedException failure) {
+            throw new IllegalStateException("Agent-core query interrupted", failure);
+        } catch (ExecutionException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) {
+                throw structuredFailure(runtimeFailure);
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("Unexpected agent-core query failure", cause);
         }
     }
 
