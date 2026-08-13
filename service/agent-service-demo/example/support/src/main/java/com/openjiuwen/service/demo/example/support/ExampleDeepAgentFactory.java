@@ -65,6 +65,17 @@ public final class ExampleDeepAgentFactory {
      */
     public static DeepAgent build(String agentId, String name, String description, ResolvedLlmConfig config,
         List<Object> rails) {
+        return build(agentId, name, description, config, rails, true);
+    }
+
+    /**
+     * Builds a DeepAgent with optional task-loop and custom rails.
+     *
+     * @param enableTaskLoop when {@code true}, invoke/stream use DeepAgent task-loop orchestration
+     * @return a configured DeepAgent
+     */
+    public static DeepAgent build(String agentId, String name, String description, ResolvedLlmConfig config,
+        List<Object> rails, boolean enableTaskLoop) {
         String workspacePath = WORKSPACE_ROOT + "/" + agentId;
         DeepAgentConfig agentConfig = DeepAgentConfig.builder()
             .systemPrompt(config.getSystemPrompt())
@@ -74,7 +85,7 @@ public final class ExampleDeepAgentFactory {
             .rails(rails)
             .model(buildModel(config))
             .restrictToWorkDir(true)
-            .enableTaskLoop(true)
+            .enableTaskLoop(enableTaskLoop)
             .enableTaskPlanning(false)
             .addGeneralPurposeAgent(false)
             .build();

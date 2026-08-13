@@ -37,7 +37,7 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -113,7 +113,7 @@ public class QueryMvcController {
 
     private SseEmitter streamResponse(ServeOrchestrator orchestrator,
             com.openjiuwen.service.spec.dto.ServeRequest serveRequest,
-            jakarta.servlet.http.HttpServletResponse response) {
+            jakarta.servlet.http.HttpServletResponse response) throws IOException {
         response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE);
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
         response.setHeader(HttpHeaders.CONNECTION, "keep-alive");
@@ -126,7 +126,13 @@ public class QueryMvcController {
             emitter.complete();
         });
         emitter.onError(error -> cancelled.set(true));
-        CompletableFuture.runAsync(() -> streamToEmitter(orchestrator, serveRequest, emitter, cancelled));
+        try {
+            QuerySsePumpExecutor.execute(() -> streamToEmitter(orchestrator, serveRequest, emitter, cancelled));
+        } catch (RejectedExecutionException ex) {
+            log.warn("SSE pump pool saturated for conversation_id={}", serveRequest.getConversationId());
+            writeJson(response, HttpStatus.SERVICE_UNAVAILABLE.value(), QueryIngressSupport.streamPumpSaturated());
+            return null;
+        }
         return emitter;
     }
 

@@ -141,6 +141,19 @@ public final class QueryIngressSupport {
     }
 
     /**
+     * Returns a standard error body when the SSE pump thread pool is saturated.
+     *
+     * @return the error body map
+     */
+    public static Map<String, Object> streamPumpSaturated() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("type", "error");
+        body.put("code", "STREAM_PUMP_SATURATED");
+        body.put("error", "stream pump pool saturated");
+        return body;
+    }
+
+    /**
      * Returns the stable error contract for a synchronous agent execution failure.
      *
      * @param conversationId the conversation identifier

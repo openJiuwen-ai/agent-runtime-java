@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: demo-concurrency-agent-service
+  config:
+    import:
+      - optional:classpath:application-base.yml
+      - optional:classpath:application-base_local.yml
+      - optional:classpath:application-concurrency.yml

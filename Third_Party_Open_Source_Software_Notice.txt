@@ -370,7 +370,7 @@ License: Apache License Version 2.0
 Copyright: VMware, Inc. and Project Reactor contributors
 Please see above for the full Apache License Version 2.0 text.
 
-Software: Spring Boot 4.0.6
+Software: Spring Boot 4.0.7
 
 License: Apache License Version 2.0
 Copyright (c) 2012-2025 VMware, Inc. and contributors
