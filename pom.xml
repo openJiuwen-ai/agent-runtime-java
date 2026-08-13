@@ -36,6 +36,50 @@
         <agent-core.version>0.1.14.post1</agent-core.version>
         <agent-core.git.branch>730</agent-core.git.branch>
         <agent-core.repo.url>https://gitcode.com/openJiuwen/agent-core-java</agent-core.repo.url>
+
+        <!--
+          ============ 依赖版本归一：与 agent-core-java 严格一致 ============
+          以下属性显式覆盖 spring-boot-dependencies 4.0.7 的同名属性（parent 的
+          dependencyManagement 优先于传递依赖，若不做覆盖，runtime 实际解析版本
+          会被 Boot BOM 抬升/压降，与 core 不一致）。取值与 agent-core-java/pom.xml
+          <properties> 完全对齐；若 core 调整版本，此处需同步更新。
+
+          历史例外项（均已通过升级 core 消除，两边现在严格一致）：
+          - reactor：core 已升 3.8.6（=Boot 的 reactor-bom 2025.0.6），无需再覆盖。
+          - protobuf：core 已升 4.33.2（a2a-sdk 1.0.0.Final 由 protoc 4.x 生成），
+            下方 dependencyManagement 的 pin 与 core 值一致，保留作显式声明。
+          - junit-jupiter：core 已升 6.0.3（=Boot 管理值），两边一致。
+          - jackson-annotations：core 已升 jackson-bom 2.21.4，annotations 随 BOM
+            为 2.21（含 a2a-sdk 需要的 JsonSerializeAs），不再需要单独 pin。
+          - jedis：core 已升 7.0.0（=Boot 管理值），不再覆盖。
+          gson 例外：core 未声明 gson；a2a-sdk 需 2.11.0+，runtime 独立 pin 2.11.0，
+          见下方 dependencyManagement。
+
+          对齐范围约定：仅对 main/compile 运行时依赖严格一致；test scope 组件
+          （如 surefire/maven 插件自带带入的 byte-buddy 1.18.3、spring-boot-test
+          传递的测试侧依赖）不纳入对齐，有风险/改动大的保持现状即可。
+          -->
+        <jackson-2-bom.version>2.21.4</jackson-2-bom.version>
+        <!-- jedis：core 已升 7.0.0（=Boot 管理值），无需覆盖 -->
+        <!-- <jedis.version>5.1.5</jedis.version> -->
+        <pulsar.version>4.2.3</pulsar.version>
+        <mockito.version>5.14.2</mockito.version>
+        <!-- byte-buddy：main scope 对齐 core 1.15.11；test 侧 surefire 插件自带 1.18.3，
+             属测试组件差异，不纳入对齐（约定见上方注释） -->
+        <byte-buddy.version>1.15.11</byte-buddy.version>
+        <snakeyaml.version>2.2</snakeyaml.version>
+        <slf4j.version>2.0.12</slf4j.version>
+        <logback.version>1.5.37</logback.version>
+        <assertj.version>3.27.7</assertj.version>
+        <commons-lang3.version>3.18.0</commons-lang3.version>
+        <commons-codec.version>1.20.0</commons-codec.version>
+        <postgresql.version>42.7.12</postgresql.version>
+        <mysql.version>9.7.0</mysql.version>
+        <h2.version>2.2.224</h2.version>
+        <sqlite-jdbc.version>3.53.2.1</sqlite-jdbc.version>
+        <lombok.version>1.18.32</lombok.version>
+        <log4j2.version>2.26.1</log4j2.version>
+        <kotlin.version>2.4.10</kotlin.version>
     </properties>
 
     <dependencyManagement>
@@ -91,8 +135,14 @@
                 <version>${project.version}</version>
             </dependency>
 
-            <!-- Protobuf - 统一版本，解决 SDK 内部 protobuf-java 4.33.1 与 protobuf-java-util 4.32.1 不一致的问题 -->
-            <!-- Gson - SDK 的 JSONRPCUtils 需要 2.11.0+（setStrictness API） -->
+            <!--
+              Gson / Protobuf：
+              - protobuf：core 已升 4.33.2，此处显式声明与 core 严格一致
+                （a2a-sdk 1.0.0.Final 内部用 protoc 4.x 生成，protobuf 3.x 会
+                在运行期抛 NoSuchMethodError/二进制不兼容）。
+              - gson：core 未声明 gson；a2a-sdk 的 JSONRPCUtils 需要 2.11.0+
+                （setStrictness API），故 pin 2.11.0（显式声明优先于 Boot）。
+            -->
             <dependency>
                 <groupId>com.google.code.gson</groupId>
                 <artifactId>gson</artifactId>
