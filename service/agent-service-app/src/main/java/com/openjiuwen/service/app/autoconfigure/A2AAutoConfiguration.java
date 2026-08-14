@@ -359,6 +359,10 @@ public class A2AAutoConfiguration {
 }
 
 final class A2AExecutionResources {
+    private static final int AGENT_QUEUE_CAPACITY = 256;
+
+    private static final int EVENT_CONSUMER_QUEUE_CAPACITY = 128;
+
     private final MainEventBusProcessor eventBusProcessor;
 
     private final ThreadPoolExecutor agentExecutor;
@@ -369,9 +373,11 @@ final class A2AExecutionResources {
         this.eventBusProcessor = eventBusProcessor;
         int cores = Runtime.getRuntime().availableProcessors();
         this.agentExecutor = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>());
+                new LinkedBlockingQueue<>(AGENT_QUEUE_CAPACITY),
+                new ThreadPoolExecutor.CallerRunsPolicy());
         this.eventConsumerExecutor = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>());
+                new LinkedBlockingQueue<>(EVENT_CONSUMER_QUEUE_CAPACITY),
+                new ThreadPoolExecutor.CallerRunsPolicy());
     }
 
     Executor agentExecutor() {
