@@ -590,7 +590,7 @@ final class RemoteInvocationBatchCoordinator {
                 : member.message;
         Artifact artifact = Artifact.builder().artifactId("delegation:" + batch.parentTaskId + ":" + remoteTaskId)
                 .parts(new TextPart(text))
-                .metadata(delegationMetadata(agentId, batch.parentTaskId,
+                .metadata(delegationMetadata(member.toolCallId, agentId, batch.parentTaskId,
                         remoteAgentId(member), remoteTaskId)).build();
         forwardRemoteArtifact(batch, member, new TaskArtifactUpdateEvent(remoteTaskId, artifact,
                 remoteContextId(batch, member), false, true, Map.of()));
@@ -633,10 +633,11 @@ final class RemoteInvocationBatchCoordinator {
         return result;
     }
 
-    private static Map<String, Object> delegationMetadata(String sourceAgentId, String sourceTaskId,
-            String targetAgentId, String targetTaskId) {
+    private static Map<String, Object> delegationMetadata(String toolCallId, String sourceAgentId,
+            String sourceTaskId, String targetAgentId, String targetTaskId) {
         return Map.of(RemoteAgentCaller.AGENT_EVENT_METADATA,
-                Map.of("type", "delegation", "source", agentRef(sourceAgentId, sourceTaskId),
+                Map.of("type", "delegation", "toolCallId", toolCallId,
+                        "source", agentRef(sourceAgentId, sourceTaskId),
                         "target", agentRef(targetAgentId, targetTaskId)));
     }
 
