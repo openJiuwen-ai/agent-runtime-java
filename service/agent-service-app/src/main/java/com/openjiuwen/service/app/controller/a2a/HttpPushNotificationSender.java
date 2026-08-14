@@ -51,6 +51,18 @@ public class HttpPushNotificationSender implements PushNotificationSender {
 
     private static final Duration CONFIG_RECHECK_DELAY = Duration.ofSeconds(1);
 
+    /**
+     * 成功投递记录保留时长：保留期内同一 notificationId 走幂等短路，避免重复投递；
+     * 过期后惰性清理，防止长稳场景下 deliveryRecords 无限增长导致 OOM。
+     */
+    private static final Duration SUCCESS_RECORD_TTL = Duration.ofMinutes(10);
+
+    /**
+     * 失败投递记录保留时长：失败记录用于 failedDeliveryCanBeRetriedWithSameNotificationId 的重试计数，
+     * 保留窗口比成功记录更长，之后同样惰性清理。
+     */
+    private static final Duration FAILURE_RECORD_TTL = Duration.ofHours(1);
+
     private final PushNotificationConfigStore configStore;
 
     private final HttpClient httpClient;
@@ -103,6 +115,7 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         }
         Optional<URI> callbackUri = A2aPushNotificationCallbackUrlPolicy.callbackUri(config.get().url());
         String notificationId = notificationId(task.id(), config.get().id());
+        sweepExpiredRecords();
         Object deliveryLock = deliveryLocks.computeIfAbsent(notificationId, key -> new Object());
         synchronized (deliveryLock) {
             DeliveryRecord record = deliveryRecords.get(notificationId);
@@ -217,6 +230,24 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         deliveryRecords.compute(notificationId, (key, previous) -> {
             int attempts = previous == null ? 1 : previous.attempts() + 1;
             return new DeliveryRecord(notificationId, taskId, configId, attempts, isSuccess, message, Instant.now());
+        });
+    }
+
+    /**
+     * 惰性清理过期的投递记录：成功记录保留 SUCCESS_RECORD_TTL、失败记录保留 FAILURE_RECORD_TTL，
+     * 过期后从 deliveryRecords 移除并同步释放对应的 deliveryLocks，防止长稳场景下两个 Map 无限增长。
+     * ConcurrentHashMap 的 removeIf 是弱一致的，可安全地边遍历边删除。
+     */
+    private void sweepExpiredRecords() {
+        Instant now = Instant.now();
+        deliveryRecords.entrySet().removeIf(entry -> {
+            DeliveryRecord record = entry.getValue();
+            Duration ttl = record.isSuccess() ? SUCCESS_RECORD_TTL : FAILURE_RECORD_TTL;
+            if (record.updatedAt().isBefore(now.minus(ttl))) {
+                deliveryLocks.remove(entry.getKey());
+                return true;
+            }
+            return false;
         });
     }
 

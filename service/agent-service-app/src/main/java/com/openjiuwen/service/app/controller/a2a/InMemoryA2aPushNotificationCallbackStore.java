@@ -4,23 +4,46 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * In-memory push notification callback idempotency store.
+ * <p>
+ * Uses an LRU-bounded map to prevent unbounded memory growth in long-running
+ * scenarios. The default capacity of {@value #DEFAULT_MAX_ENTRIES} entries is
+ * sufficient for deduplication of recent notifications while bounding memory.
  *
  * @since 0.1.0
  */
 public class InMemoryA2aPushNotificationCallbackStore implements A2aPushNotificationCallbackStore {
-    private final ConcurrentMap<String, String> payloadHashes = new ConcurrentHashMap<>();
+    private static final int DEFAULT_MAX_ENTRIES = 4096;
+
+    private final Map<String, String> payloadHashes;
+
+    public InMemoryA2aPushNotificationCallbackStore() {
+        this(DEFAULT_MAX_ENTRIES);
+    }
+
+    public InMemoryA2aPushNotificationCallbackStore(int maxEntries) {
+        this.payloadHashes = Collections.synchronizedMap(new LinkedHashMap<>(maxEntries, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                return size() > maxEntries;
+            }
+        });
+    }
 
     @Override
     public SaveResult saveIfAbsent(String notificationId, String payloadHash) {
-        String existing = payloadHashes.putIfAbsent(notificationId, payloadHash);
-        if (existing == null) {
-            return SaveResult.CREATED;
+        synchronized (payloadHashes) {
+            String existing = payloadHashes.get(notificationId);
+            if (existing == null) {
+                payloadHashes.put(notificationId, payloadHash);
+                return SaveResult.CREATED;
+            }
+            return existing.equals(payloadHash) ? SaveResult.DUPLICATE : SaveResult.CONFLICT;
         }
-        return existing.equals(payloadHash) ? SaveResult.DUPLICATE : SaveResult.CONFLICT;
     }
 }
