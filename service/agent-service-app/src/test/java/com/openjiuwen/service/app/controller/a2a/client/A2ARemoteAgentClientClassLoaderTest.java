@@ -191,7 +191,6 @@ class A2ARemoteAgentClientClassLoaderTest {
         AgentCard card = testCard();
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
         registry.register("message-agent", card, 30, false);
-        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
         ClientBuilder builder = mock(ClientBuilder.class);
         Client sdkClient = mock(Client.class);
         Message message = Message.builder().role(Message.Role.ROLE_AGENT)
@@ -204,6 +203,7 @@ class A2ARemoteAgentClientClassLoaderTest {
             return null;
         }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
 
+        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 

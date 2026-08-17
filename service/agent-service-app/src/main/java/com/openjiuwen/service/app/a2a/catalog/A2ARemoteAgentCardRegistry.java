@@ -21,12 +21,12 @@ import java.util.concurrent.locks.ReentrantLock;
  * @since 0.1.0
  */
 public class A2ARemoteAgentCardRegistry {
-    private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentCardRegistry.class);
-
     /**
      * Default timeout in seconds for remote agent calls.
      */
     static final int DEFAULT_TIMEOUT_SECONDS = 300;
+
+    private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentCardRegistry.class);
 
     private final ApplicationEventPublisher eventPublisher;
     private final Map<String, RemoteAgentEntry> entries = new ConcurrentHashMap<>();
@@ -160,7 +160,7 @@ public class A2ARemoteAgentCardRegistry {
             eventPublisher.publishEvent(new RemoteAgentCatalogChangedEvent(updatedSnapshot));
             log.info("Published remote A2A Agent catalog change catalogVersion={} catalogSize={}",
                     updatedSnapshot.version(), updatedSnapshot.entries().size());
-        } catch (RuntimeException exception) {
+        } catch (IllegalArgumentException | IllegalStateException exception) {
             log.error("Failed to publish remote A2A Agent catalog change catalogVersion={} catalogSize={}",
                     updatedSnapshot.version(), updatedSnapshot.entries().size(), exception);
         }
