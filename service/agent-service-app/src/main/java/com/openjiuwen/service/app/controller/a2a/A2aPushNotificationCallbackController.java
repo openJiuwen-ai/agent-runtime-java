@@ -24,7 +24,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -37,11 +39,15 @@ import java.util.Optional;
 public class A2aPushNotificationCallbackController {
     private static final String NOTIFICATION_ID_HEADER = "X-A2A-Notification-Id";
 
+    private static final int CALLBACK_LOCK_STRIPES = 64;
+
     private final A2aPushNotificationCallbackStore callbackStore;
 
     private final A2aPushNotificationCallbackHandler callbackHandler;
 
     private final A2aPushNotificationCapabilityGate capabilityGate;
+
+    private final List<Object> callbackLocks = callbackLocks();
 
     public A2aPushNotificationCallbackController(A2aPushNotificationCallbackStore callbackStore,
             A2aPushNotificationCallbackHandler callbackHandler, A2aPushNotificationCapabilityGate capabilityGate) {
@@ -93,18 +99,44 @@ public class A2aPushNotificationCallbackController {
         } catch (IllegalArgumentException e) {
             return badRequest("callback result.task is required");
         }
-        A2aPushNotificationCallbackStore.SaveResult result = callbackStore.saveIfAbsent(notificationId,
-                sha256(body.toString()));
-        if (result == A2aPushNotificationCallbackStore.SaveResult.CONFLICT) {
-            return status(HttpStatus.CONFLICT, "conflict", notificationId);
-        }
-        if (result == A2aPushNotificationCallbackStore.SaveResult.CREATED) {
-            boolean isHandled = callbackHandler.onAccepted(new A2aPushNotificationCallback(notificationId, task));
-            if (!isHandled) {
-                return status(HttpStatus.NOT_FOUND, "callback binding not found", notificationId);
+        return handleValidatedCallback(notificationId, body, task);
+    }
+
+    private ResponseEntity<String> handleValidatedCallback(String notificationId, JsonObject body, Task task) {
+        String payloadHash = sha256(body.toString());
+        synchronized (callbackLock(notificationId)) {
+            A2aPushNotificationCallbackStore.SaveResult result = callbackStore.saveIfAbsent(notificationId,
+                    payloadHash);
+            if (result == A2aPushNotificationCallbackStore.SaveResult.CONFLICT) {
+                return status(HttpStatus.CONFLICT, "conflict", notificationId);
             }
+            if (result == A2aPushNotificationCallbackStore.SaveResult.DUPLICATE) {
+                return status(HttpStatus.OK, "accepted", notificationId);
+            }
+            boolean isHandled = false;
+            try {
+                isHandled = callbackHandler.onAccepted(new A2aPushNotificationCallback(notificationId, task));
+            } finally {
+                if (!isHandled) {
+                    callbackStore.removeIfMatch(notificationId, payloadHash);
+                }
+            }
+            return isHandled
+                    ? status(HttpStatus.OK, "accepted", notificationId)
+                    : status(HttpStatus.NOT_FOUND, "callback binding not found", notificationId);
         }
-        return status(HttpStatus.OK, "accepted", notificationId);
+    }
+
+    private Object callbackLock(String notificationId) {
+        return callbackLocks.get(Math.floorMod(notificationId.hashCode(), callbackLocks.size()));
+    }
+
+    private static List<Object> callbackLocks() {
+        List<Object> locks = new ArrayList<>(CALLBACK_LOCK_STRIPES);
+        for (int index = 0; index < CALLBACK_LOCK_STRIPES; index++) {
+            locks.add(new Object());
+        }
+        return locks;
     }
 
     private static boolean isJsonRpcResult(JsonObject body) {
