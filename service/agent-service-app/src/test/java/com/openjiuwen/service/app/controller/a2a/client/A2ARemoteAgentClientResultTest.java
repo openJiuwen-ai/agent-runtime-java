@@ -6,9 +6,8 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -34,7 +33,6 @@ import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
@@ -200,7 +198,7 @@ class A2ARemoteAgentClientResultTest {
     }
 
     @Test
-    void nonStreamingTaskProjectsArtifactsThenIgnoresLateEvents() throws Exception {
+    void nonStreamingTaskCompletesOutcomeWithoutProjectingSnapshot() throws Exception {
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);
@@ -214,22 +212,56 @@ class A2ARemoteAgentClientResultTest {
 
         eventMethod.invoke(client, new TaskEvent(task), result, observer, false, false);
 
-        InOrder order = inOrder(observer);
-        ArgumentCaptor<TaskArtifactUpdateEvent> artifactCaptor = ArgumentCaptor.forClass(
-                TaskArtifactUpdateEvent.class);
-        order.verify(observer).onArtifact(artifactCaptor.capture());
-        order.verify(observer).onStatus(any(TaskStatusUpdateEvent.class));
-        assertThat(artifactCaptor.getValue().artifact()).isSameAs(artifact);
-        assertThat(artifactCaptor.getValue().append()).isFalse();
-        assertThat(artifactCaptor.getValue().lastChunk()).isTrue();
         assertThat(result.getNow(null).result()).isEqualTo("final");
+        verifyNoInteractions(observer);
 
-        clearInvocations(observer);
         TaskStatusUpdateEvent lateStatus = new TaskStatusUpdateEvent("remote-task",
                 new TaskStatus(TaskState.TASK_STATE_WORKING), "remote-context", Map.of());
         eventMethod.invoke(client, new TaskUpdateEvent(task, lateStatus), result, observer, false, true);
         eventMethod.invoke(client, new TaskEvent(task), result, observer, false, false);
         verifyNoInteractions(observer);
+    }
+
+    @Test
+    void nonStreamingInputRequiredDoesNotProjectSnapshot() throws Exception {
+        Message prompt = Message.builder().role(Message.Role.ROLE_AGENT).parts(new TextPart("select an account"))
+                .build();
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, prompt, null)).artifacts(List.of())
+                .build();
+        Method eventMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleClientEvent",
+                ClientEvent.class, CompletableFuture.class, RemoteAgentCaller.EventObserver.class,
+                boolean.class, boolean.class);
+        eventMethod.setAccessible(true);
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);
+
+        eventMethod.invoke(client, new TaskEvent(task), result, observer, false, false);
+
+        assertThat(result.getNow(null).remoteState()).isEqualTo(TaskState.TASK_STATE_INPUT_REQUIRED);
+        assertThat(result.getNow(null).inputPrompt()).isEqualTo("select an account");
+        verifyNoInteractions(observer);
+    }
+
+    @Test
+    void streamingTaskPublishesFinalStatusWithoutReplayingArtifacts() throws Exception {
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);
+        Artifact artifact = Artifact.builder().artifactId("artifact-final").parts(new TextPart("final")).build();
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(artifact)).build();
+        Method eventMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleClientEvent",
+                ClientEvent.class, CompletableFuture.class, RemoteAgentCaller.EventObserver.class,
+                boolean.class, boolean.class);
+        eventMethod.setAccessible(true);
+
+        eventMethod.invoke(client, new TaskEvent(task), result, observer, false, true);
+
+        verify(observer).onStatus(any(TaskStatusUpdateEvent.class));
+        verify(observer, never()).onArtifact(any(TaskArtifactUpdateEvent.class));
+        assertThat(result.getNow(null).result()).isEqualTo("final");
     }
 
     @Test

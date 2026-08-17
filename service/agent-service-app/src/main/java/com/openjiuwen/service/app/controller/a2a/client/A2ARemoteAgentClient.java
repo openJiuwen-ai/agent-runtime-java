@@ -20,7 +20,6 @@ import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.AgentCard;
-import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.MessageSendConfiguration;
 import org.a2aproject.sdk.spec.MessageSendParams;
@@ -346,13 +345,9 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         }
         Task task = event.getTask();
         TaskState state = task.status().state();
-        if (!isStreaming && task.artifacts() != null) {
-            for (Artifact artifact : task.artifacts()) {
-                eventObserver.onArtifact(new TaskArtifactUpdateEvent(task.id(), artifact, task.contextId(),
-                        false, true, Map.of()));
-            }
+        if (isStreaming) {
+            eventObserver.onStatus(new TaskStatusUpdateEvent(task.id(), task.status(), task.contextId(), Map.of()));
         }
-        eventObserver.onStatus(new TaskStatusUpdateEvent(task.id(), task.status(), task.contextId(), Map.of()));
         String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";
         completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task,
                 remoteFailure(task.status().message()).orElse(null)), result, isCallbackMode);

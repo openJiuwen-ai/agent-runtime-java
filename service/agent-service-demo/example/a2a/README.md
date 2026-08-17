@@ -60,7 +60,7 @@ PowerShell：
 | Agent C | 18092 | DeepAgent，在返回餐饮推荐前请求用户确认 |
 | Agent D | 18093 | WorkflowAgent，检查费用政策、执行自动或人工审批，并在人工审批后调用 LLM 生成最终报告 |
 
-Agent B 为 Agent C 和 Agent D 分别配置了流式和非流式远端路由。Agent 间调用只有在远端路由配置 `streaming: true`，并且当前用户请求为 `SendStreamingMessage` 时才使用流式调用；任何一个条件不满足都使用非流式调用。该规则会逐跳传递到 `A -> B -> C/D`：非流式用户请求不会在下游重新开启流式调用，流式下游进度则会作为 SSE 事件透传给用户。
+Agent B 为 Agent C 和 Agent D 分别配置了流式和非流式远端路由。Agent 间调用只有在远端路由配置 `streaming: true`，并且当前用户请求为 `SendStreamingMessage` 时才使用流式调用；任何一个条件不满足都使用非流式调用。该规则会逐跳传递到 `A -> B -> C/D`：非流式用户请求不会在下游重新开启流式调用，只有实际使用流式协议的下游进度才会作为 SSE 事件透传给用户；非流式下游的最终 Task 快照只用于结果汇聚，不回放其中的 Artifact、状态或 delegation。
 
 ### 计算场景
 
@@ -165,7 +165,7 @@ curl -sS http://localhost:18093/.well-known/agent-card.json | python3 -m json.to
 
 以下命令使用 Bash 或 Git Bash。所有业务报文都发送到 Agent A，不直接调用 Agent B、C 或 D。
 
-非流式响应的任务 ID 位于 `result.task.id`，任务状态位于 `result.task.status.state`，响应不会包含远端 Agent 的中间流式进度。流式响应由多行 `data:` 事件组成，任务 ID 位于 `result.statusUpdate.taskId`，任务状态位于 `result.statusUpdate.status.state`。远端过程通过 `artifactUpdate` 投影：外层 `taskId` 始终属于 Agent A 的当前 Task，`artifact.metadata.agentEvent` 使用 `delegation`、`output`、`status` 表示直接委派边、实际输出来源和下游节点状态。
+非流式响应的任务 ID 位于 `result.task.id`，任务状态位于 `result.task.status.state`，响应不会包含远端 Agent 的中间流式进度，也不会回放非流式下游最终 Task 快照中的 Artifact 或状态。流式响应由多行 `data:` 事件组成，任务 ID 位于 `result.statusUpdate.taskId`，任务状态位于 `result.statusUpdate.status.state`。仅实际使用流式协议的远端过程通过 `artifactUpdate` 投影：外层 `taskId` 始终属于 Agent A 的当前 Task，`artifact.metadata.agentEvent` 使用 `delegation`、`output`、`status` 表示直接委派边、实际输出来源和下游节点状态。
 
 首轮中断后，从响应中复制 `taskId`，将恢复报文中的 `TASK_ID_FROM_FIRST_RESPONSE` 替换为该值。中断首轮应出现 `TASK_STATE_INPUT_REQUIRED`，恢复后应出现 `TASK_STATE_COMPLETED`，并且两轮的 `taskId` 必须相同。
 
