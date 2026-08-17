@@ -37,7 +37,7 @@ final class QuerySsePumpExecutor {
 
     private static final String MAX_SIZE_PROPERTY = "openjiuwen.service.query.sse-pump.max-size";
 
-    private static final int DEFAULT_MAX_SIZE = Math.max(16, Runtime.getRuntime().availableProcessors() * 4);
+    private static final int DEFAULT_MAX_SIZE = Math.max(32, Runtime.getRuntime().availableProcessors() * 8);
 
     private static final long KEEP_ALIVE_SECONDS = 60L;
 
