@@ -132,6 +132,7 @@ class RemoteInvocationBatchCoordinatorTest {
         remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "generating"));
         remoteObserver.get().onArtifact(remoteArtifact("remote-a", "progress"));
         remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_COMPLETED, "done"));
+        remoteObserver.get().onArtifact(remoteArtifact("remote-a", "late output"));
         remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_WORKING, "late"));
         remoteObserver.get().onStatus(status("remote-a", TaskState.TASK_STATE_FAILED, "conflict"));
         outcome.complete(completed("remote-a", "result-a"));

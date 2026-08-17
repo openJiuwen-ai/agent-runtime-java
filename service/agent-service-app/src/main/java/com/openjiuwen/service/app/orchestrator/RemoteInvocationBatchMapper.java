@@ -64,6 +64,10 @@ final class RemoteInvocationBatchMapper {
             if (!"a2a_delegate".equals(stringValue(context.get("_interrupt_kind")))) {
                 throw new IllegalArgumentException("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED");
             }
+            String agentName = stringValue(context.get("agentName"));
+            if (agentName.isBlank()) {
+                throw new IllegalArgumentException("CORE_INTERRUPT_REMOTE_AGENT_MISSING");
+            }
             boolean isMemberResume = !(context.get("resume") instanceof Boolean isResumeFlag) || isResumeFlag;
             if (isBatchResume != null && isBatchResume != isMemberResume) {
                 throw new IllegalArgumentException("CORE_INTERRUPT_RESUME_MIXED_UNSUPPORTED");
@@ -73,7 +77,7 @@ final class RemoteInvocationBatchMapper {
             }
             int memberIndex = item.get("index") instanceof Number number ? number.intValue() : index;
             members.add(new Member(memberIndex, toolCallId, stringValue(item.get("toolName")),
-                    stringValue(context.get("agentName")), stringValue(item.get("message"))));
+                    agentName, stringValue(item.get("message"))));
         }
         members.sort(Comparator.comparingInt(member -> member.index));
         return new RemoteInvocationBatch(UUID.randomUUID().toString(), parentTaskId, request, observer, members,
@@ -301,7 +305,7 @@ final class RemoteInvocationBatchMapper {
         error.put("ok", false);
         error.put("code", member.resultCategory == null ? "REMOTE_FAILED" : member.resultCategory);
         error.put("message", member.errorMessage == null ? "Remote invocation failed" : member.errorMessage);
-        error.put("remoteAgentId", member.agentName.isBlank() ? member.toolName : member.agentName);
+        error.put("remoteAgentId", member.agentName);
         if (member.remoteFailure != null) {
             error.put("remoteError", A2aErrorMetadata.encode(member.remoteFailure));
         }

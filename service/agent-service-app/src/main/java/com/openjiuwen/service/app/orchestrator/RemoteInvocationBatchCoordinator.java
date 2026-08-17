@@ -568,16 +568,17 @@ final class RemoteInvocationBatchCoordinator {
             lastStatus = currentStatus;
             lastStatusParts = List.copyOf(parts);
             Artifact artifact = Artifact.builder()
-                    .artifactId("status:" + remoteAgentId(member) + ":" + event.taskId() + ":" + UUID.randomUUID())
+                    .artifactId("status:" + member.agentName + ":" + event.taskId() + ":" + UUID.randomUUID())
                     .parts(parts)
-                    .metadata(statusMetadata(remoteAgentId(member), event.taskId(), currentStatus)).build();
+                    .metadata(statusMetadata(member.agentName, event.taskId(), currentStatus)).build();
             forwardRemoteArtifact(batch, member, new TaskArtifactUpdateEvent(event.taskId(), artifact,
                     event.contextId(), false, true, event.metadata()));
         }
 
         @Override
-        public void onArtifact(TaskArtifactUpdateEvent event) {
-            if (!observeRemoteTask(event.taskId()) || !shouldProjectEvents || state.isResolved(batch)) {
+        public synchronized void onArtifact(TaskArtifactUpdateEvent event) {
+            if (!observeRemoteTask(event.taskId()) || !shouldProjectEvents || state.isResolved(batch)
+                    || (lastStatus != null && lastStatus.isFinal())) {
                 return;
             }
             forwardRemoteArtifact(batch, member, event);
@@ -586,12 +587,12 @@ final class RemoteInvocationBatchCoordinator {
 
     private void publishDelegation(RemoteInvocationBatch batch, Member member, String remoteTaskId) {
         String text = member.message == null || member.message.isBlank()
-                ? "任务已委派给 " + remoteAgentId(member)
+                ? "任务已委派给 " + member.agentName
                 : member.message;
         Artifact artifact = Artifact.builder().artifactId("delegation:" + batch.parentTaskId + ":" + remoteTaskId)
                 .parts(new TextPart(text))
                 .metadata(delegationMetadata(member.toolCallId, agentId, batch.parentTaskId,
-                        remoteAgentId(member), remoteTaskId)).build();
+                        member.agentName, remoteTaskId)).build();
         forwardRemoteArtifact(batch, member, new TaskArtifactUpdateEvent(remoteTaskId, artifact,
                 remoteContextId(batch, member), false, true, Map.of()));
     }
@@ -605,10 +606,10 @@ final class RemoteInvocationBatchCoordinator {
 
         Object existingEvent = metadata.get(RemoteAgentCaller.AGENT_EVENT_METADATA);
         if (existingEvent == null) {
-            metadata = outputMetadata(metadata, remoteAgentId(member), update.taskId());
+            metadata = outputMetadata(metadata, member.agentName, update.taskId());
         }
         String projectedArtifactId = existingEvent == null
-                ? "remote:" + remoteAgentId(member) + ":" + update.taskId() + ":" + original.artifactId()
+                ? "remote:" + member.agentName + ":" + update.taskId() + ":" + original.artifactId()
                 : original.artifactId();
         Artifact projected = Artifact.builder(original).artifactId(projectedArtifactId).metadata(metadata).build();
         try {
@@ -620,10 +621,6 @@ final class RemoteInvocationBatchCoordinator {
                 batch.completion.completeExceptionally(ex);
             }
         }
-    }
-
-    private static String remoteAgentId(Member member) {
-        return member.agentName.isBlank() ? member.toolName : member.agentName;
     }
 
     private static Map<String, Object> outputMetadata(Map<String, Object> metadata, String agentId, String taskId) {
@@ -673,7 +670,7 @@ final class RemoteInvocationBatchCoordinator {
             Instant end = member.completedAt != null ? member.completedAt : Instant.now();
             latencyMs = Math.max(0, Duration.between(member.startedAt, end).toMillis());
         }
-        String target = member.agentName.isBlank() ? member.toolName : member.agentName;
+        String target = member.agentName;
         log.info(
                 "Remote invocation state parentTaskId={} conversationId={} batchId={} toolCallId={} "
                         + "remoteAgentId={} state={} latencyMs={}",

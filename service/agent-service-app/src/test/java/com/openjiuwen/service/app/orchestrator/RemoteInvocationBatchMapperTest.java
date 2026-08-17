@@ -73,6 +73,15 @@ class RemoteInvocationBatchMapperTest {
     }
 
     @Test
+    void parseRejectsMissingRemoteAgentName() {
+        Map<String, Object> item = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-call-a",
+                "message", "message-call-a", "context", Map.of("_interrupt_kind", "a2a_delegate"));
+
+        assertThatThrownBy(() -> mapper.parse(Map.of("items", List.of(item)), request(), "parent-1", observer()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("CORE_INTERRUPT_REMOTE_AGENT_MISSING");
+    }
+
+    @Test
     void restorePreservesFailureDetailsAndMemberOrder() {
         Map<String, Object> snapshot = Map.of("batchId", "batch-1", "resume", false, "members",
                 List.of(snapshotMember(1, "call-b", "COMPLETED", "result-b"), snapshotMember(0, "call-a", "FAILED",
