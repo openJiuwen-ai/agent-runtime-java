@@ -41,12 +41,13 @@ public interface RemoteAgentCaller {
      * caller cancels the batch.
      *
      * @param call the remote call coordinates
-     * @param eventObserver observer for complete remote A2A events
+     * @param eventObserver observer for remote A2A streaming events; non-streaming
+     *                      Task snapshots are returned only through the outcome
      * @return a future completing with the structured remote outcome
      */
     CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, EventObserver eventObserver);
 
-    /** Receives complete A2A status and Artifact updates. */
+    /** Receives remote A2A status and Artifact updates produced by a streaming call. */
     interface EventObserver {
         /**
          * Receives a remote task status update.
