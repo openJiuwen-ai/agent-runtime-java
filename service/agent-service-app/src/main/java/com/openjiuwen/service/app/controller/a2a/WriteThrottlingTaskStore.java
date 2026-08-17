@@ -109,9 +109,12 @@ public class WriteThrottlingTaskStore implements TaskStore {
         if (isCritical || isWriteDue) {
             delegate.save(task, isOverwrite);
             lastWriteMs.put(id, clock.getAsLong());
-            if (state != null && state.isFinal()) {
+            if (state != null && (state.isFinal() || state.isInterrupted())) {
                 // Durable in the delegate now; drop the in-memory copy so the map stays
-                // bounded.
+                // bounded.  Both final and interrupted (e.g. INPUT_REQUIRED) states have
+                // been persisted -- the in-memory cache is no longer needed as a
+                // read-through shortcut and retaining it would leak memory for every
+                // abandoned interrupted task.
                 latest.remove(id);
                 lastWriteMs.remove(id);
             }
