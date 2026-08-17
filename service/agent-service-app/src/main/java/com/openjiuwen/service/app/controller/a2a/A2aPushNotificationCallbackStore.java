@@ -20,6 +20,17 @@ public interface A2aPushNotificationCallbackStore {
     SaveResult saveIfAbsent(String notificationId, String payloadHash);
 
     /**
+     * Removes an idempotency record only when its payload hash still matches.
+     *
+     * @param notificationId stable notification id
+     * @param payloadHash canonical payload hash
+     * @return true if the matching record was removed
+     */
+    default boolean removeIfMatch(String notificationId, String payloadHash) {
+        return false;
+    }
+
+    /**
      * Result of saving an idempotency record.
      */
     enum SaveResult {

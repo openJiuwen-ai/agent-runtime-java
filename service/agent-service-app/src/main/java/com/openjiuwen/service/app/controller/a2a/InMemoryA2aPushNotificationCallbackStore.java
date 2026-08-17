@@ -46,4 +46,11 @@ public class InMemoryA2aPushNotificationCallbackStore implements A2aPushNotifica
             return existing.equals(payloadHash) ? SaveResult.DUPLICATE : SaveResult.CONFLICT;
         }
     }
+
+    @Override
+    public boolean removeIfMatch(String notificationId, String payloadHash) {
+        synchronized (payloadHashes) {
+            return payloadHashes.remove(notificationId, payloadHash);
+        }
+    }
 }

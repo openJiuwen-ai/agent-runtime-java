@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -16,6 +17,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -96,17 +100,79 @@ class A2aPushNotificationCallbackControllerTest {
 
     @Test
     void bindingNotFoundReturnsNotFound() {
-        A2aPushNotificationCallbackHandler handler = callback -> false;
+        AtomicInteger calls = new AtomicInteger();
+        A2aPushNotificationCallbackHandler handler = callback -> {
+            calls.incrementAndGet();
+            return false;
+        };
         A2aPushNotificationCallbackController controller = new A2aPushNotificationCallbackController(
                 new InMemoryA2aPushNotificationCallbackStore(), handler, enabledGate(handler));
+        String callbackBody = callbackBody("notif-1", "task-1");
 
-        ResponseEntity<String> response = controller.handleCallback(callbackBody("notif-1", "task-1"),
-                request("notif-1"));
+        ResponseEntity<String> first = controller.handleCallback(callbackBody, request("notif-1"));
+        ResponseEntity<String> second = controller.handleCallback(callbackBody, request("notif-1"));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        JsonObject body = JsonParser.parseString(response.getBody()).getAsJsonObject();
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonObject body = JsonParser.parseString(second.getBody()).getAsJsonObject();
         assertThat(body.get("error").getAsString()).contains("binding not found");
         assertThat(body.get("notificationId").getAsString()).isEqualTo("notif-1");
+        assertThat(calls).hasValue(2);
+    }
+
+    @Test
+    void handlerFailureDoesNotPoisonRetry() {
+        AtomicInteger calls = new AtomicInteger();
+        A2aPushNotificationCallbackHandler handler = callback -> {
+            if (calls.incrementAndGet() == 1) {
+                throw new IllegalStateException("temporary failure");
+            }
+            return true;
+        };
+        A2aPushNotificationCallbackController controller = new A2aPushNotificationCallbackController(
+                new InMemoryA2aPushNotificationCallbackStore(), handler, enabledGate(handler));
+        String body = callbackBody("notif-retry", "task-retry");
+
+        assertThatThrownBy(() -> controller.handleCallback(body, request("notif-retry")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("temporary failure");
+        ResponseEntity<String> retry = controller.handleCallback(body, request("notif-retry"));
+        ResponseEntity<String> duplicate = controller.handleCallback(body, request("notif-retry"));
+
+        assertThat(retry.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(duplicate.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(calls).hasValue(2);
+    }
+
+    @Test
+    void concurrentDuplicateIsHandledOnce() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        CountDownLatch handlerEntered = new CountDownLatch(1);
+        CountDownLatch releaseHandler = new CountDownLatch(1);
+        A2aPushNotificationCallbackHandler handler = callback -> {
+            calls.incrementAndGet();
+            handlerEntered.countDown();
+            await(releaseHandler);
+            return true;
+        };
+        A2aPushNotificationCallbackController controller = new A2aPushNotificationCallbackController(
+                new InMemoryA2aPushNotificationCallbackStore(), handler, enabledGate(handler));
+        String body = callbackBody("notif-concurrent", "task-concurrent");
+
+        CompletableFuture<ResponseEntity<String>> first = CompletableFuture
+                .supplyAsync(() -> controller.handleCallback(body, request("notif-concurrent")));
+        assertThat(handlerEntered.await(5, TimeUnit.SECONDS)).isTrue();
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        CompletableFuture<ResponseEntity<String>> second = CompletableFuture.supplyAsync(() -> {
+            secondStarted.countDown();
+            return controller.handleCallback(body, request("notif-concurrent"));
+        });
+        assertThat(secondStarted.await(5, TimeUnit.SECONDS)).isTrue();
+        releaseHandler.countDown();
+
+        assertThat(first.get(5, TimeUnit.SECONDS).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(second.get(5, TimeUnit.SECONDS).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(calls).hasValue(1);
     }
 
     @Test
@@ -187,6 +253,14 @@ class A2aPushNotificationCallbackControllerTest {
         request.addHeader("X-A2A-Notification-Id", notificationId);
         request.addHeader("Authorization", "Bearer token-ref");
         return request;
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            throw new IllegalStateException("interrupted while waiting", e);
+        }
     }
 
     private static String callbackBody(String notificationId, String taskId) {
