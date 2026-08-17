@@ -223,10 +223,7 @@ class A2ARemoteAgentClientResultTest {
     }
 
     @Test
-    void nonStreamingInputRequiredCompletesOutcomeWithoutProjectingSnapshot() throws Exception {
-        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
-        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
-        RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);
+    void nonStreamingInputRequiredDoesNotProjectSnapshot() throws Exception {
         Message prompt = Message.builder().role(Message.Role.ROLE_AGENT).parts(new TextPart("select an account"))
                 .build();
         Task task = Task.builder().id("remote-task").contextId("remote-context")
@@ -236,6 +233,9 @@ class A2ARemoteAgentClientResultTest {
                 ClientEvent.class, CompletableFuture.class, RemoteAgentCaller.EventObserver.class,
                 boolean.class, boolean.class);
         eventMethod.setAccessible(true);
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);
 
         eventMethod.invoke(client, new TaskEvent(task), result, observer, false, false);
 

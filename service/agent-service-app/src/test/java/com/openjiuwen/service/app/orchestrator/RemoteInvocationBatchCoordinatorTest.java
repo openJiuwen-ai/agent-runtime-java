@@ -152,10 +152,9 @@ class RemoteInvocationBatchCoordinatorTest {
         assertThat(outputs).extracting(QueryChunk::getData).map(TaskArtifactUpdateEvent.class::cast)
                 .extracting(update -> String.valueOf(agentEvent(update).get("type")))
                 .containsExactly("delegation", "status", "status", "output", "status");
-        assertThat(outputs).first().satisfies(chunk -> {
-            TaskArtifactUpdateEvent delegation = (TaskArtifactUpdateEvent) chunk.getData();
-            assertThat(agentEvent(delegation).get("toolCallId")).isEqualTo("call-a");
-        });
+        assertThat(outputs).first().satisfies(chunk -> assertThat(chunk.getData())
+                .isInstanceOfSatisfying(TaskArtifactUpdateEvent.class,
+                        delegation -> assertThat(agentEvent(delegation).get("toolCallId")).isEqualTo("call-a")));
     }
 
     @Test
