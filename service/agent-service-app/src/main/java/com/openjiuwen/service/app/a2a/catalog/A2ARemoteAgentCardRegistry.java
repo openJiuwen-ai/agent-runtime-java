@@ -168,7 +168,6 @@ public class A2ARemoteAgentCardRegistry {
             log.info("Published remote A2A Agent catalog change catalogVersion={} catalogSize={}",
                     updatedSnapshot.version(), updatedSnapshot.entries().size());
         } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
             log.error("Interrupted while publishing remote A2A Agent catalog change catalogVersion={} catalogSize={}",
                     updatedSnapshot.version(), updatedSnapshot.entries().size(), exception);
         } catch (ExecutionException exception) {
