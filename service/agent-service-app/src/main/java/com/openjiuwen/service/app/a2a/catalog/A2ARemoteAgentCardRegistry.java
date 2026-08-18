@@ -160,7 +160,7 @@ public class A2ARemoteAgentCardRegistry {
             eventPublisher.publishEvent(new RemoteAgentCatalogChangedEvent(updatedSnapshot));
             log.info("Published remote A2A Agent catalog change catalogVersion={} catalogSize={}",
                     updatedSnapshot.version(), updatedSnapshot.entries().size());
-        } catch (IllegalArgumentException | IllegalStateException exception) {
+        } catch (RuntimeException exception) {
             log.error("Failed to publish remote A2A Agent catalog change catalogVersion={} catalogSize={}",
                     updatedSnapshot.version(), updatedSnapshot.entries().size(), exception);
         }

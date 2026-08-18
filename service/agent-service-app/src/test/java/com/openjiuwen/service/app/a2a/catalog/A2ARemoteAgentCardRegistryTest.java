@@ -95,6 +95,19 @@ class A2ARemoteAgentCardRegistryTest {
         assertThat(registry.get("balance")).isPresent();
     }
 
+    @Test
+    void arbitraryListenerRuntimeExceptionDoesNotEscapeRegister() {
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry(event -> {
+            throw new NullPointerException("buggy listener");
+        });
+
+        registry.register("balance", mock(AgentCard.class));
+        registry.register("weather", mock(AgentCard.class));
+
+        assertThat(registry.snapshot().version()).isEqualTo(2L);
+        assertThat(registry.getAll()).extracting(RemoteAgentEntry::name).containsExactly("balance", "weather");
+    }
+
     private static A2ARemoteAgentCardRegistry registryWithEvents(List<RemoteAgentCatalogChangedEvent> events) {
         ApplicationEventPublisher publisher = event -> {
             if (event instanceof RemoteAgentCatalogChangedEvent catalogEvent) {
