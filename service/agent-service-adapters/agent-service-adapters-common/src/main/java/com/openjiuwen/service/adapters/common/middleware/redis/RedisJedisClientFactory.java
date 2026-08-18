@@ -198,7 +198,7 @@ public final class RedisJedisClientFactory {
     }
 
     private static void applyPoolLimits(GenericObjectPoolConfig<?> config) {
-        config.setMaxTotal(16);
+        config.setMaxTotal(64);
         config.setMaxIdle(8);
         config.setMinIdle(1);
         config.setTestOnBorrow(true);

@@ -49,7 +49,7 @@
           - protobuf：core 已升 4.33.2（a2a-sdk 1.0.0.Final 由 protoc 4.x 生成），
             下方 dependencyManagement 的 pin 与 core 值一致，保留作显式声明。
           - junit-jupiter：core 已升 6.0.3（=Boot 管理值），两边一致。
-          - jackson-annotations：core 已升 jackson-bom 2.21.4，annotations 随 BOM
+          - jackson-annotations：core 已升 jackson-bom 2.21.5，annotations 随 BOM
             为 2.21（含 a2a-sdk 需要的 JsonSerializeAs），不再需要单独 pin。
           - jedis：core 已升 7.0.0（=Boot 管理值），不再覆盖。
           gson 例外：core 未声明 gson；a2a-sdk 需 2.11.0+，runtime 独立 pin 2.11.0，
@@ -59,7 +59,10 @@
           （如 surefire/maven 插件自带带入的 byte-buddy 1.18.3、spring-boot-test
           传递的测试侧依赖）不纳入对齐，有风险/改动大的保持现状即可。
           -->
-        <jackson-2-bom.version>2.21.4</jackson-2-bom.version>
+        <jackson-2-bom.version>2.21.5</jackson-2-bom.version>
+        <!-- opentelemetry：core 声明 1.64.0，Boot 4.0.7 BOM 管理 1.55.0 会压降 core 传递的 OTel，
+             导致 runtime 侧 OTel 版本与 core 不一致（潜在 NoSuchMethodError 风险）。覆盖为 1.64.0 对齐 core。 -->
+        <opentelemetry.version>1.64.0</opentelemetry.version>
         <!-- jedis：core 已升 7.0.0（=Boot 管理值），无需覆盖 -->
         <!-- <jedis.version>5.1.5</jedis.version> -->
         <pulsar.version>4.2.3</pulsar.version>
