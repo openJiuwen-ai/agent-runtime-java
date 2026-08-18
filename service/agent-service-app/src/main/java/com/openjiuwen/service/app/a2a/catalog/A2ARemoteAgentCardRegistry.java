@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -156,13 +158,26 @@ public class A2ARemoteAgentCardRegistry {
     }
 
     private void publishCatalogChanged(RemoteAgentCatalogSnapshot updatedSnapshot) {
-        try {
+        FutureTask<Void> publication = new FutureTask<>(() -> {
             eventPublisher.publishEvent(new RemoteAgentCatalogChangedEvent(updatedSnapshot));
+            return null;
+        });
+        publication.run();
+        try {
+            publication.get();
             log.info("Published remote A2A Agent catalog change catalogVersion={} catalogSize={}",
                     updatedSnapshot.version(), updatedSnapshot.entries().size());
-        } catch (RuntimeException exception) {
-            log.error("Failed to publish remote A2A Agent catalog change catalogVersion={} catalogSize={}",
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            log.error("Interrupted while publishing remote A2A Agent catalog change catalogVersion={} catalogSize={}",
                     updatedSnapshot.version(), updatedSnapshot.entries().size(), exception);
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause() != null ? exception.getCause() : exception;
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            log.error("Failed to publish remote A2A Agent catalog change catalogVersion={} catalogSize={}",
+                    updatedSnapshot.version(), updatedSnapshot.entries().size(), cause);
         }
     }
 }
