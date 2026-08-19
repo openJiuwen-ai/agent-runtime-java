@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParser;
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.ChunkMapper;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;

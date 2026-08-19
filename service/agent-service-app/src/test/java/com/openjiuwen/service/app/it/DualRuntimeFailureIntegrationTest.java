@@ -7,8 +7,8 @@ package com.openjiuwen.service.app.it;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
-import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
