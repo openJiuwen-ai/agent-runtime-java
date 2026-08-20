@@ -31,8 +31,8 @@ class ActiveTaskControllerTest {
     void returnsSnapshot_whenQueryProvided() {
         ActiveTaskQuery query = mock(ActiveTaskQuery.class);
         when(query.snapshot()).thenReturn(new ConcurrencyLoadSnapshot(5, 2, List.of(
-                new ActiveTaskInfo("task-1", "conv-1", "WORKING", 1000L),
-                new ActiveTaskInfo("task-2", "conv-2", "WORKING", 2000L)
+                new ActiveTaskInfo("task-1", "conv-1", "WORKING", "2026-08-20T10:00:00Z"),
+                new ActiveTaskInfo("task-2", "conv-2", "WORKING", "2026-08-20T10:01:00Z")
         )));
         ObjectProvider<ActiveTaskQuery> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(query);
@@ -67,7 +67,7 @@ class ActiveTaskControllerTest {
     void snapshot_jsonStructure() {
         ActiveTaskQuery query = mock(ActiveTaskQuery.class);
         when(query.snapshot()).thenReturn(new ConcurrencyLoadSnapshot(3, 1, List.of(
-                new ActiveTaskInfo("task-99", "conv-99", "WORKING", 1234567890L)
+                new ActiveTaskInfo("task-99", "conv-99", "WORKING", "2026-08-20T12:00:00Z")
         )));
         ObjectProvider<ActiveTaskQuery> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(query);
@@ -82,6 +82,6 @@ class ActiveTaskControllerTest {
         assertThat(task).containsEntry("taskId", "task-99");
         assertThat(task).containsEntry("conversationId", "conv-99");
         assertThat(task).containsEntry("status", "WORKING");
-        assertThat(task).containsEntry("startedAt", 1234567890L);
+        assertThat(task).containsEntry("startedAt", "2026-08-20T12:00:00Z");
     }
 }

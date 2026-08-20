@@ -82,7 +82,7 @@ class ActiveTaskQueryIntegrationTest {
         @Bean
         ActiveTaskQuery activeTaskQuery() {
             return () -> new ConcurrencyLoadSnapshot(3, 1, List.of(
-                    new ActiveTaskInfo("task-st-1", "conv-st-1", "WORKING", System.currentTimeMillis())
+                    new ActiveTaskInfo("task-st-1", "conv-st-1", "WORKING", "2026-08-20T10:00:00Z")
             ));
         }
     }

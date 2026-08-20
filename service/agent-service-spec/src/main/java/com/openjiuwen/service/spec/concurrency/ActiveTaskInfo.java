@@ -17,7 +17,7 @@ public final class ActiveTaskInfo {
 
     private final String status;
 
-    private final long startedAt;
+    private final String startedAt;
 
     /**
      * Creates an active task info record.
@@ -25,9 +25,9 @@ public final class ActiveTaskInfo {
      * @param taskId A2A task identifier
      * @param conversationId conversation identifier
      * @param status task status (e.g. {@code WORKING})
-     * @param startedAt epoch millis when the task started
+     * @param startedAt ISO-8601 timestamp when the task started (e.g. {@code "2026-08-20T17:45:44.123Z"})
      */
-    public ActiveTaskInfo(String taskId, String conversationId, String status, long startedAt) {
+    public ActiveTaskInfo(String taskId, String conversationId, String status, String startedAt) {
         this.taskId = taskId;
         this.conversationId = conversationId;
         this.status = status;
@@ -62,11 +62,11 @@ public final class ActiveTaskInfo {
     }
 
     /**
-     * Epoch millis when the task started.
+     * ISO-8601 timestamp when the task started.
      *
-     * @return start timestamp
+     * @return start timestamp (e.g. {@code "2026-08-20T17:45:44.123Z"})
      */
-    public long getStartedAt() {
+    public String getStartedAt() {
         return startedAt;
     }
 }
