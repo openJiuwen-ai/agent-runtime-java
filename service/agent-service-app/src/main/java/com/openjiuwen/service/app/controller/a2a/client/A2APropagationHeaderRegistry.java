@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 
 /**
@@ -23,15 +24,27 @@ import java.util.function.BiFunction;
  * <p>Provider contract:
  * <ul>
  *   <li>Only one provider is active per JVM; registering again overwrites the previous
- *   one. The returned {@link Registration} removes only its own provider on close.</li>
- *   <li>The provider is invoked on the HTTP client's worker threads, not on the caller
- *   thread — it must be thread-safe and must not rely on caller-thread
- *   {@code ThreadLocal} state; capturing propagation context across threads is the
- *   provider's responsibility.</li>
- *   <li>Provider headers are added after SDK-set headers, so a same-named provider
- *   header overwrites the SDK value. Providers should restrict themselves to
- *   propagation headers (for example {@code traceparent}, {@code tracestate},
- *   {@code baggage}).</li>
+ *   one. The returned {@link Registration} removes only its own provider on close
+ *   (compare-and-set), so an outdated handle cannot clear a newer registration even
+ *   when registration and close race.</li>
+ *   <li>The provider receives the outbound A-&gt;B request coordinates: {@code url} is
+ *   the downstream A2A endpoint URL and {@code body} is the outbound JSON-RPC body
+ *   (null for GET/DELETE) — not the inbound user-to-runtime request. Providers that
+ *   parse the body should be aware it follows the A2A JSON-RPC message structure.</li>
+ *   <li>The provider is invoked on the runtime's remote-call I/O worker threads
+ *   ({@code A2ARemoteAgentClient}'s executor), not on the inbound request thread — it
+ *   must be thread-safe and must not rely on caller-thread state such as
+ *   {@code ThreadLocal}, logging MDC, OpenTelemetry {@code Context.current()} or the
+ *   Spring request context; capturing and correlating propagation state across threads
+ *   (for example via an explicit context stash) is the provider's responsibility.</li>
+ *   <li>Provider headers are added after SDK-set headers via
+ *   {@code addHeader}; the outcome for a same-named header is defined by the underlying
+ *   HTTP client implementation (the JDK client keeps the last written value; custom
+ *   clients may append or reject duplicates). Providers should restrict themselves to
+ *   propagation-style headers (for example {@code traceparent}, {@code tracestate},
+ *   {@code baggage}, {@code tenant-id}, {@code request-id}) and must not override
+ *   protocol or credential headers such as {@code Content-Type}, {@code A2A-Version},
+ *   {@code Host}, {@code Content-Length}, {@code Cookie} or {@code Authorization}.</li>
  *   <li>Exceptions propagate (fail-closed): a {@code RuntimeException} from the
  *   provider fails the request before any HTTP I/O. Pure-observability providers should
  *   handle their own errors and return an empty map instead of throwing.</li>
@@ -40,7 +53,8 @@ import java.util.function.BiFunction;
  * @since 0.1.2
  */
 public final class A2APropagationHeaderRegistry {
-    private static volatile BiFunction<String, String, Map<String, String>> provider;
+    private static final AtomicReference<BiFunction<String, String, Map<String, String>>> PROVIDER =
+            new AtomicReference<>();
 
     private A2APropagationHeaderRegistry() {
     }
@@ -53,7 +67,7 @@ public final class A2APropagationHeaderRegistry {
      * @return handle for this registration; closing it removes only this provider
      */
     public static Registration registerProvider(BiFunction<String, String, Map<String, String>> headerProvider) {
-        provider = headerProvider;
+        PROVIDER.set(headerProvider);
         return new Registration(headerProvider);
     }
 
@@ -65,7 +79,7 @@ public final class A2APropagationHeaderRegistry {
      * @return headers to inject (empty when no provider is registered or it returns null)
      */
     public static Map<String, String> provide(String url, String body) {
-        BiFunction<String, String, Map<String, String>> current = provider;
+        BiFunction<String, String, Map<String, String>> current = PROVIDER.get();
         if (current == null) {
             return Map.of();
         }
@@ -75,8 +89,8 @@ public final class A2APropagationHeaderRegistry {
 
     /**
      * Handle for one provider registration. {@link #close()} unregisters the provider
-     * only if it is still the active one, so an outdated handle cannot remove a newer
-     * registration.
+     * only if it is still the active one (compare-and-set), so an outdated handle
+     * cannot remove a newer registration even when registration and close race.
      *
      * @since 0.1.2
      */
@@ -89,11 +103,7 @@ public final class A2APropagationHeaderRegistry {
 
         @Override
         public void close() {
-            synchronized (A2APropagationHeaderRegistry.class) {
-                if (provider == registered) {
-                    provider = null;
-                }
-            }
+            PROVIDER.compareAndSet(registered, null);
         }
     }
 }

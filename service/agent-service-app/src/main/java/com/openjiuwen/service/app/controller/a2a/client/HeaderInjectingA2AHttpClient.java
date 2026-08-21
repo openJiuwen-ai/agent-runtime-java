@@ -100,10 +100,11 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
             if (isInjected) {
                 return;
             }
-            isInjected = true;
             String url = currentUrl();
+            // 标记在注入成功后才置位：provider 抛异常时同一 builder 重试仍会重新注入
             A2APropagationHeaderRegistry.provide(url, body)
                     .forEach((key, value) -> delegate.addHeader(key, value));
+            isInjected = true;
         }
 
         String currentUrl() {

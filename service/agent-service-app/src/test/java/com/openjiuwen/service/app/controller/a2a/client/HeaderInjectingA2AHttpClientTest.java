@@ -107,6 +107,20 @@ class HeaderInjectingA2AHttpClientTest {
     }
 
     @Test
+    void failedInjectionCanRetryOnSameBuilder() throws Exception {
+        A2APropagationHeaderRegistry.registerProvider((url, body) -> {
+            throw new IllegalStateException("provider boom");
+        });
+        RecordingClient recording = new RecordingClient();
+        HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
+        A2AHttpClient.PostBuilder builder = client.createPost().url("http://x/a2a").body("{}");
+        assertThatThrownBy(builder::post).isInstanceOf(IllegalStateException.class);
+        A2APropagationHeaderRegistry.registerProvider((url, body) -> Map.of("traceparent", "00-retry-r-01"));
+        builder.post();
+        assertThat(recording.headers).containsEntry("traceparent", "00-retry-r-01");
+    }
+
+    @Test
     void delegateBuildersStillReceiveAllCalls() throws Exception {
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
