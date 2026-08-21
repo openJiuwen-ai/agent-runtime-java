@@ -18,6 +18,7 @@ import org.a2aproject.sdk.client.MessageEvent;
 import org.a2aproject.sdk.client.TaskEvent;
 import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.client.config.ClientConfig;
+import org.a2aproject.sdk.client.http.JdkA2AHttpClient;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AException;
@@ -198,7 +199,9 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
                 ignored -> Client.builder(card)
                         .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
-                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig()).build()));
+                        .withTransport(JSONRPCTransport.class,
+                                new JSONRPCTransportConfig(new HeaderInjectingA2AHttpClient(new JdkA2AHttpClient())))
+                        .build()));
     }
 
     private static String endpoint(AgentCard card) {
