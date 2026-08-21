@@ -6,10 +6,6 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
-import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
-import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
-import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
-
 import jakarta.annotation.PreDestroy;
 
 import org.a2aproject.sdk.client.Client;
@@ -22,24 +18,16 @@ import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.AgentCard;
-import org.a2aproject.sdk.spec.Message;
-import org.a2aproject.sdk.spec.MessageSendConfiguration;
 import org.a2aproject.sdk.spec.MessageSendParams;
-import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
-import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
-import org.a2aproject.sdk.spec.TaskPushNotificationConfig;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
-import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -71,11 +59,11 @@ import java.util.function.Supplier;
  * @since 0.1.0
  */
 public class A2ARemoteAgentClient implements RemoteAgentCaller {
-    static final String CALLBACK_URL_METADATA = "runtime.a2a.callbackUrl";
+    static final String CALLBACK_URL_METADATA = A2ARemoteCallSupport.CALLBACK_URL_METADATA;
 
-    static final String CALLBACK_TOKEN_METADATA = "runtime.a2a.callbackToken";
+    static final String CALLBACK_TOKEN_METADATA = A2ARemoteCallSupport.CALLBACK_TOKEN_METADATA;
 
-    static final String CALLBACK_ID_METADATA = "runtime.a2a.callbackId";
+    static final String CALLBACK_ID_METADATA = A2ARemoteCallSupport.CALLBACK_ID_METADATA;
 
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
     private static final int DEFAULT_IO_CONCURRENCY = 16;
@@ -85,6 +73,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private final Map<ClientCacheKey, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final ExecutorService ioExecutor;
+
+    private final A2ARemoteCallSupport remoteCallSupport = new A2ARemoteCallSupport();
 
     /**
      * Constructs the remote agent client with the default I/O concurrency.
@@ -129,10 +119,6 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private record RemoteCallSetup(RemoteAgentEntry entry, MessageSendParams params, String contextId) {
     }
 
-    private record TaskOutcome(String taskId, TaskState state, String statusText, Task task,
-            AgentFailureDescriptor remoteFailure) {
-    }
-
     /**
      * Resolves the remote agent entry and builds the SDK message.
      *
@@ -147,40 +133,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     static MessageSendParams buildSendParams(RemoteCall call, String contextId) {
-        var messageBuilder = Message.builder().role(Message.Role.ROLE_USER).contextId(contextId)
-                .parts(List.<Part<?>>of(new TextPart(call.message()))).metadata(call.messageMetadata());
-        if (call.taskId() != null && !call.taskId().isBlank()) {
-            messageBuilder.taskId(call.taskId());
-        }
-        Map<String, Object> paramsMetadata = paramsMetadata(call.metadata());
-        var configurationBuilder = MessageSendConfiguration.builder().returnImmediately(false);
-        callbackConfig(call, contextId)
-                .ifPresent(config -> configurationBuilder.returnImmediately(true).taskPushNotificationConfig(config));
-        return MessageSendParams.builder().message(messageBuilder.build()).configuration(configurationBuilder.build())
-                .metadata(paramsMetadata).build();
-    }
-
-    private static Map<String, Object> paramsMetadata(Map<String, Object> metadata) {
-        if (metadata == null || metadata.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, Object> result = new LinkedHashMap<>(metadata);
-        result.remove(CALLBACK_URL_METADATA);
-        result.remove(CALLBACK_TOKEN_METADATA);
-        result.remove(CALLBACK_ID_METADATA);
-        return result;
-    }
-
-    private static Optional<TaskPushNotificationConfig> callbackConfig(RemoteCall call, String contextId) {
-        Object rawUrl = call.metadata().get(CALLBACK_URL_METADATA);
-        if (!(rawUrl instanceof String url) || url.isBlank()) {
-            return Optional.empty();
-        }
-        String id = Optional.ofNullable(call.metadata().get(CALLBACK_ID_METADATA)).map(String::valueOf)
-                .filter(value -> !value.isBlank()).orElse("push-" + contextId);
-        String token = Optional.ofNullable(call.metadata().get(CALLBACK_TOKEN_METADATA)).map(String::valueOf)
-                .filter(value -> !value.isBlank()).orElse(null);
-        return Optional.of(TaskPushNotificationConfig.builder().id(id).url(url).token(token).build());
+        return new A2ARemoteCallSupport().buildSendParams(call, contextId);
     }
 
     /**
@@ -253,8 +206,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
-        boolean isCallbackMode = setup.params.configuration() != null
-                && setup.params.configuration().taskPushNotificationConfig() != null;
+        boolean isCallbackMode = remoteCallSupport.isCallbackMode(setup.params);
         BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> {
             try {
                 handleClientEvent(event, result, eventObserver, isCallbackMode, isStreaming);
@@ -269,7 +221,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 try {
                     withApplicationClassLoader(() -> {
                         client.sendMessage(setup.params, List.of(eventConsumer),
-                                error -> completeOutcomeOnStreamEnd(call.agentName(), result, error), null);
+                                error -> remoteCallSupport.completeOnStreamEnd(call.agentName(), result, error), null);
                         return null;
                     });
                 } catch (RuntimeException ex) {
@@ -296,98 +248,28 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
     private void handleClientEvent(ClientEvent event, CompletableFuture<RemoteCallOutcome> result,
             RemoteAgentCaller.EventObserver eventObserver, boolean isCallbackMode, boolean isStreaming) {
-        if (event instanceof TaskUpdateEvent tue) {
-            if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
-                if (!result.isDone()) {
-                    eventObserver.onArtifact(aue);
-                }
-            } else if (tue.getUpdateEvent() instanceof TaskStatusUpdateEvent sue) {
-                handleOutcomeStatus(sue, tue.getTask(), result, eventObserver, isCallbackMode);
-            } else {
-                log.debug("Unknown update event type: {}", tue.getUpdateEvent().getClass().getSimpleName());
-            }
-        } else if (event instanceof TaskEvent te) {
-            handleOutcomeTask(te, result, eventObserver, isCallbackMode, isStreaming);
-        } else if (event instanceof MessageEvent me) {
-            handleOutcomeMessage(me, result);
-        } else {
-            log.debug("Unknown event type: {}", event.getClass().getSimpleName());
-        }
+        remoteCallSupport.accept(event, result, eventObserver, isCallbackMode, isStreaming);
     }
 
     private static boolean completeOutcomeOnStreamEnd(String agentName, CompletableFuture<?> result, Throwable error) {
-        if (result.isDone()) {
-            return false;
-        }
-        Throwable failure = error == null
-                ? new IllegalStateException(
-                        "Remote agent '" + agentName + "' closed the stream before a terminal event")
-                : error;
-        return result.completeExceptionally(failure);
+        return new A2ARemoteCallSupport().completeOnStreamEnd(agentName, result, error);
     }
 
     private void handleOutcomeStatus(TaskStatusUpdateEvent event, Task task,
             CompletableFuture<RemoteCallOutcome> result, RemoteAgentCaller.EventObserver eventObserver,
             boolean isCallbackMode) {
-        if (result.isDone()) {
-            return;
-        }
-        TaskState state = event.status().state();
-        eventObserver.onStatus(event);
-        String statusText = event.status().message() != null ? extractText(event.status().message().parts()) : "";
-        completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task,
-                remoteFailure(event.status().message()).orElse(null)), result, isCallbackMode);
+        remoteCallSupport.accept(new TaskUpdateEvent(task, event), result, eventObserver, isCallbackMode, true);
     }
 
     private void handleOutcomeTask(TaskEvent event, CompletableFuture<RemoteCallOutcome> result,
             RemoteAgentCaller.EventObserver eventObserver, boolean isCallbackMode, boolean isStreaming) {
-        if (result.isDone()) {
-            return;
-        }
-        Task task = event.getTask();
-        TaskState state = task.status().state();
-        if (isStreaming) {
-            eventObserver.onStatus(new TaskStatusUpdateEvent(task.id(), task.status(), task.contextId(), Map.of()));
-        }
-        String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";
-        completeTaskOutcome(new TaskOutcome(task.id(), state, statusText, task,
-                remoteFailure(task.status().message()).orElse(null)), result, isCallbackMode);
-    }
-
-    private static void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
-            boolean isCallbackMode) {
-        if (result.isDone()) {
-            return;
-        }
-        if (isCallbackMode && !outcome.state().isFinal()) {
-            result.complete(new RemoteCallOutcome(outcome.taskId(), TaskState.TASK_STATE_INPUT_REQUIRED,
-                    "INPUT_REQUIRED", null, "Remote callback pending"));
-            return;
-        }
-        if (outcome.state().isInterrupted()) {
-            String inputPrompt = outcome.statusText().isBlank() ? "Remote agent requires input" : outcome.statusText();
-            result.complete(new RemoteCallOutcome(outcome.taskId(), outcome.state(), resultCategory(outcome.state()),
-                    null, inputPrompt));
-            return;
-        }
-        if (!outcome.state().isFinal()) {
-            return;
-        }
-        String taskText = outcome.task() == null ? "" : A2aPartContent.extractTaskResult(outcome.task());
-        String resultText = outcome.state() == TaskState.TASK_STATE_COMPLETED
-                ? (taskText.isBlank() ? outcome.statusText() : taskText)
-                : (outcome.statusText().isBlank() ? taskText : outcome.statusText());
-        result.complete(new RemoteCallOutcome(outcome.taskId(), outcome.state(), resultCategory(outcome.state()),
-                resultText, null, outcome.remoteFailure()));
+        remoteCallSupport.accept(event, result, eventObserver, isCallbackMode, isStreaming);
     }
 
     private void handleOutcomeMessage(MessageEvent event, CompletableFuture<RemoteCallOutcome> result) {
-        if (result.isDone() || event.getMessage() == null) {
-            return;
+        if (!result.isDone()) {
+            remoteCallSupport.mapMessage(event.getMessage()).ifPresent(result::complete);
         }
-        Message message = event.getMessage();
-        result.complete(new RemoteCallOutcome(message.taskId(), TaskState.TASK_STATE_COMPLETED, "COMPLETED",
-                A2aPartContent.extract(message.parts()), null));
     }
 
     /**
@@ -411,32 +293,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     static String resultCategory(TaskState state) {
-        if (state == TaskState.TASK_STATE_COMPLETED) {
-            return "COMPLETED";
-        }
-        if (state.isInterrupted()) {
-            return "INPUT_REQUIRED";
-        }
-        if (state == TaskState.TASK_STATE_FAILED) {
-            return "REMOTE_BUSINESS_FAILURE";
-        }
-        return "REMOTE_" + state.name().replaceFirst("^TASK_STATE_", "");
+        return A2ARemoteCallSupport.resultCategory(state);
     }
 
-    private static String extractText(List<Part<?>> parts) {
-        if (parts == null || parts.isEmpty()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (Part<?> p : parts) {
-            if (p instanceof TextPart tp) {
-                sb.append(tp.text());
-            }
-        }
-        return sb.toString();
-    }
-
-    private static Optional<AgentFailureDescriptor> remoteFailure(Message message) {
-        return message == null ? Optional.empty() : A2aErrorMetadata.decode(message.metadata());
-    }
 }
