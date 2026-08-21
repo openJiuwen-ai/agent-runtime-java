@@ -102,6 +102,7 @@ public class A2aJsonRpcController {
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     validateInlinePushNotificationConfig(params);
                     if (isAdmissionOverloaded()) {
+                        logRejected(params.message().contextId());
                         yield ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
                                 .body(admissionErrorBody(id));
                     }
@@ -113,6 +114,7 @@ public class A2aJsonRpcController {
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     validateInlinePushNotificationConfig(params);
                     if (isAdmissionOverloaded()) {
+                        logRejected(params.message().contextId());
                         yield ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
                                 .body(admissionErrorBody(id));
                     }
@@ -147,6 +149,14 @@ public class A2aJsonRpcController {
         TaskAdmissionGate admissionGate = admissionGateProvider.getIfAvailable();
         return admissionGate != null && admissionGate.limit() >= 0
                 && admissionGate.currentCount() >= admissionGate.limit();
+    }
+
+    private void logRejected(String conversationId) {
+        TaskAdmissionGate gate = admissionGateProvider != null ? admissionGateProvider.getIfAvailable() : null;
+        if (gate != null) {
+            log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} maxConcurrent={} reason=\"limit_reached\"",
+                    conversationId, gate.currentCount(), gate.limit());
+        }
     }
 
     private ResponseEntity<SseEmitter> streamToSse(Flow.Publisher<StreamingEventKind> publisher, Object requestId) {

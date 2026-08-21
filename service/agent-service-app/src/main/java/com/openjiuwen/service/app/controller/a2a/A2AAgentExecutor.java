@@ -140,13 +140,21 @@ public class A2AAgentExecutor implements AgentExecutor {
     private void executeRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
             boolean isNewTask) {
         if (admissionGate != null && !admissionGate.tryAcquire()) {
+            log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} maxConcurrent={} reason=\"limit_reached\"",
+                    req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());
             throw new A2AError(A2AErrorCodes.INTERNAL.code(), ADMISSION_REJECTED_MESSAGE, null);
+        }
+        if (admissionGate != null) {
+            log.info("[CONCURRENCY] task_admitted taskId={} conversationId={} currentActive={} maxConcurrent={}",
+                    msgCtx.getTaskId(), req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());
         }
         try {
             executeAdmitted(ctx, msgCtx, req, emitter, isNewTask);
         } finally {
             if (admissionGate != null) {
                 admissionGate.release();
+                log.info("[CONCURRENCY] task_released taskId={} conversationId={} currentActive={} maxConcurrent={}",
+                        msgCtx.getTaskId(), req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());
             }
         }
     }
