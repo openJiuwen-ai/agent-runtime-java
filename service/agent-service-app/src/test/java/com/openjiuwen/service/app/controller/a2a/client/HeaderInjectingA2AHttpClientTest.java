@@ -31,7 +31,7 @@ class HeaderInjectingA2AHttpClientTest {
 
     @Test
     void injectsProvidedHeadersOnPost() throws Exception {
-        A2APropagationHeaderRegistry.registerProvider((url, body) -> Map.of("traceparent", "00-abc-def-01"));
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-abc-def-01"));
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         client.createPost().url("http://x/a2a").body("{\"jsonrpc\":\"2.0\"}").post();
@@ -40,7 +40,7 @@ class HeaderInjectingA2AHttpClientTest {
 
     @Test
     void injectsOnGetAndDelete() throws Exception {
-        A2APropagationHeaderRegistry.registerProvider((url, body) -> Map.of("x-trace", "t1"));
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("x-trace", "t1"));
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         client.createGet().url("http://x/card").get();
@@ -50,7 +50,7 @@ class HeaderInjectingA2AHttpClientTest {
 
     @Test
     void injectsOnAsyncSse() throws Exception {
-        A2APropagationHeaderRegistry.registerProvider((url, body) -> Map.of("traceparent", "00-sse-sse-01"));
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-sse-sse-01"));
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         client.createPost().url("http://x/a2a").body("{}")
@@ -71,9 +71,9 @@ class HeaderInjectingA2AHttpClientTest {
     @Test
     void providerReceivesUrlAndBody() throws Exception {
         Map<String, String> seen = new HashMap<>();
-        A2APropagationHeaderRegistry.registerProvider((url, body) -> {
-            seen.put("url", url);
-            seen.put("body", body);
+        A2APropagationHeaderRegistry.registerProvider(request -> {
+            seen.put("url", request.url());
+            seen.put("body", request.body());
             return Map.of("k", "v");
         });
         RecordingClient recording = new RecordingClient();
@@ -86,7 +86,7 @@ class HeaderInjectingA2AHttpClientTest {
     void providerIsInvokedPerRequest() throws Exception {
         AtomicInteger calls = new AtomicInteger();
         A2APropagationHeaderRegistry.registerProvider(
-                (url, body) -> Map.of("traceparent", "00-t" + calls.incrementAndGet() + "-s-01"));
+                request -> Map.of("traceparent", "00-t" + calls.incrementAndGet() + "-s-01"));
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         client.createPost().url("http://x/a2a").body("one").post();
@@ -97,7 +97,7 @@ class HeaderInjectingA2AHttpClientTest {
 
     @Test
     void providerExceptionPropagatesBeforeIo() {
-        A2APropagationHeaderRegistry.registerProvider((url, body) -> {
+        A2APropagationHeaderRegistry.registerProvider(request -> {
             throw new IllegalStateException("provider boom");
         });
         RecordingClient recording = new RecordingClient();
@@ -108,14 +108,14 @@ class HeaderInjectingA2AHttpClientTest {
 
     @Test
     void failedInjectionCanRetryOnSameBuilder() throws Exception {
-        A2APropagationHeaderRegistry.registerProvider((url, body) -> {
+        A2APropagationHeaderRegistry.registerProvider(request -> {
             throw new IllegalStateException("provider boom");
         });
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         A2AHttpClient.PostBuilder builder = client.createPost().url("http://x/a2a").body("{}");
         assertThatThrownBy(builder::post).isInstanceOf(IllegalStateException.class);
-        A2APropagationHeaderRegistry.registerProvider((url, body) -> Map.of("traceparent", "00-retry-r-01"));
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-retry-r-01"));
         builder.post();
         assertThat(recording.headers).containsEntry("traceparent", "00-retry-r-01");
     }
@@ -134,21 +134,21 @@ class HeaderInjectingA2AHttpClientTest {
     @Test
     void registryResolvesEmptyWhenUnsetOrNullResult() {
         A2APropagationHeaderRegistry.registerProvider(null);
-        assertThat(A2APropagationHeaderRegistry.provide("u", "b")).isEmpty();
-        A2APropagationHeaderRegistry.registerProvider((url, body) -> null);
-        assertThat(A2APropagationHeaderRegistry.provide("u", "b")).isEmpty();
+        assertThat(A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b"))).isEmpty();
+        A2APropagationHeaderRegistry.registerProvider(request -> null);
+        assertThat(A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b"))).isEmpty();
     }
 
     @Test
     void registrationCloseRemovesOnlyOwnProvider() {
         A2APropagationHeaderRegistry.Registration stale = A2APropagationHeaderRegistry
-                .registerProvider((url, body) -> Map.of("p", "1"));
+                .registerProvider(request -> Map.of("p", "1"));
         A2APropagationHeaderRegistry.Registration active = A2APropagationHeaderRegistry
-                .registerProvider((url, body) -> Map.of("p", "2"));
+                .registerProvider(request -> Map.of("p", "2"));
         stale.close();
-        assertThat(A2APropagationHeaderRegistry.provide("u", "b")).containsEntry("p", "2");
+        assertThat(A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b"))).containsEntry("p", "2");
         active.close();
-        assertThat(A2APropagationHeaderRegistry.provide("u", "b")).isEmpty();
+        assertThat(A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b"))).isEmpty();
     }
 
     @Test

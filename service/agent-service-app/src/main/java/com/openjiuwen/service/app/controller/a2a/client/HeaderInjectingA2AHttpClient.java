@@ -100,9 +100,9 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
             if (isInjected) {
                 return;
             }
-            String url = currentUrl();
+            A2AOutboundRequest request = new A2AOutboundRequest(currentUrl(), method(), body);
             // 标记在注入成功后才置位：provider 抛异常时同一 builder 重试仍会重新注入
-            A2APropagationHeaderRegistry.provide(url, body)
+            A2APropagationHeaderRegistry.provide(request)
                     .forEach((key, value) -> delegate.addHeader(key, value));
             isInjected = true;
         }
@@ -110,6 +110,8 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         String currentUrl() {
             return "";
         }
+
+        abstract String method();
 
         abstract B self();
     }
@@ -131,6 +133,11 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         @Override
         String currentUrl() {
             return url;
+        }
+
+        @Override
+        String method() {
+            return "GET";
         }
 
         @Override
@@ -170,6 +177,11 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         @Override
         String currentUrl() {
             return url;
+        }
+
+        @Override
+        String method() {
+            return "POST";
         }
 
         @Override
@@ -215,6 +227,11 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         @Override
         String currentUrl() {
             return url;
+        }
+
+        @Override
+        String method() {
+            return "DELETE";
         }
 
         @Override
