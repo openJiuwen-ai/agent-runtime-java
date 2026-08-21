@@ -145,10 +145,11 @@ class HeaderInjectingA2AHttpClientTest {
                 .registerProvider(request -> Map.of("p", "1"));
         A2APropagationHeaderRegistry.Registration active = A2APropagationHeaderRegistry
                 .registerProvider(request -> Map.of("p", "2"));
+        A2AOutboundRequest request = new A2AOutboundRequest("u", "POST", "b");
         stale.close();
-        assertThat(A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b"))).containsEntry("p", "2");
+        assertThat(A2APropagationHeaderRegistry.provide(request)).containsEntry("p", "2");
         active.close();
-        assertThat(A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b"))).isEmpty();
+        assertThat(A2APropagationHeaderRegistry.provide(request)).isEmpty();
     }
 
     @Test
