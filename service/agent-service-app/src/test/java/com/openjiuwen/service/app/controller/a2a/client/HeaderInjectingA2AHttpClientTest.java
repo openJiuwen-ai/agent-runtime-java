@@ -21,7 +21,6 @@ import java.util.function.Consumer;
  * HeaderInjectingA2AHttpClient 与 A2APropagationHeaderSupport 的单元测试。
  */
 class HeaderInjectingA2AHttpClientTest {
-
     @AfterEach
     void resetResolver() {
         A2APropagationHeaderSupport.setResolver(null);
@@ -202,7 +201,8 @@ class HeaderInjectingA2AHttpClientTest {
         }
     }
 
-    private static final class RecDelete extends RecBase<A2AHttpClient.DeleteBuilder> implements A2AHttpClient.DeleteBuilder {
+    private static final class RecDelete
+            extends RecBase<A2AHttpClient.DeleteBuilder> implements A2AHttpClient.DeleteBuilder {
         RecDelete(RecordingClient client) {
             super(client);
         }

@@ -109,7 +109,8 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         abstract B self();
     }
 
-    private static final class GetWrapper extends BaseWrapper<A2AHttpClient.GetBuilder> implements A2AHttpClient.GetBuilder {
+    private static final class GetWrapper
+            extends BaseWrapper<A2AHttpClient.GetBuilder> implements A2AHttpClient.GetBuilder {
         private String url;
 
         GetWrapper(A2AHttpClient.GetBuilder delegate) {
@@ -146,7 +147,8 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         }
     }
 
-    private static final class PostWrapper extends BaseWrapper<A2AHttpClient.PostBuilder> implements A2AHttpClient.PostBuilder {
+    private static final class PostWrapper
+            extends BaseWrapper<A2AHttpClient.PostBuilder> implements A2AHttpClient.PostBuilder {
         private String url;
         private String body;
 
@@ -191,7 +193,8 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         }
     }
 
-    private static final class DeleteWrapper extends BaseWrapper<A2AHttpClient.DeleteBuilder> implements A2AHttpClient.DeleteBuilder {
+    private static final class DeleteWrapper
+            extends BaseWrapper<A2AHttpClient.DeleteBuilder> implements A2AHttpClient.DeleteBuilder {
         private String url;
 
         DeleteWrapper(A2AHttpClient.DeleteBuilder delegate) {
