@@ -15,7 +15,7 @@ import java.util.function.Consumer;
 
 /**
  * {@link A2AHttpClient} decorator that injects propagation headers (resolved per request
- * via {@link A2APropagationHeaderSupport}) onto outbound A2A requests. All HTTP I/O still
+ * via {@link A2APropagationHeaderRegistry}) onto outbound A2A requests. All HTTP I/O still
  * executes in the wrapped client; this class only adds headers through the builders.
  *
  * <p>When no resolver is registered (or it yields no headers), nothing is injected and
@@ -33,6 +33,10 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
      */
     public HeaderInjectingA2AHttpClient(A2AHttpClient delegate) {
         this.delegate = delegate;
+    }
+
+    A2AHttpClient unwrap() {
+        return delegate;
     }
 
     @Override
@@ -98,7 +102,7 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
             }
             isInjected = true;
             String url = currentUrl();
-            A2APropagationHeaderSupport.resolve(url, body)
+            A2APropagationHeaderRegistry.provide(url, body)
                     .forEach((key, value) -> delegate.addHeader(key, value));
         }
 

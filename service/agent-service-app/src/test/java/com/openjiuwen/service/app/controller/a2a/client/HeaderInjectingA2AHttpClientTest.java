@@ -5,8 +5,10 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.a2aproject.sdk.client.http.A2AHttpClient;
+import org.a2aproject.sdk.client.http.A2AHttpClientFactory;
 import org.a2aproject.sdk.client.http.A2AHttpResponse;
 import org.a2aproject.sdk.client.http.ServerSentEvent;
 import org.junit.jupiter.api.AfterEach;
@@ -15,20 +17,21 @@ import org.junit.jupiter.api.Test;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
- * HeaderInjectingA2AHttpClient 与 A2APropagationHeaderSupport 的单元测试。
+ * HeaderInjectingA2AHttpClient 与 A2APropagationHeaderRegistry 的单元测试。
  */
 class HeaderInjectingA2AHttpClientTest {
     @AfterEach
-    void resetResolver() {
-        A2APropagationHeaderSupport.setResolver(null);
+    void resetProvider() {
+        A2APropagationHeaderRegistry.registerProvider(null);
     }
 
     @Test
-    void injectsResolvedHeadersOnPost() throws Exception {
-        A2APropagationHeaderSupport.setResolver((url, body) -> Map.of("traceparent", "00-abc-def-01"));
+    void injectsProvidedHeadersOnPost() throws Exception {
+        A2APropagationHeaderRegistry.registerProvider((url, body) -> Map.of("traceparent", "00-abc-def-01"));
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         client.createPost().url("http://x/a2a").body("{\"jsonrpc\":\"2.0\"}").post();
@@ -37,7 +40,7 @@ class HeaderInjectingA2AHttpClientTest {
 
     @Test
     void injectsOnGetAndDelete() throws Exception {
-        A2APropagationHeaderSupport.setResolver((url, body) -> Map.of("x-trace", "t1"));
+        A2APropagationHeaderRegistry.registerProvider((url, body) -> Map.of("x-trace", "t1"));
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         client.createGet().url("http://x/card").get();
@@ -46,7 +49,19 @@ class HeaderInjectingA2AHttpClientTest {
     }
 
     @Test
-    void noInjectionWhenNoResolver() throws Exception {
+    void injectsOnAsyncSse() throws Exception {
+        A2APropagationHeaderRegistry.registerProvider((url, body) -> Map.of("traceparent", "00-sse-sse-01"));
+        RecordingClient recording = new RecordingClient();
+        HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
+        client.createPost().url("http://x/a2a").body("{}")
+                .postAsyncSSE(event -> { }, error -> { }, () -> { });
+        client.createGet().url("http://x/card")
+                .getAsyncSSE(event -> { }, error -> { }, () -> { });
+        assertThat(recording.headers).containsEntry("traceparent", "00-sse-sse-01");
+    }
+
+    @Test
+    void noInjectionWhenNoProvider() throws Exception {
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         client.createPost().url("http://x/a2a").body("{}").post();
@@ -54,9 +69,9 @@ class HeaderInjectingA2AHttpClientTest {
     }
 
     @Test
-    void resolverReceivesUrlAndBody() throws Exception {
+    void providerReceivesUrlAndBody() throws Exception {
         Map<String, String> seen = new HashMap<>();
-        A2APropagationHeaderSupport.setResolver((url, body) -> {
+        A2APropagationHeaderRegistry.registerProvider((url, body) -> {
             seen.put("url", url);
             seen.put("body", body);
             return Map.of("k", "v");
@@ -65,6 +80,30 @@ class HeaderInjectingA2AHttpClientTest {
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         client.createPost().url("http://x/a2a").body("the-body").post();
         assertThat(seen).containsEntry("url", "http://x/a2a").containsEntry("body", "the-body");
+    }
+
+    @Test
+    void providerIsInvokedPerRequest() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        A2APropagationHeaderRegistry.registerProvider(
+                (url, body) -> Map.of("traceparent", "00-t" + calls.incrementAndGet() + "-s-01"));
+        RecordingClient recording = new RecordingClient();
+        HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
+        client.createPost().url("http://x/a2a").body("one").post();
+        client.createPost().url("http://x/a2a").body("two").post();
+        assertThat(calls).hasValue(2);
+        assertThat(recording.headers).containsEntry("traceparent", "00-t2-s-01");
+    }
+
+    @Test
+    void providerExceptionPropagatesBeforeIo() {
+        A2APropagationHeaderRegistry.registerProvider((url, body) -> {
+            throw new IllegalStateException("provider boom");
+        });
+        RecordingClient recording = new RecordingClient();
+        HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
+        A2AHttpClient.PostBuilder builder = client.createPost().url("http://x/a2a").body("{}");
+        assertThatThrownBy(builder::post).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -79,11 +118,33 @@ class HeaderInjectingA2AHttpClientTest {
     }
 
     @Test
-    void supportResolvesEmptyWhenUnsetOrNullResult() {
-        A2APropagationHeaderSupport.setResolver(null);
-        assertThat(A2APropagationHeaderSupport.resolve("u", "b")).isEmpty();
-        A2APropagationHeaderSupport.setResolver((url, body) -> null);
-        assertThat(A2APropagationHeaderSupport.resolve("u", "b")).isEmpty();
+    void registryResolvesEmptyWhenUnsetOrNullResult() {
+        A2APropagationHeaderRegistry.registerProvider(null);
+        assertThat(A2APropagationHeaderRegistry.provide("u", "b")).isEmpty();
+        A2APropagationHeaderRegistry.registerProvider((url, body) -> null);
+        assertThat(A2APropagationHeaderRegistry.provide("u", "b")).isEmpty();
+    }
+
+    @Test
+    void registrationCloseRemovesOnlyOwnProvider() {
+        A2APropagationHeaderRegistry.Registration stale = A2APropagationHeaderRegistry
+                .registerProvider((url, body) -> Map.of("p", "1"));
+        A2APropagationHeaderRegistry.Registration active = A2APropagationHeaderRegistry
+                .registerProvider((url, body) -> Map.of("p", "2"));
+        stale.close();
+        assertThat(A2APropagationHeaderRegistry.provide("u", "b")).containsEntry("p", "2");
+        active.close();
+        assertThat(A2APropagationHeaderRegistry.provide("u", "b")).isEmpty();
+    }
+
+    @Test
+    void remoteAgentClientWrapsSdkSelectedHttpClient() {
+        A2AHttpClient selected = A2AHttpClientFactory.create();
+        assertThat(selected).isInstanceOf(TestTaggingA2AHttpClientProvider.TaggingA2AHttpClient.class);
+        A2AHttpClient used = A2ARemoteAgentClient.createHttpClient();
+        assertThat(used).isInstanceOf(HeaderInjectingA2AHttpClient.class);
+        assertThat(((HeaderInjectingA2AHttpClient) used).unwrap())
+                .isInstanceOf(TestTaggingA2AHttpClientProvider.TaggingA2AHttpClient.class);
     }
 
     private static final class RecordingClient implements A2AHttpClient {
