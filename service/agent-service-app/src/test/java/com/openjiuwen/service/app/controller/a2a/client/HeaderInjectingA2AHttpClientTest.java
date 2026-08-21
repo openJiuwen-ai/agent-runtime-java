@@ -143,8 +143,10 @@ class HeaderInjectingA2AHttpClientTest {
         assertThat(selected).isInstanceOf(TestTaggingA2AHttpClientProvider.TaggingA2AHttpClient.class);
         A2AHttpClient used = A2ARemoteAgentClient.createHttpClient();
         assertThat(used).isInstanceOf(HeaderInjectingA2AHttpClient.class);
-        assertThat(((HeaderInjectingA2AHttpClient) used).unwrap())
-                .isInstanceOf(TestTaggingA2AHttpClientProvider.TaggingA2AHttpClient.class);
+        if (used instanceof HeaderInjectingA2AHttpClient injecting) {
+            assertThat(injecting.unwrap())
+                    .isInstanceOf(TestTaggingA2AHttpClientProvider.TaggingA2AHttpClient.class);
+        }
     }
 
     private static final class RecordingClient implements A2AHttpClient {

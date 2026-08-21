@@ -15,6 +15,8 @@ import org.a2aproject.sdk.client.http.JdkA2AHttpClient;
  * client produced here, and the runtime transport must wrap it instead of bypassing it
  * with a hardcoded JDK client. The tagging client fully delegates to the JDK client,
  * so all other tests observe unchanged HTTP behavior.
+ *
+ * @since 0.1.2
  */
 public class TestTaggingA2AHttpClientProvider implements A2AHttpClientProvider {
     /**
