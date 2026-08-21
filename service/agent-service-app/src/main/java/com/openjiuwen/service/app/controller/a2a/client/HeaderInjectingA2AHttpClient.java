@@ -4,14 +4,14 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import org.a2aproject.sdk.client.http.A2AHttpClient;
+import org.a2aproject.sdk.client.http.A2AHttpResponse;
+import org.a2aproject.sdk.client.http.ServerSentEvent;
+
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
-
-import org.a2aproject.sdk.client.http.A2AHttpClient;
-import org.a2aproject.sdk.client.http.A2AHttpResponse;
-import org.a2aproject.sdk.client.http.ServerSentEvent;
 
 /**
  * {@link A2AHttpClient} decorator that injects propagation headers (resolved per request
@@ -24,7 +24,6 @@ import org.a2aproject.sdk.client.http.ServerSentEvent;
  * @since 0.1.2
  */
 public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
-
     private final A2AHttpClient delegate;
 
     /**
@@ -53,32 +52,51 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
 
     private abstract static class BaseWrapper<B extends A2AHttpClient.Builder<B>> {
         final B delegate;
-        private boolean injected;
+        private boolean isInjected;
 
         BaseWrapper(B delegate) {
             this.delegate = delegate;
         }
 
+        /**
+         * Sets the target url.
+         *
+         * @param url target url
+         * @return this builder
+         */
         public B url(String url) {
             delegate.url(url);
             return self();
         }
 
+        /**
+         * Adds a request header.
+         *
+         * @param key   header name
+         * @param value header value
+         * @return this builder
+         */
         public B addHeader(String key, String value) {
             delegate.addHeader(key, value);
             return self();
         }
 
+        /**
+         * Adds multiple request headers.
+         *
+         * @param headers headers to add
+         * @return this builder
+         */
         public B addHeaders(Map<String, String> headers) {
             delegate.addHeaders(headers);
             return self();
         }
 
         void inject(String body) {
-            if (injected) {
+            if (isInjected) {
                 return;
             }
-            injected = true;
+            isInjected = true;
             String url = currentUrl();
             A2APropagationHeaderSupport.resolve(url, body)
                     .forEach((key, value) -> delegate.addHeader(key, value));
@@ -91,9 +109,7 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         abstract B self();
     }
 
-    private static final class GetWrapper extends BaseWrapper<A2AHttpClient.GetBuilder>
-            implements A2AHttpClient.GetBuilder {
-
+    private static final class GetWrapper extends BaseWrapper<A2AHttpClient.GetBuilder> implements A2AHttpClient.GetBuilder {
         private String url;
 
         GetWrapper(A2AHttpClient.GetBuilder delegate) {
@@ -130,9 +146,7 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         }
     }
 
-    private static final class PostWrapper extends BaseWrapper<A2AHttpClient.PostBuilder>
-            implements A2AHttpClient.PostBuilder {
-
+    private static final class PostWrapper extends BaseWrapper<A2AHttpClient.PostBuilder> implements A2AHttpClient.PostBuilder {
         private String url;
         private String body;
 
@@ -177,9 +191,7 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         }
     }
 
-    private static final class DeleteWrapper extends BaseWrapper<A2AHttpClient.DeleteBuilder>
-            implements A2AHttpClient.DeleteBuilder {
-
+    private static final class DeleteWrapper extends BaseWrapper<A2AHttpClient.DeleteBuilder> implements A2AHttpClient.DeleteBuilder {
         private String url;
 
         DeleteWrapper(A2AHttpClient.DeleteBuilder delegate) {

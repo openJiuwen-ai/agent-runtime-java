@@ -22,7 +22,6 @@ import java.util.function.BiFunction;
  * @since 0.1.2
  */
 public final class A2APropagationHeaderSupport {
-
     private static volatile BiFunction<String, String, Map<String, String>> resolver;
 
     private A2APropagationHeaderSupport() {

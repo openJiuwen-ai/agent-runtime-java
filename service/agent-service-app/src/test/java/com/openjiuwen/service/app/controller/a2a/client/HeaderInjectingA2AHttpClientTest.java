@@ -6,16 +6,16 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
-
 import org.a2aproject.sdk.client.http.A2AHttpClient;
 import org.a2aproject.sdk.client.http.A2AHttpResponse;
 import org.a2aproject.sdk.client.http.ServerSentEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 /**
  * HeaderInjectingA2AHttpClient 与 A2APropagationHeaderSupport 的单元测试。
@@ -115,16 +115,35 @@ class HeaderInjectingA2AHttpClientTest {
             this.client = client;
         }
 
+        /**
+         * Sets the target url.
+         *
+         * @param url target url
+         * @return this builder
+         */
         public B url(String url) {
             client.url = url;
             return self();
         }
 
+        /**
+         * Adds a request header.
+         *
+         * @param key   header name
+         * @param value header value
+         * @return this builder
+         */
         public B addHeader(String key, String value) {
             client.headers.put(key, value);
             return self();
         }
 
+        /**
+         * Adds multiple request headers.
+         *
+         * @param headers headers to add
+         * @return this builder
+         */
         public B addHeaders(Map<String, String> headers) {
             client.headers.putAll(headers);
             return self();
@@ -133,8 +152,7 @@ class HeaderInjectingA2AHttpClientTest {
         abstract B self();
     }
 
-    private static final class RecPost extends RecBase<A2AHttpClient.PostBuilder>
-            implements A2AHttpClient.PostBuilder {
+    private static final class RecPost extends RecBase<A2AHttpClient.PostBuilder> implements A2AHttpClient.PostBuilder {
         RecPost(RecordingClient client) {
             super(client);
         }
@@ -162,8 +180,7 @@ class HeaderInjectingA2AHttpClientTest {
         }
     }
 
-    private static final class RecGet extends RecBase<A2AHttpClient.GetBuilder>
-            implements A2AHttpClient.GetBuilder {
+    private static final class RecGet extends RecBase<A2AHttpClient.GetBuilder> implements A2AHttpClient.GetBuilder {
         RecGet(RecordingClient client) {
             super(client);
         }
@@ -185,8 +202,7 @@ class HeaderInjectingA2AHttpClientTest {
         }
     }
 
-    private static final class RecDelete extends RecBase<A2AHttpClient.DeleteBuilder>
-            implements A2AHttpClient.DeleteBuilder {
+    private static final class RecDelete extends RecBase<A2AHttpClient.DeleteBuilder> implements A2AHttpClient.DeleteBuilder {
         RecDelete(RecordingClient client) {
             super(client);
         }
