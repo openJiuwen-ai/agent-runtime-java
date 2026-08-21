@@ -26,6 +26,7 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -225,12 +226,16 @@ public class A2AAutoConfiguration {
      *
      * @param orchestrator the serve orchestrator
      * @param adapter the A2A protocol adapter
+     * @param admissionGateProvider the admission gate provider (optional; the
+     *        gate bean typically comes from the ext module's concurrency
+     *        auto-configuration)
      * @return the A2A agent executor
      */
     @Bean
     @ConditionalOnMissingBean
-    public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter) {
-        return new A2AAgentExecutor(orchestrator, adapter);
+    public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
+            ObjectProvider<TaskAdmissionGate> admissionGateProvider) {
+        return new A2AAgentExecutor(orchestrator, adapter, admissionGateProvider.getIfAvailable());
     }
 
     /**
@@ -347,16 +352,34 @@ public class A2AAutoConfiguration {
      * @param queueManager the queue manager
      * @param pushConfigStore the push notification config store
      * @param executionResources the internal A2A execution resources
+     * @param admissionGateProvider the admission gate provider (optional)
      * @return the request handler
      */
     @Bean
     @ConditionalOnMissingBean
     public RequestHandler a2aRequestHandler(A2AAgentExecutor agentExecutor, TaskStore taskStore,
             QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
-            A2AExecutionResources executionResources) {
+            A2AExecutionResources executionResources,
+            ObjectProvider<TaskAdmissionGate> admissionGateProvider) {
+        validateAdmissionCapacity(admissionGateProvider.getIfAvailable(), executionResources);
         return DefaultRequestHandler.create(agentExecutor, taskStore, queueManager, pushConfigStore,
                 executionResources.eventBusProcessor(), executionResources.agentExecutor(),
                 executionResources.eventConsumerExecutor());
+    }
+
+    private static void validateAdmissionCapacity(TaskAdmissionGate admissionGate, A2AExecutionResources resources) {
+        if (admissionGate == null) {
+            return;
+        }
+        int limit = admissionGate.limit();
+        int capacity = resources.agentConcurrencyCapacity();
+        if (limit > capacity) {
+            throw new IllegalStateException(String.format(
+                    "Task admission limit (%d) exceeds the A2A agent execution capacity (%d threads). "
+                            + "Lower the concurrency limit or increase the agent executor capacity, otherwise "
+                            + "admission permits would be held by queued (not running) tasks.",
+                    limit, capacity));
+        }
     }
 }
 
@@ -384,6 +407,10 @@ final class A2AExecutionResources {
 
     Executor agentExecutor() {
         return agentExecutor;
+    }
+
+    int agentConcurrencyCapacity() {
+        return agentExecutor.getMaximumPoolSize();
     }
 
     MainEventBusProcessor eventBusProcessor() {

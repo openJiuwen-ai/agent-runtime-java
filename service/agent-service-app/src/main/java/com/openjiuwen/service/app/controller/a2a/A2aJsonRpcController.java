@@ -96,48 +96,28 @@ public class A2aJsonRpcController {
         ServerCallContext ctx = buildCallContext(servletRequest);
 
         try {
-            TaskAdmissionGate admissionGate = admissionGateProvider != null
-                    ? admissionGateProvider.getIfAvailable() : null;
             return switch (method) {
                 case A2AMethods.SEND_MESSAGE_METHOD -> {
                     ctx.getState().put("_a2a_stream", false);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     validateInlinePushNotificationConfig(params);
-                    if (admissionGate != null && !admissionGate.tryAcquire()) {
+                    if (isAdmissionOverloaded()) {
                         yield ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
                                 .body(admissionErrorBody(id));
                     }
-                    boolean acquired = (admissionGate != null);
-                    try {
-                        EventKind result = requestHandler.onMessageSend(params, ctx);
-                        acquired = false;
-                        yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
-                    } catch (RuntimeException e) {
-                        if (acquired && admissionGate != null) {
-                            admissionGate.release();
-                        }
-                        throw e;
-                    }
+                    EventKind result = requestHandler.onMessageSend(params, ctx);
+                    yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
                 }
                 case A2AMethods.SEND_STREAMING_MESSAGE_METHOD -> {
                     ctx.getState().put("_a2a_stream", true);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     validateInlinePushNotificationConfig(params);
-                    if (admissionGate != null && !admissionGate.tryAcquire()) {
+                    if (isAdmissionOverloaded()) {
                         yield ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
                                 .body(admissionErrorBody(id));
                     }
-                    boolean acquired = (admissionGate != null);
-                    try {
-                        Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
-                        acquired = false;
-                        yield streamToSse(pub, id);
-                    } catch (RuntimeException e) {
-                        if (acquired && admissionGate != null) {
-                            admissionGate.release();
-                        }
-                        throw e;
-                    }
+                    Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
+                    yield streamToSse(pub, id);
                 }
                 case A2AMethods.GET_TASK_METHOD -> handleGetTask(request.payload(), id, ctx);
                 case A2AMethods.SUBSCRIBE_TO_TASK_METHOD -> handleSubscribeToTask(request.payload(), id, ctx);
@@ -151,6 +131,22 @@ public class A2aJsonRpcController {
             log.error("A2A request failed", e);
             return A2aJsonRpcProtocol.errorResponse(id, new InternalError("Internal error"));
         }
+    }
+
+    /**
+     * Read-only admission pre-check for fast failure (HTTP 503 without entering
+     * the SDK pipeline). Authoritative admission happens in
+     * {@code A2AAgentExecutor.executeRequest()} — this check carries no permit
+     * and therefore has no release obligation; requests that slip through the
+     * race window are rejected there as a clean FAILED task.
+     */
+    private boolean isAdmissionOverloaded() {
+        if (admissionGateProvider == null) {
+            return false;
+        }
+        TaskAdmissionGate admissionGate = admissionGateProvider.getIfAvailable();
+        return admissionGate != null && admissionGate.limit() >= 0
+                && admissionGate.currentCount() >= admissionGate.limit();
     }
 
     private ResponseEntity<SseEmitter> streamToSse(Flow.Publisher<StreamingEventKind> publisher, Object requestId) {

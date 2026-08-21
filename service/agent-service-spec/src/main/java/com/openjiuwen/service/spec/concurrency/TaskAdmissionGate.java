@@ -37,6 +37,18 @@ public interface TaskAdmissionGate {
     int currentCount();
 
     /**
+     * Configured concurrency limit, used by read-only admission pre-checks
+     * (e.g. {@code currentCount() >= limit()} implies overload).
+     *
+     * @return the maximum number of concurrent tasks; {@code -1} means
+     *         unlimited (implementations that do not track a limit should
+     *         keep the default)
+     */
+    default int limit() {
+        return -1;
+    }
+
+    /**
      * Shut down the gate — reject all new requests. Reserved for drain-phase
      * integration; not wired in the current version.
      */

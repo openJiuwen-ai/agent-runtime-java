@@ -11,6 +11,7 @@ import org.a2aproject.sdk.server.events.EventQueue;
 import org.a2aproject.sdk.server.events.QueueManager;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.server.tasks.TaskStore;
+import org.a2aproject.sdk.spec.A2AError;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.slf4j.Logger;
@@ -105,6 +106,9 @@ public class A2ATaskContinuation {
             EventQueue queue = queueManager.createOrTap(resumableTask.id());
             try {
                 agentExecutor.continueTask(context, request, new AgentEmitter(context, queue));
+            } catch (A2AError error) {
+                log.warn("A2A callback continuation rejected taskId={} code={} message={}", taskId, error.getCode(),
+                        error.getMessage());
             } finally {
                 queue.close(false, true);
             }

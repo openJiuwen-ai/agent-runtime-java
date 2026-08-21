@@ -5,14 +5,17 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.answerVoid;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -27,6 +30,7 @@ import org.a2aproject.sdk.server.events.EventQueue;
 import org.a2aproject.sdk.server.events.EventQueueClosedException;
 import org.a2aproject.sdk.server.events.EventQueueItem;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
+import org.a2aproject.sdk.spec.A2AError;
 import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Task;
@@ -402,6 +406,70 @@ class A2AAgentExecutorTest {
 
         assertThat(request.getMetadata()).doesNotContainKey("_interrupt");
         verify(emitter, never()).submit();
+    }
+
+    @Test
+    void execute_rejectedWithA2AError_whenAdmissionGateFull() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(false);
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        AgentEmitter emitter = mock(AgentEmitter.class);
+
+        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate);
+
+        assertThatThrownBy(() -> executor.execute(context, emitter))
+                .isInstanceOf(A2AError.class)
+                .hasMessageContaining("concurrent task limit reached");
+        verify(orchestrator, never()).query(any());
+        verify(orchestrator, never()).streamQuery(any(), any());
+        verify(gate, never()).release();
+        verify(emitter, never()).submit();
+        verify(emitter, never()).startWork();
+    }
+
+    @Test
+    void execute_admissionAcquired_releasedExactlyOnce_onSuccess() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate)
+                .execute(context, new AgentEmitter(context, queue));
+
+        verify(orchestrator).query(any());
+        verify(gate, times(1)).release();
+    }
+
+    @Test
+    void execute_admissionAcquired_releasedExactlyOnce_onAgentFailure() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenThrow(new IllegalStateException("agent failed"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate)
+                .execute(context, new AgentEmitter(context, queue));
+
+        verify(gate, times(1)).release();
+    }
+
+    @Test
+    void execute_nullGate_executesWithoutAdmission() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()))
+                .execute(context, new AgentEmitter(context, queue));
+
+        verify(orchestrator).query(any());
     }
 
     private static void assertStoredInterruptCopied(Task task, Map<String, Object> interaction) {

@@ -59,7 +59,7 @@ class ConcurrencyAdmissionIntegrationTest {
     @Test
     @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
     void sendMessage_admitted_whenUnderLimit() {
-        TestAdmissionGate.setMax(5);
+        TestAdmissionGate.setMax(1);
         HttpHeaders headers = jsonHeaders();
         String body = jsonRpc("SendMessage", "conv-admit-1", "hello");
 
@@ -159,6 +159,11 @@ class ConcurrencyAdmissionIntegrationTest {
         @Override
         public int currentCount() {
             return count.get();
+        }
+
+        @Override
+        public int limit() {
+            return max;
         }
 
         @Override

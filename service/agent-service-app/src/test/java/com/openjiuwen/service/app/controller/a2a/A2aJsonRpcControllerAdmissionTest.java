@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
@@ -16,9 +17,7 @@ import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
 import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.MessageSendParams;
-import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
-import org.a2aproject.sdk.spec.TaskIdParams;
 import org.a2aproject.sdk.spec.TaskQueryParams;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
@@ -27,11 +26,11 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
-import java.util.concurrent.Flow;
-
 /**
- * Unit tests for admission gate integration in {@link A2aJsonRpcController}
- * (DFX-002 U-28~U-35).
+ * Unit tests for the read-only admission pre-check in
+ * {@link A2aJsonRpcController}. The controller never acquires or releases a
+ * permit — authoritative admission happens in
+ * {@code A2AAgentExecutor.executeRequest()}.
  *
  * @since 0.1.2
  */
@@ -40,72 +39,84 @@ class A2aJsonRpcControllerAdmissionTest {
     @Test
     void sendMessage_rejectedWith503_whenLimitReached() {
         RequestHandler handler = mock(RequestHandler.class);
-        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
-        when(gate.tryAcquire()).thenReturn(false);
+        TaskAdmissionGate gate = gateAtLimit();
         A2aJsonRpcController controller = newController(handler, gate);
 
         ResponseEntity<?> response = controller.handleJsonRpc(sendMessageJson(), servletRequest());
 
         assertThat(response.getStatusCode().value()).isEqualTo(503);
+        assertThat(response.getBody()).asString().contains("concurrent task limit reached");
         verify(handler, never()).onMessageSend(any(), any());
+        verify(gate, never()).release();
     }
 
     @Test
     void sendStreamingMessage_rejectedWith503_whenLimitReached() {
         RequestHandler handler = mock(RequestHandler.class);
-        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
-        when(gate.tryAcquire()).thenReturn(false);
+        TaskAdmissionGate gate = gateAtLimit();
         A2aJsonRpcController controller = newController(handler, gate);
 
         ResponseEntity<?> response = controller.handleJsonRpc(sendStreamingMessageJson(), servletRequest());
 
         assertThat(response.getStatusCode().value()).isEqualTo(503);
         verify(handler, never()).onMessageSendStream(any(), any());
+        verify(gate, never()).release();
     }
 
     @Test
-    void sendMessage_acquired_releasedOnSuccess() {
+    void sendMessage_admitted_whenUnderLimit() {
         RequestHandler handler = mock(RequestHandler.class);
+        when(handler.onMessageSend(any(MessageSendParams.class), any())).thenReturn(completedTask());
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
-        when(gate.tryAcquire()).thenReturn(true);
-        when(handler.onMessageSend(any(MessageSendParams.class), any())).thenAnswer(invocation -> {
-            gate.release();
-            return completedTask();
-        });
+        when(gate.limit()).thenReturn(5);
         A2aJsonRpcController controller = newController(handler, gate);
 
         ResponseEntity<?> response = controller.handleJsonRpc(sendMessageJson(), servletRequest());
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
-        verify(gate).release();
+        verify(gate, never()).release();
     }
 
     @Test
-    void sendMessage_compensatingRelease_onHandlerException() {
+    void sendMessage_unlimitedLimit_skipsPreCheck() {
         RequestHandler handler = mock(RequestHandler.class);
+        when(handler.onMessageSend(any(MessageSendParams.class), any())).thenReturn(completedTask());
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
-        when(gate.tryAcquire()).thenReturn(true);
+        when(gate.limit()).thenReturn(-1);
+        when(gate.currentCount()).thenReturn(Integer.MAX_VALUE);
+        A2aJsonRpcController controller = newController(handler, gate);
+
+        ResponseEntity<?> response = controller.handleJsonRpc(sendMessageJson(), servletRequest());
+
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+    }
+
+    @Test
+    void sendMessage_handlerException_noGateInteraction() {
+        RequestHandler handler = mock(RequestHandler.class);
         when(handler.onMessageSend(any(MessageSendParams.class), any()))
                 .thenThrow(new RuntimeException("handler failed"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.limit()).thenReturn(5);
         A2aJsonRpcController controller = newController(handler, gate);
 
         controller.handleJsonRpc(sendMessageJson(), servletRequest());
 
-        verify(gate).release();
+        verify(gate, never()).release();
     }
 
     @Test
-    void sendStreamingMessage_compensatingRelease_onHandlerException() {
+    void sendStreamingMessage_handlerException_noGateInteraction() {
         RequestHandler handler = mock(RequestHandler.class);
-        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
-        when(gate.tryAcquire()).thenReturn(true);
         when(handler.onMessageSendStream(any(MessageSendParams.class), any()))
                 .thenThrow(new RuntimeException("stream handler failed"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.limit()).thenReturn(5);
         A2aJsonRpcController controller = newController(handler, gate);
 
         controller.handleJsonRpc(sendStreamingMessageJson(), servletRequest());
 
-        verify(gate).release();
+        verify(gate, never()).release();
     }
 
     @Test
@@ -117,8 +128,7 @@ class A2aJsonRpcControllerAdmissionTest {
 
         controller.handleJsonRpc(getTaskJson(), servletRequest());
 
-        verify(gate, never()).tryAcquire();
-        verify(gate, never()).release();
+        verifyNoInteractions(gate);
     }
 
     @Test
@@ -135,20 +145,11 @@ class A2aJsonRpcControllerAdmissionTest {
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
     }
 
-    @Test
-    void sendMessage_acquiredFlag_preventsDoubleRelease() {
-        RequestHandler handler = mock(RequestHandler.class);
+    private static TaskAdmissionGate gateAtLimit() {
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
-        when(gate.tryAcquire()).thenReturn(true);
-        when(handler.onMessageSend(any(MessageSendParams.class), any())).thenAnswer(invocation -> {
-            gate.release();
-            return completedTask();
-        });
-        A2aJsonRpcController controller = newController(handler, gate);
-
-        controller.handleJsonRpc(sendMessageJson(), servletRequest());
-
-        verify(gate, org.mockito.Mockito.times(1)).release();
+        when(gate.limit()).thenReturn(1);
+        when(gate.currentCount()).thenReturn(1);
+        return gate;
     }
 
     private static A2aJsonRpcController newController(RequestHandler handler, TaskAdmissionGate gate) {
