@@ -65,8 +65,12 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private static final String GENERIC_EXECUTION_ERROR = "AGENT_EXECUTION_FAILED";
 
-    /** Error message carried by the A2AError thrown when admission is rejected. */
-    private static final String ADMISSION_REJECTED_MESSAGE = "Service Unavailable: concurrent task limit reached";
+    /**
+     * Error message carried by the A2AError thrown when admission is rejected.
+     * Package-visible so the callback continuation can distinguish admission
+     * rejection (transient, retryable) from other executor failures.
+     */
+    static final String ADMISSION_REJECTED_MESSAGE = "Service Unavailable: concurrent task limit reached";
 
     /**
      * Dead-time bound for waiting on the in-flight queue to drain before closing
