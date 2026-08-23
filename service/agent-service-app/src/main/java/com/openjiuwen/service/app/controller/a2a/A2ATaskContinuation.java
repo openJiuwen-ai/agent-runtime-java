@@ -24,9 +24,9 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
@@ -109,7 +109,7 @@ public class A2ATaskContinuation {
         this.retryBaseDelayMs = retryBaseDelayMs;
         java.util.concurrent.ThreadFactory retryThreadFactory =
                 A2ATaskContinuation::newRetrySchedulerThread;
-        this.retryScheduler = Executors.newSingleThreadScheduledExecutor(retryThreadFactory);
+        this.retryScheduler = new ScheduledThreadPoolExecutor(1, retryThreadFactory);
     }
 
     private static Thread newRetrySchedulerThread(Runnable runnable) {

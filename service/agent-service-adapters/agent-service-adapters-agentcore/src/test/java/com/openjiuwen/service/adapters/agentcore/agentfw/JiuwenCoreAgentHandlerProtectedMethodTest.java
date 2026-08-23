@@ -130,6 +130,10 @@ class JiuwenCoreAgentHandlerProtectedMethodTest {
 
         /**
          * Invokes the agent and tracks the call count.
+         *
+         * @param inputs agent inputs
+         * @param session agent session
+         * @return a map containing the reply output
          */
         @SuppressWarnings("unchecked")
         public Object invoke(Object inputs, Session session) {
@@ -141,6 +145,11 @@ class JiuwenCoreAgentHandlerProtectedMethodTest {
 
         /**
          * Returns a single fallback output schema for streaming.
+         *
+         * @param inputs agent inputs
+         * @param session agent session
+         * @param streamModes stream modes
+         * @return an iterator containing a single fallback output schema
          */
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "fallback"))).iterator();

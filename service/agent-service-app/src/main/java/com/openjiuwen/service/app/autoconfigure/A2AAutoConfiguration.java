@@ -399,7 +399,10 @@ final class A2AExecutionResources {
      */
     static final int AUTO_POOL_MULTIPLIER = 8;
 
+    /** Capacity of the agent task submission queue. */
     private static final int AGENT_QUEUE_CAPACITY = 256;
+
+    /** Capacity of the event consumer blocking queue. */
     private static final int EVENT_CONSUMER_QUEUE_CAPACITY = 128;
 
     private final MainEventBusProcessor eventBusProcessor;

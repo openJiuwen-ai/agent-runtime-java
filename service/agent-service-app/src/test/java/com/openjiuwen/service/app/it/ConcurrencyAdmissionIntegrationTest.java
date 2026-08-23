@@ -76,7 +76,8 @@ class ConcurrencyAdmissionIntegrationTest {
         TestAdmissionGate.setMax(1);
         HttpHeaders headers = jsonHeaders();
 
-        ExecutorService blockingPool = Executors.newSingleThreadExecutor();
+        ExecutorService blockingPool = new java.util.concurrent.ThreadPoolExecutor(
+                1, 1, 0L, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>());
         blockingPool.submit(() ->
             rest.postForEntity("http://localhost:" + port + "/a2a",
                     new HttpEntity<>(jsonRpc("SendStreamingMessage", "conv-slow", "slow"), headers), String.class)
@@ -199,12 +200,12 @@ class ConcurrencyAdmissionIntegrationTest {
         public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
             observer.onNext(new QueryChunk("chunk", Map.of("content", "tick")));
             startedLatch.countDown();
-            try {
-                while (!observer.isCancelled()) {
+            while (!observer.isCancelled()) {
+                try {
                     Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    break;
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
             }
             observer.onComplete();
         }
