@@ -242,12 +242,14 @@ public class A2AAutoConfiguration {
      * Creates the internal execution resources shared by the SDK request handler and callback continuations.
      *
      * @param eventBusProcessor the SDK event bus processor
+     * @param properties the A2A runtime properties carrying the optional
+     *        agent execution pool size
      * @return the A2A execution resources
      */
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean
-    A2AExecutionResources a2aExecutionResources(MainEventBusProcessor eventBusProcessor) {
-        return new A2AExecutionResources(eventBusProcessor);
+    A2AExecutionResources a2aExecutionResources(MainEventBusProcessor eventBusProcessor, A2AProperties properties) {
+        return new A2AExecutionResources(eventBusProcessor, properties.getAgentThreads());
     }
 
     /**
@@ -376,8 +378,9 @@ public class A2AAutoConfiguration {
         if (limit > capacity) {
             throw new IllegalStateException(String.format(
                     "Task admission limit (%d) exceeds the A2A agent execution capacity (%d threads). "
-                            + "Lower the concurrency limit or increase the agent executor capacity, otherwise "
-                            + "admission permits would be held by queued (not running) tasks.",
+                            + "Lower the concurrency limit, or set openjiuwen.service.a2a.agent-threads "
+                            + "to raise the agent executor capacity, otherwise admission permits would be "
+                            + "held by queued (not running) tasks.",
                     limit, capacity));
         }
     }
@@ -388,21 +391,37 @@ final class A2AExecutionResources {
 
     private static final int EVENT_CONSUMER_QUEUE_CAPACITY = 128;
 
+    /**
+     * Auto-sized agent pool floor. I/O-bound agent tasks park on remote LLM or
+     * backend calls, so the baseline mirrors {@code QuerySsePumpExecutor}:
+     * {@code max(32, availableProcessors * 8)} instead of raw CPU cores.
+     */
+    static final int AUTO_POOL_FLOOR = 32;
+
+    /**
+     * Auto-sized agent pool multiplier per CPU core.
+     */
+    static final int AUTO_POOL_MULTIPLIER = 8;
+
     private final MainEventBusProcessor eventBusProcessor;
 
     private final ThreadPoolExecutor agentExecutor;
 
     private final ThreadPoolExecutor eventConsumerExecutor;
 
-    A2AExecutionResources(MainEventBusProcessor eventBusProcessor) {
+    A2AExecutionResources(MainEventBusProcessor eventBusProcessor, int configuredAgentThreads) {
         this.eventBusProcessor = eventBusProcessor;
-        int cores = Runtime.getRuntime().availableProcessors();
-        this.agentExecutor = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS,
+        int threads = configuredAgentThreads > 0 ? configuredAgentThreads : autoAgentPoolSize();
+        this.agentExecutor = new ThreadPoolExecutor(threads, threads, 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(AGENT_QUEUE_CAPACITY),
                 new ThreadPoolExecutor.CallerRunsPolicy());
         this.eventConsumerExecutor = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(EVENT_CONSUMER_QUEUE_CAPACITY),
                 new ThreadPoolExecutor.CallerRunsPolicy());
+    }
+
+    static int autoAgentPoolSize() {
+        return Math.max(AUTO_POOL_FLOOR, Runtime.getRuntime().availableProcessors() * AUTO_POOL_MULTIPLIER);
     }
 
     Executor agentExecutor() {

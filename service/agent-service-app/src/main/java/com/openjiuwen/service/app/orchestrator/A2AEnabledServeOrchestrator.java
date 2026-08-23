@@ -123,36 +123,44 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     @Override
     public QueryResponse query(ServeRequest request) {
         log.info("Orchestrator query START conversationId={}", request.getConversationId());
-        ServeRequest current = request;
-        while (true) {
-            QueryResumeResult resumeResult = syncResumePending(current, NOOP_OBSERVER);
-            if (resumeResult.response() != null) {
-                return resumeResult.response();
-            }
-            if (resumeResult.request().isEmpty()) {
-                return buildInterruptQueryResponse(request.getConversationId());
-            }
-            current = resumeResult.request().get();
+        Object taskToken = null;
+        try {
+            taskToken = agentHandler.prepareTask(request);
+            ServeRequest current = request;
+            while (true) {
+                QueryResumeResult resumeResult = syncResumePending(current, NOOP_OBSERVER);
+                if (resumeResult.response() != null) {
+                    return resumeResult.response();
+                }
+                if (resumeResult.request().isEmpty()) {
+                    return buildInterruptQueryResponse(request.getConversationId());
+                }
+                current = resumeResult.request().get();
 
-            QueryResponse response;
-            try {
-                response = agentHandler.query(current);
-            } catch (RuntimeException | Error ex) {
-                batchCoordinator.abortResume(current);
-                throw ex;
-            }
-            batchCoordinator.completeResume(current);
-            Map<String, Object> interruptData = extractInterruptFromResponse(response);
-            if (interruptData.isEmpty()) {
-                return response;
-            }
+                QueryResponse response;
+                try {
+                    response = agentHandler.query(current);
+                } catch (RuntimeException | Error ex) {
+                    batchCoordinator.abortResume(current);
+                    throw ex;
+                }
+                batchCoordinator.completeResume(current);
+                Map<String, Object> interruptData = extractInterruptFromResponse(response);
+                if (interruptData.isEmpty()) {
+                    return response;
+                }
 
-            Optional<ServeRequest> interruptResult = handleQueryInterrupt(interruptData, current, response,
-                NOOP_OBSERVER);
-            if (interruptResult.isEmpty()) {
-                return response;
+                Optional<ServeRequest> interruptResult = handleQueryInterrupt(interruptData, current, response,
+                    NOOP_OBSERVER);
+                if (interruptResult.isEmpty()) {
+                    return response;
+                }
+                current = interruptResult.get();
             }
-            current = interruptResult.get();
+        } finally {
+            // Null token means prepareTask acquired nothing (e.g. busy
+            // rejection) — completeTask must not disturb the other task.
+            agentHandler.completeTask(taskToken);
         }
     }
 
@@ -166,7 +174,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         log.info("Orchestrator streamQuery START conversationId={}", request.getConversationId());
         var handle = streamRegistry.register(request.getConversationId());
         ServeRequest current = request;
+        Object taskToken = null;
         try {
+            taskToken = agentHandler.prepareTask(request);
             while (!handle.isCancelled() && !observer.isCancelled()) {
                 Optional<ServeRequest> opt = tryResumePending(current, observer);
                 if (opt.isEmpty()) {
@@ -186,6 +196,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                 current = interruptResult.get();
             }
         } finally {
+            // Null token means prepareTask acquired nothing (e.g. busy
+            // rejection) — completeTask must not disturb the other task.
+            agentHandler.completeTask(taskToken);
             batchCoordinator.abortResume(current);
             streamRegistry.unregister(request.getConversationId(), handle);
         }
