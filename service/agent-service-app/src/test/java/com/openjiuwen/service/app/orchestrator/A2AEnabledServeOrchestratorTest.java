@@ -52,6 +52,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Unit tests for the A2A-enabled serve orchestrator.
  */
 class A2AEnabledServeOrchestratorTest {
+    private static final Object TASK_TOKEN = new Object();
+
     private AgentHandler agentHandler;
 
     private TaskStore taskStore;
@@ -819,8 +821,6 @@ class A2AEnabledServeOrchestratorTest {
 
         verify(agentHandler).completeTask(null);
     }
-
-    private static final Object TASK_TOKEN = new Object();
 
     @Test
     void query_prepareTaskSucceeds_passesTokenToCompleteTask() {

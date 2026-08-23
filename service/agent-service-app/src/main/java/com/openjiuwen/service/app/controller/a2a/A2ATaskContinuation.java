@@ -52,10 +52,11 @@ public class A2ATaskContinuation {
     private static final Duration INPUT_REQUIRED_WAIT = Duration.ofSeconds(10);
 
     private static final long INPUT_REQUIRED_POLL_MS = 20L;
-    private static final int MAX_ADMISSION_RETRIES = 5;
 
     /** Base delay for the exponential backoff; package-private for tests. */
     static final long DEFAULT_RETRY_BASE_DELAY_MS = 1000L;
+
+    private static final int MAX_ADMISSION_RETRIES = 5;
 
     private final TaskStore taskStore;
 
@@ -106,13 +107,17 @@ public class A2ATaskContinuation {
         this.agentExecutorProvider = agentExecutorProvider;
         this.executor = executor;
         this.retryBaseDelayMs = retryBaseDelayMs;
-        this.retryScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "a2a-continuation-retry");
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler((t, ex) ->
-                    log.warn("Uncaught exception on continuation retry scheduler thread={}", t.getName(), ex));
-            return thread;
-        });
+        java.util.concurrent.ThreadFactory retryThreadFactory =
+                A2ATaskContinuation::newRetrySchedulerThread;
+        this.retryScheduler = Executors.newSingleThreadScheduledExecutor(retryThreadFactory);
+    }
+
+    private static Thread newRetrySchedulerThread(Runnable runnable) {
+        Thread thread = new Thread(runnable, "a2a-continuation-retry");
+        thread.setDaemon(true);
+        thread.setUncaughtExceptionHandler((t, ex) ->
+                log.warn("Uncaught exception on continuation retry scheduler thread={}", t.getName(), ex));
+        return thread;
     }
 
     /**

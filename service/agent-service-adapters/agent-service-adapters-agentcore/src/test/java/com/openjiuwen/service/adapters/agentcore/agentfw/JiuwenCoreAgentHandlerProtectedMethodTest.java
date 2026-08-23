@@ -128,7 +128,9 @@ class JiuwenCoreAgentHandlerProtectedMethodTest {
     public static class TrackingInvokeAgent {
         final AtomicInteger invokeCount = new AtomicInteger();
 
-        /** Invokes the agent and tracks the call count. */
+        /**
+         * Invokes the agent and tracks the call count.
+         */
         @SuppressWarnings("unchecked")
         public Object invoke(Object inputs, Session session) {
             invokeCount.incrementAndGet();
@@ -137,7 +139,9 @@ class JiuwenCoreAgentHandlerProtectedMethodTest {
             return Map.of("output", "replied:" + query, "result_type", "answer");
         }
 
-        /** Returns a single fallback output schema for streaming. */
+        /**
+         * Returns a single fallback output schema for streaming.
+         */
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "fallback"))).iterator();
         }

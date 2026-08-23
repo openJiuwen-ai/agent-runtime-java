@@ -61,14 +61,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class A2AAgentExecutor implements AgentExecutor {
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
 
-    private static final String INTERRUPT = "_interrupt";
-
     /**
      * Error message carried by the A2AError thrown when admission is rejected.
      * Package-visible so the callback continuation can distinguish admission
      * rejection (transient, retryable) from other executor failures.
      */
     static final String ADMISSION_REJECTED_MESSAGE = "Service Unavailable: concurrent task limit reached";
+
+    private static final String INTERRUPT = "_interrupt";
 
     private static final String GENERIC_EXECUTION_ERROR = "AGENT_EXECUTION_FAILED";
 

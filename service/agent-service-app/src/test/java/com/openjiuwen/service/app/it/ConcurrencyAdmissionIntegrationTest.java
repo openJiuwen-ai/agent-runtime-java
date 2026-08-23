@@ -76,12 +76,7 @@ class ConcurrencyAdmissionIntegrationTest {
         TestAdmissionGate.setMax(1);
         HttpHeaders headers = jsonHeaders();
 
-        ExecutorService blockingPool = Executors.newSingleThreadExecutor(runnable -> {
-            Thread t = new Thread(runnable, "admission-test-blocker");
-            t.setDaemon(true);
-            t.setUncaughtExceptionHandler((thread, ex) -> { });
-            return t;
-        });
+        ExecutorService blockingPool = Executors.newSingleThreadExecutor();
         blockingPool.submit(() ->
             rest.postForEntity("http://localhost:" + port + "/a2a",
                     new HttpEntity<>(jsonRpc("SendStreamingMessage", "conv-slow", "slow"), headers), String.class)
