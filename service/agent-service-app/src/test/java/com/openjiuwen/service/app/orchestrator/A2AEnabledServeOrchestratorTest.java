@@ -776,6 +776,64 @@ class A2AEnabledServeOrchestratorTest {
         verify(taskStore, never()).delete(any());
     }
 
+    @Test
+    void streamQuery_prepareTaskThrows_unregistersHandleAndCallsCompleteTask() {
+        ActiveStreamRegistry realRegistry = new ActiveStreamRegistry();
+        A2AEnabledServeOrchestrator orchestratorWithRealRegistry = new A2AEnabledServeOrchestrator(agentHandler,
+            taskStore, a2aClient, realRegistry, "test-agent", 16, 256, 30);
+        doThrow(new IllegalStateException("conversation busy")).when(agentHandler).prepareTask(any());
+
+        assertThatThrownBy(() -> orchestratorWithRealRegistry.streamQuery(req("c-busy-stream"),
+            new QueryStreamObserver() {
+                @Override
+                public void onNext(QueryChunk c) {
+                }
+
+                @Override
+                public void onComplete() {
+                }
+
+                @Override
+                public void onError(Throwable e) {
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return false;
+                }
+            })).isInstanceOf(IllegalStateException.class);
+
+        // The registered handle must be released even though prepareTask threw
+        assertThat(realRegistry.activeCount()).isZero();
+        // A task whose prepareTask failed never acquired resources: the finally
+        // must pass a null token so the handler cannot disturb another task.
+        verify(agentHandler).completeTask(null);
+    }
+
+    @Test
+    void query_prepareTaskThrows_callsCompleteTask() {
+        doThrow(new IllegalStateException("conversation busy")).when(agentHandler).prepareTask(any());
+
+        assertThatThrownBy(() -> orchestrator.query(req("c-busy-query")))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(agentHandler).completeTask(null);
+    }
+
+    @Test
+    void query_prepareTaskSucceeds_passesTokenToCompleteTask() {
+        when(agentHandler.prepareTask(any())).thenReturn(TASK_TOKEN);
+        when(agentHandler.query(any())).thenReturn(new QueryResponse(Map.of("role", "assistant",
+            "content", "done"), "c-token-stream"));
+
+        orchestrator.query(req("c-token-stream"));
+
+        // The token returned by prepareTask must round-trip to completeTask
+        verify(agentHandler).completeTask(TASK_TOKEN);
+    }
+
+    private static final Object TASK_TOKEN = new Object();
+
     private static ServeRequest req(String convId) {
         ServeRequest r = new ServeRequest();
         r.setConversationId(convId);

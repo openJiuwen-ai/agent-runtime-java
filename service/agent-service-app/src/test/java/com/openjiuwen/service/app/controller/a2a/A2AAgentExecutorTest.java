@@ -460,6 +460,25 @@ class A2AAgentExecutorTest {
     }
 
     @Test
+    void execute_admissionAcquired_releasedExactlyOnce_onAgentError() {
+        // S-22 quota semantics: an Error (e.g. OOM) escapes the executor
+        // unchanged, but the finally block must still release the permit so
+        // the failure does not permanently consume quota.
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenThrow(new AssertionError("simulated OOM"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        assertThatThrownBy(() -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate)
+                .execute(context, new AgentEmitter(context, queue)))
+                .isInstanceOf(AssertionError.class)
+                .hasMessage("simulated OOM");
+        verify(gate, times(1)).release();
+    }
+
+    @Test
     void execute_nullGate_executesWithoutAdmission() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));

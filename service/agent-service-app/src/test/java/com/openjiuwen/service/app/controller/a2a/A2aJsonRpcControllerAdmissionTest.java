@@ -47,6 +47,7 @@ class A2aJsonRpcControllerAdmissionTest {
         assertThat(response.getStatusCode().value()).isEqualTo(503);
         assertThat(response.getBody()).asString().contains("concurrent task limit reached");
         verify(handler, never()).onMessageSend(any(), any());
+        verify(gate, never()).tryAcquire();
         verify(gate, never()).release();
     }
 
@@ -60,6 +61,7 @@ class A2aJsonRpcControllerAdmissionTest {
 
         assertThat(response.getStatusCode().value()).isEqualTo(503);
         verify(handler, never()).onMessageSendStream(any(), any());
+        verify(gate, never()).tryAcquire();
         verify(gate, never()).release();
     }
 
@@ -74,6 +76,10 @@ class A2aJsonRpcControllerAdmissionTest {
         ResponseEntity<?> response = controller.handleJsonRpc(sendMessageJson(), servletRequest());
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+        // The controller pre-check is read-only: authoritative admission
+        // (tryAcquire/release) belongs to A2AAgentExecutor. A tryAcquire here
+        // would double-count permits.
+        verify(gate, never()).tryAcquire();
         verify(gate, never()).release();
     }
 
@@ -102,6 +108,7 @@ class A2aJsonRpcControllerAdmissionTest {
 
         controller.handleJsonRpc(sendMessageJson(), servletRequest());
 
+        verify(gate, never()).tryAcquire();
         verify(gate, never()).release();
     }
 
@@ -116,6 +123,7 @@ class A2aJsonRpcControllerAdmissionTest {
 
         controller.handleJsonRpc(sendStreamingMessageJson(), servletRequest());
 
+        verify(gate, never()).tryAcquire();
         verify(gate, never()).release();
     }
 
