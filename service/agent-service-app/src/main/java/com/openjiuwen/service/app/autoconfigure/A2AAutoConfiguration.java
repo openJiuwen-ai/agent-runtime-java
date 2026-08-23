@@ -376,7 +376,7 @@ public class A2AAutoConfiguration {
         int limit = admissionGate.limit();
         int capacity = resources.agentConcurrencyCapacity();
         if (limit > capacity) {
-            throw new IllegalStateException(String.format(
+            throw new IllegalStateException(String.format(java.util.Locale.ROOT,
                     "Task admission limit (%d) exceeds the A2A agent execution capacity (%d threads). "
                             + "Lower the concurrency limit, or set openjiuwen.service.a2a.agent-threads "
                             + "to raise the agent executor capacity, otherwise admission permits would be "
@@ -388,7 +388,6 @@ public class A2AAutoConfiguration {
 
 final class A2AExecutionResources {
     private static final int AGENT_QUEUE_CAPACITY = 256;
-
     private static final int EVENT_CONSUMER_QUEUE_CAPACITY = 128;
 
     /**

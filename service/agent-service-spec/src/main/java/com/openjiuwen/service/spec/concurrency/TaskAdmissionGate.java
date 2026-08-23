@@ -15,7 +15,6 @@ package com.openjiuwen.service.spec.concurrency;
  * @since 0.1.2
  */
 public interface TaskAdmissionGate {
-
     /**
      * Attempt to acquire a task concurrency quota slot.
      *

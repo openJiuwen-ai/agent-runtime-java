@@ -10,7 +10,6 @@ package com.openjiuwen.service.spec.concurrency;
  * @since 0.1.2
  */
 public final class ActiveTaskInfo {
-
     private final String taskId;
 
     private final String conversationId;

@@ -14,7 +14,6 @@ package com.openjiuwen.service.spec.concurrency;
  * @since 0.1.2
  */
 public interface ActiveTaskQuery {
-
     /**
      * Return a snapshot of the current concurrency load.
      *

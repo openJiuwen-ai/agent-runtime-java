@@ -52,8 +52,6 @@ public class A2ATaskContinuation {
     private static final Duration INPUT_REQUIRED_WAIT = Duration.ofSeconds(10);
 
     private static final long INPUT_REQUIRED_POLL_MS = 20L;
-
-    /** Maximum number of retries after an admission rejection. */
     private static final int MAX_ADMISSION_RETRIES = 5;
 
     /** Base delay for the exponential backoff; package-private for tests. */
@@ -111,6 +109,8 @@ public class A2ATaskContinuation {
         this.retryScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "a2a-continuation-retry");
             thread.setDaemon(true);
+            thread.setUncaughtExceptionHandler((t, ex) ->
+                    log.warn("Uncaught exception on continuation retry scheduler thread={}", t.getName(), ex));
             return thread;
         });
     }
@@ -155,7 +155,7 @@ public class A2ATaskContinuation {
     }
 
     private void continueTask(String taskId, String batchId, String continuationId, ServeRequest request) {
-        boolean retryPending = false;
+        boolean isRetryPending = false;
         try {
             Optional<Task> task = awaitInputRequired(taskId);
             if (task.isEmpty()) {
@@ -176,7 +176,7 @@ public class A2ATaskContinuation {
             } catch (A2AError error) {
                 if (isAdmissionRejection(error)) {
                     // scheduleRetry logs its own outcome (retry scheduled or budget exhausted)
-                    retryPending = scheduleRetry(taskId, batchId, continuationId, request);
+                    isRetryPending = scheduleRetry(taskId, batchId, continuationId, request);
                 } else {
                     log.warn("A2A callback continuation rejected taskId={} code={} message={}", taskId, error.getCode(),
                             error.getMessage());
@@ -185,7 +185,7 @@ public class A2ATaskContinuation {
                 queue.close(false, true);
             }
         } finally {
-            if (!retryPending) {
+            if (!isRetryPending) {
                 activeContinuations.remove(continuationId);
             }
         }
@@ -199,6 +199,10 @@ public class A2ATaskContinuation {
      * via {@link #awaitInputRequired}, aborting safely if the task was resumed
      * or finalized by someone else meanwhile.
      *
+     * @param taskId the A2A task identifier
+     * @param batchId the remote batch identifier
+     * @param continuationId the unique continuation marker key
+     * @param request the serve request to re-dispatch
      * @return {@code true} if a retry was scheduled; {@code false} if the retry
      *         budget was exhausted or the scheduler is shutting down
      */
@@ -211,7 +215,7 @@ public class A2ATaskContinuation {
         if (attempt > MAX_ADMISSION_RETRIES) {
             activeContinuations.remove(continuationId);
             log.warn("A2A callback continuation dropped after {} admission retries taskId={} batchId={} "
-                    + "conversationId={} — parent task stays in INPUT_REQUIRED until client resume",
+                    + "conversationId={} -- parent task stays in INPUT_REQUIRED until client resume",
                     MAX_ADMISSION_RETRIES, taskId, batchId, request.getConversationId());
             return false;
         }

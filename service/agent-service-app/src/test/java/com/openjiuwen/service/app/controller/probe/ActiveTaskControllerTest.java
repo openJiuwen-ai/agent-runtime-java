@@ -25,7 +25,6 @@ import java.util.Map;
  * @since 0.1.2
  */
 class ActiveTaskControllerTest {
-
     @Test
     @SuppressWarnings("unchecked")
     void returnsSnapshot_whenQueryProvided() {

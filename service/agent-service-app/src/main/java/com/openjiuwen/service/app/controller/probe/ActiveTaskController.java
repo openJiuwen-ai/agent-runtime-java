@@ -30,7 +30,6 @@ import java.util.Map;
  */
 @RestController
 public class ActiveTaskController {
-
     private final ObjectProvider<ActiveTaskQuery> queryProvider;
 
     /**

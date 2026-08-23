@@ -11,7 +11,6 @@ import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.service.spec.dto.QueryChunk;
-import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
@@ -31,7 +30,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 0.1.2
  */
 class JiuwenCoreAgentHandlerProtectedMethodTest {
-
     @Test
     void executeAgentStreaming_usesSingleAgent_byDefault() {
         JiuwenCoreAgentHandlerTest.CapturingAgent agent = new JiuwenCoreAgentHandlerTest.CapturingAgent();
@@ -130,6 +128,7 @@ class JiuwenCoreAgentHandlerProtectedMethodTest {
     public static class TrackingInvokeAgent {
         final AtomicInteger invokeCount = new AtomicInteger();
 
+        /** Invokes the agent and tracks the call count. */
         @SuppressWarnings("unchecked")
         public Object invoke(Object inputs, Session session) {
             invokeCount.incrementAndGet();
@@ -138,6 +137,7 @@ class JiuwenCoreAgentHandlerProtectedMethodTest {
             return Map.of("output", "replied:" + query, "result_type", "answer");
         }
 
+        /** Returns a single fallback output schema for streaming. */
         public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "fallback"))).iterator();
         }

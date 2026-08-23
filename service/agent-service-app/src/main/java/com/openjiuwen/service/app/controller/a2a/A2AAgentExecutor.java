@@ -63,14 +63,14 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private static final String INTERRUPT = "_interrupt";
 
-    private static final String GENERIC_EXECUTION_ERROR = "AGENT_EXECUTION_FAILED";
-
     /**
      * Error message carried by the A2AError thrown when admission is rejected.
      * Package-visible so the callback continuation can distinguish admission
      * rejection (transient, retryable) from other executor failures.
      */
     static final String ADMISSION_REJECTED_MESSAGE = "Service Unavailable: concurrent task limit reached";
+
+    private static final String GENERIC_EXECUTION_ERROR = "AGENT_EXECUTION_FAILED";
 
     /**
      * Dead-time bound for waiting on the in-flight queue to drain before closing
@@ -144,7 +144,8 @@ public class A2AAgentExecutor implements AgentExecutor {
     private void executeRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
             boolean isNewTask) {
         if (admissionGate != null && !admissionGate.tryAcquire()) {
-            log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} maxConcurrent={} reason=\"limit_reached\"",
+            log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} "
+                    + "maxConcurrent={} reason=\"limit_reached\"",
                     req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());
             throw new A2AError(A2AErrorCodes.INTERNAL.code(), ADMISSION_REJECTED_MESSAGE, null);
         }
@@ -157,8 +158,10 @@ public class A2AAgentExecutor implements AgentExecutor {
         } finally {
             if (admissionGate != null) {
                 admissionGate.release();
-                log.info("[CONCURRENCY] task_released taskId={} conversationId={} currentActive={} maxConcurrent={}",
-                        msgCtx.getTaskId(), req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());
+                log.info("[CONCURRENCY] task_released taskId={} conversationId={} "
+                        + "currentActive={} maxConcurrent={}",
+                        msgCtx.getTaskId(), req.getConversationId(),
+                        admissionGate.currentCount(), admissionGate.limit());
             }
         }
     }

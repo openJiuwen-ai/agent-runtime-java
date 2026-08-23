@@ -4,6 +4,15 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import org.a2aproject.sdk.server.events.InMemoryQueueManager;
@@ -25,22 +34,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 /**
  * Unit tests for the admission-rejection retry of {@link A2ATaskContinuation}.
  *
  * @since 0.1.0
  */
 class A2ATaskContinuationTest {
-
     private static final long RETRY_BASE_DELAY_MS = 20L;
 
     /** Quiet period longer than the full backoff chain (20+40+80+160+320 ms). */
@@ -94,7 +93,7 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void admissionRejection_retryBudgetExhausted_givesUp_thenAcceptsResubmit() throws Exception {
+    void retryBudgetExhausted_thenAcceptsResubmit() throws Exception {
         CountDownLatch resubmitSucceeded = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
         doAnswer(invocation -> {

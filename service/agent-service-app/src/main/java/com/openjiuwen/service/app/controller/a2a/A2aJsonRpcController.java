@@ -141,6 +141,8 @@ public class A2aJsonRpcController {
      * {@code A2AAgentExecutor.executeRequest()} — this check carries no permit
      * and therefore has no release obligation; requests that slip through the
      * race window are rejected there as a clean FAILED task.
+     *
+     * @return {@code true} if the admission limit has been reached
      */
     private boolean isAdmissionOverloaded() {
         if (admissionGateProvider == null) {
@@ -154,7 +156,8 @@ public class A2aJsonRpcController {
     private void logRejected(String conversationId) {
         TaskAdmissionGate gate = admissionGateProvider != null ? admissionGateProvider.getIfAvailable() : null;
         if (gate != null) {
-            log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} maxConcurrent={} reason=\"limit_reached\"",
+            log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} "
+                    + "maxConcurrent={} reason=\"limit_reached\"",
                     conversationId, gate.currentCount(), gate.limit());
         }
     }

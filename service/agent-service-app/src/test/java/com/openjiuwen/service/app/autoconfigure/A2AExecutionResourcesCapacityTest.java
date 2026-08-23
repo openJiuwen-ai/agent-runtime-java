@@ -21,7 +21,6 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
  * the admission limit exceeds the pool capacity.
  */
 class A2AExecutionResourcesCapacityTest {
-
     private static final String AGENT_THREADS = "openjiuwen.service.a2a.agent-threads";
 
     private static final String MAX_CONCURRENT = "openjiuwen.service.concurrency.max-concurrent-tasks";

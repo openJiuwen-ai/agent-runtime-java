@@ -12,7 +12,6 @@ import java.util.List;
  * @since 0.1.2
  */
 public final class ConcurrencyLoadSnapshot {
-
     private final int maxConcurrentTasks;
 
     private final int currentActiveTasks;

@@ -35,7 +35,6 @@ import org.springframework.mock.web.MockHttpServletRequest;
  * @since 0.1.2
  */
 class A2aJsonRpcControllerAdmissionTest {
-
     @Test
     void sendMessage_rejectedWith503_whenLimitReached() {
         RequestHandler handler = mock(RequestHandler.class);

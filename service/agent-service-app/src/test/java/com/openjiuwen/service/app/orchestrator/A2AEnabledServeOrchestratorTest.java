@@ -777,7 +777,7 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void streamQuery_prepareTaskThrows_unregistersHandleAndCallsCompleteTask() {
+    void streamQuery_prepareTaskThrows_unregistersAndCompletes() {
         ActiveStreamRegistry realRegistry = new ActiveStreamRegistry();
         A2AEnabledServeOrchestrator orchestratorWithRealRegistry = new A2AEnabledServeOrchestrator(agentHandler,
             taskStore, a2aClient, realRegistry, "test-agent", 16, 256, 30);
@@ -820,6 +820,8 @@ class A2AEnabledServeOrchestratorTest {
         verify(agentHandler).completeTask(null);
     }
 
+    private static final Object TASK_TOKEN = new Object();
+
     @Test
     void query_prepareTaskSucceeds_passesTokenToCompleteTask() {
         when(agentHandler.prepareTask(any())).thenReturn(TASK_TOKEN);
@@ -831,8 +833,6 @@ class A2AEnabledServeOrchestratorTest {
         // The token returned by prepareTask must round-trip to completeTask
         verify(agentHandler).completeTask(TASK_TOKEN);
     }
-
-    private static final Object TASK_TOKEN = new Object();
 
     private static ServeRequest req(String convId) {
         ServeRequest r = new ServeRequest();

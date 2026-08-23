@@ -31,6 +31,8 @@ import org.springframework.test.annotation.DirtiesContext;
 
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -43,7 +45,6 @@ import java.util.concurrent.atomic.AtomicInteger;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class ConcurrencyAdmissionIntegrationTest {
-
     @LocalServerPort
     private int port;
 
@@ -75,11 +76,16 @@ class ConcurrencyAdmissionIntegrationTest {
         TestAdmissionGate.setMax(1);
         HttpHeaders headers = jsonHeaders();
 
-        Thread first = new Thread(() -> {
-            rest.postForEntity("http://localhost:" + port + "/a2a",
-                    new HttpEntity<>(jsonRpc("SendStreamingMessage", "conv-slow", "slow"), headers), String.class);
+        ExecutorService blockingPool = Executors.newSingleThreadExecutor(runnable -> {
+            Thread t = new Thread(runnable, "admission-test-blocker");
+            t.setDaemon(true);
+            t.setUncaughtExceptionHandler((thread, ex) -> { });
+            return t;
         });
-        first.start();
+        blockingPool.submit(() ->
+            rest.postForEntity("http://localhost:" + port + "/a2a",
+                    new HttpEntity<>(jsonRpc("SendStreamingMessage", "conv-slow", "slow"), headers), String.class)
+        );
         assertThat(SlowAgent.awaitStarted(5, TimeUnit.SECONDS)).isTrue();
 
         ResponseEntity<String> response = rest.postForEntity(
@@ -87,7 +93,7 @@ class ConcurrencyAdmissionIntegrationTest {
                 new HttpEntity<>(jsonRpc("SendMessage", "conv-reject", "reject"), headers), String.class);
 
         assertThat(response.getStatusCode().value()).isEqualTo(503);
-        first.interrupt();
+        blockingPool.shutdownNow();
     }
 
     @Test
@@ -133,6 +139,7 @@ class ConcurrencyAdmissionIntegrationTest {
 
     static final class TestAdmissionGate implements TaskAdmissionGate {
         private static volatile int max = -1;
+
         private final AtomicInteger count = new AtomicInteger(0);
 
         static void setMax(int value) {

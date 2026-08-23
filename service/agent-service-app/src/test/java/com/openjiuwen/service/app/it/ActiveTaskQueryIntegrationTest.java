@@ -38,7 +38,6 @@ import java.util.Map;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class ActiveTaskQueryIntegrationTest {
-
     @LocalServerPort
     private int port;
 
