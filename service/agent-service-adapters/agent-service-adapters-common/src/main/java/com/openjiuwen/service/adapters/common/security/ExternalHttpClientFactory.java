@@ -73,9 +73,9 @@ public class ExternalHttpClientFactory {
         }
         if (tls != null) {
             SSLContext sslContext = SslContextFactory.toSslContext(tls, resourceLoader);
-            X509TrustManager trustManager = SslContextFactory.toTrustManager(tls, resourceLoader);
-            builder.sslSocketFactory(sslContext.getSocketFactory(),
-                trustManager != null ? trustManager : platformTrustManager());
+            X509TrustManager trustManager = SslContextFactory.toTrustManager(tls, resourceLoader)
+                .orElseGet(ExternalHttpClientFactory::platformTrustManager);
+            builder.sslSocketFactory(sslContext.getSocketFactory(), trustManager);
             if (!tls.verifyHostname()) {
                 builder.hostnameVerifier((hostname, session) -> true);
             }

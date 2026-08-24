@@ -35,7 +35,7 @@ class SslContextFactoryTest {
             null, null, null, List.of("TLSv1.3"), true, passthroughDecryptor());
 
         assertThat(SslContextFactory.toSslContext(material, new DefaultResourceLoader())).isNotNull();
-        assertThat(SslContextFactory.toTrustManager(material, new DefaultResourceLoader())).isNull();
+        assertThat(SslContextFactory.toTrustManager(material, new DefaultResourceLoader())).isEmpty();
     }
 
     @Test
