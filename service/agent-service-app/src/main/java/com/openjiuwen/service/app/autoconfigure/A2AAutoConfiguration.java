@@ -27,6 +27,7 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -238,13 +239,18 @@ public class A2AAutoConfiguration {
      * @param admissionGateProvider the admission gate provider (optional; the
      *        gate bean typically comes from the ext module's concurrency
      *        auto-configuration)
+     * @param admissionListenerProvider the admission lifecycle listener
+     *        provider (optional; the listener bean typically comes from the
+     *        ext module's concurrency auto-configuration)
      * @return the A2A agent executor
      */
     @Bean
     @ConditionalOnMissingBean
     public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
-            ObjectProvider<TaskAdmissionGate> admissionGateProvider) {
-        return new A2AAgentExecutor(orchestrator, adapter, admissionGateProvider.getIfAvailable());
+            ObjectProvider<TaskAdmissionGate> admissionGateProvider,
+            ObjectProvider<TaskAdmissionListener> admissionListenerProvider) {
+        return new A2AAgentExecutor(orchestrator, adapter, admissionGateProvider.getIfAvailable(),
+                admissionListenerProvider.getIfAvailable());
     }
 
     /**

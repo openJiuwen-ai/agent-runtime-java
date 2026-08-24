@@ -42,7 +42,10 @@ public final class ConcurrencyLoadSnapshot {
     }
 
     /**
-     * Current number of active tasks occupying quota.
+     * Current number of tasks occupying admission quota. Semantics follow the
+     * admission permit lifecycle (acquire → release), not individual handler
+     * invocations: a task counts from the moment its quota slot is acquired
+     * until the slot is released.
      *
      * @return current active task count
      */

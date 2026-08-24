@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.answerVoid;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -16,6 +17,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -40,6 +42,7 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -489,6 +492,64 @@ class A2AAgentExecutorTest {
                 .execute(context, new AgentEmitter(context, queue));
 
         verify(orchestrator).query(any());
+    }
+
+    @Test
+    void execute_admissionListenerNotified_beforeExecutionAndAfterRelease() {
+        // Probe-alignment contract: onAdmitted fires right after tryAcquire
+        // (before the handler runs) and onReleased fires in the same finally
+        // as release() — so a listener-backed snapshot never diverges from
+        // gate.currentCount().
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
+        RequestContext context = requestContext("task-probe", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener)
+                .execute(context, new AgentEmitter(context, queue));
+
+        InOrder inOrder = inOrder(listener, gate, orchestrator);
+        inOrder.verify(gate).tryAcquire();
+        inOrder.verify(listener).onAdmitted("task-probe", "ctx-1");
+        inOrder.verify(orchestrator).query(any());
+        inOrder.verify(gate).release();
+        inOrder.verify(listener).onReleased("task-probe", "ctx-1");
+    }
+
+    @Test
+    void execute_admissionListenerReleased_onAgentFailure() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenThrow(new IllegalStateException("agent failed"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
+        RequestContext context = requestContext("task-fail", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener)
+                .execute(context, new AgentEmitter(context, queue));
+
+        verify(listener).onAdmitted("task-fail", "ctx-1");
+        verify(listener).onReleased("task-fail", "ctx-1");
+    }
+
+    @Test
+    void execute_admissionListenerSkipped_whenAdmissionRejected() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(false);
+        TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
+        RequestContext context = requestContext("task-reject", "ctx-1", false);
+        AgentEmitter emitter = mock(AgentEmitter.class);
+
+        assertThatThrownBy(() -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener)
+                .execute(context, emitter)).isInstanceOf(A2AError.class);
+
+        verify(listener, never()).onAdmitted(any(), any());
+        verify(listener, never()).onReleased(any(), any());
     }
 
     private static void assertStoredInterruptCopied(Task task, Map<String, Object> interaction) {

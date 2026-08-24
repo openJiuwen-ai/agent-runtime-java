@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -54,7 +55,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * it in a {@code finally} block on the same thread — exactly-once release is
  * guaranteed by the language structure. Rejection throws an {@link A2AError}
  * before any task state transition, so the SDK's own error path turns it into a
- * FAILED task without manual compensation.
+ * FAILED task without manual compensation. When a
+ * {@link TaskAdmissionListener} is configured, its {@code onAdmitted} /
+ * {@code onReleased} notifications bracket the same permit scope, so listeners
+ * observe exactly the tasks occupying admission quota.
  *
  * @since 0.1.0
  */
@@ -92,6 +96,8 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private final TaskAdmissionGate admissionGate;
 
+    private final TaskAdmissionListener admissionListener;
+
     private final ChunkMapper chunkMapper = new ChunkMapper();
 
     private final ConcurrentMap<String, AtomicBoolean> activeCancellations = new ConcurrentHashMap<>();
@@ -109,9 +115,24 @@ public class A2AAgentExecutor implements AgentExecutor {
      */
     public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
             TaskAdmissionGate admissionGate) {
+        this(orchestrator, adapter, admissionGate, null);
+    }
+
+    /**
+     * Constructs the agent executor with an admission gate and listener.
+     *
+     * @param orchestrator the serve orchestrator
+     * @param adapter the A2A protocol adapter
+     * @param admissionGate the task admission gate; {@code null} disables admission control
+     * @param admissionListener the admission lifecycle listener; {@code null}
+     *        disables quota-occupancy tracking
+     */
+    public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
+            TaskAdmissionGate admissionGate, TaskAdmissionListener admissionListener) {
         this.orchestrator = orchestrator;
         this.adapter = adapter;
         this.admissionGate = admissionGate;
+        this.admissionListener = admissionListener;
     }
 
     @Override
@@ -152,12 +173,18 @@ public class A2AAgentExecutor implements AgentExecutor {
         if (admissionGate != null) {
             log.info("[CONCURRENCY] task_admitted taskId={} conversationId={} currentActive={} maxConcurrent={}",
                     msgCtx.getTaskId(), req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());
+            if (admissionListener != null) {
+                admissionListener.onAdmitted(msgCtx.getTaskId(), req.getConversationId());
+            }
         }
         try {
             executeAdmitted(ctx, msgCtx, req, emitter, isNewTask);
         } finally {
             if (admissionGate != null) {
                 admissionGate.release();
+                if (admissionListener != null) {
+                    admissionListener.onReleased(msgCtx.getTaskId(), req.getConversationId());
+                }
                 log.info("[CONCURRENCY] task_released taskId={} conversationId={} "
                         + "currentActive={} maxConcurrent={}",
                         msgCtx.getTaskId(), req.getConversationId(),
