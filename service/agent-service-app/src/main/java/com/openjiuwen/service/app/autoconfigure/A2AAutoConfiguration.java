@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.autoconfigure;
 
+import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
@@ -44,6 +45,8 @@ import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
@@ -57,6 +60,7 @@ import org.springframework.core.env.Environment;
 
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -361,23 +365,43 @@ public class A2AAutoConfiguration {
 }
 
 final class A2AExecutionResources {
+    private static final Logger log = LoggerFactory.getLogger(A2AExecutionResources.class);
+
     private static final int AGENT_QUEUE_CAPACITY = 256;
 
     private static final int EVENT_CONSUMER_QUEUE_CAPACITY = 128;
 
     private final MainEventBusProcessor eventBusProcessor;
 
-    private final ThreadPoolExecutor agentExecutor;
+    private final ExecutorService agentExecutor;
 
-    private final ThreadPoolExecutor eventConsumerExecutor;
+    private final ExecutorService eventConsumerExecutor;
 
     A2AExecutionResources(MainEventBusProcessor eventBusProcessor) {
         this.eventBusProcessor = eventBusProcessor;
         int cores = Runtime.getRuntime().availableProcessors();
-        this.agentExecutor = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS,
+        this.agentExecutor = newAgentExecutor(cores);
+        this.eventConsumerExecutor = newEventConsumerExecutor();
+    }
+
+    private static ExecutorService newAgentExecutor(int cores) {
+        if (VirtualThreadSupport.isSupported()) {
+            return VirtualThreadSupport.newVirtualExecutor("a2a-agent",
+                    (thread, error) -> log.error("Uncaught A2A agent execution error thread={}",
+                            thread.getName(), error));
+        }
+        return new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(AGENT_QUEUE_CAPACITY),
                 new ThreadPoolExecutor.CallerRunsPolicy());
-        this.eventConsumerExecutor = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS,
+    }
+
+    private static ExecutorService newEventConsumerExecutor() {
+        if (VirtualThreadSupport.isSupported()) {
+            return VirtualThreadSupport.newVirtualExecutor("a2a-event-consumer",
+                    (thread, error) -> log.error("Uncaught A2A event consumer error thread={}",
+                            thread.getName(), error));
+        }
+        return new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(EVENT_CONSUMER_QUEUE_CAPACITY),
                 new ThreadPoolExecutor.CallerRunsPolicy());
     }
