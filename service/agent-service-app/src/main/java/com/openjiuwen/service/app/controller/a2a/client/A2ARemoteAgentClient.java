@@ -18,6 +18,8 @@ import org.a2aproject.sdk.client.MessageEvent;
 import org.a2aproject.sdk.client.TaskEvent;
 import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.client.config.ClientConfig;
+import org.a2aproject.sdk.client.http.A2AHttpClient;
+import org.a2aproject.sdk.client.http.A2AHttpClientFactory;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AException;
@@ -198,7 +200,21 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
                 ignored -> Client.builder(card)
                         .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
-                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig()).build()));
+                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig(createHttpClient()))
+                        .build()));
+    }
+
+    /**
+     * Builds the HTTP client for outbound A2A calls: the client selected by the SDK
+     * provider mechanism ({@link A2AHttpClientFactory#create()}), decorated with
+     * propagation-header injection. Custom {@code A2AHttpClientProvider} deployments
+     * are therefore preserved; injection is a no-op until a provider is registered in
+     * {@link A2APropagationHeaderRegistry}.
+     *
+     * @return the HTTP client to back the JSON-RPC transport
+     */
+    static A2AHttpClient createHttpClient() {
+        return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create());
     }
 
     private static String endpoint(AgentCard card) {
