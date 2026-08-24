@@ -18,6 +18,7 @@ import org.a2aproject.sdk.spec.TaskState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -43,6 +44,9 @@ import java.util.concurrent.locks.LockSupport;
  * @since 0.1.0
  */
 public class A2ATaskContinuation {
+    /** Base delay for the exponential backoff; package-private for tests. */
+    static final long DEFAULT_RETRY_BASE_DELAY_MS = 1000L;
+
     private static final Logger log = LoggerFactory.getLogger(A2ATaskContinuation.class);
 
     private static final String PARENT_TASK_ID = "runtime.parentTaskId";
@@ -50,9 +54,6 @@ public class A2ATaskContinuation {
     private static final String REMOTE_BATCH_ID = "runtime.remoteBatchId";
 
     private static final Duration INPUT_REQUIRED_WAIT = Duration.ofSeconds(10);
-
-    /** Base delay for the exponential backoff; package-private for tests. */
-    static final long DEFAULT_RETRY_BASE_DELAY_MS = 1000L;
 
     private static final long INPUT_REQUIRED_POLL_MS = 20L;
 
@@ -107,13 +108,7 @@ public class A2ATaskContinuation {
         this.agentExecutorProvider = agentExecutorProvider;
         this.executor = executor;
         this.retryBaseDelayMs = retryBaseDelayMs;
-        this.retryScheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
-            Thread thread = new Thread(runnable, "a2a-continuation-retry");
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler((t, ex) ->
-                    log.warn("Uncaught exception on continuation retry scheduler thread={}", t.getName(), ex));
-            return thread;
-        });
+        this.retryScheduler = new ScheduledThreadPoolExecutor(1, new RetryThreadFactory());
     }
 
     /**
@@ -259,5 +254,25 @@ public class A2ATaskContinuation {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Builds the retry scheduler worker threads: named daemons with a logging
+     * uncaught-exception handler. Extends Spring's customizable factory so
+     * thread creation stays managed by the pool's factory API.
+     */
+    private static final class RetryThreadFactory extends CustomizableThreadFactory {
+        RetryThreadFactory() {
+            super("a2a-continuation-retry-");
+            setDaemon(true);
+        }
+
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = super.newThread(runnable);
+            thread.setUncaughtExceptionHandler((t, ex) ->
+                    log.warn("Uncaught exception on continuation retry scheduler thread={}", t.getName(), ex));
+            return thread;
+        }
     }
 }

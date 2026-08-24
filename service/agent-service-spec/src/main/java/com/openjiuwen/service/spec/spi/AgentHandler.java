@@ -4,11 +4,10 @@
 
 package com.openjiuwen.service.spec.spi;
 
-import java.util.Optional;
-
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.exception.AgentExecutionException;
+import java.util.Optional;
 
 /**
  * Agent framework adapter SPI (AgentFWAdapters).
