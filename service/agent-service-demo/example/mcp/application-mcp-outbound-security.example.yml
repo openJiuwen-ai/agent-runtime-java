@@ -25,7 +25,7 @@ openjiuwen:
               ref: inline
               verify-hostname: false
               trust-store: ${DEMO_OUTBOUND_TRUST_STORE:file:/path/to/client-trust.p12}
-              trust-store-password: ${DEMO_OUTBOUND_TRUST_STORE_PASSWORD:demo-outbound-pass}
+              trust-store-password: ${DEMO_OUTBOUND_TRUST_STORE_PASSWORD}
               trust-store-type: PKCS12
             auth:
               type: bearer

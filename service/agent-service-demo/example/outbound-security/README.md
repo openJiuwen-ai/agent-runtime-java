@@ -10,7 +10,7 @@ A2A Remote 出站 demo 暂不纳入本模块（service 内存在两套 A2A 出�
 | --- | --- |
 | `MockOutboundSecureMcpServer.java` | 本地 HTTPS MCP JSON-RPC（Bearer + `secure_echo`） |
 | `MockOutboundSecureJiuwenBoxServer.java` | 本地 HTTPS jiuwenbox mock（Bearer + `readFile` 下载） |
-| `support/OutboundTlsMaterialGenerator.java` | 用 `keytool` 生成临时 PKCS12 证书（密码 `demo-outbound-pass`） |
+| `support/OutboundTlsMaterialGenerator.java` | 用 `keytool` 生成临时 PKCS12 证书（口令每次运行随机生成，见 `Material#password()`） |
 | `OutboundSecurityMcpClientExample.java` | MCP：`ExternalOutboundSecuritySupport` → Core `StreamableHttpClient` |
 | `OutboundSecuritySandboxClientExample.java` | Sandbox：`DefaultAgentCoreSandboxClientFactory` → Core `SandboxClient`（OkHttp 注入） |
 | `OutboundSecurityMcpE2EIT.java` / `OutboundSecuritySandboxE2EIT.java` | Maven 集成测试 |
@@ -67,6 +67,15 @@ mvn -pl agent-service-demo/example/outbound-security exec:java \
   -Dexec.mainClass=com.openjiuwen.service.demo.example.outboundsecurity.MockOutboundSecureJiuwenBoxServer \
   -Dexec.args="--port=18490 --token=demo-outbound-token"
 ```
+
+Mock server 启动后会打印 truststore 路径，并把随机生成的 keystore 口令写入同目录下的 `store-password.txt`。
+把它导出给随后启动的服务（YAML 模板中 `trust-store-password` 没有默认值，必须由该变量提供）：
+
+```bash
+export DEMO_OUTBOUND_TRUST_STORE_PASSWORD=$(cat /tmp/agent-outbound-security-demo-*/store-password.txt)
+```
+
+> 口令与证书都随 mock server 进程退出而删除，不会跨次运行复用。
 
 ## YAML 配置要点
 
