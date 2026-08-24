@@ -59,15 +59,21 @@ public interface AgentHandler {
     }
 
     /**
-     * Called once before the orchestrator's execution loop begins for a task.
-     * Implementations may use this to acquire a task-level agent that will be
-     * reused across all loop iterations (e.g. remote-tool roundtrips).
+     * Called once before the handler starts processing a request.
+     * Implementations may use this to acquire resources scoped to that
+     * processing (e.g. a dedicated agent instance) and release them via
+     * {@link #completeTask(Optional)}.
      *
-     * @param request the initial serve request for this task
-     * @return an {@link Optional} wrapping an opaque task token that MUST be
+     * <p>Processing one request may involve one or several
+     * {@code query}/{@code streamQuery} invocations (an orchestrator may
+     * re-drive the request before it completes), so the acquired resources
+     * must remain usable across all of them.
+     *
+     * @param request the serve request about to be processed
+     * @return an {@link Optional} wrapping an opaque token that MUST be
      *         passed back to {@link #completeTask(Optional)} to release the
-     *         acquired resources; {@link Optional#empty()} when no task-level
-     *         resources were acquired
+     *         acquired resources; {@link Optional#empty()} when no resources
+     *         were acquired
      * @since 0.1.2
      */
     default Optional<Object> prepareTask(ServeRequest request) {
@@ -75,19 +81,19 @@ public interface AgentHandler {
     }
 
     /**
-     * Called once after the orchestrator's execution loop ends for a task
-     * (in a finally block, regardless of success or failure).
-     * Implementations may use this to release a task-level agent.
+     * Called once after request processing ends (in a finally block,
+     * regardless of success or failure). Implementations may use this to
+     * release the resources acquired in {@link #prepareTask(ServeRequest)}.
      *
      * <p>Implementations MUST treat {@link Optional#empty()} or foreign tokens
      * as a no-op: an empty token means {@link #prepareTask(ServeRequest)} never
-     * acquired resources for this task (e.g. it rejected the task because the
-     * conversation was busy), and the caller's finally must not disturb
-     * resources owned by another in-flight task.
+     * acquired resources for this processing (e.g. it rejected the request
+     * because the conversation was busy), and the caller's finally must not
+     * disturb resources owned by another in-flight request.
      *
      * @param taskToken the token returned by {@link #prepareTask(ServeRequest)}
-     *                  for this task, or {@link Optional#empty()} when nothing
-     *                  was acquired
+     *                  for this processing, or {@link Optional#empty()} when
+     *                  nothing was acquired
      * @since 0.1.2
      */
     default void completeTask(Optional<Object> taskToken) {

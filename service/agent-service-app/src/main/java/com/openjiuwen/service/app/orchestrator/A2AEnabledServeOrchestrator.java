@@ -39,6 +39,14 @@ import java.util.concurrent.ExecutionException;
  * input-required signal. Non-a2a interrupts are forwarded to the client as
  * {@code INPUT_REQUIRED}.
  *
+ * <p>A2A-specific task lifecycle: {@code query}/{@code streamQuery} wrap the
+ * delegation in an interrupt-resume loop — a request may be re-driven several
+ * times (remote-tool roundtrips) before it completes. The
+ * {@link AgentHandler#prepareTask}/{@link AgentHandler#completeTask} hooks are
+ * called around the whole loop, so a task-scoped agent acquired in
+ * {@code prepareTask} is reused across all loop iterations and released only
+ * after the final iteration ends.
+ *
  * @since 0.1.0
  */
 public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNotificationCallbackHandler {
