@@ -36,5 +36,6 @@ public class DefaultMiddlewareAdapterRegistrar implements MiddlewareAdapterRegis
         Map<String, Object> checkpointerConfig = AgentCoreCheckpointerConfigAssembler.build(middlewareProperties,
                 credentialDecryptor, runtimeRedisClient);
         runnerConfig.setCheckpointerConfig(checkpointerConfig);
+        runnerConfig.setKvStoreConfig(checkpointerConfig);
     }
 }
