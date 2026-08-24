@@ -139,7 +139,7 @@ public class MockOutboundSecureMcpServer {
         }
         KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
         keyManagerFactory.init(keyStore, password);
-        SSLContext sslContext = SSLContext.getInstance("TLS");
+        SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
         sslContext.init(keyManagerFactory.getKeyManagers(), null, new SecureRandom());
 
         HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress("127.0.0.1", port), 0);

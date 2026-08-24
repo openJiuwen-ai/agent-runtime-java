@@ -55,7 +55,7 @@ public final class SslContextFactory {
                 keyManagerFactory.init(keyStore, material.keyStorePassword());
             }
 
-            SSLContext sslContext = SSLContext.getInstance("TLS");
+            SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
             sslContext.init(keyManagerFactory == null ? null : keyManagerFactory.getKeyManagers(),
                 trustManagerFactory == null ? null : trustManagerFactory.getTrustManagers(), new SecureRandom());
             return sslContext;
