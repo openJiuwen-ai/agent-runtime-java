@@ -42,6 +42,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -808,8 +809,8 @@ class A2AEnabledServeOrchestratorTest {
         // The registered handle must be released even though prepareTask threw
         assertThat(realRegistry.activeCount()).isZero();
         // A task whose prepareTask failed never acquired resources: the finally
-        // must pass a null token so the handler cannot disturb another task.
-        verify(agentHandler).completeTask(null);
+        // must pass an empty token so the handler cannot disturb another task.
+        verify(agentHandler).completeTask(Optional.empty());
     }
 
     @Test
@@ -819,19 +820,19 @@ class A2AEnabledServeOrchestratorTest {
         assertThatThrownBy(() -> orchestrator.query(req("c-busy-query")))
                 .isInstanceOf(IllegalStateException.class);
 
-        verify(agentHandler).completeTask(null);
+        verify(agentHandler).completeTask(Optional.empty());
     }
 
     @Test
     void query_prepareTaskSucceeds_passesTokenToCompleteTask() {
-        when(agentHandler.prepareTask(any())).thenReturn(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(Optional.of(TASK_TOKEN));
         when(agentHandler.query(any())).thenReturn(new QueryResponse(Map.of("role", "assistant",
             "content", "done"), "c-token-stream"));
 
         orchestrator.query(req("c-token-stream"));
 
         // The token returned by prepareTask must round-trip to completeTask
-        verify(agentHandler).completeTask(TASK_TOKEN);
+        verify(agentHandler).completeTask(Optional.of(TASK_TOKEN));
     }
 
     private static ServeRequest req(String convId) {

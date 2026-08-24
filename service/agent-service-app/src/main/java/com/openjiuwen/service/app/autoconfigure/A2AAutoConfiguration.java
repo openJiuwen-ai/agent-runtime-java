@@ -46,6 +46,7 @@ import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -73,6 +74,14 @@ import java.util.concurrent.TimeUnit;
 @EnableConfigurationProperties(A2AProperties.class)
 public class A2AAutoConfiguration {
     private static final Map<String, String> A2A_RUNTIME_DEFAULTS = Map.of("a2a.blocking.agent.timeout.seconds", "300");
+
+    /**
+     * Admission gate provider (optional; the gate bean typically comes from the
+     * ext module's concurrency auto-configuration). Field-injected so the
+     * {@code a2aRequestHandler} bean method stays within five parameters.
+     */
+    @Autowired
+    private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
 
     /**
      * Creates the SDK main event bus bean.
@@ -354,15 +363,13 @@ public class A2AAutoConfiguration {
      * @param queueManager the queue manager
      * @param pushConfigStore the push notification config store
      * @param executionResources the internal A2A execution resources
-     * @param admissionGateProvider the admission gate provider (optional)
      * @return the request handler
      */
     @Bean
     @ConditionalOnMissingBean
     public RequestHandler a2aRequestHandler(A2AAgentExecutor agentExecutor, TaskStore taskStore,
             QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
-            A2AExecutionResources executionResources,
-            ObjectProvider<TaskAdmissionGate> admissionGateProvider) {
+            A2AExecutionResources executionResources) {
         validateAdmissionCapacity(admissionGateProvider.getIfAvailable(), executionResources);
         return DefaultRequestHandler.create(agentExecutor, taskStore, queueManager, pushConfigStore,
                 executionResources.eventBusProcessor(), executionResources.agentExecutor(),

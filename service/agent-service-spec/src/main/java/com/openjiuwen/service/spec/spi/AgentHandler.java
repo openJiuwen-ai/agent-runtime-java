@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.spec.spi;
 
+import java.util.Optional;
+
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.exception.AgentExecutionException;
@@ -62,13 +64,14 @@ public interface AgentHandler {
      * reused across all loop iterations (e.g. remote-tool roundtrips).
      *
      * @param request the initial serve request for this task
-     * @return an opaque task token that MUST be passed back to
-     *         {@link #completeTask(Object)} to release the acquired resources,
-     *         or {@code null} when no task-level resources were acquired
+     * @return an {@link Optional} wrapping an opaque task token that MUST be
+     *         passed back to {@link #completeTask(Optional)} to release the
+     *         acquired resources; {@link Optional#empty()} when no task-level
+     *         resources were acquired
      * @since 0.1.2
      */
-    default Object prepareTask(ServeRequest request) {
-        return null;
+    default Optional<Object> prepareTask(ServeRequest request) {
+        return Optional.empty();
     }
 
     /**
@@ -76,16 +79,17 @@ public interface AgentHandler {
      * (in a finally block, regardless of success or failure).
      * Implementations may use this to release a task-level agent.
      *
-     * <p>Implementations MUST treat {@code null} or foreign tokens as a no-op:
-     * a {@code null} token means {@link #prepareTask(ServeRequest)} never
+     * <p>Implementations MUST treat {@link Optional#empty()} or foreign tokens
+     * as a no-op: an empty token means {@link #prepareTask(ServeRequest)} never
      * acquired resources for this task (e.g. it rejected the task because the
      * conversation was busy), and the caller's finally must not disturb
      * resources owned by another in-flight task.
      *
      * @param taskToken the token returned by {@link #prepareTask(ServeRequest)}
-     *                  for this task, or {@code null} when nothing was acquired
+     *                  for this task, or {@link Optional#empty()} when nothing
+     *                  was acquired
      * @since 0.1.2
      */
-    default void completeTask(Object taskToken) {
+    default void completeTask(Optional<Object> taskToken) {
     }
 }

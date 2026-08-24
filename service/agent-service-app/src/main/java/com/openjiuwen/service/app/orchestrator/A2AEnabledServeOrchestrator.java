@@ -123,7 +123,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     @Override
     public QueryResponse query(ServeRequest request) {
         log.info("Orchestrator query START conversationId={}", request.getConversationId());
-        Object taskToken = null;
+        Optional<Object> taskToken = Optional.empty();
         try {
             taskToken = agentHandler.prepareTask(request);
             ServeRequest current = request;
@@ -158,7 +158,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                 current = interruptResult.get();
             }
         } finally {
-            // Null token means prepareTask acquired nothing (e.g. busy
+            // Empty token means prepareTask acquired nothing (e.g. busy
             // rejection) — completeTask must not disturb the other task.
             agentHandler.completeTask(taskToken);
         }
@@ -174,7 +174,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         log.info("Orchestrator streamQuery START conversationId={}", request.getConversationId());
         var handle = streamRegistry.register(request.getConversationId());
         ServeRequest current = request;
-        Object taskToken = null;
+        Optional<Object> taskToken = Optional.empty();
         try {
             taskToken = agentHandler.prepareTask(request);
             while (!handle.isCancelled() && !observer.isCancelled()) {
@@ -196,7 +196,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                 current = interruptResult.get();
             }
         } finally {
-            // Null token means prepareTask acquired nothing (e.g. busy
+            // Empty token means prepareTask acquired nothing (e.g. busy
             // rejection) — completeTask must not disturb the other task.
             agentHandler.completeTask(taskToken);
             batchCoordinator.abortResume(current);
