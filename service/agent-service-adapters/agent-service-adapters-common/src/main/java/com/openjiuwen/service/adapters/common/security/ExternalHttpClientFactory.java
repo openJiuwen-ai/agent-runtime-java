@@ -94,7 +94,8 @@ public class ExternalHttpClientFactory {
         try {
             TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(
                 TrustManagerFactory.getDefaultAlgorithm());
-            trustManagerFactory.init((java.security.KeyStore) null);
+            java.security.KeyStore defaultKeyStore = null;
+            trustManagerFactory.init(defaultKeyStore);
             for (javax.net.ssl.TrustManager trustManager : trustManagerFactory.getTrustManagers()) {
                 if (trustManager instanceof X509TrustManager x509TrustManager) {
                     return x509TrustManager;
