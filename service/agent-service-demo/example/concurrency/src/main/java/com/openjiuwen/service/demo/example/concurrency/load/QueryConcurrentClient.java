@@ -18,6 +18,10 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * HTTP client for concurrent {@code /v1/query} load against the concurrency demo service.
@@ -47,13 +51,8 @@ public final class QueryConcurrentClient {
         int workers = Math.max(4, Runtime.getRuntime().availableProcessors() * 4);
         this.httpClient = HttpClient.newBuilder()
             .connectTimeout(timeout)
-            .executor(Executors.newFixedThreadPool(workers, runnable -> {
-                Thread thread = new Thread(runnable, "concurrency-http-client");
-                thread.setDaemon(true);
-                thread.setUncaughtExceptionHandler((t, ex) -> log.error("Uncaught exception on HTTP worker thread {}",
-                    t.getName(), ex));
-                return thread;
-            }))
+            .executor(new ThreadPoolExecutor(workers, workers, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(), newWorkerThreadFactory()))
             .build();
     }
 
@@ -184,6 +183,18 @@ public final class QueryConcurrentClient {
             return "";
         }
         return value.length() <= 240 ? value : value.substring(0, 240) + "...";
+    }
+
+    private static ThreadFactory newWorkerThreadFactory() {
+        ThreadFactory defaultFactory = Executors.defaultThreadFactory();
+        return runnable -> {
+            Thread thread = defaultFactory.newThread(runnable);
+            thread.setName("concurrency-http-client");
+            thread.setDaemon(true);
+            thread.setUncaughtExceptionHandler((t, ex) -> log.error("Uncaught exception on HTTP worker thread {}",
+                t.getName(), ex));
+            return thread;
+        };
     }
 
     /**
