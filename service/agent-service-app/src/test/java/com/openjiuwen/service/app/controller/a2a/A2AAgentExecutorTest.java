@@ -5,14 +5,19 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.answerVoid;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -27,6 +32,7 @@ import org.a2aproject.sdk.server.events.EventQueue;
 import org.a2aproject.sdk.server.events.EventQueueClosedException;
 import org.a2aproject.sdk.server.events.EventQueueItem;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
+import org.a2aproject.sdk.spec.A2AError;
 import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Task;
@@ -36,6 +42,7 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -402,6 +409,147 @@ class A2AAgentExecutorTest {
 
         assertThat(request.getMetadata()).doesNotContainKey("_interrupt");
         verify(emitter, never()).submit();
+    }
+
+    @Test
+    void execute_rejectedWithA2AError_whenAdmissionGateFull() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(false);
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        AgentEmitter emitter = mock(AgentEmitter.class);
+
+        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate);
+
+        assertThatThrownBy(() -> executor.execute(context, emitter))
+                .isInstanceOf(A2AError.class)
+                .hasMessageContaining("concurrent task limit reached");
+        verify(orchestrator, never()).query(any());
+        verify(orchestrator, never()).streamQuery(any(), any());
+        verify(gate, never()).release();
+        verify(emitter, never()).submit();
+        verify(emitter, never()).startWork();
+    }
+
+    @Test
+    void execute_admissionAcquired_releasedExactlyOnce_onSuccess() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate)
+                .execute(context, new AgentEmitter(context, queue));
+
+        verify(orchestrator).query(any());
+        verify(gate, times(1)).release();
+    }
+
+    @Test
+    void execute_admissionAcquired_releasedExactlyOnce_onAgentFailure() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenThrow(new IllegalStateException("agent failed"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate)
+                .execute(context, new AgentEmitter(context, queue));
+
+        verify(gate, times(1)).release();
+    }
+
+    @Test
+    void execute_admissionAcquired_releasedExactlyOnce_onAgentError() {
+        // S-22 quota semantics: an Error (e.g. OOM) escapes the executor
+        // unchanged, but the finally block must still release the permit so
+        // the failure does not permanently consume quota.
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenThrow(new AssertionError("simulated OOM"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        assertThatThrownBy(() -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate)
+                .execute(context, new AgentEmitter(context, queue)))
+                .isInstanceOf(AssertionError.class)
+                .hasMessage("simulated OOM");
+        verify(gate, times(1)).release();
+    }
+
+    @Test
+    void execute_nullGate_executesWithoutAdmission() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()))
+                .execute(context, new AgentEmitter(context, queue));
+
+        verify(orchestrator).query(any());
+    }
+
+    @Test
+    void execute_admissionListenerNotified_beforeExecutionAndAfterRelease() {
+        // Probe-alignment contract: onAdmitted fires right after tryAcquire
+        // (before the handler runs) and onReleased fires in the same finally
+        // as release() — so a listener-backed snapshot never diverges from
+        // gate.currentCount().
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
+        RequestContext context = requestContext("task-probe", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener)
+                .execute(context, new AgentEmitter(context, queue));
+
+        InOrder inOrder = inOrder(listener, gate, orchestrator);
+        inOrder.verify(gate).tryAcquire();
+        inOrder.verify(listener).onAdmitted("task-probe", "ctx-1");
+        inOrder.verify(orchestrator).query(any());
+        inOrder.verify(gate).release();
+        inOrder.verify(listener).onReleased("task-probe", "ctx-1");
+    }
+
+    @Test
+    void execute_admissionListenerReleased_onAgentFailure() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenThrow(new IllegalStateException("agent failed"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
+        RequestContext context = requestContext("task-fail", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener)
+                .execute(context, new AgentEmitter(context, queue));
+
+        verify(listener).onAdmitted("task-fail", "ctx-1");
+        verify(listener).onReleased("task-fail", "ctx-1");
+    }
+
+    @Test
+    void execute_admissionListenerSkipped_whenAdmissionRejected() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(false);
+        TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
+        RequestContext context = requestContext("task-reject", "ctx-1", false);
+        AgentEmitter emitter = mock(AgentEmitter.class);
+
+        assertThatThrownBy(() -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener)
+                .execute(context, emitter)).isInstanceOf(A2AError.class);
+
+        verify(listener, never()).onAdmitted(any(), any());
+        verify(listener, never()).onReleased(any(), any());
     }
 
     private static void assertStoredInterruptCopied(Task task, Map<String, Object> interaction) {

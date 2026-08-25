@@ -146,6 +146,36 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return agent;
     }
 
+    /**
+     * Executes the agent in streaming mode, producing an iterator of output chunks.
+     *
+     * <p>Subclasses may override to swap the agent instance used for a single task,
+     * enabling per-task agent isolation.
+     *
+     * @param inputs the runner inputs
+     * @param session the runner session
+     * @param streamModes the requested stream modes
+     * @return the output iterator
+     */
+    protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
+            List<StreamMode> streamModes) {
+        return Runner.runAgentStreaming(agent, inputs, session, null, streamModes);
+    }
+
+    /**
+     * Executes the agent synchronously, returning the raw result.
+     *
+     * <p>Subclasses may override to swap the agent instance used for a single task,
+     * enabling per-task agent isolation.
+     *
+     * @param inputs the runner inputs
+     * @param session the runner session
+     * @return the raw agent result
+     */
+    protected Object executeAgent(Map<String, Object> inputs, Object session) {
+        return Runner.runAgent(agent, inputs, session, null);
+    }
+
     @Override
     public void start() {
         if (!RUNNER_STARTED.compareAndSet(false, true)) {
@@ -223,8 +253,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         try {
             List<Map<String, Object>> interrupts = new ArrayList<>();
             List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
-            Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request),
-                    null, streamModes);
+            Iterator<Object> source = executeAgentStreaming(buildInputs(request), runnerSession(request),
+                    streamModes);
             while (!observer.isCancelled() && source.hasNext()) {
                 if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
                     break;
@@ -262,7 +292,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     public QueryResponse query(ServeRequest request) {
         FutureTask<QueryResponse> execution = new FutureTask<>(() -> {
             if (supportsInvoke(agent)) {
-                Object rawResult = Runner.runAgent(agent, buildInputs(request), runnerSession(request), null);
+                Object rawResult = executeAgent(buildInputs(request), runnerSession(request));
                 return toQueryResponse(rawResult, request.getConversationId());
             }
             return queryViaStreaming(request);
@@ -289,7 +319,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Object lastPayload = null;
         List<Map<String, Object>> interrupts = new ArrayList<>();
         List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
-        Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request), null,
+        Iterator<Object> source = executeAgentStreaming(buildInputs(request), runnerSession(request),
                 streamModes);
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
