@@ -40,9 +40,12 @@ class DefaultExternalSvcAdapterRegistrarSecurityTest {
         var method = DefaultExternalSvcAdapterRegistrar.class.getDeclaredMethod("toCoreConfig",
             AgentCoreExternalProperties.McpServer.class);
         method.setAccessible(true);
-        McpServerConfig coreConfig = (McpServerConfig) method.invoke(registrar, server);
+        Object invoked = method.invoke(registrar, server);
 
-        assertThat(coreConfig.getAuthHeaders()).containsEntry("Authorization", "Bearer token");
+        assertThat(invoked).isInstanceOf(McpServerConfig.class);
+        if (invoked instanceof McpServerConfig coreConfig) {
+            assertThat(coreConfig.getAuthHeaders()).containsEntry("Authorization", "Bearer token");
+        }
     }
 
     private static ExternalOutboundSecuritySupport createSecuritySupport() {

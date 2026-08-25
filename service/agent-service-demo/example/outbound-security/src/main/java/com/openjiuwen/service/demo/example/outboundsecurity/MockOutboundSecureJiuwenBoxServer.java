@@ -123,19 +123,34 @@ public class MockOutboundSecureJiuwenBoxServer {
         String token = options.getOrDefault("token", OutboundSecurityMcpClientExample.DEMO_TOKEN);
         MockOutboundSecureJiuwenBoxServer mockServer = new MockOutboundSecureJiuwenBoxServer(token);
         mockServer.start(port);
+        exportTlsMaterial(mockServer.tlsMaterial());
         Runtime.getRuntime().addShutdownHook(new Thread(mockServer::stop));
         Thread.currentThread().join();
     }
 
+    /**
+     * Writes the randomly generated store password next to the generated stores and logs its location,
+     * so a separately launched service can be wired to this mock without the password entering the logs.
+     *
+     * @param material TLS material generated for this run
+     * @throws IOException if the password file cannot be written
+     */
+    private static void exportTlsMaterial(OutboundTlsMaterialGenerator.Material material) throws IOException {
+        java.nio.file.Path passwordFile = material.directory().resolve("store-password.txt");
+        Files.writeString(passwordFile, material.password());
+        log.info("Client trust store: {}", material.clientTrustStoreLocation());
+        log.info("Store password written to {}; export DEMO_OUTBOUND_TRUST_STORE_PASSWORD from it", passwordFile);
+    }
+
     private HttpsServer createServer(int port, OutboundTlsMaterialGenerator.Material material) throws Exception {
-        char[] password = OutboundTlsMaterialGenerator.PASSWORD.toCharArray();
+        char[] password = material.password().toCharArray();
         KeyStore keyStore = KeyStore.getInstance("PKCS12");
         try (InputStream inputStream = Files.newInputStream(material.serverKeyStore())) {
             keyStore.load(inputStream, password);
         }
         KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
         keyManagerFactory.init(keyStore, password);
-        SSLContext sslContext = SSLContext.getInstance("TLS");
+        SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
         sslContext.init(keyManagerFactory.getKeyManagers(), null, new SecureRandom());
 
         HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress("127.0.0.1", port), 0);

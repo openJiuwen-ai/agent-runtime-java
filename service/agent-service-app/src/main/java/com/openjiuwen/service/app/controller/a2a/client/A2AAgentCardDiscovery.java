@@ -25,6 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -73,8 +75,10 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
         this.properties = properties;
         this.registry = registry;
         this.restClient = RestClient.create();
-        this.retryExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "a2a-discovery-retry");
+        ThreadFactory defaultThreadFactory = Executors.defaultThreadFactory();
+        this.retryExecutor = new ScheduledThreadPoolExecutor(1, runnable -> {
+            Thread t = defaultThreadFactory.newThread(runnable);
+            t.setName("a2a-discovery-retry");
             t.setDaemon(true);
             t.setUncaughtExceptionHandler(
                     (thread, ex) -> log.error("Uncaught exception in discovery thread {}", thread.getName(), ex));

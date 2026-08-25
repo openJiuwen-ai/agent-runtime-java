@@ -11,7 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntConsumer;
@@ -123,7 +124,8 @@ public final class ConcurrentLoadHarness {
 
     private static void runSessions(ConcurrentLoadConfig config, IntFunction<String> action) {
         int concurrency = Math.max(1, config.concurrency());
-        ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+        ExecutorService executor = new ThreadPoolExecutor(concurrency, concurrency, 0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<>());
         try {
             List<CompletableFuture<String>> futures = new ArrayList<>();
             AtomicInteger sessionIndex = new AtomicInteger();

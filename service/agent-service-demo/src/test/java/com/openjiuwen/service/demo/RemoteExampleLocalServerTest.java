@@ -14,6 +14,7 @@ import com.openjiuwen.service.adapters.agentcore.external.AgentCoreRemoteClientF
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientDecoratorFactory;
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientFactory;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -22,28 +23,38 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Validates A2A remote adapter against the in-test mock server.
  */
 class RemoteExampleLocalServerTest {
+    private ExecutorService serverPool;
+
+    @AfterEach
+    void shutdownServerPool() {
+        if (serverPool != null) {
+            serverPool.shutdownNow();
+        }
+    }
+
     @Test
     void remoteAdapterExampleCanCallLocalMockA2aServer() throws Exception {
         int port = freePort();
-        Thread serverThread = new Thread(() -> {
+        serverPool = newServerPool();
+        serverPool.execute(() -> {
             try {
                 com.openjiuwen.service.demo.support.remote.MockA2ARemoteServerExample.main(
                     new String[] {"--port=" + port});
             } catch (Exception ex) {
                 throw new IllegalStateException("mock A2A server failed", ex);
             }
-        }, "mock-a2a-remote-server");
-        serverThread.setUncaughtExceptionHandler((unused, error) -> {
-            throw new AssertionError(error);
         });
-        serverThread.setDaemon(true);
-        serverThread.start();
 
         waitUntilPortOpen(port, 10_000);
 
@@ -111,6 +122,16 @@ class RemoteExampleLocalServerTest {
         } catch (IOException ex) {
             return false;
         }
+    }
+
+    private static ExecutorService newServerPool() {
+        ThreadFactory defaultThreadFactory = Executors.defaultThreadFactory();
+        return new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), runnable -> {
+            Thread thread = defaultThreadFactory.newThread(runnable);
+            thread.setName("mock-a2a-remote-server");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     private static int freePort() throws IOException {
