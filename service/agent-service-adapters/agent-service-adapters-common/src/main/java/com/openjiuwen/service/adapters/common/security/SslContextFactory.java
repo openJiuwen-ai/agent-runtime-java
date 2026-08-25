@@ -12,6 +12,7 @@ import org.springframework.core.io.ResourceLoader;
 import java.io.InputStream;
 import java.security.KeyStore;
 import java.security.SecureRandom;
+import java.util.Optional;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -55,7 +56,7 @@ public final class SslContextFactory {
                 keyManagerFactory.init(keyStore, material.keyStorePassword());
             }
 
-            SSLContext sslContext = SSLContext.getInstance("TLS");
+            SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
             sslContext.init(keyManagerFactory == null ? null : keyManagerFactory.getKeyManagers(),
                 trustManagerFactory == null ? null : trustManagerFactory.getTrustManagers(), new SecureRandom());
             return sslContext;
@@ -69,11 +70,11 @@ public final class SslContextFactory {
      *
      * @param material TLS material
      * @param resourceLoader resource loader for store locations
-     * @return trust manager, or {@code null} when no trust store is configured
+     * @return trust manager, or an empty optional when no trust store is configured
      */
-    public static X509TrustManager toTrustManager(TlsMaterial material, ResourceLoader resourceLoader) {
+    public static Optional<X509TrustManager> toTrustManager(TlsMaterial material, ResourceLoader resourceLoader) {
         if (material == null || !hasText(material.trustStoreLocation())) {
-            return null;
+            return Optional.empty();
         }
         try {
             KeyStore trustStore = loadKeyStore(resourceLoader, material.trustStoreLocation(),
@@ -83,7 +84,7 @@ public final class SslContextFactory {
             trustManagerFactory.init(trustStore);
             for (javax.net.ssl.TrustManager trustManager : trustManagerFactory.getTrustManagers()) {
                 if (trustManager instanceof X509TrustManager x509TrustManager) {
-                    return x509TrustManager;
+                    return Optional.of(x509TrustManager);
                 }
             }
         } catch (Exception ex) {

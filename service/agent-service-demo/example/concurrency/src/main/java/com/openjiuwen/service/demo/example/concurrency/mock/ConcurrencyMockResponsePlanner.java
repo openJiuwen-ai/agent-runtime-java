@@ -12,6 +12,7 @@ import com.openjiuwen.service.demo.example.concurrency.SkillEchoRail;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -35,10 +36,10 @@ public final class ConcurrencyMockResponsePlanner {
      * @return assistant message with either tool calls or final text
      */
     public static AssistantMessage plan(List<Map<String, Object>> messages) {
-        String latestToolResult = latestToolResultForCurrentTurn(messages);
-        if (latestToolResult != null) {
+        Optional<String> latestToolResult = latestToolResultForCurrentTurn(messages);
+        if (latestToolResult.isPresent()) {
             return AssistantMessage.builder().role("assistant")
-            .content("Mock LLM summary: " + latestToolResult).build();
+            .content("Mock LLM summary: " + latestToolResult.get()).build();
         }
         String userRequest = latestUserContent(messages);
         if (userRequest.startsWith("skill_echo:")) {
@@ -78,9 +79,9 @@ public final class ConcurrencyMockResponsePlanner {
      * Returns the latest tool result after the most recent user turn, if any.
      *
      * @param messages converted chat messages
-     * @return tool result content or {@code null}
+     * @return tool result content, or an empty optional when the current turn has none
      */
-    static String latestToolResultForCurrentTurn(List<Map<String, Object>> messages) {
+    static Optional<String> latestToolResultForCurrentTurn(List<Map<String, Object>> messages) {
         int lastUserIndex = -1;
         for (int index = 0; index < messages.size(); index++) {
             if ("user".equals(String.valueOf(messages.get(index).get("role")))) {
@@ -88,15 +89,15 @@ public final class ConcurrencyMockResponsePlanner {
             }
         }
         if (lastUserIndex < 0) {
-            return null;
+            return Optional.empty();
         }
         for (int index = messages.size() - 1; index > lastUserIndex; index--) {
             Map<String, Object> message = messages.get(index);
             if ("tool".equals(String.valueOf(message.get("role")))) {
-                return String.valueOf(message.get("content"));
+                return Optional.of(String.valueOf(message.get("content")));
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     private static AssistantMessage toolCall(String toolName, Map<String, Object> arguments) {

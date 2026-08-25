@@ -18,6 +18,7 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +38,10 @@ import org.springframework.test.annotation.DirtiesContext;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -63,10 +68,19 @@ class LifecycleIntegrationTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
+    private ExecutorService workerPool;
+
     @BeforeEach
     void resetInterruptCounter() {
         CountingInterruptHandler.reset();
         SlowStreamAgentHandler.reset();
+    }
+
+    @AfterEach
+    void shutdownWorkerPool() {
+        if (workerPool != null) {
+            workerPool.shutdownNow();
+        }
     }
 
     @Test
@@ -90,7 +104,8 @@ class LifecycleIntegrationTest {
         request.setMessages(List.of(Map.of("role", "user", "content", "go")));
 
         AtomicBoolean completed = new AtomicBoolean(false);
-        Thread worker = new Thread(() -> orchestrator.streamQuery(request, new QueryStreamObserver() {
+        workerPool = newWorkerPool();
+        Future<?> worker = workerPool.submit(() -> orchestrator.streamQuery(request, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
             }
@@ -104,14 +119,10 @@ class LifecycleIntegrationTest {
                 completed.set(true);
             }
         }));
-        worker.setUncaughtExceptionHandler((unused, error) -> {
-            throw new AssertionError(error);
-        });
-        worker.start();
 
         assertThat(SlowStreamAgentHandler.awaitStarted(5, TimeUnit.SECONDS)).isTrue();
         lifecycleManager.interrupt("interrupt-e2e");
-        worker.join(5000);
+        worker.get(5, TimeUnit.SECONDS);
 
         assertThat(completed.get()).isTrue();
         assertThat(CountingInterruptHandler.COUNT.get()).isEqualTo(1);
@@ -157,7 +168,8 @@ class LifecycleIntegrationTest {
         request.setConversationId("lifecycle-interrupt");
         request.setMessages(List.of(Map.of("role", "user", "content", "go")));
 
-        Thread worker = new Thread(() -> orchestrator.streamQuery(request, new QueryStreamObserver() {
+        workerPool = newWorkerPool();
+        Future<?> worker = workerPool.submit(() -> orchestrator.streamQuery(request, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
             }
@@ -170,16 +182,16 @@ class LifecycleIntegrationTest {
             public void onComplete() {
             }
         }));
-        worker.setUncaughtExceptionHandler((unused, error) -> {
-            throw new AssertionError(error);
-        });
-        worker.start();
 
         assertThat(SlowStreamAgentHandler.awaitStarted(5, TimeUnit.SECONDS)).isTrue();
         lifecycleManager.interrupt("lifecycle-interrupt");
-        worker.join(5000);
+        worker.get(5, TimeUnit.SECONDS);
 
         assertThat(CountingInterruptHandler.COUNT.get()).isEqualTo(1);
+    }
+
+    private static ExecutorService newWorkerPool() {
+        return new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
     }
 
     @SpringBootConfiguration

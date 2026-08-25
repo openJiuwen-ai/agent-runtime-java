@@ -117,9 +117,9 @@ final class A2aJsonRpcProtocol {
     static final class RequestException extends RuntimeException {
         private static final long serialVersionUID = 1L;
 
-        private final Object requestId;
+        private final transient Object requestId;
 
-        private final A2AError error;
+        private final transient A2AError error;
 
         RequestException(Object requestId, A2AError error) {
             super(error.getMessage(), error);

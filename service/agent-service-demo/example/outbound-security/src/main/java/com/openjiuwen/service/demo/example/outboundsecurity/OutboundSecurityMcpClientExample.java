@@ -83,7 +83,7 @@ public final class OutboundSecurityMcpClientExample {
         ExternalTlsConfig tlsConfig = new ExternalTlsConfig();
         tlsConfig.setEnabled(true);
         tlsConfig.setTrustStore(tlsMaterial.clientTrustStoreLocation());
-        tlsConfig.setTrustStorePassword(OutboundTlsMaterialGenerator.PASSWORD);
+        tlsConfig.setTrustStorePassword(tlsMaterial.password());
         tlsConfig.setTrustStoreType("PKCS12");
         tlsConfig.setVerifyHostname(false);
 
