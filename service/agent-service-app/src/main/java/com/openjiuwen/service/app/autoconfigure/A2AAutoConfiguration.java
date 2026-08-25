@@ -26,6 +26,8 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -45,6 +47,7 @@ import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -72,6 +75,14 @@ import java.util.concurrent.TimeUnit;
 @EnableConfigurationProperties(A2AProperties.class)
 public class A2AAutoConfiguration {
     private static final Map<String, String> A2A_RUNTIME_DEFAULTS = Map.of("a2a.blocking.agent.timeout.seconds", "300");
+
+    /**
+     * Admission gate provider (optional; the gate bean typically comes from the
+     * ext module's concurrency auto-configuration). Field-injected so the
+     * {@code a2aRequestHandler} bean method stays within five parameters.
+     */
+    @Autowired
+    private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
 
     /**
      * Creates the SDK main event bus bean.
@@ -225,24 +236,35 @@ public class A2AAutoConfiguration {
      *
      * @param orchestrator the serve orchestrator
      * @param adapter the A2A protocol adapter
+     * @param admissionGateProvider the admission gate provider (optional; the
+     *        gate bean typically comes from the ext module's concurrency
+     *        auto-configuration)
+     * @param admissionListenerProvider the admission lifecycle listener
+     *        provider (optional; the listener bean typically comes from the
+     *        ext module's concurrency auto-configuration)
      * @return the A2A agent executor
      */
     @Bean
     @ConditionalOnMissingBean
-    public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter) {
-        return new A2AAgentExecutor(orchestrator, adapter);
+    public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
+            ObjectProvider<TaskAdmissionGate> admissionGateProvider,
+            ObjectProvider<TaskAdmissionListener> admissionListenerProvider) {
+        return new A2AAgentExecutor(orchestrator, adapter, admissionGateProvider.getIfAvailable(),
+                admissionListenerProvider.getIfAvailable());
     }
 
     /**
      * Creates the internal execution resources shared by the SDK request handler and callback continuations.
      *
      * @param eventBusProcessor the SDK event bus processor
+     * @param properties the A2A runtime properties carrying the optional
+     *        agent execution pool size
      * @return the A2A execution resources
      */
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean
-    A2AExecutionResources a2aExecutionResources(MainEventBusProcessor eventBusProcessor) {
-        return new A2AExecutionResources(eventBusProcessor);
+    A2AExecutionResources a2aExecutionResources(MainEventBusProcessor eventBusProcessor, A2AProperties properties) {
+        return new A2AExecutionResources(eventBusProcessor, properties.getAgentThreads());
     }
 
     /**
@@ -354,15 +376,46 @@ public class A2AAutoConfiguration {
     public RequestHandler a2aRequestHandler(A2AAgentExecutor agentExecutor, TaskStore taskStore,
             QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
             A2AExecutionResources executionResources) {
+        validateAdmissionCapacity(admissionGateProvider.getIfAvailable(), executionResources);
         return DefaultRequestHandler.create(agentExecutor, taskStore, queueManager, pushConfigStore,
                 executionResources.eventBusProcessor(), executionResources.agentExecutor(),
                 executionResources.eventConsumerExecutor());
     }
+
+    private static void validateAdmissionCapacity(TaskAdmissionGate admissionGate, A2AExecutionResources resources) {
+        if (admissionGate == null) {
+            return;
+        }
+        int limit = admissionGate.limit();
+        int capacity = resources.agentConcurrencyCapacity();
+        if (limit > capacity) {
+            throw new IllegalStateException(String.format(java.util.Locale.ROOT,
+                    "Task admission limit (%d) exceeds the A2A agent execution capacity (%d threads). "
+                            + "Lower the concurrency limit, or set openjiuwen.service.a2a.agent-threads "
+                            + "to raise the agent executor capacity, otherwise admission permits would be "
+                            + "held by queued (not running) tasks.",
+                    limit, capacity));
+        }
+    }
 }
 
 final class A2AExecutionResources {
+    /**
+     * Auto-sized agent pool floor. I/O-bound agent tasks park on remote LLM or
+     * backend calls, so the baseline mirrors {@code QuerySsePumpExecutor}:
+     * {@code max(32, availableProcessors * 8)} instead of raw CPU cores.
+     */
+    static final int AUTO_POOL_FLOOR = 32;
+
+    /**
+     * Auto-sized agent pool multiplier per CPU core.
+     */
+    static final int AUTO_POOL_MULTIPLIER = 8;
+
+    /** Capacity of the agent task submission queue. */
     private static final int AGENT_QUEUE_CAPACITY = 256;
 
+    /** Capacity of the event consumer blocking queue. */
     private static final int EVENT_CONSUMER_QUEUE_CAPACITY = 128;
 
     private final MainEventBusProcessor eventBusProcessor;
@@ -371,10 +424,10 @@ final class A2AExecutionResources {
 
     private final ThreadPoolExecutor eventConsumerExecutor;
 
-    A2AExecutionResources(MainEventBusProcessor eventBusProcessor) {
+    A2AExecutionResources(MainEventBusProcessor eventBusProcessor, int configuredAgentThreads) {
         this.eventBusProcessor = eventBusProcessor;
-        int cores = Runtime.getRuntime().availableProcessors();
-        this.agentExecutor = new ThreadPoolExecutor(cores, cores, 60L, TimeUnit.SECONDS,
+        int threads = configuredAgentThreads > 0 ? configuredAgentThreads : autoAgentPoolSize();
+        this.agentExecutor = new ThreadPoolExecutor(threads, threads, 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(AGENT_QUEUE_CAPACITY),
                 new ThreadPoolExecutor.CallerRunsPolicy());
         this.eventConsumerExecutor = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS,
@@ -382,8 +435,16 @@ final class A2AExecutionResources {
                 new ThreadPoolExecutor.CallerRunsPolicy());
     }
 
+    static int autoAgentPoolSize() {
+        return Math.max(AUTO_POOL_FLOOR, Runtime.getRuntime().availableProcessors() * AUTO_POOL_MULTIPLIER);
+    }
+
     Executor agentExecutor() {
         return agentExecutor;
+    }
+
+    int agentConcurrencyCapacity() {
+        return agentExecutor.getMaximumPoolSize();
     }
 
     MainEventBusProcessor eventBusProcessor() {

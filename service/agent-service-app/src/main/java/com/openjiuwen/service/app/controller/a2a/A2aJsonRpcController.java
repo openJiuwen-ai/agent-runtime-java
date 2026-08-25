@@ -9,6 +9,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
@@ -29,6 +30,7 @@ import org.a2aproject.sdk.spec.TaskIdParams;
 import org.a2aproject.sdk.spec.TaskQueryParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -55,6 +57,8 @@ public class A2aJsonRpcController {
 
     private final RequestHandler requestHandler;
 
+    private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
+
     /**
      * Constructs the JSON-RPC controller.
      *
@@ -62,6 +66,11 @@ public class A2aJsonRpcController {
      */
     public A2aJsonRpcController(RequestHandler requestHandler) {
         this.requestHandler = requestHandler;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setAdmissionGateProvider(ObjectProvider<TaskAdmissionGate> admissionGateProvider) {
+        this.admissionGateProvider = admissionGateProvider;
     }
 
     /**
@@ -92,6 +101,11 @@ public class A2aJsonRpcController {
                     ctx.getState().put("_a2a_stream", false);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     validateInlinePushNotificationConfig(params);
+                    if (isAdmissionOverloaded()) {
+                        logRejected(params.message().contextId());
+                        yield ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
+                                .body(admissionErrorBody(id));
+                    }
                     EventKind result = requestHandler.onMessageSend(params, ctx);
                     yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
                 }
@@ -99,6 +113,11 @@ public class A2aJsonRpcController {
                     ctx.getState().put("_a2a_stream", true);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     validateInlinePushNotificationConfig(params);
+                    if (isAdmissionOverloaded()) {
+                        logRejected(params.message().contextId());
+                        yield ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
+                                .body(admissionErrorBody(id));
+                    }
                     Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
                     yield streamToSse(pub, id);
                 }
@@ -113,6 +132,33 @@ public class A2aJsonRpcController {
         } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
             log.error("A2A request failed", e);
             return A2aJsonRpcProtocol.errorResponse(id, new InternalError("Internal error"));
+        }
+    }
+
+    /**
+     * Read-only admission pre-check for fast failure (HTTP 503 without entering
+     * the SDK pipeline). Authoritative admission happens in
+     * {@code A2AAgentExecutor.executeRequest()} — this check carries no permit
+     * and therefore has no release obligation; requests that slip through the
+     * race window are rejected there as a clean FAILED task.
+     *
+     * @return {@code true} if the admission limit has been reached
+     */
+    private boolean isAdmissionOverloaded() {
+        if (admissionGateProvider == null) {
+            return false;
+        }
+        TaskAdmissionGate admissionGate = admissionGateProvider.getIfAvailable();
+        return admissionGate != null && admissionGate.limit() >= 0
+                && admissionGate.currentCount() >= admissionGate.limit();
+    }
+
+    private void logRejected(String conversationId) {
+        TaskAdmissionGate gate = admissionGateProvider != null ? admissionGateProvider.getIfAvailable() : null;
+        if (gate != null) {
+            log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} "
+                    + "maxConcurrent={} reason=\"limit_reached\"",
+                    conversationId, gate.currentCount(), gate.limit());
         }
     }
 
@@ -234,5 +280,11 @@ public class A2aJsonRpcController {
             ctx.getState().put(A2AMessageContext.INGRESS_HEADERS_STATE_KEY, ingressHeaders);
         }
         return ctx;
+    }
+
+    private static String admissionErrorBody(Object id) {
+        String idJson = id != null ? GSON.toJson(id) : "null";
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + idJson
+                + ",\"error\":{\"code\":-32603,\"message\":\"Service Unavailable: concurrent task limit reached\"}}";
     }
 }
