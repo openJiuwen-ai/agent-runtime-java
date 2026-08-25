@@ -5,14 +5,17 @@
 package com.openjiuwen.service.app.orchestrator;
 
 import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
+import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallback;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.StreamCancellationHandle;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -27,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -111,21 +115,21 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
      *            maximum queue wait
      */
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-        RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
-        int maxConcurrency, int maxQueueSize, long queueTimeoutSeconds) {
+            RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
+            int maxConcurrency, int maxQueueSize, long queueTimeoutSeconds) {
         this(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId, maxConcurrency, maxQueueSize,
                 queueTimeoutSeconds, null);
     }
 
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-        RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
-        int maxConcurrency, int maxQueueSize, long queueTimeoutSeconds, A2ATaskContinuation continuation) {
+            RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
+            int maxConcurrency, int maxQueueSize, long queueTimeoutSeconds, A2ATaskContinuation continuation) {
         this.agentHandler = agentHandler;
         this.taskStore = taskStore;
         this.streamRegistry = streamRegistry;
         this.batchCoordinator = new RemoteInvocationBatchCoordinator(taskStore, remoteAgentCaller, agentId,
-            maxConcurrency, maxQueueSize, queueTimeoutSeconds,
-            continuation == null ? request -> { } : continuation::submit);
+                maxConcurrency, maxQueueSize, queueTimeoutSeconds, continuation == null ? request -> {
+                } : continuation::submit);
     }
 
     @Override
@@ -159,7 +163,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                 }
 
                 Optional<ServeRequest> interruptResult = handleQueryInterrupt(interruptData, current, response,
-                    NOOP_OBSERVER);
+                        NOOP_OBSERVER);
                 if (interruptResult.isEmpty()) {
                     return response;
                 }
@@ -226,8 +230,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         if (isClientToolResume(current)) {
             return Optional.of(current);
         }
-        Optional<java.util.concurrent.CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> batchResume =
-            batchCoordinator.resume(current, observer);
+        Optional<CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> batchResume = batchCoordinator
+                .resume(current, observer);
         if (batchResume.isPresent()) {
             try {
                 return streamBatchResolution(current, batchResume.get().get(), observer);
@@ -255,48 +259,48 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
      * @return the interrupt chunk, or empty if the stream completed normally
      */
     private Optional<QueryChunk> runAgentAndCaptureInterrupt(ServeRequest current, QueryStreamObserver observer,
-        StreamCancellationHandle handle) {
+            StreamCancellationHandle handle) {
         var interruptHolder = new java.util.concurrent.atomic.AtomicReference<QueryChunk>();
         var coreCompleted = new java.util.concurrent.atomic.AtomicBoolean(false);
         var callbackFailed = new java.util.concurrent.atomic.AtomicBoolean(false);
         try {
             agentHandler.streamQuery(current, new QueryStreamObserver() {
-            @Override
-            public void onNext(QueryChunk chunk) {
-                if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
-                    interruptHolder.set(chunk);
-                    return;
+                @Override
+                public void onNext(QueryChunk chunk) {
+                    if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
+                        interruptHolder.set(chunk);
+                        return;
+                    }
+                    observer.onNext(chunk);
                 }
-                observer.onNext(chunk);
-            }
 
-            @Override
-            public void onComplete() {
-                if (handle.isCancelled() || observer.isCancelled()) {
-                    batchCoordinator.abortResume(current);
-                } else {
-                    coreCompleted.set(true);
-                    batchCoordinator.completeResume(current);
+                @Override
+                public void onComplete() {
+                    if (handle.isCancelled() || observer.isCancelled()) {
+                        batchCoordinator.abortResume(current);
+                    } else {
+                        coreCompleted.set(true);
+                        batchCoordinator.completeResume(current);
+                    }
+                    if (interruptHolder.get() == null) {
+                        observer.onComplete();
+                    }
                 }
-                if (interruptHolder.get() == null) {
-                    observer.onComplete();
-                }
-            }
 
-            @Override
-            public void onError(Throwable e) {
-                callbackFailed.set(true);
-                if (!coreCompleted.get()) {
-                    batchCoordinator.abortResume(current);
+                @Override
+                public void onError(Throwable e) {
+                    callbackFailed.set(true);
+                    if (!coreCompleted.get()) {
+                        batchCoordinator.abortResume(current);
+                    }
+                    log.error("Agent stream error", e);
+                    observer.onError(e);
                 }
-                log.error("Agent stream error", e);
-                observer.onError(e);
-            }
 
-            @Override
-            public boolean isCancelled() {
-                return handle.isCancelled() || observer.isCancelled();
-            }
+                @Override
+                public boolean isCancelled() {
+                    return handle.isCancelled() || observer.isCancelled();
+                }
             });
         } catch (RuntimeException | Error ex) {
             if (!coreCompleted.get()) {
@@ -320,12 +324,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
      *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> handleInterrupt(QueryChunk interrupt, ServeRequest current,
-        QueryStreamObserver observer) {
+            QueryStreamObserver observer) {
         Map<String, Object> rawInterrupt = interruptMap(interrupt);
         if (isCoordinatorInterrupt(rawInterrupt)) {
             try {
-                RemoteInvocationBatchCoordinator.BatchResolution resolution =
-                    batchCoordinator.execute(rawInterrupt, current, observer).get();
+                RemoteInvocationBatchCoordinator.BatchResolution resolution = batchCoordinator
+                        .execute(rawInterrupt, current, observer).get();
                 return streamBatchResolution(current, resolution, observer);
             } catch (InterruptedException ex) {
                 observer.onError(ex);
@@ -336,8 +340,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
             }
         }
         if (hasRemoteDelegateItem(rawInterrupt)) {
-            observer.onError(new IllegalArgumentException(
-                MIXED_INTERRUPT_ERROR + ": mixed A2A and non-A2A interrupts"));
+            observer.onError(
+                    new IllegalArgumentException(MIXED_INTERRUPT_ERROR + ": mixed A2A and non-A2A interrupts"));
             return Optional.empty();
         }
         if (isRemoteDelegate(rawInterrupt)) {
@@ -345,9 +349,10 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
             return Optional.empty();
         }
         Object interruptKind = rawInterrupt.get("context") instanceof Map<?, ?> context
-            ? context.get("_interrupt_kind") : "batch";
-        log.info("Orchestrator forwarding local interrupt to client interruptKind={} convId={}",
-            interruptKind, current.getConversationId());
+                ? context.get("_interrupt_kind")
+                : "batch";
+        log.info("Orchestrator forwarding local interrupt to client interruptKind={} convId={}", interruptKind,
+                current.getConversationId());
         observer.onNext(interrupt);
         observer.onComplete();
         return Optional.empty();
@@ -397,8 +402,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         if (isClientToolResume(current)) {
             return QueryResumeResult.continueWith(current);
         }
-        Optional<java.util.concurrent.CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> batchResume =
-            batchCoordinator.resume(current, outputObserver);
+        Optional<CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> batchResume = batchCoordinator
+                .resume(current, outputObserver);
         if (batchResume.isPresent()) {
             try {
                 return queryBatchResolution(current, batchResume.get().get(), null);
@@ -431,11 +436,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
      *         {@link Optional#empty()} if the loop should stop
      */
     private Optional<ServeRequest> handleQueryInterrupt(Map<String, Object> interruptData, ServeRequest current,
-        QueryResponse response, QueryStreamObserver outputObserver) {
+            QueryResponse response, QueryStreamObserver outputObserver) {
         if (isCoordinatorInterrupt(interruptData)) {
             try {
                 QueryResumeResult batchResult = queryBatchResolution(current,
-                    batchCoordinator.execute(interruptData, current, outputObserver).get(), response);
+                        batchCoordinator.execute(interruptData, current, outputObserver).get(), response);
                 if (batchResult.response() != null) {
                     response.setResult(batchResult.response().getResult());
                     return Optional.empty();
@@ -467,6 +472,14 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     private Optional<ServeRequest> streamBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
         if (resolution.isReadyToResume()) {
+            Optional<AgentExecutionException> failure = terminalRemoteFailure(resolution);
+            if (failure.isPresent()) {
+                batchCoordinator.completeResume(buildBatchResumeRequest(current, resolution));
+                if (!observer.isCancelled()) {
+                    observer.onError(failure.get());
+                }
+                return Optional.empty();
+            }
             if (!resolution.shouldResume()) {
                 if (!observer.isCancelled()) {
                     observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, joinRemoteAnswers(resolution)));
@@ -489,6 +502,11 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     private QueryResumeResult queryBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryResponse response) {
         if (resolution.isReadyToResume()) {
+            Optional<AgentExecutionException> failure = terminalRemoteFailure(resolution);
+            if (failure.isPresent()) {
+                batchCoordinator.completeResume(buildBatchResumeRequest(current, resolution));
+                throw failure.get();
+            }
             if (!resolution.shouldResume()) {
                 Map<String, Object> result = new LinkedHashMap<>();
                 result.put("role", "assistant");
@@ -512,6 +530,40 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         return QueryResumeResult.respond(new QueryResponse(result, current.getConversationId()));
     }
 
+    /**
+     * Treat the remote delegate's explicit {@code ok=false} envelope as a terminal
+     * failure. Feeding that envelope back into the parent model makes it look like
+     * an ordinary tool result, which permits a second intent/delegate call and can
+     * incorrectly complete the parent task.
+     *
+     * @param resolution settled remote batch resolution
+     * @return structured terminal failure, when any member failed
+     */
+    private static Optional<AgentExecutionException> terminalRemoteFailure(
+            RemoteInvocationBatchCoordinator.BatchResolution resolution) {
+        for (Object value : resolution.results().values()) {
+            if (!(value instanceof Map<?, ?> result) || !Boolean.FALSE.equals(result.get("ok"))) {
+                continue;
+            }
+            String code = stringValue(result.get("code"));
+            if (code.isBlank()) {
+                code = "REMOTE_FAILED";
+            }
+            String message = stringValue(result.get("message"));
+            if (message.isBlank()) {
+                message = "Remote agent invocation failed";
+            }
+            AgentFailureDescriptor descriptor = A2aErrorMetadata.decodeValue(result.get("remoteError"))
+                    .orElse(new AgentFailureDescriptor(code, null, false));
+            return Optional.of(new AgentExecutionException(message, descriptor, null));
+        }
+        return Optional.empty();
+    }
+
+    private static String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
     private static String joinRemoteAnswers(RemoteInvocationBatchCoordinator.BatchResolution resolution) {
         if (resolution.results().isEmpty()) {
             return "";
@@ -522,7 +574,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                 return;
             }
             String text = value instanceof Map<?, ?> map && map.get("ok") instanceof Boolean isOk && !isOk
-                ? "" : String.valueOf(value);
+                    ? ""
+                    : String.valueOf(value);
             if (!text.isEmpty()) {
                 if (sb.length() > 0) {
                     sb.append('\n');
@@ -566,18 +619,15 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                 return false;
             }
             for (Object item : items) {
-                if (!(item instanceof Map<?, ?> itemMap)
-                        || !(itemMap.get("context") instanceof Map<?, ?> context)
+                if (!(item instanceof Map<?, ?> itemMap) || !(itemMap.get("context") instanceof Map<?, ?> context)
                         || !A2A_DELEGATE_KIND.equals(context.get("_interrupt_kind"))) {
                     return false;
                 }
             }
             return true;
         }
-        return "__interaction__".equals(interrupt.get("type"))
-            && isRemoteDelegate(interrupt)
-            && interrupt.get("toolCallId") instanceof String toolCallId
-            && !toolCallId.isBlank();
+        return "__interaction__".equals(interrupt.get("type")) && isRemoteDelegate(interrupt)
+                && interrupt.get("toolCallId") instanceof String toolCallId && !toolCallId.isBlank();
     }
 
     private static boolean isClientToolResume(ServeRequest request) {
@@ -596,23 +646,22 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     }
 
     private static boolean hasInterruptKind(Object item, String kind) {
-        return item instanceof Map<?, ?> map
-                && map.get("context") instanceof Map<?, ?> context
+        return item instanceof Map<?, ?> map && map.get("context") instanceof Map<?, ?> context
                 && kind.equals(context.get("_interrupt_kind"));
     }
 
     private static boolean isRemoteDelegate(Map<String, Object> interrupt) {
         return interrupt.get("context") instanceof Map<?, ?> context
-            && A2A_DELEGATE_KIND.equals(context.get("_interrupt_kind"));
+                && A2A_DELEGATE_KIND.equals(context.get("_interrupt_kind"));
     }
 
     private static boolean hasRemoteDelegateItem(Map<String, Object> interrupt) {
         if (!(interrupt.get("items") instanceof List<?> items)) {
             return false;
         }
-        return items.stream().anyMatch(item -> item instanceof Map<?, ?> itemMap
-            && itemMap.get("context") instanceof Map<?, ?> context
-            && A2A_DELEGATE_KIND.equals(context.get("_interrupt_kind")));
+        return items.stream().anyMatch(
+                item -> item instanceof Map<?, ?> itemMap && itemMap.get("context") instanceof Map<?, ?> context
+                        && A2A_DELEGATE_KIND.equals(context.get("_interrupt_kind")));
     }
 
     private static QueryResponse buildInterruptQueryResponse(String convId) {

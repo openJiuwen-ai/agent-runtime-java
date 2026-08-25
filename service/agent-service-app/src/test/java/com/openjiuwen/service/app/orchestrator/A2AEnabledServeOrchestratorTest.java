@@ -25,9 +25,11 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.StreamCancellationHandle;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
@@ -72,8 +74,8 @@ class A2AEnabledServeOrchestratorTest {
         a2aClient = mock(A2ARemoteAgentClient.class);
         streamRegistry = mock(ActiveStreamRegistry.class);
         when(streamRegistry.register(anyString())).thenReturn(mock(StreamCancellationHandle.class));
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
     }
 
     @Test
@@ -114,10 +116,9 @@ class A2AEnabledServeOrchestratorTest {
     @Test
     void streamingClientToolResumeBypassesRemoteBatchProbe() {
         ServeRequest request = req("c-client-tool-stream");
-        Map<String, Object> metadata = new java.util.LinkedHashMap<>(Map.of(
-            "runtime.parentTaskId", "task-client-tool-stream",
-            "runtime.remoteToolInputs", Map.of("call-a", "page body"),
-            "_interrupt", clientToolInterrupt("call-a", "readCurrentPage")));
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>(
+                Map.of("runtime.parentTaskId", "task-client-tool-stream", "runtime.remoteToolInputs",
+                        Map.of("call-a", "page body"), "_interrupt", clientToolInterrupt("call-a", "readCurrentPage")));
         request.setMetadata(metadata);
         doAnswer(invocation -> {
             ServeRequest actual = invocation.getArgument(0);
@@ -142,16 +143,15 @@ class A2AEnabledServeOrchestratorTest {
     @Test
     void synchronousClientToolBatchResumeBypassesRemoteBatchProbe() {
         ServeRequest request = req("c-client-tool-query");
-        Map<String, Object> metadata = new java.util.LinkedHashMap<>(Map.of(
-            "runtime.parentTaskId", "task-client-tool-query",
-            "runtime.remoteToolInputs", Map.of("call-a", "page body", "call-b", "confirmed"),
-            "_interrupt", Map.of("items", List.of(
-                clientToolInterrupt("call-a", "readCurrentPage"),
-                clientToolInterrupt("call-b", "confirmLocalAction")))));
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>(
+                Map.of("runtime.parentTaskId", "task-client-tool-query", "runtime.remoteToolInputs",
+                        Map.of("call-a", "page body", "call-b", "confirmed"), "_interrupt",
+                        Map.of("items", List.of(clientToolInterrupt("call-a", "readCurrentPage"),
+                                clientToolInterrupt("call-b", "confirmLocalAction")))));
         Map<String, Object> expectedMetadata = new java.util.LinkedHashMap<>(metadata);
         request.setMetadata(metadata);
-        when(agentHandler.query(request)).thenReturn(
-            new QueryResponse(Map.of("content", "final"), request.getConversationId()));
+        when(agentHandler.query(request))
+                .thenReturn(new QueryResponse(Map.of("content", "final"), request.getConversationId()));
 
         QueryResponse response = orchestrator.query(request);
 
@@ -163,24 +163,23 @@ class A2AEnabledServeOrchestratorTest {
     @Test
     void onlyPureClientToolInterruptsBypassRemoteBatchProbe() {
         List<Map<String, Object>> interrupts = List.of(
-            Map.of("items", List.of(
-                clientToolInterrupt("call-a", "readCurrentPage"),
-                Map.of("context", Map.of("_interrupt_kind", "ask_user")))),
-            Map.of("items", List.of(Map.of("context", Map.of("_interrupt_kind", "ask_user")))),
-            Map.of("items", List.of()));
+                Map.of("items",
+                        List.of(clientToolInterrupt("call-a", "readCurrentPage"),
+                                Map.of("context", Map.of("_interrupt_kind", "ask_user")))),
+                Map.of("items", List.of(Map.of("context", Map.of("_interrupt_kind", "ask_user")))),
+                Map.of("items", List.of()));
 
         for (int index = 0; index < interrupts.size(); index++) {
             ServeRequest request = req("c-not-client-tool-" + index);
-            request.setMetadata(new java.util.LinkedHashMap<>(Map.of(
-                "runtime.parentTaskId", "task-not-client-tool-" + index,
-                "runtime.remoteToolInputs", Map.of("call-a", "input"),
-                "_interrupt", interrupts.get(index))));
+            request.setMetadata(new java.util.LinkedHashMap<>(
+                    Map.of("runtime.parentTaskId", "task-not-client-tool-" + index, "runtime.remoteToolInputs",
+                            Map.of("call-a", "input"), "_interrupt", interrupts.get(index))));
             QueryStreamObserver observer = mock(QueryStreamObserver.class);
 
             orchestrator.streamQuery(request, observer);
 
             verify(observer).onError(argThat(error -> error instanceof IllegalArgumentException
-                && error.getMessage().contains("REMOTE_BATCH_PARENT_MISMATCH")));
+                    && error.getMessage().contains("REMOTE_BATCH_PARENT_MISMATCH")));
             verify(observer, never()).onComplete();
         }
         verify(agentHandler, never()).streamQuery(any(), any());
@@ -188,11 +187,11 @@ class A2AEnabledServeOrchestratorTest {
 
     @Test
     void multipleLocalInterruptsAreForwardedWithoutRemoteDispatch() {
-        Map<String, Object> interrupt = Map.of("items", List.of(
-            Map.of("toolCallId", "call-a", "message", "question-a",
-                "context", Map.of("_interrupt_kind", "ask_user")),
-            Map.of("toolCallId", "call-b", "message", "question-b",
-                "context", Map.of("_interrupt_kind", "ask_user"))));
+        Map<String, Object> interrupt = Map.of("items",
+                List.of(Map.of("toolCallId", "call-a", "message", "question-a", "context",
+                        Map.of("_interrupt_kind", "ask_user")),
+                        Map.of("toolCallId", "call-b", "message", "question-b", "context",
+                                Map.of("_interrupt_kind", "ask_user"))));
         doAnswer(invocation -> {
             QueryStreamObserver observer = invocation.getArgument(1);
             observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, interrupt));
@@ -203,8 +202,8 @@ class A2AEnabledServeOrchestratorTest {
 
         orchestrator.streamQuery(req("c-local-interrupts"), observer);
 
-        verify(observer).onNext(argThat(chunk -> QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())
-            && interrupt.equals(chunk.getData())));
+        verify(observer).onNext(argThat(
+                chunk -> QueryChunk.TYPE_INTERRUPT.equals(chunk.getType()) && interrupt.equals(chunk.getData())));
         verify(observer).onComplete();
         verify(a2aClient, never()).callOutcome(any(), any());
     }
@@ -223,34 +222,31 @@ class A2AEnabledServeOrchestratorTest {
         orchestrator.streamQuery(req("c-mixed-stream"), observer);
 
         verify(observer).onError(argThat(error -> error instanceof IllegalArgumentException
-            && error.getMessage().contains("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED")));
+                && error.getMessage().contains("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED")));
         verify(a2aClient, never()).callOutcome(any(), any());
     }
 
     @Test
     void mixedRemoteAndLocalInterruptBatchIsRejectedInQueryMode() {
-        Map<String, Object> result = Map.of(
-            "role", "assistant",
-            "content", "interaction batch",
-            "_interrupt", mixedInterruptBatch());
+        Map<String, Object> result = Map.of("role", "assistant", "content", "interaction batch", "_interrupt",
+                mixedInterruptBatch());
         when(agentHandler.query(any())).thenReturn(new QueryResponse(result, "c-mixed-query"));
 
-        assertThatThrownBy(() -> orchestrator.query(req("c-mixed-query")))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED");
+        assertThatThrownBy(() -> orchestrator.query(req("c-mixed-query"))).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED");
         verify(a2aClient, never()).callOutcome(any(), any());
     }
 
     @Test
     void queryKeepsSynchronousHandlerAndDisablesRemoteStreaming() {
         taskStore = new InMemoryTaskStore();
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             assertThat(call.isCallerStreaming()).isFalse();
-            return CompletableFuture.completedFuture(new RemoteCallOutcome(
-                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-task",
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
         });
         AtomicInteger localRuns = new AtomicInteger();
         when(agentHandler.query(any())).thenAnswer(invocation -> {
@@ -272,11 +268,8 @@ class A2AEnabledServeOrchestratorTest {
 
     @Test
     void localInterruptWithToolCallIdBypassesRemoteDispatch() {
-        Map<String, Object> interrupt = Map.of(
-            "type", "__interaction__",
-            "toolCallId", "call-local",
-            "message", "question",
-            "context", Map.of("_interrupt_kind", "ask_user"));
+        Map<String, Object> interrupt = Map.of("type", "__interaction__", "toolCallId", "call-local", "message",
+                "question", "context", Map.of("_interrupt_kind", "ask_user"));
         doAnswer(invocation -> {
             QueryStreamObserver observer = invocation.getArgument(1);
             observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, interrupt));
@@ -287,8 +280,8 @@ class A2AEnabledServeOrchestratorTest {
 
         orchestrator.streamQuery(req("c-local-interrupt"), observer);
 
-        verify(observer).onNext(argThat(chunk -> QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())
-            && interrupt.equals(chunk.getData())));
+        verify(observer).onNext(argThat(
+                chunk -> QueryChunk.TYPE_INTERRUPT.equals(chunk.getType()) && interrupt.equals(chunk.getData())));
         verify(observer).onComplete();
         verify(a2aClient, never()).callOutcome(any(), any());
     }
@@ -297,10 +290,9 @@ class A2AEnabledServeOrchestratorTest {
     void remoteInterruptWithoutToolCallIdIsRejected() {
         doAnswer(invocation -> {
             QueryStreamObserver observer = invocation.getArgument(1);
-            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
-                "type", "__interaction__",
-                "message", "legacy remote request",
-                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "legacy-agent"))));
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT,
+                    Map.of("type", "__interaction__", "message", "legacy remote request", "context",
+                            Map.of("_interrupt_kind", "a2a_delegate", "agentName", "legacy-agent"))));
             observer.onComplete();
             return null;
         }).when(agentHandler).streamQuery(any(), any());
@@ -309,7 +301,7 @@ class A2AEnabledServeOrchestratorTest {
         orchestrator.streamQuery(req("c-missing-tool-call-id"), observer);
 
         verify(observer).onError(argThat(error -> error instanceof IllegalArgumentException
-            && error.getMessage().contains("CORE_INTERRUPT_CORRELATION_MISSING")));
+                && error.getMessage().contains("CORE_INTERRUPT_CORRELATION_MISSING")));
         verify(a2aClient, never()).callOutcome(any(), any());
     }
 
@@ -317,18 +309,14 @@ class A2AEnabledServeOrchestratorTest {
     @SuppressWarnings("unchecked")
     void remoteBatchFansOutAndResumesCoreWithCompleteResults() {
         taskStore = new InMemoryTaskStore();
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             assertThat(call.isCallerStreaming()).isTrue();
             String id = call.message().substring("message-".length());
-            return CompletableFuture.completedFuture(new RemoteCallOutcome(
-                "remote-" + id,
-                TaskState.TASK_STATE_COMPLETED,
-                "COMPLETED",
-                "result-" + id,
-                null));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-" + id,
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + id, null));
         });
         AtomicInteger localRuns = new AtomicInteger();
         doAnswer(invocation -> {
@@ -339,14 +327,12 @@ class A2AEnabledServeOrchestratorTest {
             } else {
                 Task readyShadow = taskStore.get("shadow:test-agent:parent-batch");
                 assertThat(readyShadow).isNotNull();
-                assertThat((Map<String, Object>) readyShadow.metadata().get("_remote_batch"))
-                    .containsEntry("state", "READY_TO_RESUME");
+                assertThat((Map<String, Object>) readyShadow.metadata().get("_remote_batch")).containsEntry("state",
+                        "READY_TO_RESUME");
                 Map<String, Object> results = (Map<String, Object>) request.getMetadata()
-                    .get("runtime.remoteToolResults");
-                assertThat(results).containsOnly(
-                    Map.entry("call-a", "result-call-a"),
-                    Map.entry("call-b", "result-call-b"),
-                    Map.entry("call-c", "result-call-c"));
+                        .get("runtime.remoteToolResults");
+                assertThat(results).containsOnly(Map.entry("call-a", "result-call-a"),
+                        Map.entry("call-b", "result-call-b"), Map.entry("call-c", "result-call-c"));
                 observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "final"));
             }
             observer.onComplete();
@@ -368,28 +354,20 @@ class A2AEnabledServeOrchestratorTest {
     @SuppressWarnings("unchecked")
     void resumeFalseStreamingReturnsRemoteAnswerWithoutReInvokingAgent() {
         taskStore = new InMemoryTaskStore();
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
-            return CompletableFuture.completedFuture(new RemoteCallOutcome(
-                "remote-" + call.agentName(),
-                TaskState.TASK_STATE_COMPLETED,
-                "COMPLETED",
-                "intent-answer",
-                null));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-" + call.agentName(),
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "intent-answer", null));
         });
         AtomicInteger localRuns = new AtomicInteger();
         doAnswer(invocation -> {
             QueryStreamObserver observer = invocation.getArgument(1);
             if (localRuns.getAndIncrement() == 0) {
-                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
-                    "type", "__interaction__",
-                    "toolCallId", "call-intent",
-                    "toolName", "intent-tool",
-                    "message", "go",
-                    "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "intent-agent",
-                        "resume", false))));
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("type", "__interaction__",
+                        "toolCallId", "call-intent", "toolName", "intent-tool", "message", "go", "context",
+                        Map.of("_interrupt_kind", "a2a_delegate", "agentName", "intent-agent", "resume", false))));
             }
             observer.onComplete();
             return null;
@@ -404,37 +382,30 @@ class A2AEnabledServeOrchestratorTest {
         verify(a2aClient, times(1)).callOutcome(any(), any());
         verify(observer).onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "intent-answer"));
         verify(observer).onComplete();
-        verify(observer, never()).onNext(argThat(chunk -> chunk != null
-            && QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())));
+        verify(observer, never())
+                .onNext(argThat(chunk -> chunk != null && QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())));
         assertThat(taskStore.get("shadow:test-agent:parent-intent")).isNull();
     }
 
     @Test
     void resumeFalseReturnsRemoteAnswerWithoutReInvokingAgent() {
         taskStore = new InMemoryTaskStore();
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
-            return CompletableFuture.completedFuture(new RemoteCallOutcome(
-                "remote-" + call.agentName(),
-                TaskState.TASK_STATE_COMPLETED,
-                "COMPLETED",
-                "intent-answer",
-                null));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-" + call.agentName(),
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "intent-answer", null));
         });
         AtomicInteger localRuns = new AtomicInteger();
         when(agentHandler.query(any())).thenAnswer(invocation -> {
             if (localRuns.getAndIncrement() == 0) {
-                return new QueryResponse(Map.of(
-                    "_interrupt", Map.of(
-                        "type", "__interaction__",
-                        "toolCallId", "call-intent",
-                        "toolName", "intent-tool",
-                        "message", "go",
-                        "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "intent-agent",
-                            "resume", false))),
-                    "c-intent-query");
+                return new QueryResponse(
+                        Map.of("_interrupt",
+                                Map.of("type", "__interaction__", "toolCallId", "call-intent", "toolName",
+                                        "intent-tool", "message", "go", "context", Map.of("_interrupt_kind",
+                                                "a2a_delegate", "agentName", "intent-agent", "resume", false))),
+                        "c-intent-query");
             }
             throw new IllegalStateException("agent must not be re-invoked when resume=false");
         });
@@ -454,21 +425,82 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
+    void failedRemoteDelegateIsTerminalAndDoesNotReinvokeParentAgent() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
+        AgentFailureDescriptor remoteFailure = new AgentFailureDescriptor("BALANCE_BACKEND_DOWN", 181001, true);
+        when(a2aClient.callOutcome(any(), any())).thenReturn(
+                CompletableFuture.completedFuture(new RemoteCallOutcome("remote-balance", TaskState.TASK_STATE_FAILED,
+                        "REMOTE_BUSINESS_FAILURE", "balance agent unavailable", null, remoteFailure)));
+        AtomicInteger parentRuns = new AtomicInteger();
+        when(agentHandler.query(any())).thenAnswer(invocation -> {
+            parentRuns.incrementAndGet();
+            return new QueryResponse(
+                    Map.of("_interrupt",
+                            Map.of("type", "__interaction__", "toolCallId", "call-balance", "toolName", "intent_match",
+                                    "message", "balance", "context",
+                                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "balance-agent"))),
+                    "c-failed-remote");
+        });
+
+        ServeRequest request = req("c-failed-remote");
+        request.setStream(false);
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-failed-remote"));
+
+        assertThatThrownBy(() -> orchestrator.query(request)).isInstanceOfSatisfying(AgentExecutionException.class,
+                error -> {
+                    assertThat(error).hasMessage("balance agent unavailable");
+                    assertThat(error.getDescriptor()).isEqualTo(remoteFailure);
+                });
+        assertThat(parentRuns).hasValue(1);
+        verify(a2aClient, times(1)).callOutcome(any(), any());
+        assertThat(taskStore.get("shadow:test-agent:parent-failed-remote")).isNull();
+    }
+
+    @Test
+    void streamingRemoteFailureErrorsOnceWithoutParentRerun() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
+        AgentFailureDescriptor remoteFailure = new AgentFailureDescriptor("BALANCE_BACKEND_DOWN", 181001, true);
+        when(a2aClient.callOutcome(any(), any())).thenReturn(
+                CompletableFuture.completedFuture(new RemoteCallOutcome("remote-balance", TaskState.TASK_STATE_FAILED,
+                        "REMOTE_BUSINESS_FAILURE", "balance agent unavailable", null, remoteFailure)));
+        AtomicInteger parentRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            parentRuns.incrementAndGet();
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT,
+                    Map.of("type", "__interaction__", "toolCallId", "call-balance", "toolName", "intent_match",
+                            "message", "balance", "context",
+                            Map.of("_interrupt_kind", "a2a_delegate", "agentName", "balance-agent"))));
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        ServeRequest request = req("c-stream-failed-remote");
+        request.setMetadata(Map.of("runtime.parentTaskId", "parent-stream-failed-remote"));
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        orchestrator.streamQuery(request, observer);
+
+        verify(observer, times(1)).onError(argThat(error -> error instanceof AgentExecutionException execution
+                && execution.getDescriptor().equals(remoteFailure)));
+        assertThat(parentRuns).hasValue(1);
+        verify(a2aClient, times(1)).callOutcome(any(), any());
+        assertThat(taskStore.get("shadow:test-agent:parent-stream-failed-remote")).isNull();
+    }
+
+    @Test
     void mixedResumeFlagsInBatchAreRejected() {
         taskStore = new InMemoryTaskStore();
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         List<Map<String, Object>> items = List.of(
-            Map.of(
-                "toolCallId", "call-keep",
-                "toolName", "tool-keep",
-                "message", "go",
-                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-a", "resume", true)),
-            Map.of(
-                "toolCallId", "call-intent",
-                "toolName", "tool-intent",
-                "message", "go",
-                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-b", "resume", false)));
+                Map.of("toolCallId", "call-keep", "toolName", "tool-keep", "message", "go", "context",
+                        Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-a", "resume", true)),
+                Map.of("toolCallId", "call-intent", "toolName", "tool-intent", "message", "go", "context",
+                        Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-b", "resume", false)));
         doAnswer(invocation -> {
             QueryStreamObserver observer = invocation.getArgument(1);
             observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("items", items)));
@@ -481,8 +513,7 @@ class A2AEnabledServeOrchestratorTest {
 
         orchestrator.streamQuery(request, observer);
 
-        verify(observer).onError(argThat(error ->
-            error instanceof IllegalArgumentException
+        verify(observer).onError(argThat(error -> error instanceof IllegalArgumentException
                 && "CORE_INTERRUPT_RESUME_MIXED_UNSUPPORTED".equals(error.getMessage())));
         verify(a2aClient, never()).callOutcome(any(), any());
     }
@@ -490,13 +521,13 @@ class A2AEnabledServeOrchestratorTest {
     @Test
     void coreResumeFailureKeepsReadyShadowForRetry() {
         taskStore = new InMemoryTaskStore();
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             String id = call.message().substring("message-".length());
-            return CompletableFuture.completedFuture(new RemoteCallOutcome(
-                "remote-" + id, TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + id, null));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-" + id,
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + id, null));
         });
         AtomicInteger localRuns = new AtomicInteger();
         doAnswer(invocation -> {
@@ -516,20 +547,20 @@ class A2AEnabledServeOrchestratorTest {
 
         Task readyShadow = taskStore.get("shadow:test-agent:parent-batch-failure");
         assertThat(readyShadow).isNotNull();
-        @SuppressWarnings("unchecked") Map<String, Object> snapshot =
-            (Map<String, Object>) readyShadow.metadata().get("_remote_batch");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> snapshot = (Map<String, Object>) readyShadow.metadata().get("_remote_batch");
         assertThat(snapshot).containsEntry("state", "READY_TO_RESUME");
     }
 
     @Test
     void shadowCleanupFailureStopsBeforeHandlingCapturedNextInterrupt() {
         taskStore = spy(new InMemoryTaskStore());
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
-            return CompletableFuture.completedFuture(new RemoteCallOutcome(
-                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-task",
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
         });
         AtomicInteger localRuns = new AtomicInteger();
         doAnswer(invocation -> {
@@ -548,8 +579,8 @@ class A2AEnabledServeOrchestratorTest {
             }
             return null;
         }).when(agentHandler).streamQuery(any(), any());
-        doThrow(new IllegalStateException("shadow delete failed"))
-            .when(taskStore).delete("shadow:test-agent:parent-cleanup-failure");
+        doThrow(new IllegalStateException("shadow delete failed")).when(taskStore)
+                .delete("shadow:test-agent:parent-cleanup-failure");
         ServeRequest request = req("c-cleanup-failure");
         request.setMetadata(Map.of("runtime.parentTaskId", "parent-cleanup-failure"));
 
@@ -564,12 +595,12 @@ class A2AEnabledServeOrchestratorTest {
     @Test
     void duplicateStreamingResumeReportsInFlightConflict() throws Exception {
         taskStore = new InMemoryTaskStore();
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
-            return CompletableFuture.completedFuture(new RemoteCallOutcome(
-                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-task",
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
         });
         CountDownLatch resumeEntered = new CountDownLatch(1);
         CountDownLatch allowResume = new CountDownLatch(1);
@@ -591,8 +622,8 @@ class A2AEnabledServeOrchestratorTest {
         request.setMetadata(Map.of("runtime.parentTaskId", "parent-duplicate-resume"));
         QueryStreamObserver secondObserver = mock(QueryStreamObserver.class);
 
-        CompletableFuture<Void> first = CompletableFuture.runAsync(
-            () -> orchestrator.streamQuery(request, mock(QueryStreamObserver.class)));
+        CompletableFuture<Void> first = CompletableFuture
+                .runAsync(() -> orchestrator.streamQuery(request, mock(QueryStreamObserver.class)));
         assertThat(resumeEntered.await(5, TimeUnit.SECONDS)).isTrue();
         orchestrator.streamQuery(request, secondObserver);
         allowResume.countDown();
@@ -600,18 +631,18 @@ class A2AEnabledServeOrchestratorTest {
 
         assertThat(localRuns.get()).isEqualTo(2);
         verify(secondObserver).onError(argThat(error -> error instanceof IllegalStateException
-            && error.getMessage().contains("REMOTE_BATCH_CORE_RESUME_IN_FLIGHT")));
+                && error.getMessage().contains("REMOTE_BATCH_CORE_RESUME_IN_FLIGHT")));
     }
 
     @Test
     void duplicateQueryResumeReportsInFlightConflict() throws Exception {
         taskStore = new InMemoryTaskStore();
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
-            return CompletableFuture.completedFuture(new RemoteCallOutcome(
-                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-task",
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
         });
         CountDownLatch resumeEntered = new CountDownLatch(1);
         CountDownLatch allowResume = new CountDownLatch(1);
@@ -630,9 +661,8 @@ class A2AEnabledServeOrchestratorTest {
 
         CompletableFuture<QueryResponse> first = CompletableFuture.supplyAsync(() -> orchestrator.query(request));
         assertThat(resumeEntered.await(5, TimeUnit.SECONDS)).isTrue();
-        assertThatThrownBy(() -> orchestrator.query(request))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("REMOTE_BATCH_CORE_RESUME_IN_FLIGHT");
+        assertThatThrownBy(() -> orchestrator.query(request)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("REMOTE_BATCH_CORE_RESUME_IN_FLIGHT");
         allowResume.countDown();
         assertThat(first.get(5, TimeUnit.SECONDS).getResult()).isEqualTo(Map.of("content", "final"));
         assertThat(localRuns.get()).isEqualTo(2);
@@ -641,12 +671,12 @@ class A2AEnabledServeOrchestratorTest {
     @Test
     void synchronousCoreResumeFailureReleasesClaimForRetry() {
         taskStore = new InMemoryTaskStore();
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
-            return CompletableFuture.completedFuture(new RemoteCallOutcome(
-                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-task",
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
         });
         AtomicInteger localRuns = new AtomicInteger();
         doAnswer(invocation -> {
@@ -666,8 +696,7 @@ class A2AEnabledServeOrchestratorTest {
         request.setMetadata(Map.of("runtime.parentTaskId", "parent-sync-core-failure"));
 
         assertThatThrownBy(() -> orchestrator.streamQuery(request, mock(QueryStreamObserver.class)))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage("synchronous core failure");
+                .isInstanceOf(IllegalStateException.class).hasMessage("synchronous core failure");
         orchestrator.streamQuery(request, mock(QueryStreamObserver.class));
 
         assertThat(localRuns.get()).isEqualTo(3);
@@ -677,14 +706,14 @@ class A2AEnabledServeOrchestratorTest {
     @Test
     void cancelledRequestAfterReadyResultReleasesClaimForRetry() {
         taskStore = new InMemoryTaskStore();
-        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
-            "test-agent", 16, 256, 30);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry, "test-agent",
+                16, 256, 30);
         AtomicInteger remoteCalls = new AtomicInteger();
         when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
             RemoteCall call = invocation.getArgument(0);
             remoteCalls.incrementAndGet();
-            return CompletableFuture.completedFuture(new RemoteCallOutcome(
-                "remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-task",
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result-" + call.message(), null));
         });
         AtomicInteger localRuns = new AtomicInteger();
         doAnswer(invocation -> {
@@ -755,12 +784,10 @@ class A2AEnabledServeOrchestratorTest {
     @Test
     void resetConversationCleansTaskStore() {
         when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of(
-            Task.builder().id("t1").contextId("c-reset").status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build(),
-            Task.builder()
-                .id("t2")
-                .contextId("c-reset")
-                .status(new TaskStatus(TaskState.TASK_STATE_WORKING))
-                .build())));
+                Task.builder().id("t1").contextId("c-reset").status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
+                        .build(),
+                Task.builder().id("t2").contextId("c-reset").status(new TaskStatus(TaskState.TASK_STATE_WORKING))
+                        .build())));
 
         orchestrator.resetConversation("c-reset");
 
@@ -780,31 +807,31 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void streamQuery_prepareTaskThrows_unregistersAndCompletes() {
+    void streamQueryPrepareFailureReleasesResources() {
         ActiveStreamRegistry realRegistry = new ActiveStreamRegistry();
         A2AEnabledServeOrchestrator orchestratorWithRealRegistry = new A2AEnabledServeOrchestrator(agentHandler,
-            taskStore, a2aClient, realRegistry, "test-agent", 16, 256, 30);
+                taskStore, a2aClient, realRegistry, "test-agent", 16, 256, 30);
         doThrow(new IllegalStateException("conversation busy")).when(agentHandler).prepareTask(any());
 
-        assertThatThrownBy(() -> orchestratorWithRealRegistry.streamQuery(req("c-busy-stream"),
-            new QueryStreamObserver() {
-                @Override
-                public void onNext(QueryChunk c) {
-                }
+        assertThatThrownBy(
+                () -> orchestratorWithRealRegistry.streamQuery(req("c-busy-stream"), new QueryStreamObserver() {
+                    @Override
+                    public void onNext(QueryChunk c) {
+                    }
 
-                @Override
-                public void onComplete() {
-                }
+                    @Override
+                    public void onComplete() {
+                    }
 
-                @Override
-                public void onError(Throwable e) {
-                }
+                    @Override
+                    public void onError(Throwable e) {
+                    }
 
-                @Override
-                public boolean isCancelled() {
-                    return false;
-                }
-            })).isInstanceOf(IllegalStateException.class);
+                    @Override
+                    public boolean isCancelled() {
+                        return false;
+                    }
+                })).isInstanceOf(IllegalStateException.class);
 
         // The registered handle must be released even though prepareTask threw
         assertThat(realRegistry.activeCount()).isZero();
@@ -814,20 +841,19 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
-    void query_prepareTaskThrows_callsCompleteTask() {
+    void queryPrepareFailureCompletesTask() {
         doThrow(new IllegalStateException("conversation busy")).when(agentHandler).prepareTask(any());
 
-        assertThatThrownBy(() -> orchestrator.query(req("c-busy-query")))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> orchestrator.query(req("c-busy-query"))).isInstanceOf(IllegalStateException.class);
 
         verify(agentHandler).completeTask(Optional.empty());
     }
 
     @Test
-    void query_prepareTaskSucceeds_passesTokenToCompleteTask() {
+    void queryPrepareSuccessPassesTokenToCompleteTask() {
         when(agentHandler.prepareTask(any())).thenReturn(Optional.of(TASK_TOKEN));
-        when(agentHandler.query(any())).thenReturn(new QueryResponse(Map.of("role", "assistant",
-            "content", "done"), "c-token-stream"));
+        when(agentHandler.query(any()))
+                .thenReturn(new QueryResponse(Map.of("role", "assistant", "content", "done"), "c-token-stream"));
 
         orchestrator.query(req("c-token-stream"));
 
@@ -844,34 +870,23 @@ class A2AEnabledServeOrchestratorTest {
 
     private static Map<String, Object> remoteBatch() {
         List<Map<String, Object>> items = List.of("call-a", "call-b", "call-c").stream()
-            .map(id -> Map.<String, Object>of(
-                "toolCallId", id,
-                "toolName", "tool-" + id,
-                "message", "message-" + id,
-                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-" + id)))
-            .toList();
+                .map(id -> Map.<String, Object>of("toolCallId", id, "toolName", "tool-" + id, "message",
+                        "message-" + id, "context",
+                        Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-" + id)))
+                .toList();
         return Map.of("batchId", "batch-1", "items", items);
     }
 
     private static Map<String, Object> mixedInterruptBatch() {
-        return Map.of("message", "interaction batch", "items", List.of(
-            Map.of(
-                "type", "__interaction__",
-                "toolCallId", "call-remote",
-                "message", "remote request",
-                "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "remote-agent")),
-            Map.of(
-                "type", "__interaction__",
-                "toolCallId", "call-local",
-                "message", "local question",
-                "context", Map.of("_interrupt_kind", "ask_user"))));
+        return Map.of("message", "interaction batch", "items",
+                List.of(Map.of("type", "__interaction__", "toolCallId", "call-remote", "message", "remote request",
+                        "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "remote-agent")),
+                        Map.of("type", "__interaction__", "toolCallId", "call-local", "message", "local question",
+                                "context", Map.of("_interrupt_kind", "ask_user"))));
     }
 
     private static Map<String, Object> clientToolInterrupt(String toolCallId, String toolName) {
-        return Map.of(
-            "type", "__interaction__",
-            "toolCallId", toolCallId,
-            "toolName", toolName,
-            "context", Map.of("_interrupt_kind", "client_tool"));
+        return Map.of("type", "__interaction__", "toolCallId", toolCallId, "toolName", toolName, "context",
+                Map.of("_interrupt_kind", "client_tool"));
     }
 }

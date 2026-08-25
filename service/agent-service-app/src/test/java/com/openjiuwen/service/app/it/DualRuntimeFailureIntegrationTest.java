@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -52,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Dual-runtime degradation path for A2A callback-mode remote failures.
@@ -86,6 +88,7 @@ class DualRuntimeFailureIntegrationTest {
 
     @BeforeEach
     void startCallee() {
+        DegradingCallerHandler.reset();
         callee = new SpringApplicationBuilder(FailingCalleeRuntimeApplication.class).properties("server.port=0",
                 "spring.application.name=callee-failure-it", "openjiuwen.service.a2a.push-notifications=true").run();
         failingCallee = callee.getBean(FailingCalleeHandler.class);
@@ -120,32 +123,31 @@ class DualRuntimeFailureIntegrationTest {
                 .isEqualTo("TASK_STATE_INPUT_REQUIRED");
 
         failingCallee.releaseFailure();
-        Task completedTask = awaitCompletedTask(taskId);
+        Task failedTask = awaitFailedTask(taskId);
 
-        assertThat(completedTask.id()).isEqualTo(taskId);
-        assertThat(completedTask.status().state()).isEqualTo(org.a2aproject.sdk.spec.TaskState.TASK_STATE_COMPLETED);
-        assertThat(A2aPartContent.extractTaskResult(completedTask)).contains("caller degraded")
-                .contains("REMOTE_BUSINESS_FAILURE")
-                .contains("AGENT_EXECUTION_FAILED")
-                .contains("remoteAgentId=failing-callee");
-        assertThat(completedTask.history()).allSatisfy(message ->
-                assertThat(A2aPartContent.extract(message.parts())).doesNotContain("continue"));
+        assertThat(failedTask.id()).isEqualTo(taskId);
+        assertThat(failedTask.status().state()).isEqualTo(org.a2aproject.sdk.spec.TaskState.TASK_STATE_FAILED);
+        assertThat(A2aErrorMetadata.decode(failedTask.status().message().metadata()).orElseThrow().code())
+                .isEqualTo("AGENT_EXECUTION_FAILED");
+        assertThat(DegradingCallerHandler.queryRuns()).isEqualTo(1);
+        assertThat(failedTask.history())
+                .allSatisfy(message -> assertThat(A2aPartContent.extract(message.parts())).doesNotContain("continue"));
     }
 
-    private Task awaitCompletedTask(String taskId) throws Exception {
+    private Task awaitFailedTask(String taskId) throws Exception {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         String lastObserved = "";
         while (Instant.now().isBefore(deadline)) {
             Task task = taskStore.get(taskId);
             if (task != null && task.status() != null
-                    && task.status().state() == org.a2aproject.sdk.spec.TaskState.TASK_STATE_COMPLETED) {
+                    && task.status().state() == org.a2aproject.sdk.spec.TaskState.TASK_STATE_FAILED) {
                 return task;
             }
             lastObserved = task == null || task.status() == null ? "<missing>" : String.valueOf(task.status().state());
             Thread.sleep(100);
         }
-        throw new AssertionError("parent task did not complete automatically: " + taskId
-                + ", lastObserved=" + lastObserved);
+        throw new AssertionError(
+                "parent task did not fail automatically: " + taskId + ", lastObserved=" + lastObserved);
     }
 
     private ResponseEntity<String> postA2a(Map<String, Object> body) {
@@ -211,8 +213,11 @@ class DualRuntimeFailureIntegrationTest {
     }
 
     private static final class DegradingCallerHandler implements AgentHandler {
+        private static final AtomicInteger QUERY_RUNS = new AtomicInteger();
+
         @Override
         public QueryResponse query(ServeRequest request) {
+            QUERY_RUNS.incrementAndGet();
             Object results = request.getMetadata().get("runtime.remoteToolResults");
             if (results instanceof Map<?, ?> remoteResults) {
                 return response(request, "caller degraded:" + remoteResults.get("call-failing-callee"));
@@ -229,6 +234,14 @@ class DualRuntimeFailureIntegrationTest {
         public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
             observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, "unused"));
             observer.onComplete();
+        }
+
+        private static int queryRuns() {
+            return QUERY_RUNS.get();
+        }
+
+        private static void reset() {
+            QUERY_RUNS.set(0);
         }
     }
 
