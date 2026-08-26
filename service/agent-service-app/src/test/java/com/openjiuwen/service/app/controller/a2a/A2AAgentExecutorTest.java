@@ -6,9 +6,11 @@ package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.AdditionalAnswers.answerVoid;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -534,6 +536,34 @@ class A2AAgentExecutorTest {
 
         verify(listener).onAdmitted("task-fail", "ctx-1");
         verify(listener).onReleased("task-fail", "ctx-1");
+    }
+
+    @Test
+    void execute_admissionListenerThrows_releasesPermitAndCompensatesOnReleased() {
+        // Issue #96: onAdmitted runs inside the admission try-finally scope, so
+        // a throwing listener must not leak the quota slot — the permit is
+        // released exactly once and onReleased fires as compensation.
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
+        doThrow(new IllegalStateException("listener backend down")).when(listener).onAdmitted(any(), any());
+        RequestContext context = requestContext("task-leak", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        // The listener failure propagates as the request failure (SDK error
+        // path), but the permit is returned first.
+        catchThrowable(() -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener)
+                .execute(context, new AgentEmitter(context, queue)));
+
+        InOrder inOrder = inOrder(listener, gate, orchestrator);
+        inOrder.verify(gate).tryAcquire();
+        inOrder.verify(listener).onAdmitted("task-leak", "ctx-1");
+        inOrder.verify(gate).release();
+        inOrder.verify(listener).onReleased("task-leak", "ctx-1");
+        // The agent never ran: execution is aborted before orchestration.
+        verify(orchestrator, never()).query(any());
     }
 
     @Test

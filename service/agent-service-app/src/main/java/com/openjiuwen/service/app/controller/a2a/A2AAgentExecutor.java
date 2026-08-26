@@ -173,11 +173,13 @@ public class A2AAgentExecutor implements AgentExecutor {
         if (admissionGate != null) {
             log.info("[CONCURRENCY] task_admitted taskId={} conversationId={} currentActive={} maxConcurrent={}",
                     msgCtx.getTaskId(), req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());
-            if (admissionListener != null) {
-                admissionListener.onAdmitted(msgCtx.getTaskId(), req.getConversationId());
-            }
         }
         try {
+            // Inside the try so a throwing listener still gets the finally-side
+            // release()/onReleased() compensation — the permit must not leak.
+            if (admissionGate != null && admissionListener != null) {
+                admissionListener.onAdmitted(msgCtx.getTaskId(), req.getConversationId());
+            }
             executeAdmitted(ctx, msgCtx, req, emitter, isNewTask);
         } finally {
             if (admissionGate != null) {
