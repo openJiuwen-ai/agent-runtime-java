@@ -54,6 +54,16 @@ public class A2AProperties {
 
     private int taskCompletionTimeoutSeconds = 300;
 
+    /**
+     * A2A platform agent execution pool size. Values <= 0 mean auto-sizing
+     * ({@code max(32, availableProcessors * 8)}), matching the SSE pump
+     * executor baseline for I/O-bound agent workloads. The admission
+     * guard rejects startup when the task admission limit exceeds this
+     * capacity. On runtimes supporting virtual threads, this setting does
+     * not limit the per-task executor; task admission remains independent.
+     */
+    private int agentThreads = 0;
+
     private RemoteInvocationProperties remoteInvocation = new RemoteInvocationProperties();
 
     /** Runtime-level bounded remote invocation configuration. */

@@ -13,6 +13,8 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.util.Optional;
+
 /**
  * Resolves {@link AuthorizationRequest} for servlet and WebFlux ingress controllers.
  *
@@ -34,19 +36,17 @@ public final class AuthorizationRequestResolver {
         if (attributes instanceof ServletRequestAttributes servletAttributes) {
             return AuthorizationRequestBuilder.build(authorizedResource, servletAttributes.getRequest());
         }
-        HttpHeaders headers = findArgument(joinPoint, HttpHeaders.class);
-        if (headers != null) {
-            return AuthorizationRequestBuilder.build(authorizedResource, headers);
-        }
-        throw new IllegalStateException("No ingress request context available for authorization");
+        return findArgument(joinPoint, HttpHeaders.class)
+            .map(headers -> AuthorizationRequestBuilder.build(authorizedResource, headers))
+            .orElseThrow(() -> new IllegalStateException("No ingress request context available for authorization"));
     }
 
-    private static <T> T findArgument(ProceedingJoinPoint joinPoint, Class<T> type) {
+    private static <T> Optional<T> findArgument(ProceedingJoinPoint joinPoint, Class<T> type) {
         for (Object argument : joinPoint.getArgs()) {
             if (type.isInstance(argument)) {
-                return type.cast(argument);
+                return Optional.of(type.cast(argument));
             }
         }
-        return null;
+        return Optional.empty();
     }
 }

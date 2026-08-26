@@ -12,12 +12,17 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -27,6 +32,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @since 2026-07-03
  */
 class DefaultServeOrchestratorInterruptTest {
+    private ExecutorService workerPool;
+
+    @AfterEach
+    void tearDown() {
+        if (workerPool != null) {
+            workerPool.shutdownNow();
+        }
+    }
+
     @Test
     void cancelActiveStopsStreamingObserver() throws Exception {
         CountDownLatch started = new CountDownLatch(1);
@@ -54,7 +68,8 @@ class DefaultServeOrchestratorInterruptTest {
         request.setConversationId("interrupt-me");
         List<QueryChunk> chunks = new ArrayList<>();
         AtomicBoolean completed = new AtomicBoolean(false);
-        Thread worker = new Thread(() -> orchestrator.streamQuery(request, new QueryStreamObserver() {
+        workerPool = newWorkerPool();
+        Future<?> worker = workerPool.submit(() -> orchestrator.streamQuery(request, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
                 chunks.add(chunk);
@@ -69,14 +84,10 @@ class DefaultServeOrchestratorInterruptTest {
                 completed.set(true);
             }
         }));
-        worker.setUncaughtExceptionHandler((unused, error) -> {
-            throw new AssertionError(error);
-        });
-        worker.start();
 
         assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
         orchestrator.cancelActive("interrupt-me");
-        worker.join(5000);
+        worker.get(5, TimeUnit.SECONDS);
 
         assertThat(completed.get()).isTrue();
         assertThat(chunks).isNotEmpty();
@@ -106,16 +117,17 @@ class DefaultServeOrchestratorInterruptTest {
         DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, registry);
         ServeRequest request = new ServeRequest();
         request.setConversationId("sync-conv");
-        Thread worker = new Thread(() -> orchestrator.query(request));
-        worker.setUncaughtExceptionHandler((unused, error) -> {
-            throw new AssertionError(error);
-        });
-        worker.start();
+        workerPool = newWorkerPool();
+        Future<?> worker = workerPool.submit(() -> orchestrator.query(request));
         Thread.sleep(50);
         orchestrator.cancelActive("sync-conv");
-        worker.join(5000);
+        worker.get(5, TimeUnit.SECONDS);
 
         assertThat(queryFinished.get()).isTrue();
         assertThat(registry.activeCount()).isZero();
+    }
+
+    private static ExecutorService newWorkerPool() {
+        return new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
     }
 }
