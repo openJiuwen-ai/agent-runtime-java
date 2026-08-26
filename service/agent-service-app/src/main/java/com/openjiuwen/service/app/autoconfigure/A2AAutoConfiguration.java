@@ -404,8 +404,6 @@ public class A2AAutoConfiguration {
 }
 
 final class A2AExecutionResources {
-    private static final Logger log = LoggerFactory.getLogger(A2AExecutionResources.class);
-
     /**
      * Auto-sized agent pool floor. I/O-bound agent tasks park on remote LLM or
      * backend calls, so the baseline mirrors {@code QuerySsePumpExecutor}:
@@ -417,6 +415,8 @@ final class A2AExecutionResources {
      * Auto-sized agent pool multiplier per CPU core.
      */
     static final int AUTO_POOL_MULTIPLIER = 8;
+
+    private static final Logger log = LoggerFactory.getLogger(A2AExecutionResources.class);
 
     /** Capacity of the agent task submission queue. */
     private static final int AGENT_QUEUE_CAPACITY = 256;
