@@ -171,7 +171,7 @@ class ConcurrencyAdmissionIntegrationTest {
     static final class TestAdmissionGate implements TaskAdmissionGate {
         private static volatile int max = -1;
 
-        private static volatile boolean rejectNext = false;
+        private static volatile boolean shouldRejectNext = false;
 
         private final AtomicInteger count = new AtomicInteger(0);
 
@@ -180,18 +180,18 @@ class ConcurrencyAdmissionIntegrationTest {
         }
 
         static void rejectNextAcquire() {
-            rejectNext = true;
+            shouldRejectNext = true;
         }
 
         static void resetStatic() {
             max = -1;
-            rejectNext = false;
+            shouldRejectNext = false;
         }
 
         @Override
         public boolean tryAcquire() {
-            if (rejectNext) {
-                rejectNext = false;
+            if (shouldRejectNext) {
+                shouldRejectNext = false;
                 return false;
             }
             if (max < 0) {

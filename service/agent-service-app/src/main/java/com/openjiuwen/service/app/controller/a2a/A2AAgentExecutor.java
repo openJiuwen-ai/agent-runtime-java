@@ -177,8 +177,8 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private void executeRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
             boolean isNewTask) {
-        boolean permitPreAcquired = consumePreAcquiredAdmission(ctx);
-        if (!permitPreAcquired && admissionGate != null && !admissionGate.tryAcquire()) {
+        boolean hasPreAcquiredPermit = consumePreAcquiredAdmission(ctx);
+        if (!hasPreAcquiredPermit && admissionGate != null && !admissionGate.tryAcquire()) {
             log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} "
                     + "maxConcurrent={} reason=\"limit_reached\"",
                     req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());

@@ -597,7 +597,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void execute_admissionListenerThrows_releasesPermitAndCompensatesOnReleased() {
+    void execute_listenerThrows_releasesPermitAndCompensates() {
         // Issue #96: onAdmitted runs inside the admission try-finally scope, so
         // a throwing listener must not leak the quota slot — the permit is
         // released exactly once and onReleased fires as compensation.

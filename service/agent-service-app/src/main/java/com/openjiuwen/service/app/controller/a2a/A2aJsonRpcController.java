@@ -39,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
@@ -148,11 +149,12 @@ public class A2aJsonRpcController {
      * @return {@code true} when the request must be rejected with HTTP 503
      */
     private boolean isAdmissionRejected(ServerCallContext ctx, String conversationId) {
-        TaskAdmissionGate admissionGate = admissionGate();
-        if (admissionGate == null || admissionGate.limit() < 0) {
+        Optional<TaskAdmissionGate> admissionGate = admissionGate();
+        if (admissionGate.isEmpty() || admissionGate.get().limit() < 0) {
             return false;
         }
-        if (admissionGate.tryAcquire()) {
+        TaskAdmissionGate gate = admissionGate.get();
+        if (gate.tryAcquire()) {
             ctx.getState().put(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY, Boolean.TRUE);
             return false;
         }
@@ -173,8 +175,7 @@ public class A2aJsonRpcController {
         if (ctx.getState().remove(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY) == null) {
             return;
         }
-        TaskAdmissionGate admissionGate = admissionGate();
-        if (admissionGate != null) {
+        admissionGate().ifPresent(admissionGate -> {
             admissionGate.release();
             // The executor never adopted the permit (sync failure before agent
             // submission), so this release is not paired with task_released —
@@ -182,20 +183,26 @@ public class A2aJsonRpcController {
             log.warn("[CONCURRENCY] admission_returned reason=\"sync_failure_before_execution\" "
                     + "currentActive={} maxConcurrent={}",
                     admissionGate.currentCount(), admissionGate.limit());
-        }
+        });
     }
 
-    private TaskAdmissionGate admissionGate() {
-        return admissionGateProvider != null ? admissionGateProvider.getIfAvailable() : null;
+    /**
+     * Resolves the admission gate bean, when configured.
+     *
+     * @return the gate wrapped as {@link Optional}; empty when no
+     *         {@code TaskAdmissionGate} bean is available
+     */
+    private Optional<TaskAdmissionGate> admissionGate() {
+        if (admissionGateProvider == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(admissionGateProvider.getIfAvailable());
     }
 
     private void logRejected(String conversationId) {
-        TaskAdmissionGate gate = admissionGate();
-        if (gate != null) {
-            log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} "
-                    + "maxConcurrent={} reason=\"limit_reached\"",
-                    conversationId, gate.currentCount(), gate.limit());
-        }
+        admissionGate().ifPresent(gate -> log.warn("[CONCURRENCY] task_rejected conversationId={} "
+                + "currentActive={} maxConcurrent={} reason=\"limit_reached\"",
+                conversationId, gate.currentCount(), gate.limit()));
     }
 
     private static ResponseEntity<String> admissionRejectedResponse(Object id) {
