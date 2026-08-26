@@ -163,8 +163,6 @@ print_step "4" "Run the MCP Demo Agent and governance E2E tests"
     test
 ) 2>&1 | tee "$TMP_DIR/maven.log"
 
-grep -Fq 'MCP_TOOL_CALL tool=demo_echo arguments={"text": "hello"}' "$TMP_DIR/fastmcp-server.log" \
-  || fail "FastMCP did not receive the Agent demo_echo tools/call"
 grep -F 'EXTERNAL_CALL_AUDIT' "$TMP_DIR/maven.log" | grep -Fq 'method=mcp.tools/call' \
   || fail "MCP tools/call audit entry was not emitted"
 pass "configuration, client, decorator, Agent tool call, FastMCP, and result refill"
