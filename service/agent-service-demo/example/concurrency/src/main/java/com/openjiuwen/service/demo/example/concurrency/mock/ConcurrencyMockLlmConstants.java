@@ -26,7 +26,7 @@ public final class ConcurrencyMockLlmConstants {
     public static final String MODEL_NAME = "concurrency-mock-model";
 
     /**
-     * Placeholder API key for mock mode.
+     * Mock-only placeholder, not a real API key. For test/demo use only — never use in production.
      */
     public static final String API_KEY = "mock-key";
 
