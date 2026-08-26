@@ -34,11 +34,14 @@ class TlsStartupValidatorTest {
     }
 
     @Test
-    void needClientAuthWithoutTrustStoreFailsValidation() {
+    void needClientAuthWithoutTrustStoreFailsValidation() throws Exception {
+        TlsTestCertificates.Material certs = TlsTestCertificates.generate();
+        String keyStoreLocation = certs.serverKeyStoreLocation();
+        char[] keyStorePassword = TlsTestCertificates.PASSWORD.toCharArray();
         SecurityProperties.Tls tls = new SecurityProperties.Tls();
         tls.setClientAuth("need");
-        tls.setKeyStore("classpath:security/test-keystore.p12");
-        TlsMaterial material = new TlsMaterial("classpath:security/test-keystore.p12", "secret".toCharArray(), "PKCS12",
+        tls.setKeyStore(keyStoreLocation);
+        TlsMaterial material = new TlsMaterial(keyStoreLocation, keyStorePassword, "PKCS12",
             null, new char[0], "PKCS12", List.of("TLSv1.3"), true);
         assertThatThrownBy(() -> TlsStartupValidator.validate(tls, material, new DefaultResourceLoader()))
             .isInstanceOf(IllegalStateException.class).hasMessageContaining("trust-store");

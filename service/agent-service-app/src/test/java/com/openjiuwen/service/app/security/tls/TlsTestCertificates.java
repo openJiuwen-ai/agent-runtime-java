@@ -18,7 +18,7 @@ import java.util.List;
  * @since 0.1.0
  */
 public final class TlsTestCertificates {
-    /** Password for all generated test keystores. */
+    /** Password for all generated test keystores. Not a production secret — protects ephemeral self-signed certificates created at runtime. */
     public static final String PASSWORD = "testpass";
 
     private TlsTestCertificates() {
