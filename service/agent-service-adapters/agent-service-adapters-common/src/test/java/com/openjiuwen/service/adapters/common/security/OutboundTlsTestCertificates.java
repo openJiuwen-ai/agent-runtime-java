@@ -14,6 +14,7 @@ import java.util.List;
  * Generates ephemeral PKCS12 material for outbound TLS unit tests.
  */
 final class OutboundTlsTestCertificates {
+    /** Password for generated test keystores. Not a production secret — protects ephemeral self-signed certificates created at runtime. */
     static final String PASSWORD = "testpass";
 
     private OutboundTlsTestCertificates() {

@@ -41,3 +41,6 @@ Thumbs.db
 
 # Integration tests that depend on real services (keep locally, never commit)
 **/JiuwenMemoryIntegrationTest.java
+
+# Test keystore files (generated at runtime by TlsTestCertificates, never commit)
+**/test-keystore.p12
