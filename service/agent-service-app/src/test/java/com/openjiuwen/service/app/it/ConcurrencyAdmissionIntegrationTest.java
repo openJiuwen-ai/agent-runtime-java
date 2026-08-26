@@ -105,6 +105,42 @@ class ConcurrencyAdmissionIntegrationTest {
         }
     }
 
+    @Test
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+    void sendMessage_raceWindowRejected_returns503() {
+        // Issue #97: the controller's admission decision is authoritative
+        // (synchronous acquisition), so a request whose acquisition fails must
+        // get a clean 503 even when the read-only count suggested capacity —
+        // formerly this surfaced as HTTP 200 + JSON-RPC INTERNAL error.
+        TestAdmissionGate.setMax(1);
+        TestAdmissionGate.rejectNextAcquire();
+        HttpHeaders headers = jsonHeaders();
+
+        ResponseEntity<String> response = rest.postForEntity(
+                "http://localhost:" + port + "/a2a",
+                new HttpEntity<>(jsonRpc("SendMessage", "conv-race", "hello"), headers), String.class);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(503);
+        assertThat(response.getBody()).contains("concurrent task limit reached");
+    }
+
+    @Test
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+    void sendStreamingMessage_raceWindowRejected_returns503() {
+        // Issue #97: formerly the rejection surfaced asynchronously as an
+        // A2AError event -> SseEmitter.completeWithError -> HTTP 500.
+        TestAdmissionGate.setMax(1);
+        TestAdmissionGate.rejectNextAcquire();
+        HttpHeaders headers = jsonHeaders();
+
+        ResponseEntity<String> response = rest.postForEntity(
+                "http://localhost:" + port + "/a2a",
+                new HttpEntity<>(jsonRpc("SendStreamingMessage", "conv-race-s", "hello"), headers), String.class);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(503);
+        assertThat(response.getBody()).contains("concurrent task limit reached");
+    }
+
     private static HttpHeaders jsonHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -135,18 +171,29 @@ class ConcurrencyAdmissionIntegrationTest {
     static final class TestAdmissionGate implements TaskAdmissionGate {
         private static volatile int max = -1;
 
+        private static volatile boolean rejectNext = false;
+
         private final AtomicInteger count = new AtomicInteger(0);
 
         static void setMax(int value) {
             max = value;
         }
 
+        static void rejectNextAcquire() {
+            rejectNext = true;
+        }
+
         static void resetStatic() {
             max = -1;
+            rejectNext = false;
         }
 
         @Override
         public boolean tryAcquire() {
+            if (rejectNext) {
+                rejectNext = false;
+                return false;
+            }
             if (max < 0) {
                 return true;
             }

@@ -53,9 +53,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * (SDK entry) and {@code continueTask} (callback continuation entry) both funnel
  * into {@code executeRequest}, which acquires a quota slot up front and releases
  * it in a {@code finally} block on the same thread — exactly-once release is
- * guaranteed by the language structure. Rejection throws an {@link A2AError}
- * before any task state transition, so the SDK's own error path turns it into a
- * FAILED task without manual compensation. When a
+ * guaranteed by the language structure. When the transport entry point has
+ * already acquired a permit (see {@link #PRE_ACQUIRED_ADMISSION_KEY}), the
+ * executor adopts it instead of acquiring a second one, so a request admitted at
+ * the HTTP boundary can never be re-rejected inside the SDK pipeline. Rejection
+ * throws an {@link A2AError} before any task state transition, so the SDK's own
+ * error path turns it into a FAILED task without manual compensation. When a
  * {@link TaskAdmissionListener} is configured, its {@code onAdmitted} /
  * {@code onReleased} notifications bracket the same permit scope, so listeners
  * observe exactly the tasks occupying admission quota.
@@ -69,6 +72,16 @@ public class A2AAgentExecutor implements AgentExecutor {
      * rejection (transient, retryable) from other executor failures.
      */
     static final String ADMISSION_REJECTED_MESSAGE = "Service Unavailable: concurrent task limit reached";
+
+    /**
+     * {@code ServerCallContext} state key set by a transport entry point after it
+     * has already acquired an admission permit for the request. The executor
+     * atomically removes the marker and adopts the permit instead of acquiring a
+     * second one; the regular {@code finally} block then releases it, so the
+     * permit is handed over exactly once. Entries without the marker (e.g. the
+     * callback continuation) acquire a permit themselves.
+     */
+    static final String PRE_ACQUIRED_ADMISSION_KEY = "_a2a_admission_preacquired";
 
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
 
@@ -164,7 +177,8 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private void executeRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
             boolean isNewTask) {
-        if (admissionGate != null && !admissionGate.tryAcquire()) {
+        boolean permitPreAcquired = consumePreAcquiredAdmission(ctx);
+        if (!permitPreAcquired && admissionGate != null && !admissionGate.tryAcquire()) {
             log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} "
                     + "maxConcurrent={} reason=\"limit_reached\"",
                     req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());
@@ -193,6 +207,23 @@ public class A2AAgentExecutor implements AgentExecutor {
                         admissionGate.currentCount(), admissionGate.limit());
             }
         }
+    }
+
+    /**
+     * Adopts a permit already acquired by the transport entry point (e.g.
+     * {@code A2aJsonRpcController}), if any. The state-map removal is atomic, so
+     * ownership transfers exactly once: when this method returns {@code true},
+     * the executor's {@code finally} block owns the release and the transport
+     * must not release again.
+     *
+     * @param ctx the request context carrying the (possibly null) call context
+     * @return {@code true} when a pre-acquired permit was adopted
+     */
+    private static boolean consumePreAcquiredAdmission(RequestContext ctx) {
+        if (ctx.getCallContext() == null) {
+            return false;
+        }
+        return ctx.getCallContext().getState().remove(PRE_ACQUIRED_ADMISSION_KEY) != null;
     }
 
     private void executeAdmitted(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
