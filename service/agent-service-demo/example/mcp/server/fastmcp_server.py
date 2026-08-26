@@ -49,7 +49,7 @@ mcp = FastMCP(
 @mcp.tool()
 def demo_echo(text: str) -> str:
     """Return the supplied text with a stable demo prefix."""
-    LOGGER.info("MCP_TOOL_CALL tool=demo_echo arguments=%s", json.dumps({"text": text}))
+    LOGGER.info("MCP_TOOL_CALL tool=demo_echo text_length=%d", len(text))
     return f"demo_echo:{text}"
 
 

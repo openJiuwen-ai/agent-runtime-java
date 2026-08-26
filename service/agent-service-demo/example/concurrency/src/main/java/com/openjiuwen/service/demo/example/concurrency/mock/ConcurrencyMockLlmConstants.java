@@ -4,6 +4,9 @@
 
 package com.openjiuwen.service.demo.example.concurrency.mock;
 
+import java.security.SecureRandom;
+import java.util.Base64;
+
 /**
  * Constants for concurrency demo mock LLM provider registration.
  *
@@ -26,9 +29,11 @@ public final class ConcurrencyMockLlmConstants {
     public static final String MODEL_NAME = "concurrency-mock-model";
 
     /**
-     * Mock-only placeholder, not a real API key. For test/demo use only — never use in production.
+     * Placeholder API key for mock mode, generated once per JVM start. The mock model client never
+     * reads this value; it only satisfies the non-blank API key expectation of the resolved LLM
+     * config, so it is never persisted and never used to authenticate against any real service.
      */
-    public static final String API_KEY = "mock-key";
+    public static final String API_KEY = randomApiKey();
 
     /**
      * Default per-call mock LLM latency in milliseconds.
@@ -36,5 +41,11 @@ public final class ConcurrencyMockLlmConstants {
     public static final long DEFAULT_DELAY_MS = 3000L;
 
     private ConcurrencyMockLlmConstants() {
+    }
+
+    private static String randomApiKey() {
+        byte[] entropy = new byte[16];
+        new SecureRandom().nextBytes(entropy);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(entropy);
     }
 }

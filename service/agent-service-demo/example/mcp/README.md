@@ -169,8 +169,10 @@ curl -sS http://127.0.0.1:8092/v1/query \
 FastMCP 终端应出现：
 
 ```text
-MCP_TOOL_CALL tool=demo_echo arguments={"text": "hello"}
+MCP_TOOL_CALL tool=demo_echo text_length=5
 ```
+
+`demo_echo` 工具调用日志仅记录工具名及输入长度，不记录输入原文，避免敏感信息进入日志。
 
 `/v1/query` 的最终结果应包含 `demo_echo:hello`。手工运行使用真实模型，是否调用工具由模型决定，
 所以提示词应明确指定工具名和参数；一键 Smoke 使用确定性 mock LLM，不受模型随机性影响。
