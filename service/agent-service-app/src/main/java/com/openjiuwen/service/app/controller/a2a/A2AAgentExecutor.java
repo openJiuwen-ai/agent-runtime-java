@@ -219,6 +219,12 @@ public class A2AAgentExecutor implements AgentExecutor {
         } catch (ExecutionException failure) {
             Throwable cause = failure.getCause();
             if (cause instanceof Error error) {
+                String reason = error instanceof LinkageError
+                        ? "class linkage or initialization error; check effective POM and dependency tree "
+                                + "for version conflicts"
+                        : "error";
+                log.error("A2A agent execution failed due to {} taskId={} contextId={} conversationId={}", reason,
+                        msgCtx.getTaskId(), msgCtx.getContextId(), req.getConversationId(), error);
                 throw error;
             }
             RuntimeException runtimeFailure = cause instanceof RuntimeException runtimeException
