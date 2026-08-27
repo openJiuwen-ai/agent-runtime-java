@@ -298,8 +298,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             throw ex;
         } catch (LinkageError error) {
             logRemoteError("client creation", call, isStreaming, setup.contextId, error);
-            result.completeExceptionally(error);
-            return result;
+            throw error;
         } catch (Error error) {
             logRemoteError("client creation", call, isStreaming, setup.contextId, error);
             throw error;
@@ -315,7 +314,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                         result.completeExceptionally(ex);
                     } catch (Error error) {
                         logRemoteError("event", call, isStreaming, setup.contextId, error);
-                        result.completeExceptionally(error);
+                        throw error;
                     }
                 }, result);
         return result;
@@ -332,13 +331,13 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                                 error -> completeOutcomeOnStreamEnd(call.agentName(), result, error), null);
                         return null;
                     });
-                } catch (Exception ex) {
+                } catch (RuntimeException ex) {
                     log.error("A2A remote call failed agent={} streaming={} taskId={} contextId={}", call.agentName(),
                             isStreaming, call.taskId() != null ? call.taskId() : "new", setup.contextId, ex);
                     result.completeExceptionally(ex);
                 } catch (Error error) {
                     logRemoteError("call", call, isStreaming, setup.contextId, error);
-                    result.completeExceptionally(error);
+                    throw error;
                 }
             }));
             if (result.isDone()) {

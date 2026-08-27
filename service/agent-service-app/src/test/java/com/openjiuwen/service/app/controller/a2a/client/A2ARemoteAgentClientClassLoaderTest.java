@@ -187,32 +187,6 @@ class A2ARemoteAgentClientClassLoaderTest {
     }
 
     @Test
-    void asynchronousSdkLinkageFailureCompletesOutcomeExceptionally() {
-        AgentCard card = testCard();
-        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
-        registry.register("linkage-failing-agent", card, 30, false);
-        ClientBuilder builder = mock(ClientBuilder.class);
-        Client sdkClient = mock(Client.class);
-        NoClassDefFoundError linkageFailure = new NoClassDefFoundError(
-                "org/a2aproject/sdk/grpc/SendMessageRequest");
-        doThrow(linkageFailure).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
-
-        A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
-        try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
-            stubClient(clientFactory, card, builder, sdkClient);
-
-            var outcome = remoteClient.callOutcome(remoteCall("linkage-failing-agent"),
-                    mock(RemoteAgentCaller.EventObserver.class));
-
-            assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS))
-                    .hasCauseInstanceOf(NoClassDefFoundError.class)
-                    .hasRootCauseMessage("org/a2aproject/sdk/grpc/SendMessageRequest");
-        } finally {
-            remoteClient.shutdown();
-        }
-    }
-
-    @Test
     void directMessageEventCompletesCallWithAllTextParts() throws Exception {
         AgentCard card = testCard();
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
