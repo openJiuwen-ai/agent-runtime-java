@@ -273,17 +273,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
             RemoteAgentCaller.EventObserver eventObserver,
             boolean isStreaming) {
-        RemoteCallSetup setup;
-        try {
-            setup = prepareCall(call);
-        } catch (RuntimeException ex) {
-            log.error("A2A remote call preparation failed agent={} streaming={} taskId={} contextId={}",
-                    call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new", call.contextId(), ex);
-            throw ex;
-        } catch (Error error) {
-            logRemoteError("call preparation", call, isStreaming, call.contextId(), error);
-            throw error;
-        }
+        RemoteCallSetup setup = prepareCallWithLogging(call, isStreaming);
         log.info("A2A call agent={} streaming={} taskId={} contextId={} textLen={}", call.agentName(), isStreaming,
                 call.taskId() != null ? call.taskId() : "new", setup.contextId,
                 call.message() != null ? call.message().length() : 0);
@@ -292,7 +282,42 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
         boolean isCallbackMode = setup.params.configuration() != null
                 && setup.params.configuration().taskPushNotificationConfig() != null;
-        BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> {
+        BiConsumer<ClientEvent, AgentCard> eventConsumer = createEventConsumer(call, setup, result, eventObserver,
+                isCallbackMode, isStreaming);
+        Client client = createClientWithLogging(call, setup, isStreaming, result);
+        if (client == null) {
+            return result;
+        }
+        AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
+        submitInvocation(call, setup, isStreaming, eventConsumer, client, result, invocationTask);
+        result.whenComplete((outcome, error) -> {
+            if (error != null || result.isCancelled()) {
+                Future<?> submitted = invocationTask.get();
+                if (submitted != null && !submitted.isDone()) {
+                    submitted.cancel(true);
+                }
+            }
+        });
+        return result;
+    }
+
+    private RemoteCallSetup prepareCallWithLogging(RemoteCall call, boolean isStreaming) {
+        try {
+            return prepareCall(call);
+        } catch (RuntimeException ex) {
+            log.error("A2A remote call preparation failed agent={} streaming={} taskId={} contextId={}",
+                    call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new", call.contextId(), ex);
+            throw ex;
+        } catch (Error error) {
+            logRemoteError("call preparation", call, isStreaming, call.contextId(), error);
+            throw error;
+        }
+    }
+
+    private BiConsumer<ClientEvent, AgentCard> createEventConsumer(RemoteCall call, RemoteCallSetup setup,
+            CompletableFuture<RemoteCallOutcome> result, RemoteAgentCaller.EventObserver eventObserver,
+            boolean isCallbackMode, boolean isStreaming) {
+        return (event, ignoredCard) -> {
             try {
                 handleClientEvent(event, result, eventObserver, isCallbackMode, isStreaming);
             } catch (RuntimeException ex) {
@@ -304,9 +329,12 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 result.completeExceptionally(error);
             }
         };
-        Client client;
+    }
+
+    private Client createClientWithLogging(RemoteCall call, RemoteCallSetup setup, boolean isStreaming,
+            CompletableFuture<RemoteCallOutcome> result) {
         try {
-            client = createClient(setup.entry, isStreaming);
+            return createClient(setup.entry, isStreaming);
         } catch (RuntimeException ex) {
             log.error("A2A remote client creation failed agent={} streaming={} taskId={} contextId={}",
                     call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new", setup.contextId, ex);
@@ -314,12 +342,17 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         } catch (LinkageError error) {
             logRemoteError("client creation", call, isStreaming, setup.contextId, error);
             result.completeExceptionally(error);
-            return result;
+            return null;
         } catch (Error error) {
             logRemoteError("client creation", call, isStreaming, setup.contextId, error);
             throw error;
         }
-        AtomicReference<Future<?>> invocationTask = new AtomicReference<>();
+    }
+
+    private void submitInvocation(RemoteCall call, RemoteCallSetup setup, boolean isStreaming,
+            BiConsumer<ClientEvent, AgentCard> eventConsumer, Client client,
+            CompletableFuture<RemoteCallOutcome> result,
+            AtomicReference<Future<?>> invocationTask) {
         try {
             Future<?> submitted = ioExecutor.submit(() -> {
                 try {
@@ -344,15 +377,6 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         } catch (RejectedExecutionException ex) {
             result.completeExceptionally(ex);
         }
-        result.whenComplete((outcome, error) -> {
-            if (error != null || result.isCancelled()) {
-                Future<?> submitted = invocationTask.get();
-                if (submitted != null && !submitted.isDone()) {
-                    submitted.cancel(true);
-                }
-            }
-        });
-        return result;
     }
 
     private static void logRemoteError(String operation, RemoteCall call, boolean isStreaming, String contextId,
