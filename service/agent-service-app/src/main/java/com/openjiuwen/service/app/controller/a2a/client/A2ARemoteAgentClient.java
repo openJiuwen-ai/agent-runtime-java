@@ -314,6 +314,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                         result.completeExceptionally(ex);
                     } catch (Error error) {
                         logRemoteError("event", call, isStreaming, setup.contextId, error);
+                        result.completeExceptionally(error);
                         throw error;
                     }
                 }, result);
@@ -337,6 +338,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                     result.completeExceptionally(ex);
                 } catch (Error error) {
                     logRemoteError("call", call, isStreaming, setup.contextId, error);
+                    result.completeExceptionally(error);
                     throw error;
                 }
             }));
