@@ -431,6 +431,8 @@ final class RemoteInvocationBatchCoordinator {
             state.removeBatch(batch);
             batch.completion.complete(resolution);
         } catch (RuntimeException ex) {
+            log.error("Remote invocation batch settlement failed parentTaskId={} conversationId={} batchId={}",
+                    batch.parentTaskId, batch.request.getConversationId(), batch.batchId, ex);
             state.removeBatch(batch);
             batch.completion.completeExceptionally(ex);
         }

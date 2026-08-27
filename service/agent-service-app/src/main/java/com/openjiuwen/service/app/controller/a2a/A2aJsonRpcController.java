@@ -192,6 +192,7 @@ public class A2aJsonRpcController {
                     sub.request(1);
                 } catch (org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException | java.io.IOException
                         | RuntimeException ex) {
+                    log.error("A2A SSE event delivery failed requestId={}", requestId, ex);
                     sub.cancel();
                     emitter.completeWithError(ex);
                 }
@@ -203,6 +204,7 @@ public class A2aJsonRpcController {
              * @param t the error
              */
             public void onError(Throwable t) {
+                log.error("A2A SSE publisher failed requestId={}", requestId, t);
                 emitter.completeWithError(t);
             }
 
@@ -212,7 +214,11 @@ public class A2aJsonRpcController {
             public void onComplete() {
                 emitter.complete();
             }
-        }));
+        })).whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                log.error("A2A SSE subscription failed requestId={}", requestId, failure);
+            }
+        });
         emitter.onTimeout(emitter::complete);
         return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(emitter);
     }
