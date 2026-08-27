@@ -288,6 +288,8 @@ final class RemoteInvocationBatchMapper {
             items.add(item);
         }
         Map<String, Object> interrupt = new LinkedHashMap<>();
+        interrupt.put("type", "__interaction__");
+        interrupt.put("state", "input_required");
         interrupt.put("message",
                 items.size() == 1 ? items.get(0).get("message") : "Multiple remote agents require input");
         interrupt.put("items", items);

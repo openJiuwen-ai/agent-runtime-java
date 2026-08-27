@@ -189,6 +189,8 @@ class RemoteInvocationBatchMapperTest {
 
         assertThat(interrupted.isReadyToResume()).isFalse();
         assertThat(interrupted.results()).isEmpty();
+        assertThat(interrupted.interrupt()).containsEntry("type", "__interaction__");
+        assertThat(interrupted.interrupt()).containsEntry("state", "input_required");
         assertThat(interrupted.interrupt()).containsEntry("message", "input-c");
         assertThat(interrupted.interrupt().get("items")).asList()
                 .containsExactly(Map.of("toolCallId", "call-c", "toolName", "tool-call-c", "message", "input-c"));
