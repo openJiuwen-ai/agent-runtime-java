@@ -257,6 +257,7 @@ class JiuwenCoreAgentHandlerTest {
 
         Map<String, Object> result = (Map<String, Object>) response.getResult();
         Map<String, Object> interrupt = (Map<String, Object>) result.get("_interrupt");
+        assertThat(interrupt).containsEntry("type", "__interaction__");
         List<Map<String, Object>> items = (List<Map<String, Object>>) interrupt.get("items");
         assertThat(items).extracting(item -> item.get("toolCallId")).containsExactly("call-a", "call-b");
         assertThat(items).extracting(item -> item.get("index")).containsExactly(0, 1);
@@ -273,6 +274,7 @@ class JiuwenCoreAgentHandlerTest {
         assertThat(chunks).hasSize(1);
         assertThat(chunks.get(0).getType()).isEqualTo(QueryChunk.TYPE_INTERRUPT);
         Map<String, Object> interrupt = (Map<String, Object>) chunks.get(0).getData();
+        assertThat(interrupt).containsEntry("type", "__interaction__");
         List<Map<String, Object>> items = (List<Map<String, Object>>) interrupt.get("items");
         assertThat(items).extracting(item -> item.get("toolCallId")).containsExactly("call-a", "call-b");
     }
@@ -306,6 +308,7 @@ class JiuwenCoreAgentHandlerTest {
 
         Map<String, Object> result = (Map<String, Object>) response.getResult();
         Map<String, Object> interrupt = (Map<String, Object>) result.get("_interrupt");
+        assertThat(interrupt).containsEntry("type", "__interaction__");
         List<Map<String, Object>> items = (List<Map<String, Object>>) interrupt.get("items");
         assertThat(items).allSatisfy(item -> {
             assertThat(item).containsEntry("type", "__interaction__").containsKey("payload");
