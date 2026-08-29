@@ -264,6 +264,11 @@ public class A2aJsonRpcController {
         })).whenComplete((ignored, failure) -> {
             if (failure != null) {
                 log.error("A2A SSE subscription failed requestId={}", requestId, failure);
+                // subscribe() may throw synchronously (e.g. executor rejection) before the
+                // subscriber's onError is wired; without this the emitter never completes
+                // and the SSE connection hangs until the client times out. Complete on an
+                // already-completed emitter is a no-op, so this is safe on all paths.
+                emitter.completeWithError(failure);
             }
         });
         emitter.onTimeout(emitter::complete);

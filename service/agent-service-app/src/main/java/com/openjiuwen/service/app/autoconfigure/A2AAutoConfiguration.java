@@ -57,12 +57,16 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Auto-configuration for A2A Server + Client beans. Activated only when {@code
@@ -415,14 +419,37 @@ final class A2AExecutionResources {
     /** Capacity of the agent task submission queue. */
     private static final int AGENT_QUEUE_CAPACITY = 256;
 
-    /** Capacity of the event consumer blocking queue. */
-    private static final int EVENT_CONSUMER_QUEUE_CAPACITY = 128;
+    /** Idle timeout of event consumer threads before reclamation. */
+    private static final long EVENT_CONSUMER_KEEP_ALIVE_SECONDS = 60L;
+
+    /**
+     * Floor for the event consumer hard cap. The effective cap is derived per
+     * instance from the effective agent pool size, so every task the
+     * admission gate may admit fits; the cap only trips on consumer-thread
+     * leaks, where failing the stream loudly beats growing toward OOM.
+     */
+    private static final int EVENT_CONSUMER_CAP_FLOOR = 256;
+
+    private static final AtomicInteger EVENT_CONSUMER_THREAD_SEQ = new AtomicInteger(1);
 
     private final MainEventBusProcessor eventBusProcessor;
 
     private final ThreadPoolExecutor agentExecutor;
 
+    /**
+     * Event consumer executor delivering streamed events to SSE subscribers.
+     *
+     * <p>Mirrors the SDK's default {@code EventConsumerExecutorProducer}: each
+     * active event queue occupies one consumer thread for the whole stream
+     * lifetime (the thread is mostly parked in queue polling), so threads are
+     * created on demand and reclaimed after the idle timeout. The thread count
+     * is bounded in practice by the number of concurrently active streams,
+     * which the task admission gate caps; the explicit max pool size is a
+     * leak guard that rejects the stream instead of growing toward OOM.</p>
+     */
     private final ThreadPoolExecutor eventConsumerExecutor;
+
+    private final int eventConsumerMaxThreads;
 
     A2AExecutionResources(MainEventBusProcessor eventBusProcessor, int configuredAgentThreads) {
         this.eventBusProcessor = eventBusProcessor;
@@ -430,13 +457,42 @@ final class A2AExecutionResources {
         this.agentExecutor = new ThreadPoolExecutor(threads, threads, 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(AGENT_QUEUE_CAPACITY),
                 new ThreadPoolExecutor.CallerRunsPolicy());
-        this.eventConsumerExecutor = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(EVENT_CONSUMER_QUEUE_CAPACITY),
-                new ThreadPoolExecutor.CallerRunsPolicy());
+        this.eventConsumerMaxThreads = Math.max(EVENT_CONSUMER_CAP_FLOOR, threads);
+        this.eventConsumerExecutor = new ThreadPoolExecutor(
+                0, eventConsumerMaxThreads, EVENT_CONSUMER_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
+                new SynchronousQueue<>(),
+                r -> {
+                    Thread thread = new Thread(r, "a2a-event-consumer-"
+                            + EVENT_CONSUMER_THREAD_SEQ.getAndIncrement());
+                    thread.setDaemon(true);
+                    thread.setUncaughtExceptionHandler(A2AExecutionResources::logUncaught);
+                    return thread;
+                },
+                new ThreadPoolExecutor.AbortPolicy());
     }
 
     static int autoAgentPoolSize() {
         return Math.max(AUTO_POOL_FLOOR, Runtime.getRuntime().availableProcessors() * AUTO_POOL_MULTIPLIER);
+    }
+
+    /**
+     * Uncaught-exception handler for event consumer threads. The polling loop in
+     * the SDK's EventConsumer guards most failures internally and routes them to
+     * the stream subscriber; anything escaping to the thread boundary means the
+     * consumer died without completing its stream — log it loudly so the leak is
+     * visible instead of silently losing the stream.
+     *
+     * @param thread the consumer thread that threw
+     * @param throwable the uncaught throwable
+     */
+    private static void logUncaught(Thread thread, Throwable throwable) {
+        Logger logger = LoggerFactory.getLogger(A2AExecutionResources.class);
+        logger.error("A2A event consumer thread died with uncaught exception thread={}", thread.getName(),
+                throwable);
+    }
+
+    int eventConsumerMaxThreads() {
+        return eventConsumerMaxThreads;
     }
 
     Executor agentExecutor() {
