@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * restarted.
  * <p>
  * This subclass keeps the SDK loop as-is but wraps it in a supervisor: when the
- * loop dies with a {@link Throwable}, it is restarted after a fixed backoff.
+ * loop dies with an {@link Error}, it is restarted after a fixed backoff.
  * The loop returns normally only on graceful shutdown ({@code stop()} or an
  * interrupt), in which case the supervisor exits too. The event bus backlog is
  * not cleared on restart, so pending events are picked up where the dead loop
@@ -74,18 +74,21 @@ public class ResilientMainEventBusProcessor extends MainEventBusProcessor {
     public void run() {
         while (true) {
             try {
-                // Returns only on graceful shutdown (stop() or interrupt); any
-                // Throwable means the loop died and must be restarted.
+                // Returns only on graceful shutdown (stop() or interrupt). The SDK
+                // loop already catches Exception internally, so only an Error can
+                // escape -- and that means the loop died and must be restarted.
                 super.run();
                 return;
-            } catch (Throwable t) {
+            } catch (Error error) {
                 log.error("A2A main event bus processing loop died; restarting after {}ms (restart #{})",
-                        restartBackoffMs, restarts.incrementAndGet(), t);
+                        restartBackoffMs, restarts.incrementAndGet(), error);
             }
             try {
                 Thread.sleep(restartBackoffMs);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                // The interrupt is the shutdown signal. The supervisor exits and its
+                // thread terminates, so the interrupt flag is deliberately not
+                // restored (a pooled thread must not carry stale interrupt state).
                 return;
             }
         }

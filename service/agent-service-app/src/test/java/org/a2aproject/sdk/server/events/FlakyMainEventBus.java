@@ -13,9 +13,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * package allows overriding the package-private {@code take()}. Once the script
  * is exhausted, {@code take()} throws {@link InterruptedException}, which the
  * processing loop treats as graceful shutdown.
+ *
+ * @since 0.1.2
  */
 public class FlakyMainEventBus extends MainEventBus {
-
     private final Queue<Throwable> script = new ConcurrentLinkedQueue<>();
 
     private volatile int takeCalls;

@@ -13,6 +13,11 @@ import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
 /**
  * Verifies the supervisor semantics of {@link ResilientMainEventBusProcessor}:
  * the processing loop is restarted after dying with an {@link Error}, a
@@ -20,7 +25,6 @@ import org.junit.jupiter.api.Test;
  * backoff is honored instead of blocking shutdown.
  */
 class ResilientMainEventBusProcessorTest {
-
     @Test
     void restartsLoopAfterErrorAndExitsGracefullyOnShutdown() {
         FlakyMainEventBus bus = new FlakyMainEventBus();
@@ -43,18 +47,23 @@ class ResilientMainEventBusProcessorTest {
         ResilientMainEventBusProcessor processor = new ResilientMainEventBusProcessor(bus, mock(TaskStore.class),
                 mock(PushNotificationSender.class), mock(QueueManager.class), 60_000L);
 
-        Thread worker = new Thread(processor, "resilient-processor-test");
-        worker.start();
-        long deadline = System.currentTimeMillis() + 5_000L;
-        while (processor.getRestartCount() < 1 && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10L);
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>());
+        try {
+            Future<?> supervisor = executor.submit(processor);
+            long deadline = System.currentTimeMillis() + 5_000L;
+            while (processor.getRestartCount() < 1 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(10L);
+            }
+            assertThat(processor.getRestartCount()).isEqualTo(1);
+
+            // Cancelling with mayInterruptIfRunning delivers the interrupt to the
+            // backoff sleep, which must terminate the supervisor promptly.
+            supervisor.cancel(true);
+            executor.shutdown();
+            assertThat(executor.awaitTermination(5_000L, TimeUnit.MILLISECONDS)).isTrue();
+        } finally {
+            executor.shutdownNow();
         }
-        assertThat(processor.getRestartCount()).isEqualTo(1);
-
-        // Interrupting the backoff sleep must terminate the supervisor promptly.
-        worker.interrupt();
-        worker.join(5_000L);
-
-        assertThat(worker.isAlive()).isFalse();
     }
 }

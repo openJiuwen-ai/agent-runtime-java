@@ -4,7 +4,10 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
+import com.google.gson.JsonParseException;
+
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
+import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
 import org.a2aproject.sdk.server.tasks.TaskStateProvider;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
@@ -14,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.LongSupplier;
@@ -177,18 +181,17 @@ public class WriteThrottlingTaskStore implements TaskStore, TaskStateProvider {
 
     @Override
     public boolean isTaskActive(String taskId) {
-        Task task = currentTask(taskId);
-        if (task == null) {
-            return false;
-        }
-        return task.status() == null || task.status().state() == null || !task.status().state().isFinal();
+        return currentTask(taskId)
+                .map(task -> task.status() == null || task.status().state() == null || !task.status().state().isFinal())
+                .orElse(false);
     }
 
     @Override
     public boolean isTaskFinalized(String taskId) {
-        Task task = currentTask(taskId);
-        return task != null && task.status() != null && task.status().state() != null
-                && task.status().state().isFinal();
+        return currentTask(taskId)
+                .map(task -> task.status() != null && task.status().state() != null
+                        && task.status().state().isFinal())
+                .orElse(false);
     }
 
     /**
@@ -196,17 +199,21 @@ public class WriteThrottlingTaskStore implements TaskStore, TaskStateProvider {
      * A delegate read failure answers "unknown" so queue-lifecycle callers keep
      * their current keep-queue behavior instead of reacting to a transient store
      * outage.
+     *
+     * @param taskId the task whose freshest snapshot to resolve
+     * @return the freshest known task snapshot, or empty if the task is neither
+     *         cached nor durably stored, or the delegate read failed
      */
-    private Task currentTask(String taskId) {
+    private Optional<Task> currentTask(String taskId) {
         Task cached = latest.get(taskId);
         if (cached != null) {
-            return cached;
+            return Optional.of(cached);
         }
         try {
-            return delegate.get(taskId);
-        } catch (Exception e) {
+            return Optional.ofNullable(delegate.get(taskId));
+        } catch (TaskPersistenceException | JsonParseException e) {
             log.debug("A2A task {} state lookup failed; treating as not finalized", taskId, e);
-            return null;
+            return Optional.empty();
         }
     }
 }

@@ -40,6 +40,7 @@ import org.a2aproject.sdk.server.events.InMemoryQueueManager;
 import org.a2aproject.sdk.server.events.MainEventBus;
 import org.a2aproject.sdk.server.events.MainEventBusProcessor;
 import org.a2aproject.sdk.server.events.MainEventBusProcessorCallback;
+import org.a2aproject.sdk.server.events.NoTaskQueueException;
 import org.a2aproject.sdk.server.events.QueueManager;
 import org.a2aproject.sdk.server.requesthandlers.DefaultRequestHandler;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
@@ -231,9 +232,9 @@ public class A2AAutoConfiguration {
             public void onTaskFinalized(String taskId) {
                 try {
                     queueManager.close(taskId);
-                } catch (Exception e) {
+                } catch (NoTaskQueueException e) {
                     // Already closed or absent -- nothing to clean up for this task.
-                    log.debug("A2A task {} queue already closed or absent", taskId, e);
+                    log.debug("A2A task {} queue already closed or absent", taskId);
                 }
             }
         });

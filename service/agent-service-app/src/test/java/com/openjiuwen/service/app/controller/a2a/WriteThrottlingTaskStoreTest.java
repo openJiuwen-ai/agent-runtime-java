@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.controller.a2a;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
+import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Task;
@@ -137,7 +138,7 @@ class WriteThrottlingTaskStoreTest {
 
     @Test
     void taskStateLookupSurvivesDelegateFailure() {
-        delegate.getFailure = new IllegalStateException("redis down");
+        delegate.getFailure = new TaskPersistenceException(ID, "redis down");
 
         // A transient delegate outage must answer "unknown" instead of throwing,
         // so queue-lifecycle callers keep their keep-queue behavior.
@@ -176,7 +177,7 @@ class WriteThrottlingTaskStoreTest {
 
         private long saveDurationMs;
 
-        private RuntimeException getFailure;
+        private TaskPersistenceException getFailure;
 
         @Override
         public void save(Task task, boolean isOverwrite) {
