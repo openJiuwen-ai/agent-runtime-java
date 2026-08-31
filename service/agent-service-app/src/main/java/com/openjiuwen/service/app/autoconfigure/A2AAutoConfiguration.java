@@ -19,6 +19,7 @@ import com.openjiuwen.service.app.controller.a2a.HttpPushNotificationSender;
 import com.openjiuwen.service.app.controller.a2a.InMemoryA2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.NoOpA2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
+import com.openjiuwen.service.app.controller.a2a.ResilientMainEventBusProcessor;
 import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
@@ -38,6 +39,8 @@ import org.a2aproject.sdk.server.config.DefaultValuesConfigProvider;
 import org.a2aproject.sdk.server.events.InMemoryQueueManager;
 import org.a2aproject.sdk.server.events.MainEventBus;
 import org.a2aproject.sdk.server.events.MainEventBusProcessor;
+import org.a2aproject.sdk.server.events.MainEventBusProcessorCallback;
+import org.a2aproject.sdk.server.events.NoTaskQueueException;
 import org.a2aproject.sdk.server.events.QueueManager;
 import org.a2aproject.sdk.server.requesthandlers.DefaultRequestHandler;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
@@ -45,7 +48,9 @@ import org.a2aproject.sdk.server.tasks.InMemoryPushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationSender;
+import org.a2aproject.sdk.server.tasks.TaskStateProvider;
 import org.a2aproject.sdk.server.tasks.TaskStore;
+import org.a2aproject.sdk.spec.Event;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -78,6 +83,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 @ConditionalOnClass(AgentExecutor.class)
 @EnableConfigurationProperties(A2AProperties.class)
 public class A2AAutoConfiguration {
+    private static final Logger log = LoggerFactory.getLogger(A2AAutoConfiguration.class);
+
     private static final Map<String, String> A2A_RUNTIME_DEFAULTS = Map.of("a2a.blocking.agent.timeout.seconds", "300");
 
     /**
@@ -104,12 +111,13 @@ public class A2AAutoConfiguration {
      *
      * @param middlewareProvider the middleware properties provider
      * @param redisClientProvider the runtime Redis client provider
+     * @param a2aProperties the A2A configuration properties
      * @return the task store
      */
     @Bean
     @ConditionalOnMissingBean
     public TaskStore a2aTaskStore(ObjectProvider<MiddlewareProperties> middlewareProvider,
-            ObjectProvider<RuntimeRedisClient> redisClientProvider) {
+            ObjectProvider<RuntimeRedisClient> redisClientProvider, A2AProperties a2aProperties) {
         MiddlewareProperties middlewareProperties = middlewareProvider.getIfAvailable();
         if (middlewareProperties != null && "redis".equals(middlewareProperties.getCheckpointer().getType())) {
             RuntimeRedisClient redisClient = redisClientProvider.getIfAvailable();
@@ -120,7 +128,8 @@ public class A2AAutoConfiguration {
             // raw Redis round-trip per LLM chunk would throttle the SSE stream to network speed. See
             // WriteThrottlingTaskStore for the full rationale.
             return new WriteThrottlingTaskStore(
-                    new RedisTaskStore(redisClient, middlewareProperties.getCheckpointer().getTtlSeconds()));
+                    new RedisTaskStore(redisClient, middlewareProperties.getCheckpointer().getTtlSeconds()),
+                    a2aProperties.getTaskStoreWriteThrottleMs());
         }
         return new InMemoryTaskStore();
     }
@@ -178,7 +187,10 @@ public class A2AAutoConfiguration {
     }
 
     /**
-     * Creates the queue manager bean backed by the task store.
+     * Creates the queue manager bean backed by the task store. Stores that
+     * implement {@link TaskStateProvider} also drive queue lifecycle: finalized
+     * tasks get their queue removed from the manager's map. Stores without that
+     * capability keep the legacy behavior (queues are never auto-removed).
      *
      * @param taskStore the task store
      * @param mainEventBus the main event bus
@@ -187,15 +199,16 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public QueueManager a2aQueueManager(TaskStore taskStore, MainEventBus mainEventBus) {
-        if (taskStore instanceof InMemoryTaskStore inMemStore) {
-            return new InMemoryQueueManager(inMemStore, mainEventBus);
+        if (taskStore instanceof TaskStateProvider provider) {
+            return new InMemoryQueueManager(provider, mainEventBus);
         }
-        // Redis-backed task store: pass null as TaskStateProvider (queue mgr uses in-memory state)
         return new InMemoryQueueManager(null, mainEventBus);
     }
 
     /**
-     * Creates the main event bus processor bean.
+     * Creates the main event bus processor bean. The resilient variant restarts
+     * the processing loop after an unexpected death, and the finalize callback
+     * closes the task's queue so abandoned queues do not accumulate.
      *
      * @param mainEventBus the main event bus
      * @param taskStore the task store
@@ -207,7 +220,25 @@ public class A2AAutoConfiguration {
     @ConditionalOnMissingBean
     public MainEventBusProcessor a2aMainEventBusProcessor(MainEventBus mainEventBus, TaskStore taskStore,
             PushNotificationSender pushSender, QueueManager queueManager) {
-        return new MainEventBusProcessor(mainEventBus, taskStore, pushSender, queueManager);
+        ResilientMainEventBusProcessor processor = new ResilientMainEventBusProcessor(mainEventBus, taskStore,
+                pushSender, queueManager);
+        processor.setCallback(new MainEventBusProcessorCallback() {
+            @Override
+            public void onEventProcessed(String taskId, Event event) {
+                // Intentionally empty: production keeps the SDK's default no-op behavior.
+            }
+
+            @Override
+            public void onTaskFinalized(String taskId) {
+                try {
+                    queueManager.close(taskId);
+                } catch (NoTaskQueueException e) {
+                    // Already closed or absent -- nothing to clean up for this task.
+                    log.debug("A2A task {} queue already closed or absent", taskId);
+                }
+            }
+        });
+        return processor;
     }
 
     /**
