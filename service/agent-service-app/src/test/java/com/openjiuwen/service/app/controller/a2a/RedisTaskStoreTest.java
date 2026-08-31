@@ -5,11 +5,15 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
+import redis.clients.jedis.exceptions.JedisConnectionException;
+
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
+import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
 import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Message;
@@ -114,6 +118,38 @@ class RedisTaskStoreTest {
         assertThat(second.nextPageToken()).isNull();
     }
 
+    @Test
+    void translatesRedisReadFailureIntoTaskPersistenceException() {
+        InMemoryRuntimeRedisClient redisClient = new InMemoryRuntimeRedisClient() {
+            @Override
+            public byte[] get(byte[] key) {
+                throw new JedisConnectionException("connection reset");
+            }
+        };
+        RedisTaskStore store = new RedisTaskStore(redisClient, 3600L);
+
+        assertThatThrownBy(() -> store.get("task-1"))
+                .isInstanceOf(TaskPersistenceException.class)
+                .hasMessageContaining("Redis get failed")
+                .hasCauseInstanceOf(JedisConnectionException.class);
+    }
+
+    @Test
+    void translatesRedisWriteFailureIntoTaskPersistenceException() {
+        InMemoryRuntimeRedisClient redisClient = new InMemoryRuntimeRedisClient() {
+            @Override
+            public String setex(byte[] key, long seconds, byte[] value) {
+                throw new JedisConnectionException("connection reset");
+            }
+        };
+        RedisTaskStore store = new RedisTaskStore(redisClient, 3600L);
+
+        assertThatThrownBy(() -> store.save(task("task-1", "ctx-1", TaskState.TASK_STATE_WORKING), false))
+                .isInstanceOf(TaskPersistenceException.class)
+                .hasMessageContaining("Redis save failed")
+                .hasCauseInstanceOf(JedisConnectionException.class);
+    }
+
     private Task task(String id, String contextId, TaskState state) {
         return Task.builder().id(id).contextId(contextId).status(new TaskStatus(state)).build();
     }
@@ -128,7 +164,7 @@ class RedisTaskStoreTest {
                 .artifacts(List.of(artifact)).build();
     }
 
-    private static final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
+    private static class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
         private final Map<String, byte[]> values = new LinkedHashMap<>();
         private final Map<String, Long> ttlByKey = new LinkedHashMap<>();
         private final List<String> scanPatterns = new ArrayList<>();
