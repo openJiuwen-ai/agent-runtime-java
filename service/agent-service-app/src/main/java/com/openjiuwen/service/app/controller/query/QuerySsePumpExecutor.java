@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.app.controller.query;
 
+import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,19 +18,19 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Dedicated bounded executor for pumping agent stream chunks to {@code SseEmitter}.
+ * Dedicated executor for pumping agent stream chunks to {@code SseEmitter}.
  *
- * <p>Each active SSE connection submits one long-lived pump task. Pool sizing follows the same
- * idea as agent-core {@code deep-agent-stream}: default {@code max(32, CPU×8)} worker threads
- * with {@code corePoolSize = maximumPoolSize} (threads stay hot for long-lived pump tasks) plus a
- * bounded {@link ArrayBlockingQueue} (default 128) as overflow. When both workers and queue are
- * saturated, {@link #execute(Runnable)} throws {@link RejectedExecutionException} so the HTTP layer
- * can fail fast with 503 instead of spawning unbounded threads.</p>
+ * <p>On JDK 21 and later, each active SSE connection runs on its own virtual thread without executor-level
+ * concurrency or queue limits. On JDK 17, the existing bounded platform pool is retained: default
+ * {@code max(32, CPU×8)} worker threads plus an {@link ArrayBlockingQueue} with a default capacity of 128.
+ * When the JDK 17 pool is saturated, {@link #execute(Runnable)} throws {@link RejectedExecutionException}
+ * so the HTTP layer can fail fast with 503.</p>
  *
- * <p>Configuration (system property or env var):</p>
+ * <p>JDK 17 configuration (system property or environment variable):</p>
  * <ul>
  *   <li>{@code openjiuwen.service.query.sse-pump.max-size} / {@code OPENJIUWEN_SERVICE_QUERY_SSE_PUMP_MAX_SIZE}</li>
- *   <li>{@code openjiuwen.service.query.sse-pump.queue-size} / {@code OPENJIUWEN_SERVICE_QUERY_SSE_PUMP_QUEUE_SIZE}</li>
+ *   <li>{@code openjiuwen.service.query.sse-pump.queue-size} /
+ *       {@code OPENJIUWEN_SERVICE_QUERY_SSE_PUMP_QUEUE_SIZE}</li>
  * </ul>
  *
  * @since 0.1.0
@@ -61,10 +63,10 @@ final class QuerySsePumpExecutor {
     }
 
     /**
-     * Submits an SSE pump task or rejects when the bounded pool is saturated.
+     * Submits an SSE pump task.
      *
      * @param task pump runnable
-     * @throws RejectedExecutionException when max threads and queue are both full
+     * @throws RejectedExecutionException when the JDK 17 pool is saturated or the executor is shut down
      */
     static void execute(Runnable task) {
         EXECUTOR.execute(task);
@@ -102,6 +104,11 @@ final class QuerySsePumpExecutor {
     }
 
     private static ExecutorService createExecutor() {
+        if (VirtualThreadSupport.isSupported()) {
+            return VirtualThreadSupport.newVirtualExecutor("query-sse-pump",
+                    (thread, error) -> log.error("Uncaught query SSE pump error thread={}",
+                            thread.getName(), error));
+        }
         return newPool(intSetting(MAX_SIZE_PROPERTY, DEFAULT_MAX_SIZE, 1),
                 intSetting(QUEUE_SIZE_PROPERTY, DEFAULT_QUEUE_SIZE, 1));
     }

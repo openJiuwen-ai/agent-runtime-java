@@ -5,15 +5,21 @@
 package com.openjiuwen.service.app.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -23,10 +29,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Capacity tests for the A2A agent execution pool and its coupling with the
- * admission guard (DFX-002): the pool default is auto-sized
+ * admission guard (DFX-002): the platform pool default is auto-sized
  * {@code max(32, cores*8)} (not raw CPU cores), can be overridden via
  * {@code openjiuwen.service.a2a.agent-threads}, and startup fails fast when
- * the admission limit exceeds the pool capacity.
+ * the admission limit exceeds the pool capacity. Virtual executors have
+ * no pool capacity limit, while business admission remains enabled.
  */
 class A2AExecutionResourcesCapacityTest {
     private static final String AGENT_THREADS = "openjiuwen.service.a2a.agent-threads";
@@ -47,6 +54,7 @@ class A2AExecutionResourcesCapacityTest {
 
     @Test
     void defaultCapacityIsAutoSizedNotRawCores() {
+        assumeFalse(VirtualThreadSupport.isSupported());
         contextRunner.run(context -> {
             A2AExecutionResources resources = context.getBean(A2AExecutionResources.class);
             assertThat(resources.agentConcurrencyCapacity())
@@ -58,6 +66,7 @@ class A2AExecutionResourcesCapacityTest {
 
     @Test
     void configuredAgentThreadsOverrideAutoSizing() {
+        assumeFalse(VirtualThreadSupport.isSupported());
         contextRunner.withPropertyValues(AGENT_THREADS + "=50").run(context -> {
             A2AExecutionResources resources = context.getBean(A2AExecutionResources.class);
             assertThat(resources.agentConcurrencyCapacity())
@@ -68,6 +77,7 @@ class A2AExecutionResourcesCapacityTest {
 
     @Test
     void startupFailsWhenAdmissionLimitExceedsCapacity() {
+        assumeFalse(VirtualThreadSupport.isSupported());
         contextRunner
                 .withPropertyValues(AGENT_THREADS + "=2")
                 .withBean(TaskAdmissionGate.class, () -> new FixedLimitGate(3))
@@ -81,6 +91,7 @@ class A2AExecutionResourcesCapacityTest {
 
     @Test
     void startupSucceedsWhenAdmissionLimitWithinCapacity() {
+        assumeFalse(VirtualThreadSupport.isSupported());
         contextRunner
                 .withPropertyValues(AGENT_THREADS + "=50")
                 .withBean(TaskAdmissionGate.class, () -> new FixedLimitGate(50))
@@ -88,6 +99,41 @@ class A2AExecutionResourcesCapacityTest {
                     assertThat(context).hasNotFailed();
                     assertThat(context.getBean(A2AExecutionResources.class).agentConcurrencyCapacity())
                             .isEqualTo(50);
+                });
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 2})
+    void virtualCapacityDoesNotDependOnPlatformPoolSize(int configuredAgentThreads) {
+        assumeTrue(VirtualThreadSupport.isSupported());
+        contextRunner.withPropertyValues(AGENT_THREADS + "=" + configuredAgentThreads).run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(A2AExecutionResources.class).agentConcurrencyCapacity())
+                    .isEqualTo(Integer.MAX_VALUE);
+        });
+    }
+
+    @Test
+    void virtualExecutorsStartTasksBeyondPlatformPoolSize() {
+        assumeTrue(VirtualThreadSupport.isSupported());
+        contextRunner.withPropertyValues(AGENT_THREADS + "=2").run(context -> {
+            A2AExecutionResources resources = context.getBean(A2AExecutionResources.class);
+            assertTasksStartConcurrently(resources.agentExecutor());
+            assertTasksStartConcurrently(resources.eventConsumerExecutor());
+        });
+    }
+
+    @Test
+    void virtualExecutorAllowsAdmissionLimitAbovePlatformPoolSize() {
+        assumeTrue(VirtualThreadSupport.isSupported());
+        contextRunner
+                .withPropertyValues(AGENT_THREADS + "=2")
+                .withBean(TaskAdmissionGate.class, () -> new FixedLimitGate(3))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(A2AExecutionResources.class).agentConcurrencyCapacity())
+                            .isEqualTo(Integer.MAX_VALUE);
+                    assertThat(context.getBean(TaskAdmissionGate.class).limit()).isEqualTo(3);
                 });
     }
 
@@ -130,6 +176,7 @@ class A2AExecutionResourcesCapacityTest {
 
     @Test
     void eventConsumerMaxThreadsTrackAgentPoolCapacity() {
+        assumeFalse(VirtualThreadSupport.isSupported());
         contextRunner.withPropertyValues(AGENT_THREADS + "=300").run(context -> {
             A2AExecutionResources resources = context.getBean(A2AExecutionResources.class);
             assertThat(resources.eventConsumerMaxThreads())
@@ -146,6 +193,7 @@ class A2AExecutionResourcesCapacityTest {
 
     @Test
     void eventConsumerExecutorRejectsBeyondHardCap() {
+        assumeFalse(VirtualThreadSupport.isSupported());
         contextRunner.run(context -> {
             A2AExecutionResources resources = context.getBean(A2AExecutionResources.class);
             Executor executor = resources.eventConsumerExecutor();
@@ -178,6 +226,25 @@ class A2AExecutionResourcesCapacityTest {
                 release.countDown();
             }
         });
+    }
+
+    private static void assertTasksStartConcurrently(Executor executor) throws InterruptedException {
+        int taskCount = 3;
+        CountDownLatch started = new CountDownLatch(taskCount);
+        CompletableFuture<Void> release = new CompletableFuture<>();
+        try {
+            for (int index = 0; index < taskCount; index++) {
+                executor.execute(() -> {
+                    started.countDown();
+                    release.join();
+                });
+            }
+            assertThat(started.await(5, TimeUnit.SECONDS))
+                    .as("all tasks must start without waiting for platform pool capacity")
+                    .isTrue();
+        } finally {
+            release.complete(null);
+        }
     }
 
     /** Minimal gate stub: only {@code limit()} matters for the startup guard. */

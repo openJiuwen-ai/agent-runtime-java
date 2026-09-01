@@ -68,11 +68,12 @@ public class A2AProperties {
     private long taskStoreWriteThrottleMs = 200L;
 
     /**
-     * A2A agent execution pool size. Values <= 0 mean auto-sizing
+     * A2A platform agent execution pool size. Values <= 0 mean auto-sizing
      * ({@code max(32, availableProcessors * 8)}), matching the SSE pump
      * executor baseline for I/O-bound agent workloads. The admission
      * guard rejects startup when the task admission limit exceeds this
-     * capacity.
+     * capacity. On runtimes supporting virtual threads, this setting does
+     * not limit the per-task executor; task admission remains independent.
      */
     private int agentThreads = 0;
 
