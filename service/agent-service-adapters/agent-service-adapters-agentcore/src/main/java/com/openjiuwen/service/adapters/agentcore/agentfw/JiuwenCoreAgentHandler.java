@@ -477,6 +477,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             items.add(new LinkedHashMap<>(interrupt));
         }
         Map<String, Object> batch = new LinkedHashMap<>();
+        batch.put("type", INTERACTION_TYPE);
         batch.put("message", "interaction batch");
         batch.put("items", items);
         return batch;

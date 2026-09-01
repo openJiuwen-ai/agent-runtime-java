@@ -39,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
@@ -101,10 +102,8 @@ public class A2aJsonRpcController {
                     ctx.getState().put("_a2a_stream", false);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     validateInlinePushNotificationConfig(params);
-                    if (isAdmissionOverloaded()) {
-                        logRejected(params.message().contextId());
-                        yield ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
-                                .body(admissionErrorBody(id));
+                    if (isAdmissionRejected(ctx, params.message().contextId())) {
+                        yield admissionRejectedResponse(id);
                     }
                     EventKind result = requestHandler.onMessageSend(params, ctx);
                     yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
@@ -113,10 +112,8 @@ public class A2aJsonRpcController {
                     ctx.getState().put("_a2a_stream", true);
                     var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
                     validateInlinePushNotificationConfig(params);
-                    if (isAdmissionOverloaded()) {
-                        logRejected(params.message().contextId());
-                        yield ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
-                                .body(admissionErrorBody(id));
+                    if (isAdmissionRejected(ctx, params.message().contextId())) {
+                        yield admissionRejectedResponse(id);
                     }
                     Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
                     yield streamToSse(pub, id);
@@ -127,39 +124,89 @@ public class A2aJsonRpcController {
                         new MethodNotFoundError(null, "Method not found: " + method, null));
             };
         } catch (A2AError e) {
+            releasePreAcquiredAdmission(ctx);
             log.info("A2A protocol error: method={}, code={}, message={}", method, e.getCode(), e.getMessage());
             return A2aJsonRpcProtocol.errorResponse(id, e);
         } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
+            releasePreAcquiredAdmission(ctx);
             log.error("A2A request failed", e);
             return A2aJsonRpcProtocol.errorResponse(id, new InternalError("Internal error"));
         }
     }
 
     /**
-     * Read-only admission pre-check for fast failure (HTTP 503 without entering
-     * the SDK pipeline). Authoritative admission happens in
-     * {@code A2AAgentExecutor.executeRequest()} — this check carries no permit
-     * and therefore has no release obligation; requests that slip through the
-     * race window are rejected there as a clean FAILED task.
+     * Authoritative admission at the transport entry. When a bounded gate is
+     * configured, acquires a permit synchronously and marks the call context so
+     * {@code A2AAgentExecutor} adopts the already-held permit instead of
+     * acquiring a second one; the executor's {@code finally} block owns the
+     * release. This closes the race window of the former read-only pre-check,
+     * in which a request that slipped through was rejected inside the SDK
+     * pipeline and surfaced as an asynchronous A2AError (HTTP 500 on the
+     * streaming path) instead of a clean synchronous 503.
      *
-     * @return {@code true} if the admission limit has been reached
+     * @param ctx the server call context that carries the handover marker
+     * @param conversationId the conversation identifier for rejection logging
+     * @return {@code true} when the request must be rejected with HTTP 503
      */
-    private boolean isAdmissionOverloaded() {
-        if (admissionGateProvider == null) {
+    private boolean isAdmissionRejected(ServerCallContext ctx, String conversationId) {
+        Optional<TaskAdmissionGate> admissionGate = admissionGate();
+        if (admissionGate.isEmpty() || admissionGate.get().limit() < 0) {
             return false;
         }
-        TaskAdmissionGate admissionGate = admissionGateProvider.getIfAvailable();
-        return admissionGate != null && admissionGate.limit() >= 0
-                && admissionGate.currentCount() >= admissionGate.limit();
+        TaskAdmissionGate gate = admissionGate.get();
+        if (gate.tryAcquire()) {
+            ctx.getState().put(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY, Boolean.TRUE);
+            return false;
+        }
+        logRejected(conversationId);
+        return true;
+    }
+
+    /**
+     * Returns the pre-acquired permit when the request failed synchronously
+     * before the agent executor adopted it (e.g. parameter validation inside
+     * the SDK). The state-map removal is atomic, so exactly one of {this
+     * controller, the executor's {@code finally}} releases the permit; on the
+     * normal path the executor wins and this method is a no-op.
+     *
+     * @param ctx the server call context carrying the handover marker
+     */
+    private void releasePreAcquiredAdmission(ServerCallContext ctx) {
+        if (ctx.getState().remove(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY) == null) {
+            return;
+        }
+        admissionGate().ifPresent(admissionGate -> {
+            admissionGate.release();
+            // The executor never adopted the permit (sync failure before agent
+            // submission), so this release is not paired with task_released —
+            // log it to keep gate-count changes traceable.
+            log.warn("[CONCURRENCY] admission_returned reason=\"sync_failure_before_execution\" "
+                    + "currentActive={} maxConcurrent={}",
+                    admissionGate.currentCount(), admissionGate.limit());
+        });
+    }
+
+    /**
+     * Resolves the admission gate bean, when configured.
+     *
+     * @return the gate wrapped as {@link Optional}; empty when no
+     *         {@code TaskAdmissionGate} bean is available
+     */
+    private Optional<TaskAdmissionGate> admissionGate() {
+        if (admissionGateProvider == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(admissionGateProvider.getIfAvailable());
     }
 
     private void logRejected(String conversationId) {
-        TaskAdmissionGate gate = admissionGateProvider != null ? admissionGateProvider.getIfAvailable() : null;
-        if (gate != null) {
-            log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} "
-                    + "maxConcurrent={} reason=\"limit_reached\"",
-                    conversationId, gate.currentCount(), gate.limit());
-        }
+        admissionGate().ifPresent(gate -> log.warn("[CONCURRENCY] task_rejected conversationId={} "
+                + "currentActive={} maxConcurrent={} reason=\"limit_reached\"",
+                conversationId, gate.currentCount(), gate.limit()));
+    }
+
+    private static ResponseEntity<String> admissionRejectedResponse(Object id) {
+        return ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON).body(admissionErrorBody(id));
     }
 
     private ResponseEntity<SseEmitter> streamToSse(Flow.Publisher<StreamingEventKind> publisher, Object requestId) {
@@ -192,6 +239,7 @@ public class A2aJsonRpcController {
                     sub.request(1);
                 } catch (org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException | java.io.IOException
                         | RuntimeException ex) {
+                    log.error("A2A SSE event delivery failed requestId={}", requestId, ex);
                     sub.cancel();
                     emitter.completeWithError(ex);
                 }
@@ -203,6 +251,7 @@ public class A2aJsonRpcController {
              * @param t the error
              */
             public void onError(Throwable t) {
+                log.error("A2A SSE publisher failed requestId={}", requestId, t);
                 emitter.completeWithError(t);
             }
 
@@ -212,7 +261,16 @@ public class A2aJsonRpcController {
             public void onComplete() {
                 emitter.complete();
             }
-        }));
+        })).whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                log.error("A2A SSE subscription failed requestId={}", requestId, failure);
+                // subscribe() may throw synchronously (e.g. executor rejection) before the
+                // subscriber's onError is wired; without this the emitter never completes
+                // and the SSE connection hangs until the client times out. Complete on an
+                // already-completed emitter is a no-op, so this is safe on all paths.
+                emitter.completeWithError(failure);
+            }
+        });
         emitter.onTimeout(emitter::complete);
         return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(emitter);
     }

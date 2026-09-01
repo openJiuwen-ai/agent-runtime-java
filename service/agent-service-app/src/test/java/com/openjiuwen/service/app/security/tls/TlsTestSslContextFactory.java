@@ -125,7 +125,7 @@ public final class TlsTestSslContextFactory {
             keyManagerFactory.init(loadKeyStore(keyStorePath, password), password);
         }
 
-        SSLContext sslContext = SSLContext.getInstance("TLS");
+        SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
         sslContext.init(keyManagerFactory == null ? null : keyManagerFactory.getKeyManagers(),
                 trustManagerFactory.getTrustManagers(), new SecureRandom());
         return sslContext;

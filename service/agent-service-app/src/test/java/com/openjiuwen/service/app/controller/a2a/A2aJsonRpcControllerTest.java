@@ -38,6 +38,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 import java.util.concurrent.Flow;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * Tests A2A JSON-RPC request parsing and routing at the protocol boundary.
@@ -289,6 +290,48 @@ class A2aJsonRpcControllerTest {
 
         assertThatThrownBy(() -> A2aJsonRpcParamsParser.parseMessageSendParams(request))
                 .isInstanceOf(InvalidParamsError.class);
+    }
+
+    @Test
+    void subscribeThrowingInPublisherSubscribeCompletesEmitterWithError() throws Exception {
+        RequestHandler requestHandler = mock(RequestHandler.class);
+        RejectedExecutionException rejection = new RejectedExecutionException("consumer pool exhausted");
+        Flow.Publisher<StreamingEventKind> publisher = subscriber -> {
+            throw rejection;
+        };
+        when(requestHandler.onSubscribeToTask(any(TaskIdParams.class), any())).thenReturn(publisher);
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
+        String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\""
+                + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
+                + "\",\"params\":{\"id\":\"task-1\",\"tenant\":\"tenant-1\"}}";
+
+        ResponseEntity<?> response = controller.handleJsonRpc(request, servletRequest);
+
+        assertThat(response.getBody()).isInstanceOf(SseEmitter.class);
+        SseEmitter emitter = response.getBody() instanceof SseEmitter sseEmitter
+                ? sseEmitter
+                : throwEmitterTypeMismatch();
+        // The completion callback runs asynchronously on commonPool; wait until the
+        // whenComplete handler has marked the emitter complete (bounded wait).
+        long deadline = System.currentTimeMillis() + 5000;
+        IllegalStateException sendFailure = null;
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                emitter.send(SseEmitter.event().data("probe"));
+                Thread.sleep(20);
+            } catch (IllegalStateException completed) {
+                sendFailure = completed;
+                break;
+            }
+        }
+        assertThat(sendFailure)
+                .as("emitter must be completed with error after synchronous subscribe failure")
+                .isNotNull();
+    }
+
+    private static SseEmitter throwEmitterTypeMismatch() {
+        throw new AssertionError("streaming response body must be an SseEmitter");
     }
 
     private static JsonObject requestWithMetadata(String paramsMetadata, String messageMetadata) {

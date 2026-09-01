@@ -8,8 +8,11 @@ import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
+import redis.clients.jedis.exceptions.JedisException;
+
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
+import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.ListTasksParams;
@@ -27,6 +30,7 @@ import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Redis-backed {@link TaskStore} using the same Redis connection as the
@@ -36,6 +40,10 @@ import java.util.Optional;
  * event-bus processor and the orchestrator all
  * touch the task store concurrently, so the configured runtime Redis implementation
  * must be safe for singleton use.
+ * <p>
+ * Redis driver failures (e.g. connection drops) are translated into
+ * {@link TaskPersistenceException}, so callers only observe the failure contract
+ * declared by {@link TaskStore} and never driver-specific runtime exceptions.
  *
  * @since 0.1.0
  */
@@ -84,17 +92,20 @@ public class RedisTaskStore implements TaskStore {
         // breaks the flow.
         String key = KEY_PREFIX + task.id();
         byte[] data = GSON.toJson(task).getBytes(StandardCharsets.UTF_8);
-        writeContextIndex(task);
-        redisClient.setex(key.getBytes(StandardCharsets.UTF_8), ttlSeconds, data);
-        if (redisClient.exists(CONTEXT_INDEX_READY_KEY)) {
-            redisClient.setex(CONTEXT_INDEX_READY_KEY, ttlSeconds, INDEX_VALUE);
-        }
+        call("save", task.id(), () -> {
+            writeContextIndex(task);
+            redisClient.setex(key.getBytes(StandardCharsets.UTF_8), ttlSeconds, data);
+            if (redisClient.exists(CONTEXT_INDEX_READY_KEY)) {
+                redisClient.setex(CONTEXT_INDEX_READY_KEY, ttlSeconds, INDEX_VALUE);
+            }
+            return null;
+        });
     }
 
     @Override
     public Task get(String taskId) {
         String key = KEY_PREFIX + taskId;
-        byte[] data = redisClient.get(key.getBytes(StandardCharsets.UTF_8));
+        byte[] data = call("get", taskId, () -> redisClient.get(key.getBytes(StandardCharsets.UTF_8)));
         if (data == null) {
             return null;
         }
@@ -104,17 +115,19 @@ public class RedisTaskStore implements TaskStore {
     @Override
     public void delete(String taskId) {
         String taskKey = KEY_PREFIX + taskId;
-        Optional<Task> task = deserialize(taskKey, redisClient.get(taskKey.getBytes(StandardCharsets.UTF_8)));
+        Optional<Task> task = deserialize(taskKey,
+                call("get", taskId, () -> redisClient.get(taskKey.getBytes(StandardCharsets.UTF_8))));
         if (task.isEmpty()) {
-            redisClient.del(taskKey);
+            call("delete", taskId, () -> redisClient.del(taskKey));
             return;
         }
-        redisClient.del(taskKey, contextIndexKey(task.get().contextId(), taskId));
+        call("delete", taskId, () -> redisClient.del(taskKey, contextIndexKey(task.get().contextId(), taskId)));
     }
 
     @Override
     public ListTasksResult list(ListTasksParams params) {
-        List<Task> allFilteredTasks = loadCandidates(params).stream().filter(task -> matches(task, params))
+        List<Task> allFilteredTasks = call("list", null, () -> loadCandidates(params)).stream()
+                .filter(task -> matches(task, params))
                 .sorted(TASK_ORDER).toList();
         int totalSize = allFilteredTasks.size();
         int startIndex = pageStart(allFilteredTasks, PageToken.fromString(params.pageToken()));
@@ -128,6 +141,27 @@ public class RedisTaskStore implements TaskStore {
             nextPageToken = new PageToken(taskTimestamp(lastTask), lastTask.id()).toString();
         }
         return new ListTasksResult(pageTasks, totalSize, pageTasks.size(), nextPageToken);
+    }
+
+    /**
+     * Runs a Redis command, translating driver-level access failures (e.g.
+     * connection drops) into {@link TaskPersistenceException} so callers only
+     * observe the failure contract declared by the {@link TaskStore} interface.
+     *
+     * @param operation the Redis operation name used in the failure message
+     * @param taskId the task the command belongs to; {@code null} for store-wide
+     *        operations such as list
+     * @param command the Redis command to execute
+     * @param <T> the command result type
+     * @return the command result
+     */
+    private <T> T call(String operation, String taskId, Supplier<T> command) {
+        try {
+            return command.get();
+        } catch (JedisException e) {
+            throw new TaskPersistenceException(taskId,
+                    "Redis " + operation + " failed: " + e.getMessage(), e);
+        }
     }
 
     private List<Task> loadCandidates(ListTasksParams params) {

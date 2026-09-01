@@ -6,9 +6,11 @@ package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.AdditionalAnswers.answerVoid;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -463,6 +465,64 @@ class A2AAgentExecutorTest {
     }
 
     @Test
+    void execute_preAcquiredPermit_skipsAcquire_andReleasesOnce() {
+        // Transport handover: the controller already holds the permit, so the
+        // executor must not acquire a second one (which could falsely reject)
+        // but still owns the exactly-once release.
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        // tryAcquire deliberately NOT stubbed to true: any call would fail the test
+        RequestContext context = requestContextWithPreAcquiredPermit("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate)
+                .execute(context, new AgentEmitter(context, queue));
+
+        verify(gate, never()).tryAcquire();
+        verify(orchestrator).query(any());
+        verify(gate, times(1)).release();
+        assertThat(context.getCallContext().getState())
+                .doesNotContainKey(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY);
+    }
+
+    @Test
+    void execute_preAcquiredPermit_listenerStillNotified() {
+        // The quota-occupancy listener must bracket the handed-over permit too,
+        // otherwise listener-backed snapshots would under-report active tasks.
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
+        RequestContext context = requestContextWithPreAcquiredPermit("task-probe", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener)
+                .execute(context, new AgentEmitter(context, queue));
+
+        InOrder inOrder = inOrder(listener, gate, orchestrator);
+        inOrder.verify(listener).onAdmitted("task-probe", "ctx-1");
+        inOrder.verify(orchestrator).query(any());
+        inOrder.verify(gate).release();
+        inOrder.verify(listener).onReleased("task-probe", "ctx-1");
+        verify(gate, never()).tryAcquire();
+    }
+
+    @Test
+    void execute_preAcquiredPermit_onAgentFailure_releasesOnce() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenThrow(new IllegalStateException("agent failed"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        RequestContext context = requestContextWithPreAcquiredPermit("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate)
+                .execute(context, new AgentEmitter(context, queue));
+
+        verify(gate, times(1)).release();
+    }
+
+    @Test
     void execute_admissionAcquired_releasedExactlyOnce_onAgentError() {
         // S-22 quota semantics: an Error (e.g. OOM) escapes the executor
         // unchanged, but the finally block must still release the permit so
@@ -537,6 +597,34 @@ class A2AAgentExecutorTest {
     }
 
     @Test
+    void execute_listenerThrows_releasesPermitAndCompensates() {
+        // Issue #96: onAdmitted runs inside the admission try-finally scope, so
+        // a throwing listener must not leak the quota slot — the permit is
+        // released exactly once and onReleased fires as compensation.
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.tryAcquire()).thenReturn(true);
+        TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
+        doThrow(new IllegalStateException("listener backend down")).when(listener).onAdmitted(any(), any());
+        RequestContext context = requestContext("task-leak", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        // The listener failure propagates as the request failure (SDK error
+        // path), but the permit is returned first.
+        catchThrowable(() -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener)
+                .execute(context, new AgentEmitter(context, queue)));
+
+        InOrder inOrder = inOrder(listener, gate, orchestrator);
+        inOrder.verify(gate).tryAcquire();
+        inOrder.verify(listener).onAdmitted("task-leak", "ctx-1");
+        inOrder.verify(gate).release();
+        inOrder.verify(listener).onReleased("task-leak", "ctx-1");
+        // The agent never ran: execution is aborted before orchestration.
+        verify(orchestrator, never()).query(any());
+    }
+
+    @Test
     void execute_admissionListenerSkipped_whenAdmissionRejected() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
@@ -574,12 +662,25 @@ class A2AAgentExecutorTest {
     }
 
     private static RequestContext requestContext(String taskId, String contextId, boolean isStream) {
+        return requestContext(taskId, contextId, isStream, Map.of());
+    }
+
+    private static RequestContext requestContextWithPreAcquiredPermit(String taskId, String contextId,
+            boolean isStream) {
+        return requestContext(taskId, contextId, isStream,
+                Map.of(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY, Boolean.TRUE));
+    }
+
+    private static RequestContext requestContext(String taskId, String contextId, boolean isStream,
+            Map<String, Object> extraState) {
         RequestContext context = mock(RequestContext.class);
         when(context.getTaskId()).thenReturn(taskId);
         when(context.getContextId()).thenReturn(contextId);
         when(context.getMetadata()).thenReturn(Map.of());
         ServerCallContext callContext = mock(ServerCallContext.class);
-        when(callContext.getState()).thenReturn(new java.util.HashMap<>(Map.of("_a2a_stream", isStream)));
+        Map<String, Object> state = new java.util.HashMap<>(Map.of("_a2a_stream", isStream));
+        state.putAll(extraState);
+        when(callContext.getState()).thenReturn(state);
         when(context.getCallContext()).thenReturn(callContext);
         return context;
     }

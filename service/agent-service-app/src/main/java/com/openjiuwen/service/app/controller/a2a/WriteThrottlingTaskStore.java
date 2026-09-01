@@ -4,7 +4,11 @@
 
 package com.openjiuwen.service.app.controller.a2a;
 
+import com.google.gson.JsonParseException;
+
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
+import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
+import org.a2aproject.sdk.server.tasks.TaskStateProvider;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Task;
@@ -13,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.LongSupplier;
@@ -56,10 +61,17 @@ import java.util.function.LongSupplier;
  * which is acceptable because an unfinished streaming response is re-run by the
  * client anyway; the completed/interrupted
  * result is always durable.
+ * <p>
+ * <b>Queue lifecycle.</b> Implementing {@link TaskStateProvider} lets the SDK's
+ * queue manager ask this store whether a
+ * task is finished, so the per-task {@code MainQueue} is removed from the
+ * manager's map once the task reaches a final
+ * state. Reads are served from the read-through cache first, so this adds at
+ * most one delegate read per finalized task.
  *
  * @since 0.1.0
  */
-public class WriteThrottlingTaskStore implements TaskStore {
+public class WriteThrottlingTaskStore implements TaskStore, TaskStateProvider {
     private static final Logger log = LoggerFactory.getLogger(WriteThrottlingTaskStore.class);
 
     private static final long DEFAULT_MIN_WRITE_INTERVAL_MS = 200L;
@@ -84,6 +96,20 @@ public class WriteThrottlingTaskStore implements TaskStore {
 
     public WriteThrottlingTaskStore(TaskStore delegate) {
         this(delegate, DEFAULT_MIN_WRITE_INTERVAL_MS, System::currentTimeMillis);
+    }
+
+    /**
+     * Creates a throttling store with a configurable coalescing window.
+     *
+     * @param delegate the backing store that receives the durable writes
+     * @param minWriteIntervalMs minimum interval in milliseconds between durable
+     *        writes of non-terminal task snapshots; terminal and interrupted
+     *        states always write through immediately. Values &lt;= 0 disable
+     *        coalescing.
+     * @since 0.1.2
+     */
+    public WriteThrottlingTaskStore(TaskStore delegate, long minWriteIntervalMs) {
+        this(delegate, minWriteIntervalMs, System::currentTimeMillis);
     }
 
     WriteThrottlingTaskStore(TaskStore delegate, long minWriteIntervalMs, LongSupplier clock) {
@@ -151,5 +177,43 @@ public class WriteThrottlingTaskStore implements TaskStore {
             lastWriteMs.put(e.getKey(), clock.getAsLong());
         }
         return delegate.list(params);
+    }
+
+    @Override
+    public boolean isTaskActive(String taskId) {
+        return currentTask(taskId)
+                .map(task -> task.status() == null || task.status().state() == null || !task.status().state().isFinal())
+                .orElse(false);
+    }
+
+    @Override
+    public boolean isTaskFinalized(String taskId) {
+        return currentTask(taskId)
+                .map(task -> task.status() != null && task.status().state() != null
+                        && task.status().state().isFinal())
+                .orElse(false);
+    }
+
+    /**
+     * Resolves the freshest task state: read-through cache first, delegate second.
+     * A delegate read failure answers "unknown" so queue-lifecycle callers keep
+     * their current keep-queue behavior instead of reacting to a transient store
+     * outage.
+     *
+     * @param taskId the task whose freshest snapshot to resolve
+     * @return the freshest known task snapshot, or empty if the task is neither
+     *         cached nor durably stored, or the delegate read failed
+     */
+    private Optional<Task> currentTask(String taskId) {
+        Task cached = latest.get(taskId);
+        if (cached != null) {
+            return Optional.of(cached);
+        }
+        try {
+            return Optional.ofNullable(delegate.get(taskId));
+        } catch (TaskPersistenceException | JsonParseException e) {
+            log.debug("A2A task {} state lookup failed; treating as not finalized", taskId, e);
+            return Optional.empty();
+        }
     }
 }

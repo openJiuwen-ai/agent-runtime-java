@@ -18,10 +18,14 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Capacity tests for the A2A agent execution pool and its coupling with the
@@ -131,6 +135,97 @@ class A2AExecutionResourcesCapacityTest {
                             .isEqualTo(Integer.MAX_VALUE);
                     assertThat(context.getBean(TaskAdmissionGate.class).limit()).isEqualTo(3);
                 });
+    }
+
+    @Test
+    void eventConsumerExecutorScalesPerActiveStream() {
+        contextRunner.run(context -> {
+            A2AExecutionResources resources = context.getBean(A2AExecutionResources.class);
+            Executor executor = resources.eventConsumerExecutor();
+            int streams = 16;
+            CountDownLatch allRunning = new CountDownLatch(streams);
+            CountDownLatch release = new CountDownLatch(1);
+            AtomicInteger active = new AtomicInteger();
+            AtomicInteger peak = new AtomicInteger();
+            for (int i = 0; i < streams; i++) {
+                executor.execute(() -> {
+                    int now = active.incrementAndGet();
+                    peak.accumulateAndGet(now, Math::max);
+                    allRunning.countDown();
+                    try {
+                        release.await(10, TimeUnit.SECONDS);
+                    } catch (InterruptedException ex) {
+                        throw new AssertionError("stream consumer interrupted while awaiting release latch", ex);
+                    } finally {
+                        active.decrementAndGet();
+                    }
+                });
+            }
+            try {
+                assertThat(allRunning.await(10, TimeUnit.SECONDS))
+                        .as("every active stream must own a consumer thread")
+                        .isTrue();
+                assertThat(peak.get())
+                        .as("stream consumers must run concurrently, not on a fixed small pool")
+                        .isEqualTo(streams);
+            } finally {
+                release.countDown();
+            }
+        });
+    }
+
+    @Test
+    void eventConsumerMaxThreadsTrackAgentPoolCapacity() {
+        assumeFalse(VirtualThreadSupport.isSupported());
+        contextRunner.withPropertyValues(AGENT_THREADS + "=300").run(context -> {
+            A2AExecutionResources resources = context.getBean(A2AExecutionResources.class);
+            assertThat(resources.eventConsumerMaxThreads())
+                    .as("consumer cap must cover the full configured agent pool, not just the floor")
+                    .isEqualTo(300);
+        });
+        contextRunner.withPropertyValues(AGENT_THREADS + "=50").run(context -> {
+            A2AExecutionResources resources = context.getBean(A2AExecutionResources.class);
+            assertThat(resources.eventConsumerMaxThreads())
+                    .as("small agent pools must still get the leak-guard floor")
+                    .isEqualTo(256);
+        });
+    }
+
+    @Test
+    void eventConsumerExecutorRejectsBeyondHardCap() {
+        assumeFalse(VirtualThreadSupport.isSupported());
+        contextRunner.run(context -> {
+            A2AExecutionResources resources = context.getBean(A2AExecutionResources.class);
+            Executor executor = resources.eventConsumerExecutor();
+            int cap = resources.eventConsumerMaxThreads();
+            CountDownLatch release = new CountDownLatch(1);
+            List<RejectedExecutionException> rejections = new CopyOnWriteArrayList<>();
+            int submitted = 0;
+            for (; submitted < cap + 8; submitted++) {
+                try {
+                    executor.execute(() -> {
+                        try {
+                            release.await(30, TimeUnit.SECONDS);
+                        } catch (InterruptedException ex) {
+                            throw new AssertionError("stream consumer interrupted while awaiting release latch", ex);
+                        }
+                    });
+                } catch (RejectedExecutionException ex) {
+                    rejections.add(ex);
+                    break;
+                }
+            }
+            try {
+                assertThat(rejections)
+                        .as("submissions beyond the hard cap must be rejected loudly, not queued")
+                        .hasSize(1);
+                assertThat(submitted)
+                        .as("rejection must occur exactly at the cap, threads never exceed it")
+                        .isEqualTo(cap);
+            } finally {
+                release.countDown();
+            }
+        });
     }
 
     private static void assertTasksStartConcurrently(Executor executor) throws InterruptedException {
