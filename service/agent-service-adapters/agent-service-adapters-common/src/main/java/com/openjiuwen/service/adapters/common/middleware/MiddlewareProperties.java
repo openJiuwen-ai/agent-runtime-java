@@ -4,9 +4,16 @@
 
 package com.openjiuwen.service.adapters.common.middleware;
 
+import com.openjiuwen.service.adapters.common.external.ExternalAuditPolicy;
+import com.openjiuwen.service.adapters.common.external.ExternalCallPolicy;
+import com.openjiuwen.service.adapters.common.external.ExternalCircuitBreakerPolicy;
+import com.openjiuwen.service.adapters.common.external.ExternalRetryPolicy;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -24,6 +31,8 @@ public class MiddlewareProperties {
     private CapabilityPlaceholder objectStorage = new CapabilityPlaceholder();
 
     private CapabilityPlaceholder vectorStore = new CapabilityPlaceholder();
+
+    private Memory memory = new Memory();
 
     private Map<String, RedisEndpoint> redis = new HashMap<>();
 
@@ -59,6 +68,14 @@ public class MiddlewareProperties {
         this.vectorStore = vectorStore != null ? vectorStore : new CapabilityPlaceholder();
     }
 
+    public Memory getMemory() {
+        return memory;
+    }
+
+    public void setMemory(Memory memory) {
+        this.memory = memory != null ? memory : new Memory();
+    }
+
     public Map<String, RedisEndpoint> getRedis() {
         return redis;
     }
@@ -69,9 +86,14 @@ public class MiddlewareProperties {
 
     /** Checkpointer configuration. */
     public static class Checkpointer {
+        /** Default state cache TTL: seven days. */
+        public static final long DEFAULT_TTL_SECONDS = 604800L;
+
         private String type = "in_memory";
 
         private String redisRef = "default";
+
+        private long ttlSeconds = DEFAULT_TTL_SECONDS;
 
         public String getType() {
             return type;
@@ -87,6 +109,18 @@ public class MiddlewareProperties {
 
         public void setRedisRef(String redisRef) {
             this.redisRef = redisRef;
+        }
+
+        public long getTtlSeconds() {
+            return ttlSeconds;
+        }
+
+        public void setTtlSeconds(long ttlSeconds) {
+            if (ttlSeconds <= 0) {
+                throw new IllegalArgumentException(
+                        "openjiuwen.service.middleware.checkpointer.ttl-seconds must be " + "greater than 0");
+            }
+            this.ttlSeconds = ttlSeconds;
         }
     }
 
@@ -105,15 +139,27 @@ public class MiddlewareProperties {
 
     /** Redis endpoint connection settings. */
     public static class RedisEndpoint {
-        private String host = "localhost";
+        private String type = "standalone";
+
+        private String host;
 
         private int port = 6379;
+
+        private List<String> nodes = new ArrayList<>();
 
         private int database = 0;
 
         private int timeoutMs = 3000;
 
         private String encryptedPassword = "";
+
+        public String getType() {
+            return type;
+        }
+
+        public void setType(String type) {
+            this.type = type != null ? type : "standalone";
+        }
 
         public String getHost() {
             return host;
@@ -129,6 +175,14 @@ public class MiddlewareProperties {
 
         public void setPort(int port) {
             this.port = port;
+        }
+
+        public List<String> getNodes() {
+            return nodes;
+        }
+
+        public void setNodes(List<String> nodes) {
+            this.nodes = nodes != null ? new ArrayList<>(nodes) : new ArrayList<>();
         }
 
         public int getDatabase() {
@@ -153,6 +207,143 @@ public class MiddlewareProperties {
 
         public void setEncryptedPassword(String encryptedPassword) {
             this.encryptedPassword = encryptedPassword != null ? encryptedPassword : "";
+        }
+    }
+
+    /**
+     * Long-term memory service configuration.
+     *
+     * <p>Implements {@link ExternalCallPolicy} so the governance timeout/retry/circuit/audit
+     * settings map directly into the runtime {@code ExternalCallExecutor}.
+     * {@code enabled=true} exposes a governed runtime {@code MemoryStore} bean; when and how
+     * Agents call search/add/get/delete is the consumer's responsibility.
+     */
+    public static class Memory implements ExternalCallPolicy {
+        private boolean isEnabled = false;
+
+        private String provider = "mem0";
+
+        private String endpoint = "https://api.mem0.ai";
+
+        private String encryptedApiKey = "";
+
+        private boolean shouldUseRequestScopedSession = false;
+
+        private boolean shouldRerank = false;
+
+        private String authHeaderMode = "token";
+
+        private String pathStyle = "v3";
+
+        private int timeoutMs = 3000;
+
+        private ExternalRetryPolicy retry = new ExternalRetryPolicy();
+
+        private ExternalCircuitBreakerPolicy circuitBreaker = new ExternalCircuitBreakerPolicy();
+
+        private ExternalAuditPolicy audit = new ExternalAuditPolicy();
+
+        public boolean isEnabled() {
+            return isEnabled;
+        }
+
+        public void setEnabled(boolean isEnabled) {
+            this.isEnabled = isEnabled;
+        }
+
+        public String getProvider() {
+            return provider;
+        }
+
+        public void setProvider(String provider) {
+            this.provider = provider != null && !provider.isBlank() ? provider : "mem0";
+        }
+
+        public String getEndpoint() {
+            return endpoint;
+        }
+
+        public void setEndpoint(String endpoint) {
+            this.endpoint = endpoint != null && !endpoint.isBlank() ? endpoint : "https://api.mem0.ai";
+        }
+
+        public String getEncryptedApiKey() {
+            return encryptedApiKey;
+        }
+
+        public void setEncryptedApiKey(String encryptedApiKey) {
+            this.encryptedApiKey = encryptedApiKey != null ? encryptedApiKey : "";
+        }
+
+        public boolean isRequestScopedSession() {
+            return shouldUseRequestScopedSession;
+        }
+
+        public void setRequestScopedSession(boolean shouldUseRequestScopedSession) {
+            this.shouldUseRequestScopedSession = shouldUseRequestScopedSession;
+        }
+
+        public boolean isRerank() {
+            return shouldRerank;
+        }
+
+        public void setRerank(boolean shouldRerank) {
+            this.shouldRerank = shouldRerank;
+        }
+
+        public String getAuthHeaderMode() {
+            return authHeaderMode;
+        }
+
+        public void setAuthHeaderMode(String authHeaderMode) {
+            this.authHeaderMode = authHeaderMode != null && !authHeaderMode.isBlank() ? authHeaderMode : "token";
+        }
+
+        public String getPathStyle() {
+            return pathStyle;
+        }
+
+        public void setPathStyle(String pathStyle) {
+            this.pathStyle = pathStyle != null && !pathStyle.isBlank() ? pathStyle : "v3";
+        }
+
+        @Override
+        public int getTimeoutMs() {
+            return timeoutMs;
+        }
+
+        public void setTimeoutMs(int timeoutMs) {
+            if (timeoutMs <= 0) {
+                throw new IllegalArgumentException("memory.timeout-ms must be greater than zero");
+            }
+            this.timeoutMs = timeoutMs;
+        }
+
+        @Override
+        public ExternalRetryPolicy getRetry() {
+            return retry;
+        }
+
+        public void setRetry(ExternalRetryPolicy retry) {
+            this.retry = retry != null ? retry : new ExternalRetryPolicy();
+        }
+
+        @Override
+        public ExternalCircuitBreakerPolicy getCircuitBreaker() {
+            return circuitBreaker;
+        }
+
+        public void setCircuitBreaker(ExternalCircuitBreakerPolicy circuitBreaker) {
+            this.circuitBreaker = circuitBreaker != null ? circuitBreaker : new ExternalCircuitBreakerPolicy();
+        }
+
+        @Override
+        public ExternalAuditPolicy getAudit() {
+            return audit;
+        }
+
+        public void setAudit(ExternalAuditPolicy audit) {
+            this.audit = audit != null ? audit : new ExternalAuditPolicy();
         }
     }
 }

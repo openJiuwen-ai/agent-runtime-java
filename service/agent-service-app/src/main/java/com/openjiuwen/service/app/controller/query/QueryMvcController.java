@@ -11,30 +11,35 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
+import com.openjiuwen.service.spec.security.AuthorizedResource;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -47,6 +52,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class QueryMvcController {
+    private static final Logger log = LoggerFactory.getLogger(QueryMvcController.class);
+
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
 
     private final ObjectProvider<AgentReadiness> readinessProvider;
@@ -54,7 +61,7 @@ public class QueryMvcController {
     private final ObjectMapper objectMapper;
 
     public QueryMvcController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
-        ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
+            ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
         this.orchestratorProvider = orchestratorProvider;
         this.readinessProvider = readinessProvider;
         this.objectMapper = objectMapper;
@@ -71,20 +78,34 @@ public class QueryMvcController {
      * @throws IOException on write errors
      */
     @PostMapping(AgentServicePaths.QUERY_V1)
+    @AuthorizedResource(resource = "query", action = "execute")
     public SseEmitter queryV1(@RequestBody String rawBody, @RequestHeader HttpHeaders headers,
-        HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
+            jakarta.servlet.http.HttpServletRequest servletRequest, jakarta.servlet.http.HttpServletResponse response)
+            throws IOException {
         return handleQuery(rawBody, headers, servletRequest, response);
     }
 
-    SseEmitter handleQuery(String rawBody, HttpHeaders headers, HttpServletRequest servletRequest,
-        HttpServletResponse response) throws IOException {
+    /**
+     * Validates and dispatches a query request for both v1 and legacy paths.
+     *
+     * @param rawBody raw JSON request body
+     * @param headers inbound HTTP headers
+     * @param servletRequest servlet request
+     * @param response servlet response
+     * @return SSE emitter when streaming succeeds, otherwise {@code null}
+     * @throws IOException when writing error or sync JSON responses fails
+     */
+    SseEmitter handleQuery(String rawBody, HttpHeaders headers, jakarta.servlet.http.HttpServletRequest servletRequest,
+            jakarta.servlet.http.HttpServletResponse response) throws IOException {
         QueryRequest request = objectMapper.readValue(rawBody, QueryRequest.class);
         QueryIngressSupport.ValidationResult validation = QueryIngressSupport.validateAndBuild(request, headers);
-        if (!validation.valid()) {
+        if (!validation.isValid()) {
             writeJson(response, validation.errorStatus(), validation.errorBody());
             return null;
         }
         validateAndBuildMetadata(validation.serveRequest(), headers, servletRequest, rawBody);
+        servletRequest.setAttribute(QueryIngressSupport.CONVERSATION_ID_ATTRIBUTE,
+                validation.serveRequest().getConversationId());
         if (!isAgentReady()) {
             writeJson(response, HttpStatus.SERVICE_UNAVAILABLE.value(), QueryIngressSupport.agentNotReady());
             return null;
@@ -103,7 +124,8 @@ public class QueryMvcController {
     }
 
     private SseEmitter streamResponse(ServeOrchestrator orchestrator,
-        com.openjiuwen.service.spec.dto.ServeRequest serveRequest, HttpServletResponse response) {
+            com.openjiuwen.service.spec.dto.ServeRequest serveRequest,
+            jakarta.servlet.http.HttpServletResponse response) throws IOException {
         response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE);
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
         response.setHeader(HttpHeaders.CONNECTION, "keep-alive");
@@ -116,12 +138,18 @@ public class QueryMvcController {
             emitter.complete();
         });
         emitter.onError(error -> cancelled.set(true));
-        CompletableFuture.runAsync(() -> streamToEmitter(orchestrator, serveRequest, emitter, cancelled));
+        try {
+            QuerySsePumpExecutor.execute(() -> streamToEmitter(orchestrator, serveRequest, emitter, cancelled));
+        } catch (RejectedExecutionException ex) {
+            log.warn("SSE pump pool saturated for conversation_id={}", serveRequest.getConversationId());
+            writeJson(response, HttpStatus.SERVICE_UNAVAILABLE.value(), QueryIngressSupport.streamPumpSaturated());
+            return null;
+        }
         return emitter;
     }
 
     private void streamToEmitter(ServeOrchestrator orchestrator,
-        com.openjiuwen.service.spec.dto.ServeRequest serveRequest, SseEmitter emitter, AtomicBoolean cancelled) {
+            com.openjiuwen.service.spec.dto.ServeRequest serveRequest, SseEmitter emitter, AtomicBoolean cancelled) {
         orchestrator.streamQuery(serveRequest, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
@@ -139,7 +167,8 @@ public class QueryMvcController {
             @Override
             public void onError(Throwable error) {
                 if (!isCancelled()) {
-                    emitter.complete();
+                    log.error("Stream query failed for conversation_id={}", serveRequest.getConversationId(), error);
+                    emitter.completeWithError(error);
                 }
             }
 
@@ -162,19 +191,29 @@ public class QueryMvcController {
         return readiness == null || readiness.isAgentLoaded();
     }
 
-    private void writeJson(HttpServletResponse response, int status, Object value) throws IOException {
+    private void writeJson(jakarta.servlet.http.HttpServletResponse response, int status, Object value)
+            throws IOException {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getOutputStream(), value);
     }
 
-    void validateAndBuildMetadata(ServeRequest sr, HttpHeaders headers, HttpServletRequest servletRequest,
-        String rawBody) {
+    /**
+     * Builds request metadata from headers, query parameters, path, and parsed body.
+     *
+     * @param sr serve request to enrich
+     * @param headers inbound HTTP headers
+     * @param servletRequest servlet request for path and query params
+     * @param rawBody raw JSON request body
+     */
+    void validateAndBuildMetadata(ServeRequest sr, HttpHeaders headers,
+            jakarta.servlet.http.HttpServletRequest servletRequest, String rawBody) {
         Map<String, String> queryMap = new LinkedHashMap<>();
         servletRequest.getParameterMap().forEach((k, v) -> queryMap.put(k, v[0]));
         Map<String, Object> bodyMap;
         try {
-            @SuppressWarnings("unchecked") Map<String, Object> parsed = objectMapper.readValue(rawBody, Map.class);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(rawBody, Map.class);
             bodyMap = parsed;
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             // fallback to raw body on parse error
@@ -187,11 +226,15 @@ public class QueryMvcController {
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
-@ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true",
-    matchIfMissing = true)
+@ConditionalOnProperty(name = QueryIngressSupport.LEGACY_PATH_PROPERTY, havingValue = "true", matchIfMissing = true)
 class QueryLegacyMvcController {
     private final QueryMvcController delegate;
 
+    /**
+     * Creates a legacy-path delegate around the v1 query controller.
+     *
+     * @param delegate primary query controller
+     */
     QueryLegacyMvcController(QueryMvcController delegate) {
         this.delegate = delegate;
     }
@@ -207,8 +250,36 @@ class QueryLegacyMvcController {
      * @throws IOException on write errors
      */
     @PostMapping(AgentServicePaths.QUERY_LEGACY)
+    @AuthorizedResource(resource = "query", action = "execute")
     public SseEmitter queryLegacy(@RequestBody String rawBody, @RequestHeader HttpHeaders headers,
-        HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
+            jakarta.servlet.http.HttpServletRequest servletRequest, jakarta.servlet.http.HttpServletResponse response)
+            throws IOException {
         return delegate.handleQuery(rawBody, headers, servletRequest, response);
+    }
+}
+
+@RestControllerAdvice(assignableTypes = {QueryMvcController.class, QueryLegacyMvcController.class})
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+@Order(Ordered.LOWEST_PRECEDENCE)
+class QueryMvcExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(QueryMvcExceptionHandler.class);
+
+    /**
+     * Maps synchronous query execution failures to the stable JSON error contract.
+     *
+     * @param error root runtime failure
+     * @param request servlet request carrying conversation id attribute
+     * @return JSON error response when conversation id is present
+     */
+    @ExceptionHandler(RuntimeException.class)
+    ResponseEntity<Map<String, Object>> handleExecutionFailure(RuntimeException error,
+            jakarta.servlet.http.HttpServletRequest request) {
+        Object attribute = request.getAttribute(QueryIngressSupport.CONVERSATION_ID_ATTRIBUTE);
+        if (!(attribute instanceof String conversationId)) {
+            throw error;
+        }
+        log.error("Synchronous query failed for conversation_id={}", conversationId, error);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).contentType(MediaType.APPLICATION_JSON)
+                .body(QueryIngressSupport.agentExecutionFailed(conversationId));
     }
 }

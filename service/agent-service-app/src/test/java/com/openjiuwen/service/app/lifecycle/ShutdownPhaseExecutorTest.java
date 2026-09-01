@@ -26,6 +26,61 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 class ShutdownPhaseExecutorTest {
     @Test
+    void shutdownHookExceptionDoesNotBlockStop() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        readiness.markAgentLoaded(true);
+
+        AtomicBoolean secondHookRan = new AtomicBoolean(false);
+        AtomicBoolean stopCalled = new AtomicBoolean(false);
+        AgentHandler handler = trackingHandler(stopCalled);
+
+        ShutdownPhaseExecutor executor = new ShutdownPhaseExecutor(new DefaultAgentServiceIdentity("shutdown-test"),
+            new AgentLifecycleHooks(List.of(), List.of(
+                context -> {
+                    throw new IllegalStateException("hook failed");
+                },
+                context -> secondHookRan.set(true)), List.of()), readiness, new ActiveStreamRegistry(),
+            providerOf(handler), new LifecycleProperties());
+
+        executor.run();
+
+        assertThat(secondHookRan.get()).isTrue();
+        assertThat(stopCalled.get()).isTrue();
+        assertThat(readiness.isProcessUp()).isFalse();
+    }
+
+    @Test
+    void handlerStopFailureStillMarksProcessDown() {
+        DefaultAgentReadiness readiness = new DefaultAgentReadiness();
+        readiness.markAgentLoaded(true);
+
+        AgentHandler handler = new AgentHandler() {
+            @Override
+            public com.openjiuwen.service.spec.dto.QueryResponse query(ServeRequest request) {
+                return null;
+            }
+
+            @Override
+            public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
+            }
+
+            @Override
+            public void stop() {
+                throw new IllegalStateException("stop failed");
+            }
+        };
+
+        ShutdownPhaseExecutor executor = new ShutdownPhaseExecutor(new DefaultAgentServiceIdentity("shutdown-test"),
+            new AgentLifecycleHooks(List.of(), List.of(), List.of()), readiness, new ActiveStreamRegistry(),
+            providerOf(handler), new LifecycleProperties());
+
+        executor.run();
+
+        assertThat(readiness.isAgentLoaded()).isFalse();
+        assertThat(readiness.isProcessUp()).isFalse();
+    }
+
+    @Test
     void drainTimeoutStillRunsShutdownHooksAndStop() {
         DefaultAgentReadiness readiness = new DefaultAgentReadiness();
         readiness.markAgentLoaded(true);

@@ -1,0 +1,7 @@
+# Keep tests deterministic by excluding developer-local application-base_local.yml overrides.
+spring:
+  application:
+    name: demo-agent-service
+  config:
+    import:
+      - optional:classpath:application-base.yml

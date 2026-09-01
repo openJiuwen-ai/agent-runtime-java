@@ -5,6 +5,7 @@
 package com.openjiuwen.service.spec.spi;
 
 import com.openjiuwen.service.spec.dto.QueryChunk;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 
 /**
  * Streaming callback for Query execution (pure Java, no Reactor types in spec).
@@ -22,7 +23,8 @@ public interface QueryStreamObserver {
     /**
      * Notifies a stream failure.
      *
-     * @param error the failure cause
+     * @param error the failure cause; adapters may use {@link AgentExecutionException}
+     *              to preserve a stable programmatic error code
      */
     void onError(Throwable error);
 

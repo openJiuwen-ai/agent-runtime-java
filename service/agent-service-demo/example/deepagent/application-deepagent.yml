@@ -1,0 +1,17 @@
+# Minimal DeepAgent demo — real LLM, in-memory checkpoint, task-loop enabled (port 8097).
+server:
+  port: 8097
+
+openjiuwen:
+  service:
+    llm:
+      system-prompt: >
+        You are a helpful DeepAgent assistant. Answer concisely in the user's language.
+        When the user asks you to remember a fact for this conversation, acknowledge it clearly.
+        On follow-up questions in the same conversation, use what was said earlier.
+      temperature: 0.0
+      context-window-limit: 20
+      max-iterations: 5
+    middleware:
+      checkpointer:
+        type: in_memory

@@ -41,11 +41,9 @@ import java.util.concurrent.TimeUnit;
  *
  * @since 2026-06-24
  */
-@SpringBootTest(properties = {
-    "openjiuwen.demo.llm.enabled=true", "openjiuwen.demo.llm.provider=DemoExternalMcpProvider",
-    "openjiuwen.demo.llm.api-key=test-key", "openjiuwen.demo.llm.api-base=mirror://demo-external-mcp-server",
-    "openjiuwen.demo.llm.model-name=test-model", "openjiuwen.demo.llm.auto-discover=false"
-})
+@SpringBootTest(properties = {"openjiuwen.service.llm.provider=DemoExternalMcpProvider",
+        "openjiuwen.service.llm.api-key=test-key", "openjiuwen.service.llm.api-base=mirror://demo-external-mcp-server",
+        "openjiuwen.service.llm.model-name=test-model", "openjiuwen.service.llm.auto-discover=false"})
 @ActiveProfiles("mcp")
 class DemoExternalMcpServerApplicationTest {
     private static final LocalMcpServer MCP_SERVER = LocalMcpServer.start();
@@ -75,13 +73,13 @@ class DemoExternalMcpServerApplicationTest {
     @Test
     @Tag("smoke")
     void demoStartsLocalMcpServerAndRegistersItsTools() throws Exception {
-        List<ToolInfo> toolInfos = Runner.resourceMgr()
-            .getMcpToolInfos(null, "demo-mcp-server", null, null, TagMatchStrategy.ANY, false, false);
+        List<ToolInfo> toolInfos = Runner.resourceMgr().getMcpToolInfos(null, "demo-mcp-server", null, null,
+                TagMatchStrategy.ANY, false, false);
 
         assertThat(toolInfos).extracting(ToolInfo::getName).containsExactly("demo_echo");
 
-        Object tools = Runner.resourceMgr()
-            .getMcpTool("demo_echo", "demo-mcp-server", null, null, TagMatchStrategy.ANY, false);
+        Object tools = Runner.resourceMgr().getMcpTool("demo_echo", "demo-mcp-server", null, null, TagMatchStrategy.ANY,
+                false);
         assertThat(tools).asList().hasSize(1);
         if (!(tools instanceof List<?> toolList)) {
             throw new AssertionError("Expected registered MCP tools");
@@ -97,7 +95,8 @@ class DemoExternalMcpServerApplicationTest {
     private static class LocalMcpServer {
         private static final ObjectMapper MAPPER = new ObjectMapper();
 
-        private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+        private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
+        };
 
         private final HttpServer server;
 
@@ -124,7 +123,7 @@ class DemoExternalMcpServerApplicationTest {
 
         private static ThreadPoolExecutor newServerExecutor() {
             return new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(100),
-                new ThreadPoolExecutor.AbortPolicy());
+                    new ThreadPoolExecutor.AbortPolicy());
         }
 
         private String endpoint() {
@@ -140,15 +139,19 @@ class DemoExternalMcpServerApplicationTest {
             Map<String, Object> request = MAPPER.readValue(exchange.getRequestBody(), MAP_TYPE);
             Object method = request.get("method");
             if ("initialize".equals(method)) {
-                writeJson(exchange, response(request.get("id"),
-                    Map.of("protocolVersion", "2024-11-05", "capabilities", Map.of(), "serverInfo",
-                        Map.of("name", "demo-mcp-server", "version", "1.0.0"))));
+                writeJson(exchange, response(request.get("id"), Map.of("protocolVersion", "2024-11-05", "capabilities",
+                        Map.of(), "serverInfo", Map.of("name", "demo-mcp-server", "version", "1.0.0"))));
+                return;
+            }
+            if ("notifications/initialized".equals(method)) {
+                writeNoContent(exchange);
                 return;
             }
             if ("tools/list".equals(method)) {
-                writeJson(exchange, response(request.get("id"), Map.of("tools", List.of(
-                    Map.of("name", "demo_echo", "description", "Echo from demo MCP server", "inputSchema",
-                        Map.of("type", "object", "properties", Map.of("text", Map.of("type", "string"))))))));
+                writeJson(exchange,
+                        response(request.get("id"), Map.of("tools", List.of(Map.of("name", "demo_echo", "description",
+                                "Echo from demo MCP server", "inputSchema",
+                                Map.of("type", "object", "properties", Map.of("text", Map.of("type", "string"))))))));
                 return;
             }
             if ("tools/call".equals(method)) {
@@ -156,11 +159,11 @@ class DemoExternalMcpServerApplicationTest {
                 Map<String, Object> arguments = asMap(params.get("arguments"));
                 Object text = arguments.getOrDefault("text", "");
                 writeJson(exchange, response(request.get("id"),
-                    Map.of("content", List.of(Map.of("type", "text", "text", "demo_echo:" + text)))));
+                        Map.of("content", List.of(Map.of("type", "text", "text", "demo_echo:" + text)))));
                 return;
             }
             writeJson(exchange, Map.of("jsonrpc", "2.0", "id", request.get("id"), "error",
-                Map.of("code", -32601, "message", "Method not found")));
+                    Map.of("code", -32601, "message", "Method not found")));
         }
 
         private Map<String, Object> response(Object id, Map<String, Object> result) {
@@ -179,6 +182,11 @@ class DemoExternalMcpServerApplicationTest {
             try (OutputStream output = exchange.getResponseBody()) {
                 output.write(body);
             }
+        }
+
+        private void writeNoContent(HttpExchange exchange) throws IOException {
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
         }
     }
 }

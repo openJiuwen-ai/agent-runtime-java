@@ -26,40 +26,39 @@ import java.util.Map;
 public class FoodRecommendInterruptRail extends BaseInterruptRail {
     private static final Gson GSON = new Gson();
 
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
+    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
+    }.getType();
 
     private static final String TOOL_NAME = "food_recommend";
 
-    private static final String DEFAULT_REQUEST = "推荐一道适合团队聚餐的菜";
+    private static final String DEFAULT_REQUEST = "Recommend a dish for a team meal";
 
     public FoodRecommendInterruptRail() {
         super(List.of(TOOL_NAME));
-        ToolCard card = ToolCard.builder()
-            .id(TOOL_NAME)
-            .name(TOOL_NAME)
-            .description("Agent C food recommendation tool that asks the user for confirmation")
-            .inputParams(Map.of("type", "object", "properties",
-                Map.of("request", Map.of("type", "string", "description", "The dining or food recommendation request")),
-                "required", List.of("request")))
-            .build();
+        ToolCard card = ToolCard.builder().id(TOOL_NAME).name(TOOL_NAME)
+                .description("Agent C food recommendation tool that asks the user for confirmation")
+                .inputParams(Map.of("type", "object", "properties",
+                        Map.of("request",
+                                Map.of("type", "string", "description", "The dining or food recommendation request")),
+                        "required", List.of("request")))
+                .build();
         getTools().add(card);
     }
 
     @Override
     protected InterruptDecision resolveInterrupt(AgentCallbackContext ctx, ToolCall toolCall, Object resumeInput) {
         if (resumeInput != null) {
-            return reject("Agent C received confirmation: " + resumeInput + "; food recommendation: " + recommendation(
-                extractRequest(toolCall)));
+            return reject("Agent C received confirmation: " + resumeInput + "; food recommendation: "
+                    + recommendation(extractRequest(toolCall)));
         }
-        var request = InterruptRequest.builder()
-            .message("Agent C 准备根据“" + extractRequest(toolCall) + "”给出餐饮推荐，请确认是否继续")
-            .context(Map.of("_interrupt_kind", "ask_user"))
-            .build();
+        var request = InterruptRequest.builder().message(
+                "Agent C is ready to recommend food for: " + extractRequest(toolCall) + ". Confirm to continue.")
+                .context(Map.of("_interrupt_kind", "ask_user")).build();
         return interrupt(request);
     }
 
     private static String recommendation(String request) {
-        return "根据“" + request + "”，推荐宫保鸡丁，理由是口味接受度高、适合分享，并且适合作为 A2A 餐饮场景的示例答案";
+        return "For '" + request + "', Agent C recommends Kung Pao chicken because it is easy to share.";
     }
 
     private static String extractRequest(ToolCall toolCall) {

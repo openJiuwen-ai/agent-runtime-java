@@ -1,0 +1,12 @@
+# Optional profile: spring.profiles.active=concurrency-mock
+# Enables deterministic mock LLM (fixed delay per model call) without real API credentials.
+
+openjiuwen:
+  service:
+    llm:
+      auto-discover: false
+    demo:
+      concurrency:
+        llm:
+          mode: mock
+          mock-delay-ms: 3000

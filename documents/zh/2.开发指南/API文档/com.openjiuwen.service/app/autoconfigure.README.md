@@ -7,6 +7,10 @@
 | Type | Description |
 | --- | --- |
 | `AgentServiceAutoConfiguration` | 注册基础 Service Bean、Lifecycle、Readiness、Controller component scan。 |
+| `LlmAutoConfiguration` | 注册 `LlmProperties` 和 `LlmConfigResolver`。 |
+| `SecurityAutoConfiguration` | `openjiuwen.service.security.enabled=true` 时注册 TLS 与鉴权子配置。 |
+| `TlsAutoConfiguration` | 绑定 `TlsMaterial`、校验 keystore/truststore、映射 `server.ssl.*`。 |
+| `AuthAutoConfiguration` | 注册 `ResourceAuthorizationAspect`、403 处理器与 Authorizer bootstrap 校验。 |
 | `A2AAutoConfiguration` | 注册 A2A SDK 组件、AgentCard、JSON-RPC、TaskStore、远端 Agent 发现和增强 Orchestrator。 |
 
 ## AgentServiceAutoConfiguration
@@ -55,6 +59,19 @@ public class A2AAutoConfiguration
 | `A2AAgentCardDiscovery` | 启动时发现 `remote-agents`。 |
 | `A2AEnabledServeOrchestrator` | 默认 `ServeOrchestrator`，支持 A2A delegate / resume。 |
 | `RequestHandler` | A2A SDK JSON-RPC request handler。 |
+
+## SecurityAutoConfiguration
+
+```java
+@AutoConfiguration
+@ConditionalOnProperty(prefix = "openjiuwen.service.security", name = "enabled", havingValue = "true")
+@EnableConfigurationProperties(SecurityProperties.class)
+@Import({TlsAutoConfiguration.class, AuthAutoConfiguration.class})
+public class SecurityAutoConfiguration
+```
+
+- **`TlsAutoConfiguration`**：`security.tls.enabled=true` 时加载 `TlsMaterial`、执行 `TlsStartupValidator`、写入 Spring `server.ssl.*`。
+- **`AuthAutoConfiguration`**：`security.auth.enabled=true` 时启用 `@AuthorizedResource` AOP；`FineGrainedAuthorizerBootstrapValidator` 要求恰好一个 `FineGrainedAuthorizer` Bean。
 
 ## 源码路径
 

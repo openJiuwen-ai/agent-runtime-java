@@ -7,7 +7,7 @@ THE OPEN SOURCE SOFTWARE IN THIS PRODUCT IS DISTRIBUTED IN THE HOPE THAT IT WILL
 
 Copyright Notice and License Texts
 
-Software: Jackson 2.21.2
+Software: Jackson 2.21.5
 
 License: Apache License Version 2.0
 Copyright (c) 2007-2025 FasterXML, LLC and contributors
@@ -370,7 +370,7 @@ License: Apache License Version 2.0
 Copyright: VMware, Inc. and Project Reactor contributors
 Please see above for the full Apache License Version 2.0 text.
 
-Software: Spring Boot 4.0.6
+Software: Spring Boot 4.0.7
 
 License: Apache License Version 2.0
 Copyright (c) 2012-2025 VMware, Inc. and contributors

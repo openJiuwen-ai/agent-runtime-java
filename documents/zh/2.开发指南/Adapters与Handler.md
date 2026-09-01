@@ -67,6 +67,7 @@ openjiuwen:
 | `checkpointer.redis-ref` | 引用 `middleware.redis.<name>` 中的端点名 |
 
 `type=redis` 时，`DefaultMiddlewareAdapterRegistrar` 将 Redis 连接写入 Core `RunnerConfig` 的 Checkpointer 配置。
+Redis endpoint 的 `type` 支持 `standalone` 和 `cluster`；未配置时按 `standalone` 处理，以兼容既有 host/port/database 配置。
 
 示例（内存）：
 
@@ -89,12 +90,36 @@ openjiuwen:
         redis-ref: default
       redis:
         default:
+          type: standalone
           host: 127.0.0.1
           port: 6379
           database: 0
           timeout-ms: 3000
           encrypted-password: ""   # 经 CredentialDecryptor 解密；空表示无密码
 ```
+
+示例（Redis Cluster）：
+
+```yaml
+openjiuwen:
+  service:
+    middleware:
+      checkpointer:
+        type: redis
+        redis-ref: cluster
+      redis:
+        cluster:
+          type: cluster
+          nodes:
+            - 10.10.1.11:6379
+            - 10.10.1.12:6379
+          database: 0              # cluster 模式忽略该字段；非 0 也不会导致启动失败
+          timeout-ms: 3000
+          encrypted-password: ""   # 经 CredentialDecryptor 解密；空表示无密码
+```
+
+`standalone` 使用 `host`、`port`、`database`；`cluster` 使用 `nodes`，不会从 `host` / `port` 推导集群节点。
+`database` 是单机兼容配置，cluster 模式下会被忽略，并在非 0 时输出脱敏诊断日志。
 
 Demo：`example/redis/application-redis-checkpointer.yml`，独立模块 `agent-service-demo-redis`。
 
@@ -104,7 +129,10 @@ Demo：`example/redis/application-redis-checkpointer.yml`，独立模块 `agent-
 
 ### 凭证
 
-Redis 密码等敏感字段使用 `encrypted-password`；默认 `PassthroughCredentialDecryptor`（明文透传）。生产环境可 `@Bean CredentialDecryptor` 覆盖。
+Redis 密码、LLM API Key 和 Memory API Key 等敏感字段通过 `CredentialDecryptor` 解密；调用方分别传入
+`CredentialSceneType.REDIS_PASSWORD`、`CredentialSceneType.LLM_API_KEY` 和
+`CredentialSceneType.MEMORY_API_KEY`。默认
+`PassthroughCredentialDecryptor` 明文透传，生产环境可注册自定义 `@Bean CredentialDecryptor` 覆盖。
 
 ## 外部服务 egress（`openjiuwen.service.external`）
 
@@ -166,11 +194,18 @@ openjiuwen:
         enabled: true
         servers:
           - server-id: default
-            service-url: http://localhost:18090
+            service-url: http://127.0.0.1:8321
             sandbox-type: jiuwenbox
 ```
 
 Demo：`example/sandbox/application-sandbox.yml`、独立模块 `agent-service-demo-sandbox`。
+
+## 出站安全（Issue #25）
+
+MCP / Remote / Sandbox 每个 endpoint 可配置 `tls` / `auth` 子树；`tls.ref: global` 复用 `openjiuwen.service.security.tls.*`（与入站 #24 共用前缀）。出站 HTTP 客户端经 `ExternalTlsConfigResolver`、`SslContextFactory` 构建 TLS；鉴权材料经 `ExternalAuthMaterialMerger` 合并内置 bearer/header 与 `ExternalAuthenticator` SPI（SPI 同名 header 覆盖内置）。
+
+- 配置与 E2E：`openjiuwen.service.external.*[].tls` / `auth` — 见 [外部服务 §9](开发与扩展/外部服务.md#9-出站-tls-与鉴权-issue-25)。
+- 入站对称能力：见 [安全加固](开发与扩展/安全加固.md)。
 
 ## 自动装配规则
 
@@ -212,4 +247,4 @@ AgentHandler agentHandler() {
 - [HTTP 对话面](HTTP对话面.md) — Ingress 契约
 - [A2A 开发指导](A2A/开发指导.md) — 进程内 A2A Server 与 Orchestrator 远端委派
 - Core Runner：[agent-core-java · 执行器 Runner](https://gitcode.com/openJiuwen/agent-core-java)（仓内 `documents/zh/2.开发指南/高阶用法/`，版本见 [Agent Core 依赖](Agent Core 依赖.md)）
-- Demo 总览：[agent-service-demo/README.md](../../service/agent-service-demo/README.md)
+- Demo 总览：[agent-service-demo/README.md](../../../service/agent-service-demo/README.md)

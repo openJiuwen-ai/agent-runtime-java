@@ -10,6 +10,7 @@
 | [Adapters 与 Handler](../Adapters与Handler.md) | Handler、中间件、外部 egress | `agent-service-adapters-*` |
 | [生命周期与探针](../生命周期与探针.md) | 探针、lifecycle interrupt、A2A Cancel | `DefaultAgentLifecycleManager`、`A2AAgentExecutor` |
 | [外部服务](外部服务.md) | MCP、A2A Remote、Sandbox 出站配置与验证 | `adapters/agentcore/external` |
+| [安全加固](安全加固.md) | 入站 TLS/mTLS、细粒度鉴权 SPI、出站 TLS/鉴权对称关系 | `spec.security`、`app.security` |
 ## 阅读提示
 
 - 先读 [HTTP 对话面](../HTTP对话面.md) 理解 Ingress 契约，再进入本栏目。

@@ -47,15 +47,15 @@ mvn -pl agent-service-demo -am spring-boot:run
 | 模块                     | 说明                                                      | 文档                                                                                |
 |------------------------|---------------------------------------------------------|-----------------------------------------------------------------------------------|
 | **spec**               | 路径、DTO、`AgentHandler` / `ServeOrchestrator` SPI         | [spec.README](../documents/zh/2.开发指南/API文档/com.openjiuwen.service/spec.README.md) |
-| **adapters-common**    | 中间件（Redis 等）、凭证解密、外部调用 DFX                              | 包内 `package-info`                                                                 |
-| **adapters-agentcore** | `JiuwenCoreAgentHandler`；Checkpointer/MCP/远端/Sandbox 注册 | [Adapters 与 Handler](../documents/zh/2.开发指南/Adapters与Handler.md)                  |
+| **adapters-common**    | Redis/Memory 契约与配置、凭证解密、外部调用 DFX                            | 包内 `package-info`                                                                 |
+| **adapters-agentcore** | `JiuwenCoreAgentHandler`；Checkpointer/Memory/MCP/远端/Sandbox 绑定 | [Adapters 与 Handler](../documents/zh/2.开发指南/Adapters与Handler.md)                  |
 | **app**                | Ingress Controller、默认 Orchestrator、Lifecycle            | [HTTP 对话面](../documents/zh/2.开发指南/HTTP对话面.md)                                     |
 | **demo**               | 最小 Spring Boot 示例                                       | [agent-service-demo/README.md](agent-service-demo/README.md)                      |
 
 ## 与 Agent Core 的关系
 
-执行内核为 **agent-core-java**（独立仓库，版本见 [Agent Core 依赖](../../documents/zh/2.开发指南/Agent Core 依赖.md)）。Service 层通过 `adapters-agentcore` 调用 `Runner`，不重复实现图执行引擎。
+执行内核为 **agent-core-java**（独立仓库，版本见 [Agent Core 依赖](../documents/zh/2.开发指南/Agent Core 依赖.md)）。Service 层通过 `adapters-agentcore` 调用 `Runner`，不重复实现图执行引擎。
 
 ## 版本
 
-与仓库根 `agent-runtime-java` 版本一致（当前 `0.1.0`）。
+与仓库根 `agent-runtime-java` 版本一致（当前 `0.1.1.post1`）。

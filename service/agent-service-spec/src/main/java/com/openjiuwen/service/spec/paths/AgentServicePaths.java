@@ -28,6 +28,9 @@ public final class AgentServicePaths {
     /** Legacy reset conversation path. */
     public static final String RESET_CONVERSATION_LEGACY = "/reset_conversation";
 
+    /** Active task query path (DFX-002). */
+    public static final String CURRENT_ACTIVE_TASKS = "/v1/current_active_tasks";
+
     private AgentServicePaths() {
     }
 }

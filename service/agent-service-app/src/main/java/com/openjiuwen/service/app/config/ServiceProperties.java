@@ -25,5 +25,5 @@ public class ServiceProperties {
     /**
      * Version reported by the Agent Service health probe.
      */
-    private String version = "0.1.0";
+    private String version = "0.1.1.post1";
 }

@@ -4,6 +4,8 @@ Agent Service 对外 **Ingress** HTTP 契约与 Python `AgentApp` 对齐。路�
 
 与 **A2A JSON-RPC** 的关系：两者共用 `ServeOrchestrator` → `AgentHandler`，但路由与协议不同。A2A 详见 [A2A 开发指导](A2A/开发指导.md)。
 
+REST 与 A2A 的完整请求、响应、SSE、`TextPart`/`DataPart` 和中断恢复报文见 [对话接口输入与输出](对话接口输入与输出.md)。
+
 ## 端点一览
 
 ### Query 与健康
@@ -121,6 +123,17 @@ Controller **禁止**绕过 Orchestrator 直连 `Runner`。A2A JSON-RPC 经 `A2A
 
 中间件与外部 egress 配置不在 HTTP 层，见 [Adapters 与 Handler](Adapters与Handler.md)。
 
+### 入站安全（`openjiuwen.service.security`，Issue #24）
+
+默认 **关闭**；开启后 HTTP 对话面分为两层：
+
+| 层 | 配置 | 行为 |
+| --- | --- | --- |
+| **L0 传输** | `security.tls.enabled` | HTTPS / mTLS；映射 Spring `server.ssl.*` |
+| **L1 鉴权** | `security.auth.enabled` | `@AuthorizedResource` + `FineGrainedAuthorizer`；拒绝 **403**（`code=ACCESS_DENIED`） |
+
+`/health` 不受 L1 鉴权影响。租户 Header 进入鉴权链的行为见 [对话接口输入与输出 · 租户 Header 与鉴权链](对话接口输入与输出.md#租户-header-与鉴权链)。完整配置与 demo 见 [安全加固](开发与扩展/安全加固.md)。
+
 ## 示例
 
 ```bash
@@ -155,4 +168,5 @@ curl -s http://localhost:8090/.well-known/agent-card.json
 
 - [架构概述 · Ingress 与 Egress](架构概述.md#4-ingress-与-egress)
 - [开发 Agent Service](开发Agent Service.md) — `application.yml` 装配
+- [安全加固](开发与扩展/安全加固.md) — 入站 TLS/mTLS 与细粒度鉴权
 - [A2A 与平台边界](A2A/平台边界.md)

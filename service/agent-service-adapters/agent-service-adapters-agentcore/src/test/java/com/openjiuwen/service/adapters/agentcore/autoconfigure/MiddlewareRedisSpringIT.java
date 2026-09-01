@@ -16,6 +16,7 @@ import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
+import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 
@@ -54,7 +55,8 @@ class MiddlewareRedisSpringIT {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class,
-                    MiddlewareAdaptersAutoConfiguration.class, AgentCoreAdaptersAutoConfiguration.class))
+                    RedisMiddlewareAutoConfiguration.class, MiddlewareAdaptersAutoConfiguration.class,
+                    AgentCoreAdaptersAutoConfiguration.class))
             .withUserConfiguration(TestAgentHandlerConfiguration.class)
             .withPropertyValues("openjiuwen.service.agent-id=spring-it-agent",
                     "openjiuwen.service.middleware.checkpointer.type=redis",

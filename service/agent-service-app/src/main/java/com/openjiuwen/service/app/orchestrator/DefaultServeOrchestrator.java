@@ -18,11 +18,19 @@ import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CancellationException;
 
 /**
  * Default orchestration: delegates to {@link AgentHandler} with unified error
- * surfacing.
+ * surfacing. Drives the {@link AgentHandler#prepareTask} /
+ * {@link AgentHandler#completeTask} lifecycle hooks around each delegation,
+ * so handlers relying on request-scoped resources behave correctly under any
+ * {@link ServeOrchestrator} implementation.
+ *
+ * <p>Reference implementation only: production wiring currently uses
+ * {@code A2AEnabledServeOrchestrator}, which adds remote-invocation
+ * continuation on top of the same hook protocol.
  *
  * @since 2026-07-03
  */
@@ -41,11 +49,17 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
     @Override
     public QueryResponse query(ServeRequest request) {
         String conversationId = request.getConversationId();
+        Optional<Object> taskToken = Optional.empty();
         try {
+            taskToken = agentHandler.prepareTask(request);
             return agentHandler.query(request);
         } catch (Exception ex) {
             log.error("Query failed for conversation_id={}", conversationId, ex);
             throw ex;
+        } finally {
+            // Empty token means prepareTask acquired nothing (e.g. busy
+            // rejection) — completeTask must not disturb the other task.
+            agentHandler.completeTask(taskToken);
         }
     }
 
@@ -53,7 +67,9 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         String conversationId = request.getConversationId() != null ? request.getConversationId() : "";
         StreamCancellationHandle handle = streamRegistry.register(conversationId);
+        Optional<Object> taskToken = Optional.empty();
         try {
+            taskToken = agentHandler.prepareTask(request);
             agentHandler.streamQuery(request, wrapObserver(observer, handle));
         } catch (CancellationException ex) {
             log.debug("Stream query cancelled for conversation_id={}", conversationId);
@@ -66,6 +82,9 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
             observer.onNext(new QueryChunk("error", errorEvent));
             observer.onError(ex);
         } finally {
+            // Empty token means prepareTask acquired nothing (e.g. busy
+            // rejection) — completeTask must not disturb the other task.
+            agentHandler.completeTask(taskToken);
             streamRegistry.unregister(conversationId, handle);
         }
     }

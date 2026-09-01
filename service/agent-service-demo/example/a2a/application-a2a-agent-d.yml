@@ -1,0 +1,27 @@
+# Agent D (port 18093) - expense compliance and approval WorkflowAgent.
+# Loaded last by A2aAgentDDemoApplication so its values override application-base.yml.
+
+spring:
+  application:
+    name: demo-a2a-agent-d
+
+server:
+  port: 18093
+
+openjiuwen:
+  service:
+    a2a:
+      agent-description: "A2A Agent D - expense compliance WorkflowAgent with policy routing, manual approval, and an LLM final report"
+      is-streaming: true
+      default-input-modes: [ text, text/plain ]
+      default-output-modes: [ text, text/plain ]
+      skills:
+        - id: review_expense
+          name: Expense Compliance Review
+          description: Validate structured expense claims and request manual approval when policy limits are exceeded
+          tags: [ expense, reimbursement, compliance, approval, workflow ]
+          examples:
+            - Review a hotel claim with a nightly rate above company policy
+            - Automatically approve a policy-compliant taxi claim
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]

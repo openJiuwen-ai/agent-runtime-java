@@ -20,6 +20,10 @@
 | `/query` | Servlet MVC legacy | 需要 `openjiuwen.service.query.legacy-path-enabled=true`。 |
 | `/v1/query/reactive` | WebFlux | 需要 `openjiuwen.service.query.webflux.enabled=true`。 |
 
+## 鉴权
+
+`QueryMvcController` / `QueryWebFluxController` 方法标注 `@AuthorizedResource(resource = "query", action = "execute")`。`auth.enabled=true` 且 Authorizer 拒绝时返回 403，body 见 [安全加固](../../../../开发与扩展/安全加固.md#43-403-响应契约)。
+
 ## 调用链
 
 ```text

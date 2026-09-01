@@ -1,0 +1,49 @@
+# Concurrency E2E demo — DeepAgent + Redis checkpoint + A2A skills (port 8096).
+server:
+  port: 8096
+
+openjiuwen:
+  service:
+    llm:
+      system-prompt: >
+        You are a concurrency validation DeepAgent. Follow tool instructions exactly.
+        When the user message starts with "skill_echo:" followed by a token, immediately call
+        skill_echo with argument token equal to the suffix after "skill_echo:" (trimmed).
+        When the user message starts with "lookup:" followed by a key, immediately call
+        concurrent_lookup with argument key equal to the suffix after "lookup:" (trimmed).
+        Do not ask clarifying questions; call the tool first, then summarize the tool result briefly.
+      temperature: 0.0
+      max-iterations: 4
+    middleware:
+      checkpointer:
+        type: redis
+        redis-ref: default
+        ttl-seconds: 604800
+    a2a:
+      agent-description: >
+        Concurrency demo DeepAgent — Redis checkpoint, skill-like tools, multi-session load validation
+      is-streaming: true
+      default-input-modes: [ text, text/plain ]
+      default-output-modes: [ text, text/plain ]
+      skills:
+        - id: skill_echo
+          name: Skill Echo
+          description: Echo a session token through a skill-like tool for concurrent validation
+          tags: [ skill, echo, concurrency, deepagent ]
+          examples:
+            - skill_echo:bench-token-1
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
+        - id: concurrent_lookup
+          name: Concurrent Lookup
+          description: Simulate concurrent skill lookup with optional latency
+          tags: [ skill, lookup, concurrency, deepagent ]
+          examples:
+            - lookup:item-42
+          input-modes: [ text, text/plain ]
+          output-modes: [ text, text/plain ]
+    demo:
+      concurrency:
+        llm:
+          mode: real
+          mock-delay-ms: 3000

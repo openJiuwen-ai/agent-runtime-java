@@ -18,7 +18,7 @@ openjiuwen:
           enabled: ${OPENJIUWEN_SANDBOX_AUDIT_ENABLED:true}
         servers:
           - server-id: ${OPENJIUWEN_SANDBOX_SERVER_ID:default}
-            service-url: ${OPENJIUWEN_SANDBOX_SERVICE_URL:http://localhost:18090}
+            service-url: ${OPENJIUWEN_SANDBOX_SERVICE_URL:http://127.0.0.1:8321}
             sandbox-type: ${OPENJIUWEN_SANDBOX_TYPE:jiuwenbox}
             launcher-type: ${OPENJIUWEN_SANDBOX_LAUNCHER_TYPE:pre_deploy}
             on-stop: ${OPENJIUWEN_SANDBOX_ON_STOP:delete}

@@ -113,14 +113,7 @@ mvn clean test
 mvn -pl agent-service-demo -am spring-boot:run
 ```
 
-默认端口是 `8090`。没有真实大模型配置时，demo 使用 mock handler，返回稳定的 `demo:<message>`。
-
-强制使用 mock：
-
-```bash
-mvn -pl agent-service-demo -am spring-boot:run \
-  "-Dspring-boot.run.arguments=--openjiuwen.demo.llm.enabled=false"
-```
+默认端口是 `8090`。demo 固定使用真实 Core 链路，启动前必须配置 LLM。
 
 ### 4.4 检查健康状态
 
@@ -134,7 +127,7 @@ curl -s http://localhost:8090/health
 {
   "status": "healthy",
   "app": "demo-agent-service",
-  "version": "0.1.0",
+  "version": "0.1.1.post1",
   "process_up": true,
   "agent_loaded": true
 }
@@ -196,12 +189,12 @@ curl -s http://localhost:8090/v1/reset_conversation \
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-app</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1.post1</version>
 </dependency>
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-adapters-agentcore</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1.post1</version>
 </dependency>
 ```
 
@@ -238,7 +231,7 @@ spring:
 
 openjiuwen:
   service:
-    version: 0.1.0
+    version: 0.1.1.post1
     handler: agentcore
     agent-id: my-registered-agent-id
     query:
@@ -297,17 +290,28 @@ class MyAgentConfig {
 
 ## 6. 接入真实大模型
 
-demo 默认会尝试发现 `apiconfig.json`。找到配置后，链路会从 mock 切换为真实 Core 链路：
+demo 默认会尝试发现 `apiconfig.json`，并使用真实 Core 链路：
 
 ```text
-Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> LlmAgent
+Query API -> ServeOrchestrator -> JiuwenCoreAgentHandler -> Runner -> ReActAgent
 ```
 
-配置文件查找顺序：
+`ApiConfigLoader` 的配置文件选择顺序：
 
-1. `openjiuwen.demo.llm.config-file`
+1. `openjiuwen.service.llm.config-file`
 2. `OPENJIUWEN_API_CONFIG`
-3. 从当前工作目录向上查找 `apiconfig.json`
+3. `openjiuwen.service.llm.auto-discover=true` 时，从当前工作目录开始，最多向上查找 6 层
+   `apiconfig.json`
+
+`auto-discover` 只控制第 3 项。显式路径或环境变量路径一旦配置，就必须指向可读普通文件，否则启动失败，不会继续
+自动发现。选定文件后按字段合并，优先级为：
+
+1. 非空的 `openjiuwen.service.llm.*`
+2. `apiconfig.json`
+3. Runtime 默认值
+
+也就是说，“显式路径 > 环境变量路径 > 自动发现”决定读取哪个文件；Spring 配置与文件值之间则是
+“Spring 配置 > 文件值”。
 
 示例：
 

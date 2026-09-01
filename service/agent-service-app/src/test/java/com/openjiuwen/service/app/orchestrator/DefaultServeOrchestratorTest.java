@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.orchestrator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -128,5 +130,121 @@ class DefaultServeOrchestratorTest {
         assertThat((Map<String, Object>) chunks.get(0).getData()).containsEntry("error", "boom");
         assertThat(streamError.get()).isInstanceOf(RuntimeException.class).hasMessage("boom");
         assertThat(completed.get()).isFalse();
+    }
+
+    @Test
+    void queryRoundTripsTaskLifecycleHooks() {
+        Object token = new Object();
+        List<String> events = new ArrayList<>();
+        AgentHandler handler = new AgentHandler() {
+            @Override
+            public Optional<Object> prepareTask(ServeRequest req) {
+                events.add("prepare");
+                return Optional.of(token);
+            }
+
+            @Override
+            public void completeTask(Optional<Object> taskToken) {
+                events.add("complete:" + (taskToken.orElse(null) == token));
+            }
+
+            @Override
+            public QueryResponse query(ServeRequest req) {
+                events.add("query");
+                return new QueryResponse(Map.of("content", "ok"), req.getConversationId());
+            }
+
+            @Override
+            public void streamQuery(ServeRequest req, QueryStreamObserver observer) {
+            }
+        };
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-hooks");
+
+        assertThat(orchestrator.query(request)).isNotNull();
+        assertThat(events).containsExactly("prepare", "query", "complete:true");
+    }
+
+    @Test
+    void streamQueryRoundTripsTaskLifecycleHooks() {
+        Object token = new Object();
+        List<String> events = new ArrayList<>();
+        AgentHandler handler = new AgentHandler() {
+            @Override
+            public Optional<Object> prepareTask(ServeRequest req) {
+                events.add("prepare");
+                return Optional.of(token);
+            }
+
+            @Override
+            public void completeTask(Optional<Object> taskToken) {
+                events.add("complete:" + (taskToken.orElse(null) == token));
+            }
+
+            @Override
+            public QueryResponse query(ServeRequest req) {
+                return null;
+            }
+
+            @Override
+            public void streamQuery(ServeRequest req, QueryStreamObserver observer) {
+                events.add("streamQuery");
+                observer.onComplete();
+            }
+        };
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-stream-hooks");
+
+        orchestrator.streamQuery(request, new QueryStreamObserver() {
+            @Override
+            public void onNext(QueryChunk chunk) {
+            }
+
+            @Override
+            public void onError(Throwable error) {
+            }
+
+            @Override
+            public void onComplete() {
+            }
+        });
+        assertThat(events).containsExactly("prepare", "streamQuery", "complete:true");
+    }
+
+    @Test
+    void prepareTaskRejectionStillCallsCompleteTaskWithEmptyToken() {
+        List<String> events = new ArrayList<>();
+        AgentHandler handler = new AgentHandler() {
+            @Override
+            public Optional<Object> prepareTask(ServeRequest req) {
+                events.add("prepare");
+                throw new IllegalStateException("conversation busy");
+            }
+
+            @Override
+            public void completeTask(Optional<Object> taskToken) {
+                events.add("complete:" + taskToken);
+            }
+
+            @Override
+            public QueryResponse query(ServeRequest req) {
+                events.add("query");
+                return null;
+            }
+
+            @Override
+            public void streamQuery(ServeRequest req, QueryStreamObserver observer) {
+            }
+        };
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-busy");
+
+        assertThatThrownBy(() -> orchestrator.query(request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("conversation busy");
+        assertThat(events).containsExactly("prepare", "complete:Optional.empty");
     }
 }

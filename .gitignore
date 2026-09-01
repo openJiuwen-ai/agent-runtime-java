@@ -1,5 +1,6 @@
 target/
 **/target/
+.mvn/
 
 # flatten-maven-plugin output (regenerated each build; removed on `mvn clean`)
 **/.flattened-pom.xml
@@ -14,6 +15,9 @@ logs/
 !.env.example
 apiconfig.json
 **/application-base_local.yml
+**/application-security_local.yml
+**/application-security-tls_local.yml
+**/example/security/tls/
 # Local copies of *.example.yml templates used for local verification (never commit)
 **/*.local.yml
 config/deploy.properties
@@ -34,3 +38,9 @@ runtime/
 
 .DS_Store
 Thumbs.db
+
+# Integration tests that depend on real services (keep locally, never commit)
+**/JiuwenMemoryIntegrationTest.java
+
+# Test keystore files (generated at runtime by TlsTestCertificates, never commit)
+**/test-keystore.p12
