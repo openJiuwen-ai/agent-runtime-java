@@ -103,11 +103,11 @@ class DemoMcpToolCallEndToEndTest {
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {
-        registry.add("openjiuwen.demo.llm.provider", () -> TEST_PROVIDER);
-        registry.add("openjiuwen.demo.llm.api-key", () -> "test-key");
-        registry.add("openjiuwen.demo.llm.api-base", () -> "mirror://demo-mcp-tool-call");
-        registry.add("openjiuwen.demo.llm.model-name", () -> "test-model");
-        registry.add("openjiuwen.demo.llm.auto-discover", () -> "false");
+        registry.add("openjiuwen.service.llm.provider", () -> TEST_PROVIDER);
+        registry.add("openjiuwen.service.llm.api-key", () -> "test-key");
+        registry.add("openjiuwen.service.llm.api-base", () -> "mirror://demo-mcp-tool-call");
+        registry.add("openjiuwen.service.llm.model-name", () -> "test-model");
+        registry.add("openjiuwen.service.llm.auto-discover", () -> "false");
 
         registry.add("DEMO_MCP_SERVER_ID", () -> "demo-mcp-e2e");
         registry.add("DEMO_MCP_SERVER_NAME", () -> "demo-mcp-e2e-tools");
@@ -136,7 +136,7 @@ class DemoMcpToolCallEndToEndTest {
     @SuppressWarnings("unchecked")
     void mcpToolCallFlowsThroughTheWholePipeline() throws Exception {
         ResponseEntity<String> resp = postQuery(
-            Map.of("message", "请帮我 echo 一下 hello", "conversation_id", CONVERSATION_ID, "stream", false));
+                Map.of("message", "请帮我 echo 一下 hello", "conversation_id", CONVERSATION_ID, "stream", false));
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
@@ -146,11 +146,11 @@ class DemoMcpToolCallEndToEndTest {
         // (1) The agent's ability manager exposed the MCP tool to the model.
         assertThat(TOOL_LISTS_SEEN_BY_MODEL).as("model should receive the MCP tool in its tool list").isNotEmpty();
         assertThat(TOOL_LISTS_SEEN_BY_MODEL.get(0)).as("first tool list handed to the model must contain the MCP tool")
-            .contains(MCP_TOOL_NAME);
+                .contains(MCP_TOOL_NAME);
 
         // (2) The model issued a tool call.
         assertThat(MODEL_TOOL_CALLS_EMITTED.get()).as("model should have emitted at least one tool call")
-            .isGreaterThanOrEqualTo(1);
+                .isGreaterThanOrEqualTo(1);
 
         // (3) The MCP server received the tools/call invocation with the forwarded arguments.
         assertThat(MCP_SERVER.toolCallCount()).as("MCP server should have been invoked").isGreaterThanOrEqualTo(1);
@@ -191,35 +191,30 @@ class DemoMcpToolCallEndToEndTest {
 
         @Override
         public AssistantMessage invoke(Object messages, Object tools, Float temperature, Float topP, String model,
-            Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout, Map<String, Object> kwargs) {
+                Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
+                Map<String, Object> kwargs) {
             TOOL_LISTS_SEEN_BY_MODEL.add(serializeTools(tools));
 
             List<Map<String, Object>> converted = new ArrayList<>(convertMessagesToDict(messages));
             String observedToolResult = converted.stream()
-                .filter(message -> "tool".equals(String.valueOf(message.get("role"))))
-                .map(message -> String.valueOf(message.get("content")))
-                .reduce((first, second) -> second)
-                .orElse(null);
+                    .filter(message -> "tool".equals(String.valueOf(message.get("role"))))
+                    .map(message -> String.valueOf(message.get("content"))).reduce((first, second) -> second)
+                    .orElse(null);
 
             if (observedToolResult != null) {
                 return new AssistantMessage("已调用工具，工具返回: " + observedToolResult);
             }
 
             MODEL_TOOL_CALLS_EMITTED.incrementAndGet();
-            ToolCall toolCall = ToolCall.builder()
-                .id("call-1")
-                .type("function")
-                .name(MCP_TOOL_NAME)
-                .arguments("{\"text\":\"hello\"}")
-                .index(0)
-                .build();
+            ToolCall toolCall = ToolCall.builder().id("call-1").type("function").name(MCP_TOOL_NAME)
+                    .arguments("{\"text\":\"hello\"}").index(0).build();
             return AssistantMessage.builder().role("assistant").content("").toolCalls(List.of(toolCall)).build();
         }
 
         @Override
         public Iterator<AssistantMessageChunk> stream(Object messages, Object tools, Float temperature, Float topP,
-            String model, Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
-            Map<String, Object> kwargs) {
+                String model, Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
+                Map<String, Object> kwargs) {
             return List.<AssistantMessageChunk>of().iterator();
         }
 
@@ -236,21 +231,21 @@ class DemoMcpToolCallEndToEndTest {
 
         @Override
         public ImageGenerationResponse generateImage(List<UserMessage> messages, String model, String size,
-            String negativePrompt, int n, boolean promptExtend, boolean watermark, int seed,
-            Map<String, Object> kwargs) {
+                String negativePrompt, int n, boolean promptExtend, boolean watermark, int seed,
+                Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
 
         @Override
         public AudioGenerationResponse generateSpeech(List<UserMessage> messages, String model, String voice,
-            String languageType, Map<String, Object> kwargs) {
+                String languageType, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
 
         @Override
         public VideoGenerationResponse generateVideo(List<UserMessage> messages, String imgUrl, String audioUrl,
-            String model, String size, String resolution, int duration, boolean promptExtend, boolean watermark,
-            String negativePrompt, Integer seed, Map<String, Object> kwargs) {
+                String model, String size, String resolution, int duration, boolean promptExtend, boolean watermark,
+                String negativePrompt, Integer seed, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
     }
@@ -261,7 +256,8 @@ class DemoMcpToolCallEndToEndTest {
     private static final class LocalMcpServer {
         private static final ObjectMapper MAPPER = new ObjectMapper();
 
-        private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+        private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
+        };
 
         private final HttpServer server;
 
@@ -292,7 +288,7 @@ class DemoMcpToolCallEndToEndTest {
 
         private static ThreadPoolExecutor newServerExecutor() {
             return new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(100),
-                new ThreadPoolExecutor.AbortPolicy());
+                    new ThreadPoolExecutor.AbortPolicy());
         }
 
         private String endpoint() {
@@ -316,15 +312,19 @@ class DemoMcpToolCallEndToEndTest {
             Map<String, Object> request = MAPPER.readValue(exchange.getRequestBody(), MAP_TYPE);
             Object method = request.get("method");
             if ("initialize".equals(method)) {
-                writeJson(exchange, response(request.get("id"),
-                    Map.of("protocolVersion", "2024-11-05", "capabilities", Map.of(), "serverInfo",
-                        Map.of("name", "demo-mcp-server", "version", "1.0.0"))));
+                writeJson(exchange, response(request.get("id"), Map.of("protocolVersion", "2024-11-05", "capabilities",
+                        Map.of(), "serverInfo", Map.of("name", "demo-mcp-server", "version", "1.0.0"))));
+                return;
+            }
+            if ("notifications/initialized".equals(method)) {
+                writeNoContent(exchange);
                 return;
             }
             if ("tools/list".equals(method)) {
-                writeJson(exchange, response(request.get("id"), Map.of("tools", List.of(
-                    Map.of("name", MCP_TOOL_NAME, "description", "Echo from demo MCP server", "inputSchema",
-                        Map.of("type", "object", "properties", Map.of("text", Map.of("type", "string"))))))));
+                writeJson(exchange,
+                        response(request.get("id"), Map.of("tools", List.of(Map.of("name", MCP_TOOL_NAME, "description",
+                                "Echo from demo MCP server", "inputSchema",
+                                Map.of("type", "object", "properties", Map.of("text", Map.of("type", "string"))))))));
                 return;
             }
             if ("tools/call".equals(method)) {
@@ -334,11 +334,11 @@ class DemoMcpToolCallEndToEndTest {
                 toolCallCount.incrementAndGet();
                 lastToolCallText.set(text);
                 writeJson(exchange, response(request.get("id"),
-                    Map.of("content", List.of(Map.of("type", "text", "text", "demo_echo:" + text)))));
+                        Map.of("content", List.of(Map.of("type", "text", "text", "demo_echo:" + text)))));
                 return;
             }
             writeJson(exchange, Map.of("jsonrpc", "2.0", "id", request.get("id"), "error",
-                Map.of("code", -32601, "message", "Method not found")));
+                    Map.of("code", -32601, "message", "Method not found")));
         }
 
         private Map<String, Object> response(Object id, Map<String, Object> result) {
@@ -357,6 +357,11 @@ class DemoMcpToolCallEndToEndTest {
             try (OutputStream output = exchange.getResponseBody()) {
                 output.write(body);
             }
+        }
+
+        private void writeNoContent(HttpExchange exchange) throws IOException {
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
         }
     }
 }

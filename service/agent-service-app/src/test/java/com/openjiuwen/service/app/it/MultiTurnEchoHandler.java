@@ -20,6 +20,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * In-memory stub {@link AgentHandler} for integration tests (no Runner/LLM).
  */
 class MultiTurnEchoHandler implements AgentHandler {
+    static final String SYNC_FAILURE_QUERY = "fail-sync-query";
+
     private final Map<String, List<String>> history = new ConcurrentHashMap<>();
 
     @Override
@@ -36,6 +38,9 @@ class MultiTurnEchoHandler implements AgentHandler {
 
     @Override
     public QueryResponse query(ServeRequest request) {
+        if (SYNC_FAILURE_QUERY.equals(request.lastUserQuery())) {
+            throw new IllegalStateException("sensitive execution detail");
+        }
         String reply = buildReply(request);
         return new QueryResponse(result(request, reply), request.getConversationId());
     }

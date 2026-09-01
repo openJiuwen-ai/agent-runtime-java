@@ -12,13 +12,13 @@
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-app</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1.post1</version>
 </dependency>
 <!-- 执行后端 + 中间件/外部 egress（默认 Agent Core leaf） -->
 <dependency>
     <groupId>com.openjiuwen</groupId>
     <artifactId>agent-service-adapters-agentcore</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1.post1</version>
 </dependency>
 ```
 
@@ -71,7 +71,7 @@ openjiuwen:
 
 ### 方式 C：Demo 模式（直接注入 `LlmAgent`）
 
-参考 `agent-service-demo`：在 `@Bean` 中构造 `JiuwenCoreAgentHandler(LlmAgent, ExternalSvcAdapterRegistrar)`，适合本地 LLM 联调。可通过 `openjiuwen.demo.llm.enabled=false` 切回 mock。
+参考 `agent-service-demo`：通过 `LlmConfigResolver` 解析 `openjiuwen.service.llm`，并在 `@Bean` 中构造 `JiuwenCoreAgentHandler`，适合本地 LLM 联调。
 
 ## 配置分层
 
@@ -82,6 +82,7 @@ openjiuwen:
 | `openjiuwen.service.lifecycle` | [生命周期与探针](生命周期与探针.md) | 启停、fail-fast、shutdown 超时 |
 | `openjiuwen.service.middleware` | [Adapters 与 Handler](Adapters与Handler.md) | Checkpointer、Redis |
 | `openjiuwen.service.external` | [Adapters 与 Handler](Adapters与Handler.md) | MCP、Remote、Sandbox |
+| `openjiuwen.service.security` | [安全加固](开发与扩展/安全加固.md) | 入站 TLS/mTLS、细粒度鉴权（默认关闭） |
 | `openjiuwen.service.a2a` | [A2A 开发指导](A2A/开发指导.md) | Agent Card、TaskStore、远端 Agent 目录 |
 
 ## 推荐 `application.yml`（骨架）
@@ -98,7 +99,7 @@ spring:
 
 openjiuwen:
   service:
-    version: 0.1.0
+    version: 0.1.1.post1
     agent-id: ${AGENT_ID:}          # 方式 B；方式 A/C 可留空
     query:
       enabled: true
@@ -152,7 +153,7 @@ InitHook 支持 `@Order`。
 | 项 | demo | 生产镜像 |
 | --- | --- | --- |
 | Handler | `DemoAgentHandler` 或 `JiuwenCoreAgentHandler(LlmAgent)` | `@Bean` 或 `agent-id` |
-| LLM | `apiconfig.json` / `openjiuwen.demo.llm` | 环境变量 / 配置中心 |
+| LLM | `apiconfig.json` / `openjiuwen.service.llm` | 环境变量 / 配置中心 |
 | 中间件 / 外部 | profile + `example/*` | `middleware` / `external` 配置 |
 | Maven 模块 | `agent-service-demo` | 业务 `*-service` 模块 |
 

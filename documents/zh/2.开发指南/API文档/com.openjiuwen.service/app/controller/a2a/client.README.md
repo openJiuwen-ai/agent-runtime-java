@@ -7,10 +7,7 @@
 | Type | Description |
 | --- | --- |
 | `A2AAgentCardDiscovery` | 按 `openjiuwen.service.a2a.remote-agents` 拉取远端 Agent Card，失败后定时重试。 |
-| `A2ARemoteAgentCardRegistry` | 保存远端 AgentCard、URL 和 timeout。 |
 | `A2ARemoteAgentClient` | 调用远端 Agent 的 sync / streaming client。 |
-| `RemoteInputRequiredException` | 远端 Agent 返回 `INPUT_REQUIRED` 时抛出。 |
-| `RemoteAgentException` | 远端调用异常封装。 |
 
 ## 调用模式
 

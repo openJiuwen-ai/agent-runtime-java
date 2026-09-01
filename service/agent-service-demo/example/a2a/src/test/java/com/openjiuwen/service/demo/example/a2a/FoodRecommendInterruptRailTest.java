@@ -19,18 +19,15 @@ class FoodRecommendInterruptRailTest {
     @Test
     void firstCallRequiresUserConfirmationFromAgentC() {
         TestRail rail = new TestRail();
-        ToolCall call = ToolCall.builder()
-            .name("food_recommend")
-            .arguments("{\"request\":\"推荐一道适合团队午餐的菜\"}")
-            .build();
+        ToolCall call = ToolCall.builder().name("food_recommend")
+                .arguments("{\"request\":\"Recommend a team lunch dish\"}").build();
 
         Object result = rail.resolve(call, null);
 
         assertThat(result).isInstanceOfSatisfying(InterruptResult.class, interruptResult -> {
             assertThat(rail.getTools()).extracting("name").contains("food_recommend");
-            assertThat(interruptResult.getRequest().getMessage()).contains("Agent C")
-                .contains("确认")
-                .contains("推荐一道适合团队午餐的菜");
+            assertThat(interruptResult.getRequest().getMessage()).contains("Agent C").contains("Confirm")
+                    .contains("Recommend a team lunch dish");
             assertThat(interruptResult.getRequest().getContext()).containsEntry("_interrupt_kind", "ask_user");
         });
     }
@@ -38,18 +35,15 @@ class FoodRecommendInterruptRailTest {
     @Test
     void resumeReturnsFoodRecommendationToAgentCModel() {
         TestRail rail = new TestRail();
-        ToolCall call = ToolCall.builder()
-            .name("food_recommend")
-            .arguments("{\"request\":\"推荐适合三人晚餐的菜\"}")
-            .build();
+        ToolCall call = ToolCall.builder().name("food_recommend")
+                .arguments("{\"request\":\"Recommend dinner for three people\"}").build();
 
-        Object result = rail.resolve(call, "同意");
+        Object result = rail.resolve(call, "approved");
 
         assertThat(result).isInstanceOfSatisfying(RejectResult.class,
-            rejectResult -> assertThat(String.valueOf(rejectResult.getToolResult())).contains("Agent C")
-                .contains("同意")
-                .contains("宫保鸡丁")
-                .contains("推荐适合三人晚餐的菜"));
+                rejectResult -> assertThat(String.valueOf(rejectResult.getToolResult())).contains("Agent C")
+                        .contains("approved").contains("Kung Pao chicken")
+                        .contains("Recommend dinner for three people"));
     }
 
     private static final class TestRail extends FoodRecommendInterruptRail {

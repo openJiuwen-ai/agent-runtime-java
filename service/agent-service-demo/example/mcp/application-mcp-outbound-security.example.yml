@@ -1,0 +1,32 @@
+# MCP profile extension: outbound HTTPS + Bearer auth (Issue #25).
+#
+# Prerequisites:
+# 1. Generate or obtain client truststore that trusts the MCP server certificate.
+# 2. Start mock server (optional for local dev):
+#      mvn -pl agent-service-demo/example/outbound-security exec:java \
+#        -Dexec.mainClass=com.openjiuwen.service.demo.example.outboundsecurity.MockOutboundSecureMcpServer \
+#        -Dexec.args="--port=18443 --token=demo-outbound-token"
+# 3. Set env vars and run MCP demo module with this file merged into application-mcp.yml.
+#
+# E2E without full Agent Service:
+#   mvn -pl agent-service-demo/example/outbound-security test
+
+openjiuwen:
+  service:
+    external:
+      mcp:
+        servers:
+          - server-id: ${DEMO_MCP_SERVER_ID:demo-secure-mcp}
+            server-name: ${DEMO_MCP_SERVER_NAME:demo-secure-mcp-tools}
+            server-path: ${DEMO_SECURE_MCP_SERVER_PATH:https://127.0.0.1:18443/mcp}
+            client-type: ${DEMO_MCP_CLIENT_TYPE:streamable-http}
+            tls:
+              enabled: true
+              ref: inline
+              verify-hostname: false
+              trust-store: ${DEMO_OUTBOUND_TRUST_STORE:file:/path/to/client-trust.p12}
+              trust-store-password: ${DEMO_OUTBOUND_TRUST_STORE_PASSWORD}
+              trust-store-type: PKCS12
+            auth:
+              type: bearer
+              token: ${DEMO_OUTBOUND_MCP_TOKEN:demo-outbound-token}

@@ -100,6 +100,42 @@ class ResetConversationMvcIntegrationTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void resetUnknownConversationIdReturnsOk() throws Exception {
+        ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
+            Map.of("conversation_id", "never-queried-c1"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
+        assertThat(json).containsEntry("status", "ok");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void resetVeryLongConversationIdReturnsOk() throws Exception {
+        String conversationId = "r".repeat(1001);
+        ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
+            Map.of("conversation_id", conversationId));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
+        assertThat(json).containsEntry("status", "ok");
+        assertThat(json.get("message")).asString().contains(conversationId);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void resetSpecialCharacterConversationIdReturnsOk() throws Exception {
+        String conversationId = "conv id/with?special=chars";
+        ResponseEntity<String> response = postJson(AgentServicePaths.RESET_CONVERSATION_V1,
+            Map.of("conversation_id", conversationId));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
+        assertThat(json).containsEntry("status", "ok");
+    }
+
+    @Test
     @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
     void resetReturns503WhenAgentNotReady() {
         readiness.markShuttingDown();
@@ -115,6 +151,10 @@ class ResetConversationMvcIntegrationTest {
     }
 
     private ResponseEntity<String> postJson(String path, Map<String, Object> body) {
+        return postJson(rest, path, body);
+    }
+
+    private static ResponseEntity<String> postJson(TestRestTemplate rest, String path, Map<String, Object> body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         return rest.postForEntity(path, new HttpEntity<>(body, headers), String.class);

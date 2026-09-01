@@ -1,0 +1,60 @@
+# Issue #25 outbound TLS/auth YAML examples (MCP + Sandbox).
+#
+# This file is documentation-only. TLS material is generated at runtime by the demo
+# (OutboundTlsMaterialGenerator) and must NOT be committed.
+#
+# For a runnable E2E without Spring Boot:
+#   mvn -pl agent-service-demo/example/outbound-security test
+#
+# MCP client demo:
+#   mvn -pl agent-service-demo/example/outbound-security exec:java \
+#     -Dexec.mainClass=com.openjiuwen.service.demo.example.outboundsecurity.OutboundSecurityMcpClientExample
+#
+# Sandbox client demo:
+#   mvn -pl agent-service-demo/example/outbound-security exec:java \
+#     -Dexec.mainClass=com.openjiuwen.service.demo.example.outboundsecurity.OutboundSecuritySandboxClientExample
+#
+# Profile cross-references:
+#   example/mcp/application-mcp-outbound-security.example.yml
+#   example/sandbox/application-sandbox-outbound-security.example.yml
+
+openjiuwen:
+  service:
+    external:
+      mcp:
+        timeout-ms: 30000
+        retry-tool-calls: false
+        servers:
+          - server-id: demo-secure-mcp
+            server-name: demo-secure-mcp-tools
+            server-path: ${DEMO_SECURE_MCP_SERVER_PATH:https://127.0.0.1:18443/mcp}
+            client-type: streamable-http
+            tls:
+              enabled: true
+              ref: inline
+              verify-hostname: false
+              trust-store: ${DEMO_OUTBOUND_TRUST_STORE:file:/path/to/client-trust.p12}
+              trust-store-password: ${DEMO_OUTBOUND_TRUST_STORE_PASSWORD}
+              trust-store-type: PKCS12
+            auth:
+              type: bearer
+              token: ${DEMO_OUTBOUND_MCP_TOKEN:demo-outbound-token}
+      sandbox:
+        enabled: true
+        timeout-ms: 5000
+        servers:
+          - server-id: demo-secure-sandbox
+            service-url: ${DEMO_SECURE_SANDBOX_SERVICE_URL:https://127.0.0.1:18490}
+            sandbox-type: jiuwenbox
+            launcher-type: pre_deploy
+            root-path: .
+            tls:
+              enabled: true
+              ref: inline
+              verify-hostname: false
+              trust-store: ${DEMO_OUTBOUND_TRUST_STORE:file:/path/to/client-trust.p12}
+              trust-store-password: ${DEMO_OUTBOUND_TRUST_STORE_PASSWORD}
+              trust-store-type: PKCS12
+            auth:
+              type: bearer
+              token: ${DEMO_OUTBOUND_SANDBOX_TOKEN:demo-outbound-token}

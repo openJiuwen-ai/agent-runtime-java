@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: demo-deepagent-service
+  config:
+    import:
+      - optional:classpath:application-base.yml
+      - optional:classpath:application-base_local.yml
+      - optional:classpath:application-deepagent.yml

@@ -52,9 +52,41 @@ public class A2AProperties {
 
     private String jsonRpcPath = "/a2a";
 
-    private String agentCardPath = "/a2a/.well-known/agent-card.json";
-
     private int taskCompletionTimeoutSeconds = 300;
+
+    /**
+     * Minimum interval in milliseconds between durable writes of non-terminal
+     * A2A task snapshots on a Redis-backed task store. Terminal and interrupted
+     * (e.g. {@code INPUT_REQUIRED}) states always write through immediately
+     * regardless of this value, and in-process reads always see the freshest
+     * state. Larger windows reduce the single-threaded event processor's Redis
+     * write load at the cost of staler cross-instance task snapshots. Values
+     * &lt;= 0 disable coalescing.
+     *
+     * @since 0.1.2
+     */
+    private long taskStoreWriteThrottleMs = 200L;
+
+    /**
+     * A2A agent execution pool size. Values <= 0 mean auto-sizing
+     * ({@code max(32, availableProcessors * 8)}), matching the SSE pump
+     * executor baseline for I/O-bound agent workloads. The admission
+     * guard rejects startup when the task admission limit exceeds this
+     * capacity.
+     */
+    private int agentThreads = 0;
+
+    private RemoteInvocationProperties remoteInvocation = new RemoteInvocationProperties();
+
+    /** Runtime-level bounded remote invocation configuration. */
+    @Data
+    public static class RemoteInvocationProperties {
+        private int maxConcurrency = 16;
+
+        private int maxQueueSize = 256;
+
+        private long queueTimeoutSeconds = 30L;
+    }
 
     /**
      * Skill definition for the AgentCard.
@@ -86,5 +118,7 @@ public class A2AProperties {
         private String url;
 
         private int timeoutSeconds = 300;
+
+        private boolean isStreaming = false;
     }
 }

@@ -14,10 +14,23 @@ openjiuwen:
       checkpointer:
         type: redis
         redis-ref: default
+        ttl-seconds: 604800
       redis:
         default:
+          type: standalone
           host: 127.0.0.1
           port: 6379
           database: 0
           timeout-ms: 3000
           encrypted-password: ""
+
+        # Redis Cluster example:
+        #
+        # cluster:
+        #   type: cluster
+        #   nodes:
+        #     - 10.10.1.11:6379
+        #     - 10.10.1.12:6379
+        #   database: 0 # ignored in cluster mode
+        #   timeout-ms: 3000
+        #   encrypted-password: ""

@@ -17,6 +17,18 @@
 - Controller 只负责协议解析、校验和响应格式。
 - 业务执行必须经 `ServeOrchestrator`。
 - Controller 不直接调用 Core `Runner`。
+- 启用 `openjiuwen.service.security.auth.enabled=true` 时，标注 `@AuthorizedResource` 的端点经 `FineGrainedAuthorizer` 鉴权；拒绝返回 **403**（`code=ACCESS_DENIED`）。`/health` 不受鉴权影响。
+
+## 鉴权 resource / action 一览
+
+| 子包 | 端点 | resource | action |
+| --- | --- | --- | --- |
+| `query` | Query REST | `query` | `execute` |
+| `reset` | reset conversation | `session` | `reset` |
+| `a2a` | JSON-RPC / Agent Card / Push Callback | `a2a` / `agent-card` / `a2a-push-callback` | `rpc` / `read` / `receive` |
+| `probe` | `/health` | — | 无鉴权 |
+
+详见 [安全加固](../../../开发与扩展/安全加固.md)。
 
 ## 源码路径
 

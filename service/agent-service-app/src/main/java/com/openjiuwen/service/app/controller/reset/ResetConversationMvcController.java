@@ -10,6 +10,7 @@ import com.openjiuwen.service.spec.dto.ResetConversationRequest;
 import com.openjiuwen.service.spec.dto.ResetConversationResponse;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
+import com.openjiuwen.service.spec.security.AuthorizedResource;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -27,8 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 
 /**
- * MVC stack reset conversation controller ({@code POST /v1/reset_conversation}
- * and legacy path).
+ * MVC stack reset conversation controller ({@code POST /v1/reset_conversation}).
  *
  * @since 0.1.0
  */
@@ -58,28 +58,13 @@ public class ResetConversationMvcController {
      * @throws IOException IOException
      */
     @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_V1, produces = MediaType.APPLICATION_JSON_VALUE)
+    @AuthorizedResource(resource = "session", action = "reset")
     public ResetConversationResponse resetV1(@RequestBody ResetConversationRequest request,
         HttpServletResponse response) throws IOException {
         return handleReset(request, response);
     }
 
-    /**
-     * Resets conversation state on the legacy path.
-     *
-     * @param request the reset request body
-     * @param response the servlet response
-     * @return the reset response, or {@code null} when an error body was written
-     * @throws IOException IOException
-     */
-    @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_LEGACY, produces = MediaType.APPLICATION_JSON_VALUE)
-    @ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true",
-        matchIfMissing = true)
-    public ResetConversationResponse resetLegacy(@RequestBody ResetConversationRequest request,
-        HttpServletResponse response) throws IOException {
-        return handleReset(request, response);
-    }
-
-    private ResetConversationResponse handleReset(ResetConversationRequest request, HttpServletResponse response)
+    ResetConversationResponse handleReset(ResetConversationRequest request, HttpServletResponse response)
         throws IOException {
         ResetIngressSupport.ValidationResult validation = ResetIngressSupport.validate(request);
         if (!validation.valid()) {
@@ -108,5 +93,33 @@ public class ResetConversationMvcController {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getOutputStream(), value);
+    }
+}
+
+@RestController
+@ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+@ConditionalOnProperty(prefix = "openjiuwen.service.query", name = "legacy-path-enabled", havingValue = "true",
+    matchIfMissing = true)
+class ResetLegacyMvcController {
+    private final ResetConversationMvcController delegate;
+
+    ResetLegacyMvcController(ResetConversationMvcController delegate) {
+        this.delegate = delegate;
+    }
+
+    /**
+     * Resets conversation state on the legacy path.
+     *
+     * @param request the reset request body
+     * @param response the servlet response
+     * @return the reset response, or {@code null} when an error body was written
+     * @throws IOException IOException
+     */
+    @PostMapping(value = AgentServicePaths.RESET_CONVERSATION_LEGACY, produces = MediaType.APPLICATION_JSON_VALUE)
+    @AuthorizedResource(resource = "session", action = "reset")
+    public ResetConversationResponse resetLegacy(@RequestBody ResetConversationRequest request,
+        HttpServletResponse response) throws IOException {
+        return delegate.handleReset(request, response);
     }
 }

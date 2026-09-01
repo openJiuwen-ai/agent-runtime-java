@@ -4,22 +4,31 @@
 
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
+import com.openjiuwen.core.common.exception.BaseError;
 import com.openjiuwen.core.common.schema.BaseCard;
+import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
+import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.session.stream.TraceSchema;
+import com.openjiuwen.core.singleagent.ControllerAgent;
+import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
+import com.openjiuwen.core.workflow.WorkflowOutput;
+import com.openjiuwen.harness.deep_agent.DeepAgent;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
@@ -28,13 +37,15 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -63,9 +74,17 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static final String INPUT_TENANT_ID = "tenant_id";
 
+    private static final String REMOTE_TOOL_RESULTS = "runtime.remoteToolResults";
+
     private static final String DEFAULT_AGENT_SESSION_ID = "default_session";
 
     private static final String SYNTHETIC_AGENT_ID_PREFIX = "service-agentcore:";
+
+    private static final List<String> INVOKE_CONTENT_KEYS = List.of("output", "content", "response", "result", "data",
+            "payload");
+
+    private static final List<String> STREAM_CONTENT_KEYS = List.of("content", "delta", "output", "response", "result",
+            "data", "payload");
 
     private final Object agent;
 
@@ -110,12 +129,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param externalSvcAdapterRegistrar the external service adapter registrar
      */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
-        ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
+            ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
         this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
-            ? externalSvcAdapterRegistrar
-            : ExternalSvcAdapterRegistrar.noop();
+                ? externalSvcAdapterRegistrar
+                : ExternalSvcAdapterRegistrar.noop();
     }
 
     /**
@@ -125,6 +144,36 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      */
     protected Object getAgent() {
         return agent;
+    }
+
+    /**
+     * Executes the agent in streaming mode, producing an iterator of output chunks.
+     *
+     * <p>Subclasses may override to swap the agent instance used for a single task,
+     * enabling per-task agent isolation.
+     *
+     * @param inputs the runner inputs
+     * @param session the runner session
+     * @param streamModes the requested stream modes
+     * @return the output iterator
+     */
+    protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
+            List<StreamMode> streamModes) {
+        return Runner.runAgentStreaming(agent, inputs, session, null, streamModes);
+    }
+
+    /**
+     * Executes the agent synchronously, returning the raw result.
+     *
+     * <p>Subclasses may override to swap the agent instance used for a single task,
+     * enabling per-task agent isolation.
+     *
+     * @param inputs the runner inputs
+     * @param session the runner session
+     * @return the raw agent result
+     */
+    protected Object executeAgent(Map<String, Object> inputs, Object session) {
+        return Runner.runAgent(agent, inputs, session, null);
     }
 
     @Override
@@ -172,6 +221,27 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         log.info("Releasing AgentCore session for conversation_id={}", conversationId);
         Runner.release(conversationId);
+        contextEngine(resolveAgent()).ifPresent(engine -> engine.clearContextBySession(conversationId));
+    }
+
+    private Object resolveAgent() {
+        return agent instanceof String agentId ? Runner.resourceMgr().getAgent(agentId) : agent;
+    }
+
+    private static Optional<ContextEngine> contextEngine(Object resolvedAgent) {
+        if (resolvedAgent instanceof ReActAgent reactAgent) {
+            return Optional.ofNullable(reactAgent.getContextEngine());
+        }
+        if (resolvedAgent instanceof ControllerAgent controllerAgent) {
+            return Optional.ofNullable(controllerAgent.getContextEngine());
+        }
+        if (resolvedAgent instanceof DeepAgent deepAgent) {
+            return contextEngine(deepAgent.getAgent());
+        }
+        if (resolvedAgent instanceof com.openjiuwen.core.singleagent.legacy.BaseAgent legacyAgent) {
+            return Optional.ofNullable(legacyAgent.getContextEngine());
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -179,11 +249,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         String convId = request.getConversationId();
         String query = request.lastUserQuery();
         log.info("JiuwenCoreAgentHandler streamQuery convId={} textLen={} msgCount={}", convId,
-            query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
+                query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
         try {
+            List<Map<String, Object>> interrupts = new ArrayList<>();
             List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
-            Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request),
-                null, streamModes);
+            Iterator<Object> source = executeAgentStreaming(buildInputs(request), runnerSession(request),
+                    streamModes);
             while (!observer.isCancelled() && source.hasNext()) {
                 if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
                     break;
@@ -191,36 +262,76 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 Object raw = source.next();
                 Object normalized = normalizeChunk(raw);
                 String chunkType = mapToQueryChunkType(normalized);
-                observer.onNext(new QueryChunk(chunkType, normalized));
+                if (QueryChunk.TYPE_ERROR.equals(chunkType)) {
+                    observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, normalized));
+                    observer.onError(toStreamException(normalized));
+                    return;
+                }
+                if (QueryChunk.TYPE_INTERRUPT.equals(chunkType) && normalized instanceof Map<?, ?> map) {
+                    interrupts.add(copyStringMap(map));
+                } else {
+                    observer.onNext(new QueryChunk(chunkType, normalized));
+                }
+            }
+            if (!observer.isCancelled() && !interrupts.isEmpty()) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, normalizeInterrupts(interrupts)));
             }
             observer.onComplete();
         } catch (CancellationException ex) {
             observer.onComplete();
         } catch (Exception ex) {
-            observer.onNext(new QueryChunk("error", errorEvent(ex)));
-            observer.onError(ex);
+            RuntimeException failure = ex instanceof RuntimeException runtimeException
+                    ? structuredFailure(runtimeException)
+                    : new RuntimeException(ex);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, errorEvent(failure)));
+            observer.onError(failure);
         }
     }
 
     @Override
     public QueryResponse query(ServeRequest request) {
-        if (supportsInvoke(agent)) {
-            Object rawResult = Runner.runAgent(agent, buildInputs(request), runnerSession(request), null);
-            return toQueryResponse(rawResult, request.getConversationId());
+        FutureTask<QueryResponse> execution = new FutureTask<>(() -> {
+            if (supportsInvoke(agent)) {
+                Object rawResult = executeAgent(buildInputs(request), runnerSession(request));
+                return toQueryResponse(rawResult, request.getConversationId());
+            }
+            return queryViaStreaming(request);
+        });
+        execution.run();
+        try {
+            return execution.get();
+        } catch (InterruptedException failure) {
+            throw new IllegalStateException("Agent-core query interrupted", failure);
+        } catch (ExecutionException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) {
+                throw structuredFailure(runtimeFailure);
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("Unexpected agent-core query failure", cause);
         }
-        return queryViaStreaming(request);
     }
 
     private QueryResponse queryViaStreaming(ServeRequest request) {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
+        List<Map<String, Object>> interrupts = new ArrayList<>();
         List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
-        Iterator<Object> source = Runner.runAgentStreaming(agent, buildInputs(request), runnerSession(request), null,
-            streamModes);
+        Iterator<Object> source = executeAgentStreaming(buildInputs(request), runnerSession(request),
+                streamModes);
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
             lastPayload = payload;
-            appendContent(payload, content);
+            if (isCoreInteraction(payload) && payload instanceof Map<?, ?> map) {
+                interrupts.add(copyStringMap(map));
+            } else {
+                appendContent(payload, content);
+            }
+        }
+        if (!interrupts.isEmpty()) {
+            return buildInterruptQueryResponse(normalizeInterrupts(interrupts), request.getConversationId());
         }
         return buildQueryResponse(lastPayload, content, request.getConversationId());
     }
@@ -236,77 +347,81 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
         if (rawResult instanceof Map<?, ?> rawMap) {
-            @SuppressWarnings("unchecked") Map<String, Object> map = (Map<String, Object>) rawMap;
-            QueryResponse result1 = getQueryResponse(conversationId, map, result);
-            if (result1 != null) {
-                return result1;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) rawMap;
+            Optional<QueryResponse> result1 = getQueryResponse(conversationId, map);
+            if (result1.isPresent()) {
+                return result1.get();
             }
-            Object content = firstNonNull(map.get("output"), map.get("content"), map.get("response")).orElse(null);
-            result.put("content", stringify(content));
+            String content = extractContent(map, INVOKE_CONTENT_KEYS, true).orElse("");
+            result.put("content", content);
             return new QueryResponse(result, conversationId);
         }
         if (rawResult instanceof ControllerOutput controllerOutput) {
+            if (!(controllerOutput.getData() instanceof List<?>)) {
+                return toQueryResponse(controllerOutput.getData(), conversationId);
+            }
             return buildQueryResponseFromControllerOutput(controllerOutput, conversationId);
+        }
+        if (rawResult instanceof WorkflowOutput workflowOutput) {
+            return toQueryResponse(workflowOutput.getResult(), conversationId);
         }
         result.put("content", stringify(rawResult));
         return new QueryResponse(result, conversationId);
     }
 
-    private static QueryResponse getQueryResponse(String conversationId, Map<String, Object> map,
-        Map<String, Object> result) {
+    private static Optional<QueryResponse> getQueryResponse(String conversationId, Map<String, Object> map) {
         if ("interrupt".equals(map.get("result_type")) && map.get("state") instanceof List<?> states) {
-            Object lastInterrupt = null;
+            List<Map<String, Object>> interrupts = new ArrayList<>();
             for (Object state : states) {
-                if (state instanceof OutputSchema outputSchema) {
-                    lastInterrupt = normalizeChunk(outputSchema);
+                Object normalized = normalizeChunk(state);
+                if (isCoreInteraction(normalized) && normalized instanceof Map<?, ?> interrupt) {
+                    interrupts.add(copyStringMap(interrupt));
                 }
             }
-            QueryResponse result1 = getQueryResponse(conversationId, lastInterrupt, result);
-            if (result1 != null) {
-                return result1;
+            if (!interrupts.isEmpty()) {
+                return Optional.of(buildInterruptQueryResponse(normalizeInterrupts(interrupts), conversationId));
             }
         }
-        return null;
-    }
-
-    private static QueryResponse getQueryResponse(String conversationId, Object lastInterrupt,
-        Map<String, Object> result) {
-        if (lastInterrupt instanceof Map<?, ?> interruptMap) {
-            @SuppressWarnings("unchecked") Map<String, Object> interruptData = (Map<String, Object>) interruptMap;
-            if (INTERACTION_TYPE.equals(interruptData.get("type"))) {
-                result.put("_interrupt", interruptData);
-                result.put("content", interruptData.getOrDefault("message", ""));
-                return new QueryResponse(result, conversationId);
-            }
-        }
-        return null;
+        return Optional.empty();
     }
 
     private static QueryResponse buildQueryResponseFromControllerOutput(ControllerOutput controllerOutput,
-        String conversationId) {
+            String conversationId) {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
         Object data = controllerOutput.getData();
+        List<Map<String, Object>> interrupts = new ArrayList<>();
         if (data instanceof List<?> items) {
             for (Object item : items) {
                 Object payload = normalizeChunk(item);
                 lastPayload = payload;
-                appendContent(payload, content);
+                if (isCoreInteraction(payload) && payload instanceof Map<?, ?> map) {
+                    interrupts.add(copyStringMap(map));
+                } else {
+                    appendContent(payload, content);
+                }
             }
         }
+        if (!interrupts.isEmpty()) {
+            return buildInterruptQueryResponse(normalizeInterrupts(interrupts), conversationId);
+        }
         return buildQueryResponse(lastPayload, content, conversationId);
+    }
+
+    private static QueryResponse buildInterruptQueryResponse(Map<String, Object> payload, String conversationId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("role", "assistant");
+        Map<String, Object> interrupt = new LinkedHashMap<>(payload);
+        result.put("_interrupt", interrupt);
+        result.put("content", interrupt.getOrDefault("message", ""));
+        return new QueryResponse(result, conversationId);
     }
 
     private static QueryResponse buildQueryResponse(Object lastPayload, StringBuilder content, String conversationId) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("role", "assistant");
-        if (lastPayload instanceof Map<?, ?> raw && INTERACTION_TYPE.equals(raw.get("type"))) {
-            @SuppressWarnings("unchecked") Map<String, Object> interrupt = (Map<String, Object>) raw;
-            result.put("_interrupt", interrupt);
-            result.put("content", interrupt.getOrDefault("message", ""));
-        } else {
-            result.put("content", !content.isEmpty() ? content.toString() : stringify(lastPayload));
-        }
+        result.put("content", !content.isEmpty() ? content.toString() : stringify(lastPayload));
         return new QueryResponse(result, conversationId);
     }
 
@@ -339,11 +454,46 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (request.getTenantId() != null) {
             inputs.put(INPUT_TENANT_ID, request.getTenantId());
         }
+        Object remoteToolResults = request.getMetadata().get(REMOTE_TOOL_RESULTS);
+        if (remoteToolResults instanceof Map<?, ?> resultMap) {
+            InteractiveInput interactiveInput = new InteractiveInput();
+            interactiveInput.setUserInputs(copyStringMap(resultMap));
+            inputs.put(INPUT_QUERY, interactiveInput);
+            return inputs;
+        }
         String query = request.lastUserQuery();
         if (query != null && !query.isBlank()) {
             inputs.put(INPUT_QUERY, query);
         }
         return inputs;
+    }
+
+    private static Map<String, Object> normalizeInterrupts(List<Map<String, Object>> interrupts) {
+        if (interrupts.size() == 1) {
+            return interrupts.get(0);
+        }
+        List<Map<String, Object>> items = new ArrayList<>(interrupts.size());
+        for (Map<String, Object> interrupt : interrupts) {
+            items.add(new LinkedHashMap<>(interrupt));
+        }
+        Map<String, Object> batch = new LinkedHashMap<>();
+        batch.put("type", INTERACTION_TYPE);
+        batch.put("message", "interaction batch");
+        batch.put("items", items);
+        return batch;
+    }
+
+    private static boolean isCoreInteraction(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return false;
+        }
+        return INTERACTION_TYPE.equals(map.get("type"));
+    }
+
+    private static Map<String, Object> copyStringMap(Map<?, ?> source) {
+        Map<String, Object> copy = new LinkedHashMap<>();
+        source.forEach((key, value) -> copy.put(String.valueOf(key), value));
+        return copy;
     }
 
     /**
@@ -353,41 +503,116 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @return the session id, conversation id, or {@link AgentSessionApi}
      */
     protected Object runnerSession(ServeRequest request) {
-        String conversationId = request.getConversationId();
-        if (hasAgentCard(agent)) {
-            return conversationId;
+        String sessionId = resolveSessionId(request);
+        if (hasAgentCard(agent) && !useRequestScopedSession(request)) {
+            return sessionId;
         }
-        String sessionId = conversationId != null && !conversationId.isBlank()
-            ? conversationId
-            : DEFAULT_AGENT_SESSION_ID;
+        Object card = resolveSessionCard();
+        return AgentSessionApi.create(sessionId, sessionEnvs(request), card, List.of(StreamMode.OUTPUT));
+    }
+
+    /**
+     * Whether this handler should build an {@link AgentSessionApi} even for card-backed agents.
+     *
+     * <p>The default keeps legacy Core behavior: card-backed agents receive a string session id and
+     * let Runner create its own {@link AgentSessionApi}. Subclasses may opt in when request-scoped
+     * envs must be visible to Core tools.
+     *
+     * @param request the serve request
+     * @return {@code true} to force an explicit request-scoped session
+     */
+    protected boolean useRequestScopedSession(ServeRequest request) {
+        return false;
+    }
+
+    private static String resolveSessionId(ServeRequest request) {
+        String conversationId = request.getConversationId();
+        return conversationId != null && !conversationId.isBlank() ? conversationId : DEFAULT_AGENT_SESSION_ID;
+    }
+
+    private Map<String, Object> sessionEnvs(ServeRequest request) {
+        Map<String, Object> envs = new LinkedHashMap<>();
+        envs.putAll(readAgentConfigEnvs(agent));
+        envs.putAll(requestEnvs(request));
+        return envs;
+    }
+
+    private Object resolveSessionCard() {
+        Optional<Object> card = readAgentCard(agent);
+        if (card.isPresent()) {
+            return card.get();
+        }
         String agentId = agent instanceof String stringAgentId
-            ? stringAgentId
-            : SYNTHETIC_AGENT_ID_PREFIX + agent.getClass().getName();
-        String agentName = agent instanceof String stringAgentId ? stringAgentId : agent.getClass().getSimpleName();
-        BaseCard card = BaseCard.builder()
-            .id(agentId)
-            .name(agentName)
-            .description("Synthetic card for AgentCore session")
-            .build();
-        return new AgentSessionApi(sessionId, null, card, List.of(StreamMode.OUTPUT));
+                ? stringAgentId
+                : SYNTHETIC_AGENT_ID_PREFIX + syntheticAgentClassName();
+        String agentName = agent instanceof String stringAgentId ? stringAgentId : syntheticAgentDisplayName();
+        return BaseCard.builder().id(agentId).name(agentName).description("Synthetic card for AgentCore session")
+                .build();
+    }
+
+    private static Map<String, Object> requestEnvs(ServeRequest request) {
+        Map<String, Object> envs = new LinkedHashMap<>();
+        putIfNotBlank(envs, INPUT_CONVERSATION_ID, request.getConversationId());
+        putIfNotBlank(envs, INPUT_USER_ID, request.getUserId());
+        putIfNotBlank(envs, INPUT_SPACE_ID, request.getSpaceId());
+        putIfNotBlank(envs, INPUT_TENANT_ID, request.getTenantId());
+        return envs;
+    }
+
+    private static void putIfNotBlank(Map<String, Object> target, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            target.put(key, value);
+        }
+    }
+
+    private static Map<String, Object> readAgentConfigEnvs(Object target) {
+        Optional<Object> config = readProperty(target, "getConfig", "config");
+        Optional<Object> envs = config.flatMap(value -> readProperty(value, "getEnvs", "envs"));
+        Object envsValue = envs.orElseGet(Map::of);
+        if (!(envsValue instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        map.forEach((key, value) -> {
+            if (key != null) {
+                result.put(String.valueOf(key), value);
+            }
+        });
+        return result;
+    }
+
+    private String syntheticAgentClassName() {
+        return agent != null ? agent.getClass().getName() : "unknown";
+    }
+
+    private String syntheticAgentDisplayName() {
+        return agent != null ? agent.getClass().getSimpleName() : "unknown";
+    }
+
+    private static Optional<Object> readAgentCard(Object target) {
+        return readProperty(target, "getCard", "card");
     }
 
     private static boolean hasAgentCard(Object target) {
+        return readAgentCard(target).isPresent();
+    }
+
+    private static Optional<Object> readProperty(Object target, String getterName, String fieldName) {
         if (target == null) {
-            return false;
+            return Optional.empty();
         }
         try {
-            Method getter = target.getClass().getMethod("getCard");
-            return getter.invoke(target) != null;
+            Method getter = target.getClass().getMethod(getterName);
+            return Optional.ofNullable(getter.invoke(target));
         } catch (ReflectiveOperationException ignored) {
             // Fall through to field access.
         }
         try {
-            Field field = target.getClass().getDeclaredField("card");
+            Field field = target.getClass().getDeclaredField(fieldName);
             field.setAccessible(true);
-            return field.get(target) != null;
+            return Optional.ofNullable(field.get(target));
         } catch (ReflectiveOperationException ignored) {
-            return false;
+            return Optional.empty();
         }
     }
 
@@ -428,7 +653,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     /**
      * Maps the internal agent-core OutputSchema type to a standard
      * {@link QueryChunk} type, so downstream code never sees agent-core-internal
-     * type strings. Only the interrupt signal needs a distinct top-level type;
+     * type strings. Interrupt and error signals keep distinct top-level types;
      * every other chunk (the final answer included) is a plain
      * {@link QueryChunk#TYPE_CHUNK} — its fine-grained type travels transparently
      * inside the chunk's own {@code {type,index,payload}} envelope.
@@ -444,7 +669,33 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (INTERACTION_TYPE.equals(m.get("type"))) {
             return QueryChunk.TYPE_INTERRUPT;
         }
+        if (QueryChunk.TYPE_ERROR.equals(m.get("type"))) {
+            return QueryChunk.TYPE_ERROR;
+        }
         return QueryChunk.TYPE_CHUNK;
+    }
+
+    private static RuntimeException toStreamException(Object normalized) {
+        String message = extractContent(normalized, STREAM_CONTENT_KEYS, false).filter(content -> !content.isBlank())
+                .orElse("AgentCore streaming execution failed");
+        return new IllegalStateException(message);
+    }
+
+    private static RuntimeException structuredFailure(RuntimeException failure) {
+        if (failure instanceof AgentExecutionException) {
+            return failure;
+        }
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof BaseError baseError) {
+                String code = baseError.getStatus() == null ? "AGENT_CORE_ERROR" : baseError.getStatus().name();
+                AgentFailureDescriptor descriptor = new AgentFailureDescriptor(code, baseError.getCode(),
+                        baseError.isRecoverable());
+                return new AgentExecutionException(baseError.getMessage(), descriptor, failure);
+            }
+            current = current.getCause();
+        }
+        return failure;
     }
 
     /**
@@ -469,6 +720,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static void extractInteractionData(InteractionOutput io, Map<String, Object> data) {
         Object value = io.getValue();
+        if (value instanceof String message && !message.isBlank()) {
+            data.put("message", message);
+            return;
+        }
         if (value instanceof InterruptRequest req) {
             if (req.getMessage() != null) {
                 data.put("message", req.getMessage());
@@ -502,14 +757,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return;
         }
         Object rawPayload = map.get("payload");
-        Optional<Object> text = firstNonNull(map.get("content"), map.get("delta"), map.get("output"),
-            map.get("response"));
-        if (rawPayload instanceof Map<?, ?> payloadMap) {
-            Optional<Object> payloadText = firstNonNull(payloadMap.get("content"), payloadMap.get("delta"),
-                payloadMap.get("output"), payloadMap.get("response"));
-            if (payloadText.isPresent()) {
-                text = payloadText;
-            }
+        Optional<String> text = extractContent(map, STREAM_CONTENT_KEYS, false);
+        if (rawPayload != null) {
+            Optional<String> payloadText = extractContent(rawPayload, STREAM_CONTENT_KEYS, false);
+            text = payloadText.isPresent() ? payloadText : text;
         }
         if (text.isEmpty()) {
             return;
@@ -519,7 +770,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if ("answer".equals(typeText) && !content.isEmpty()) {
             return;
         }
-        content.append(stringify(text.get()));
+        content.append(text.get());
     }
 
     /**
@@ -532,11 +783,60 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Map<String, Object> error = new LinkedHashMap<>();
         error.put("type", "error");
         error.put("error", ex.getMessage() != null ? ex.getMessage() : ex.toString());
+        if (ex instanceof AgentExecutionException executionException) {
+            error.put("failure", executionException.getDescriptor());
+        }
         return error;
     }
 
-    private static Optional<Object> firstNonNull(Object... values) {
-        return Arrays.stream(values).filter(value -> value != null).findFirst();
+    private static Optional<String> extractContent(Object value, List<String> contentKeys,
+            boolean shouldUseMapFallback) {
+        if (value == null) {
+            return Optional.empty();
+        }
+        if (value instanceof ControllerOutput controllerOutput) {
+            return extractContent(controllerOutput.getData(), contentKeys, shouldUseMapFallback);
+        }
+        if (value instanceof WorkflowOutput workflowOutput) {
+            return extractContent(workflowOutput.getResult(), contentKeys, shouldUseMapFallback);
+        }
+        if (value instanceof OutputSchema outputSchema) {
+            return extractContent(outputSchema.getPayload(), contentKeys, shouldUseMapFallback);
+        }
+        if (value instanceof Map<?, ?> map) {
+            return extractMapContent(map, contentKeys, shouldUseMapFallback);
+        }
+        if (value instanceof Iterable<?> values) {
+            return extractIterableContent(values, contentKeys, shouldUseMapFallback);
+        }
+        String content = stringify(value);
+        return content.isEmpty() ? Optional.empty() : Optional.of(content);
+    }
+
+    private static Optional<String> extractMapContent(Map<?, ?> map, List<String> contentKeys,
+            boolean shouldUseMapFallback) {
+        if (map.isEmpty()) {
+            return Optional.empty();
+        }
+        for (String key : contentKeys) {
+            Optional<String> nested = extractContent(map.get(key), contentKeys, shouldUseMapFallback);
+            if (nested.isPresent()) {
+                return nested;
+            }
+        }
+        if (map.size() == 1) {
+            return extractContent(map.values().iterator().next(), contentKeys, shouldUseMapFallback);
+        }
+        return shouldUseMapFallback ? Optional.of(stringify(map)) : Optional.empty();
+    }
+
+    private static Optional<String> extractIterableContent(Iterable<?> values, List<String> contentKeys,
+            boolean shouldUseMapFallback) {
+        StringBuilder content = new StringBuilder();
+        for (Object item : values) {
+            extractContent(item, contentKeys, shouldUseMapFallback).ifPresent(content::append);
+        }
+        return content.isEmpty() ? Optional.empty() : Optional.of(content.toString());
     }
 
     /**

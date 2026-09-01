@@ -1,0 +1,34 @@
+# Sandbox profile extension: outbound HTTPS + Bearer auth (Issue #25).
+#
+# Prerequisites:
+# 1. Generate or obtain client truststore that trusts the sandbox server certificate.
+# 2. Start mock server (optional for local dev):
+#      mvn -pl agent-service-demo/example/outbound-security exec:java \
+#        -Dexec.mainClass=com.openjiuwen.service.demo.example.outboundsecurity.MockOutboundSecureJiuwenBoxServer \
+#        -Dexec.args="--port=18490 --token=demo-outbound-token"
+# 3. Set env vars below before merging into application-sandbox.yml.
+#
+# E2E without full Agent Service:
+#   mvn -pl agent-service-demo/example/outbound-security test
+
+openjiuwen:
+  service:
+    external:
+      sandbox:
+        enabled: true
+        servers:
+          - server-id: ${OPENJIUWEN_SANDBOX_SERVER_ID:demo-secure-sandbox}
+            service-url: ${DEMO_SECURE_SANDBOX_SERVICE_URL:https://127.0.0.1:18490}
+            sandbox-type: ${OPENJIUWEN_SANDBOX_TYPE:jiuwenbox}
+            launcher-type: ${OPENJIUWEN_SANDBOX_LAUNCHER_TYPE:pre_deploy}
+            root-path: ${OPENJIUWEN_SANDBOX_ROOT_PATH:.}
+            tls:
+              enabled: true
+              ref: inline
+              verify-hostname: false
+              trust-store: ${DEMO_OUTBOUND_TRUST_STORE:file:/path/to/client-trust.p12}
+              trust-store-password: ${DEMO_OUTBOUND_TRUST_STORE_PASSWORD}
+              trust-store-type: PKCS12
+            auth:
+              type: bearer
+              token: ${DEMO_OUTBOUND_SANDBOX_TOKEN:demo-outbound-token}

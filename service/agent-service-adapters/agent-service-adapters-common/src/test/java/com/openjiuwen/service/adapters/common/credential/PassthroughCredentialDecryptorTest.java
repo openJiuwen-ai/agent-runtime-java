@@ -18,7 +18,16 @@ class PassthroughCredentialDecryptorTest {
     void returnsInputUnchanged() {
         PassthroughCredentialDecryptor decryptor = new PassthroughCredentialDecryptor();
         assertThat(decryptor.decrypt("secret")).isEqualTo("secret");
+        assertThat(decryptor.decrypt("llm-secret", CredentialSceneType.LLM_API_KEY)).isEqualTo("llm-secret");
+        assertThat(decryptor.decrypt("memory-secret", CredentialSceneType.MEMORY_API_KEY)).isEqualTo("memory-secret");
         assertThat(decryptor.decrypt("")).isEmpty();
         assertThat(decryptor.decrypt(null)).isNull();
+    }
+
+    @Test
+    void sceneAwareMethodKeepsLegacyLambdaCompatible() {
+        CredentialDecryptor decryptor = ciphertext -> "plain:" + ciphertext;
+
+        assertThat(decryptor.decrypt("cipher", CredentialSceneType.LLM_API_KEY)).isEqualTo("plain:cipher");
     }
 }

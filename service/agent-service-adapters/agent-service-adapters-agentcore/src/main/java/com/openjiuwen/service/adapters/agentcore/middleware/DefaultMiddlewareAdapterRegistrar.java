@@ -7,6 +7,7 @@ package com.openjiuwen.service.adapters.agentcore.middleware;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import java.util.Map;
 
@@ -21,16 +22,19 @@ public class DefaultMiddlewareAdapterRegistrar implements MiddlewareAdapterRegis
 
     private final CredentialDecryptor credentialDecryptor;
 
+    private final RuntimeRedisClient runtimeRedisClient;
+
     public DefaultMiddlewareAdapterRegistrar(MiddlewareProperties middlewareProperties,
-        CredentialDecryptor credentialDecryptor) {
+            CredentialDecryptor credentialDecryptor, RuntimeRedisClient runtimeRedisClient) {
         this.middlewareProperties = middlewareProperties;
         this.credentialDecryptor = credentialDecryptor;
+        this.runtimeRedisClient = runtimeRedisClient;
     }
 
     @Override
     public void applyToRunnerConfig(RunnerConfig runnerConfig) {
         Map<String, Object> checkpointerConfig = AgentCoreCheckpointerConfigAssembler.build(middlewareProperties,
-            credentialDecryptor);
+                credentialDecryptor, runtimeRedisClient);
         runnerConfig.setCheckpointerConfig(checkpointerConfig);
     }
 }

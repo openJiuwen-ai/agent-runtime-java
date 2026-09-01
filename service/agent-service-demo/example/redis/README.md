@@ -29,6 +29,7 @@
 
 | 配置项      | 默认值         |
 |----------|-------------|
+| type     | `standalone` |
 | host     | `127.0.0.1` |
 | port     | `6379`      |
 | database | `0`         |
@@ -49,7 +50,7 @@ redis-cli -h 127.0.0.1 -p 6379 ping
 
 ```bash
 cp ../config/application-base_local.example.yml ../config/application-base_local.yml
-# 编辑 application-base_local.yml，填写 openjiuwen.demo.llm 下的 api-key / api-base / model-name
+# 编辑 application-base_local.yml，填写 openjiuwen.service.llm 下的 api-key / api-base / model-name
 # 建议设置 auto-discover: false
 ```
 
@@ -63,8 +64,8 @@ $env:OPENJIUWEN_API_CONFIG="C:\path\to\apiconfig.json"  # PowerShell
 
 **方式 C — 环境变量**
 
-`application-base.yml` 支持占位符：`OPENJIUWEN_DEMO_LLM_API_KEY`、`OPENJIUWEN_DEMO_LLM_API_BASE`、
-`OPENJIUWEN_DEMO_LLM_MODEL_NAME`。
+`application-base.yml` 支持占位符：`OPENJIUWEN_SERVICE_LLM_API_KEY`、`OPENJIUWEN_SERVICE_LLM_API_BASE`、
+`OPENJIUWEN_SERVICE_LLM_MODEL_NAME`。
 
 ### 3. 启动服务
 
@@ -158,20 +159,41 @@ spring:
 
 | 文件                                     | 作用                                                                |
 |----------------------------------------|-------------------------------------------------------------------|
-| `../config/application-base.yml`       | `openjiuwen.demo.llm`、Redis 连接、`checkpointer.type: in_memory`（默认） |
+| `../config/application-base.yml`       | `openjiuwen.service.llm`、Redis 连接、`checkpointer.type: in_memory`（默认） |
 | `../config/application-base_local.yml` | 本地 API 覆盖（勿提交）                                                    |
 | `application-redis-checkpointer.yml`   | **`server.port: 8091`**、`checkpointer.type: redis`                |
 
 > `server.port` 必须写在 **最后 import** 的 `application-redis-checkpointer.yml` 中，否则会沿用 base 里的 8090。
 
 修改 Redis 地址时，编辑 `application-base.yml`（或 local 覆盖）中的 `openjiuwen.service.middleware.redis.default`。
+默认 `type=standalone`，可省略；如需连接 Redis Cluster，配置命名 endpoint 并让 `redis-ref` 指向该 endpoint：
+
+```yaml
+openjiuwen:
+  service:
+    middleware:
+      checkpointer:
+        type: redis
+        redis-ref: cluster
+      redis:
+        cluster:
+          type: cluster
+          nodes:
+            - 10.10.1.11:6379
+            - 10.10.1.12:6379
+          database: 0      # cluster 模式忽略该字段；非 0 也不会启动失败
+          timeout-ms: 3000
+          encrypted-password: ""
+```
+
+`standalone` 使用 `host`、`port`、`database`；`cluster` 使用 `nodes`，不会从 `host` / `port` 推导集群节点。
 
 ## 常见问题
 
 | 现象                                                 | 可能原因                             | 处理                                                                |
 |----------------------------------------------------|----------------------------------|-------------------------------------------------------------------|
 | 启动报 `api-key` / `api-base` / `model-name` 未配置      | LLM 未填                           | 配置 `application-base_local.yml` 或 `apiconfig.json`                |
-| `Redis connection` / checkpoint 写入失败               | Redis 未启动或地址不对                   | `redis-cli ping`；核对 host/port                                     |
+| `Redis connection` / checkpoint 写入失败               | Redis 未启动或 endpoint 配置不对          | `redis-cli ping`；单机核对 host/port，集群核对 type/nodes              |
 | smoke 连错服务                                         | 8090 与 8091 端口混淆                 | 确认 `/health` 中 `app=demo-redis-agent-service`，且 BASE_URL 指向 8091  |
 | 第二轮无法召回代号                                          | 模型未遵循指令，或未走 Core 路径              | 查看 8091 日志；换更强模型或重试；确认 `checkpointer.type=redis`                  |
 | `bash smoke-redis.sh` 报 `pipefail: invalid option` | 脚本 CRLF 换行                       | Windows 用 `.\smoke-redis.ps1`，或 `sed -i 's/\r$//' smoke-redis.sh` |
