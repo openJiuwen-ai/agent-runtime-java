@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.autoconfigure;
 
+import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
@@ -51,6 +52,8 @@ import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStateProvider;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Event;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -62,11 +65,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -447,6 +449,8 @@ final class A2AExecutionResources {
      */
     static final int AUTO_POOL_MULTIPLIER = 8;
 
+    private static final Logger log = LoggerFactory.getLogger(A2AExecutionResources.class);
+
     /** Capacity of the agent task submission queue. */
     private static final int AGENT_QUEUE_CAPACITY = 256;
 
@@ -465,32 +469,56 @@ final class A2AExecutionResources {
 
     private final MainEventBusProcessor eventBusProcessor;
 
-    private final ThreadPoolExecutor agentExecutor;
+    private final ExecutorService agentExecutor;
 
     /**
      * Event consumer executor delivering streamed events to SSE subscribers.
      *
-     * <p>Mirrors the SDK's default {@code EventConsumerExecutorProducer}: each
-     * active event queue occupies one consumer thread for the whole stream
-     * lifetime (the thread is mostly parked in queue polling), so threads are
-     * created on demand and reclaimed after the idle timeout. The thread count
-     * is bounded in practice by the number of concurrently active streams,
-     * which the task admission gate caps; the explicit max pool size is a
-     * leak guard that rejects the stream instead of growing toward OOM.</p>
+     * <p>On runtimes without virtual-thread support, this mirrors the SDK's
+     * default {@code EventConsumerExecutorProducer}: each active event queue
+     * occupies one consumer thread for the whole stream lifetime. Threads are
+     * created on demand and reclaimed after the idle timeout, with an explicit
+     * hard cap acting as a leak guard. On runtimes with virtual-thread support,
+     * each consumer task runs in its own virtual thread without that executor
+     * cap.</p>
      */
-    private final ThreadPoolExecutor eventConsumerExecutor;
+    private final ExecutorService eventConsumerExecutor;
 
     private final int eventConsumerMaxThreads;
 
     A2AExecutionResources(MainEventBusProcessor eventBusProcessor, int configuredAgentThreads) {
         this.eventBusProcessor = eventBusProcessor;
-        int threads = configuredAgentThreads > 0 ? configuredAgentThreads : autoAgentPoolSize();
-        this.agentExecutor = new ThreadPoolExecutor(threads, threads, 60L, TimeUnit.SECONDS,
+        int agentThreads = configuredAgentThreads > 0 ? configuredAgentThreads : autoAgentPoolSize();
+        this.agentExecutor = newAgentExecutor(agentThreads);
+        this.eventConsumerMaxThreads = eventConsumerMaxThreads(agentThreads);
+        this.eventConsumerExecutor = newEventConsumerExecutor(eventConsumerMaxThreads);
+    }
+
+    private static ExecutorService newAgentExecutor(int agentThreads) {
+        if (VirtualThreadSupport.isSupported()) {
+            return VirtualThreadSupport.newVirtualExecutor("a2a-agent",
+                    (thread, error) -> log.error("Uncaught A2A agent execution error thread={}",
+                            thread.getName(), error));
+        }
+        return new ThreadPoolExecutor(agentThreads, agentThreads, 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(AGENT_QUEUE_CAPACITY),
                 new ThreadPoolExecutor.CallerRunsPolicy());
-        this.eventConsumerMaxThreads = Math.max(EVENT_CONSUMER_CAP_FLOOR, threads);
-        this.eventConsumerExecutor = new ThreadPoolExecutor(
-                0, eventConsumerMaxThreads, EVENT_CONSUMER_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
+    }
+
+    private static int eventConsumerMaxThreads(int agentThreads) {
+        if (VirtualThreadSupport.isSupported()) {
+            return Integer.MAX_VALUE;
+        }
+        return Math.max(EVENT_CONSUMER_CAP_FLOOR, agentThreads);
+    }
+
+    private static ExecutorService newEventConsumerExecutor(int maximumPoolSize) {
+        if (VirtualThreadSupport.isSupported()) {
+            return VirtualThreadSupport.newVirtualExecutor("a2a-event-consumer",
+                    A2AExecutionResources::logUncaught);
+        }
+        return new ThreadPoolExecutor(
+                0, maximumPoolSize, EVENT_CONSUMER_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
                 new SynchronousQueue<>(),
                 r -> {
                     Thread thread = new Thread(r, "a2a-event-consumer-"
@@ -517,8 +545,7 @@ final class A2AExecutionResources {
      * @param throwable the uncaught throwable
      */
     private static void logUncaught(Thread thread, Throwable throwable) {
-        Logger logger = LoggerFactory.getLogger(A2AExecutionResources.class);
-        logger.error("A2A event consumer thread died with uncaught exception thread={}", thread.getName(),
+        log.error("A2A event consumer thread died with uncaught exception thread={}", thread.getName(),
                 throwable);
     }
 
@@ -531,7 +558,12 @@ final class A2AExecutionResources {
     }
 
     int agentConcurrencyCapacity() {
-        return agentExecutor.getMaximumPoolSize();
+        if (agentExecutor instanceof ThreadPoolExecutor platformExecutor) {
+            return platformExecutor.getMaximumPoolSize();
+        }
+        // Per-task virtual threads have no executor-level concurrency limit;
+        // the business admission gate still applies.
+        return Integer.MAX_VALUE;
     }
 
     MainEventBusProcessor eventBusProcessor() {

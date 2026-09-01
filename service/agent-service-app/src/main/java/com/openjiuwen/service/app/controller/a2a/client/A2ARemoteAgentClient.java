@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
 import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
@@ -98,18 +99,27 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     /**
-     * Constructs a remote client with a bounded executor for blocking SDK calls.
+     * Constructs a remote client with an executor for blocking SDK calls.
      *
      * @param registry the remote agent card registry
-     * @param ioConcurrency maximum concurrent blocking SDK calls
+     * @param ioConcurrency maximum concurrent blocking SDK calls on JDK 17
      */
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency) {
         if (ioConcurrency <= 0) {
             throw new IllegalArgumentException("ioConcurrency must be greater than zero");
         }
         this.registry = registry;
+        this.ioExecutor = newIoExecutor(ioConcurrency);
+    }
+
+    private static ExecutorService newIoExecutor(int ioConcurrency) {
+        if (VirtualThreadSupport.isSupported()) {
+            return VirtualThreadSupport.newVirtualExecutor("a2a-remote-io",
+                    (thread, error) -> log.error("Uncaught A2A remote I/O error thread={}",
+                            thread.getName(), error));
+        }
         AtomicInteger threadIndex = new AtomicInteger();
-        this.ioExecutor = new ThreadPoolExecutor(ioConcurrency, ioConcurrency, 0L, TimeUnit.MILLISECONDS,
+        return new ThreadPoolExecutor(ioConcurrency, ioConcurrency, 0L, TimeUnit.MILLISECONDS,
                 new ArrayBlockingQueue<>(ioConcurrency), runnable -> {
                     Thread thread = new Thread(runnable, "a2a-remote-io-" + threadIndex.incrementAndGet());
                     thread.setDaemon(true);
@@ -473,7 +483,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     /**
-     * Closes cached SDK transports and stops the bounded I/O executor.
+     * Closes cached SDK transports and stops the I/O executor.
      */
     @PreDestroy
     public void shutdown() {
