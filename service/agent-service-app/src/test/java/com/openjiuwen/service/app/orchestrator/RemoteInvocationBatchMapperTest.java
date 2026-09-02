@@ -136,6 +136,28 @@ class RemoteInvocationBatchMapperTest {
     }
 
     @Test
+    void requestSnapshotStripsReservedResumeMetadata() {
+        ServeRequest request = request();
+        request.setMetadata(Map.of(
+                "traceId", "trace-1",
+                "_interrupt", Map.of("type", "__interaction__"),
+                "runtime.parentTaskId", "parent-old",
+                "runtime.remoteToolInputs", Map.of("call-old", "input-old"),
+                "runtime.remoteBatchId", "batch-old",
+                "runtime.remoteToolResults", Map.of("call-old", "result-old")));
+        RemoteInvocationBatch batch = new RemoteInvocationBatch("batch-current", "parent-current", request,
+                observer(), List.of(member("call-current")), true);
+
+        Map<?, ?> snapshotRequest = (Map<?, ?>) mapper.snapshot(batch, "WAITING_INPUT").get("request");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> snapshotMetadata = (Map<String, Object>) snapshotRequest.get("metadata");
+
+        assertThat(snapshotMetadata).hasSize(1);
+        assertThat(snapshotMetadata.keySet()).containsExactly("traceId");
+        assertThat(snapshotMetadata.get("traceId")).isEqualTo("trace-1");
+    }
+
+    @Test
     void continuationRequestSurvivesTaskStoreSerialization() {
         ServeRequest request = new ServeRequest();
         request.setConversationId("conversation-persisted");
@@ -162,6 +184,26 @@ class RemoteInvocationBatchMapperTest {
         assertThat(restored.getSpaceId()).isEqualTo("space-1");
         assertThat(restored.getTenantId()).isEqualTo("tenant-1");
         assertThat(restored.getMessages()).containsExactly(Map.of("role", "user", "content", "delegate"));
+        assertThat(restored.getMetadata()).containsExactlyEntriesOf(Map.of("traceId", "trace-1"));
+    }
+
+    @Test
+    void continuationRequestStripsReservedMetadataFromLegacySnapshot() {
+        Map<String, Object> rawRequest = new java.util.LinkedHashMap<>();
+        rawRequest.put("conversationId", "conversation-legacy");
+        rawRequest.put("stream", false);
+        rawRequest.put("messages", List.of(Map.of("role", "user", "content", "delegate")));
+        rawRequest.put("metadata", Map.of(
+                "traceId", "trace-1",
+                "_interrupt", Map.of("type", "__interaction__"),
+                "runtime.parentTaskId", "parent-old",
+                "runtime.remoteToolInputs", Map.of("call-old", "input-old"),
+                "runtime.remoteBatchId", "batch-old",
+                "runtime.remoteToolResults", Map.of("call-old", "result-old")));
+
+        ServeRequest restored = mapper.continuationRequest(
+                Map.of("request", rawRequest), new ServeRequest());
+
         assertThat(restored.getMetadata()).containsExactlyEntriesOf(Map.of("traceId", "trace-1"));
     }
 
