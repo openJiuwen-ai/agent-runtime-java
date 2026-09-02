@@ -58,6 +58,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
@@ -87,6 +88,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
     private static final int DEFAULT_IO_CONCURRENCY = 16;
+    private static final int MAX_RETRY_ATTEMPTS = 3;
+    private static final long CANCEL_POLL_INTERVAL_NANOS = 50_000_000L;
 
     private final A2ARemoteAgentCardRegistry registry;
 
@@ -99,9 +102,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * exponential backoff, {@value #MAX_RETRY_ATTEMPTS} retries). Doubles per attempt;
      * tests shrink it via reflection to keep the suite fast.
      */
-    private volatile long retryBackoffBaseMillis = 200;
-
-    private static final int MAX_RETRY_ATTEMPTS = 3;
+    private volatile long retryBackoffBaseMillis = 200L;
 
     /**
      * Constructs the remote agent client with the default I/O concurrency.
@@ -464,12 +465,12 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     /**
      * Sleeps the exponential backoff slot before the next retry attempt. Returns
      * {@code false} (completing the future exceptionally with the original failure)
-     * when the wait is interrupted.
+     * when the result future was completed or cancelled during the wait.
      *
      * @param retry the retry coordinates (call, mode, context, result future)
      * @param attempt the retry attempt number, starting at 1
      * @param failure the transient failure that triggered the retry
-     * @return {@code true} to proceed with the retry, {@code false} when interrupted
+     * @return {@code true} to proceed with the retry, {@code false} when aborted
      */
     private boolean awaitRetryBackoff(RetryContext retry, int attempt, RuntimeException failure) {
         long backoffMillis = retryBackoffBaseMillis << (attempt - 1);
@@ -477,23 +478,20 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 retry.call().agentName(), retry.isStreaming(),
                 retry.call().taskId() != null ? retry.call().taskId() : "new", retry.contextId(), attempt,
                 MAX_RETRY_ATTEMPTS, backoffMillis, failure);
-        try {
-            Thread.sleep(backoffMillis);
-            return true;
-        } catch (InterruptedException interrupted) {
-            log.debug("A2A retry backoff interrupted, restoring interrupt status", interrupted);
-            restoreInterruptStatus();
-            retry.result().completeExceptionally(failure);
-            return false;
+        // G.CON.10: cooperative cancellation — the sleeper periodically polls the
+        // shared result future instead of relying on thread interruption; when the
+        // future is already settled (cancelled or completed elsewhere) the retry
+        // loop aborts and cleans up on its own.
+        long deadline = System.nanoTime() + backoffMillis * 1_000_000L;
+        long remaining;
+        while ((remaining = deadline - System.nanoTime()) > 0) {
+            if (retry.result().isDone()) {
+                log.debug("A2A retry backoff aborted, result already settled");
+                return false;
+            }
+            LockSupport.parkNanos(Math.min(remaining, CANCEL_POLL_INTERVAL_NANOS));
         }
-    }
-
-    /**
-     * Restores the interrupt status after a caught {@link InterruptedException}
-     * (Effective Java item: preserve the interruption status of the thread).
-     */
-    private static void restoreInterruptStatus() {
-        Thread.currentThread().interrupt();
+        return true;
     }
 
     private static void cancelInvocationOnCompletion(CompletableFuture<?> result,

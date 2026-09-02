@@ -92,6 +92,9 @@ public class A2AProtocolAdapter {
     /**
      * Normalizes SDK parts into the unified map representation (design FEAT-036 §5.2):
      * kind = text/raw/url/data plus shared metadata fields, preserving inbound order.
+     *
+     * @param parts the inbound SDK message parts in wire order
+     * @return the normalized part maps; unsupported part types are skipped
      */
     private static List<Map<String, Object>> extractParts(List<Part<?>> parts) {
         List<Map<String, Object>> normalized = new ArrayList<>(parts.size());

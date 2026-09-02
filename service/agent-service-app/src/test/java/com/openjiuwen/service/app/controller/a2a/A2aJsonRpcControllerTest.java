@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.openjiuwen.service.app.config.A2AProperties;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.server.ServerCallContext;
@@ -52,10 +53,10 @@ class A2aJsonRpcControllerTest {
                         "DeleteTaskPushNotificationConfig"};
 
         @Test
-        void contentLengthOverMaxMessageBytesIsRejectedWith413BeforeJsonParsing() {
+        void oversizedContentLengthIsRejectedWith413BeforeJsonParsing() {
                 RequestHandler requestHandler = mock(RequestHandler.class);
                 A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
-                com.openjiuwen.service.app.config.A2AProperties properties = new com.openjiuwen.service.app.config.A2AProperties();
+                A2AProperties properties = new A2AProperties();
                 properties.setMaxMessageBytes(1024);
                 controller.setA2aProperties(properties);
                 jakarta.servlet.http.HttpServletRequest servletRequest = mock(
@@ -75,7 +76,7 @@ class A2aJsonRpcControllerTest {
         void missingContentLengthIsRejectedWith413BeforeJsonParsing() {
                 RequestHandler requestHandler = mock(RequestHandler.class);
                 A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
-                com.openjiuwen.service.app.config.A2AProperties properties = new com.openjiuwen.service.app.config.A2AProperties();
+                A2AProperties properties = new A2AProperties();
                 properties.setMaxMessageBytes(1024);
                 controller.setA2aProperties(properties);
                 jakarta.servlet.http.HttpServletRequest servletRequest = mock(
@@ -96,7 +97,7 @@ class A2aJsonRpcControllerTest {
                 when(requestHandler.onMessageSend(org.mockito.ArgumentMatchers.any(MessageSendParams.class),
                                 org.mockito.ArgumentMatchers.any(ServerCallContext.class))).thenReturn(completedTask());
                 A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
-                com.openjiuwen.service.app.config.A2AProperties properties = new com.openjiuwen.service.app.config.A2AProperties();
+                A2AProperties properties = new A2AProperties();
                 properties.setMaxMessageBytes(-1);
                 controller.setA2aProperties(properties);
                 MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
@@ -166,12 +167,12 @@ class A2aJsonRpcControllerTest {
                                 .onSubscribe(new Flow.Subscription() {
                                         @Override
                                         public void request(long numberOfItems) {
-                                                // No event is needed to verify protocol routing.
+                                                // no event is needed to verify protocol routing
                                         }
 
                                         @Override
                                         public void cancel() {
-                                                // No resource is held by this test publisher.
+                                                // no resource is held by this test publisher
                                         }
                                 });
                 when(requestHandler.onSubscribeToTask(any(TaskIdParams.class), any())).thenReturn(publisher);
@@ -180,7 +181,7 @@ class A2aJsonRpcControllerTest {
                 String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\""
                                 + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
                                 + "\",\"params\":{\"id\":\"task-1\",\"tenant\":\"tenant-1\"}}";
-                servletRequest.setContent(request.getBytes());
+                servletRequest.setContent(request.getBytes(StandardCharsets.UTF_8));
 
                 ResponseEntity<?> response = controller.handleJsonRpc(request, servletRequest);
 
@@ -210,7 +211,7 @@ class A2aJsonRpcControllerTest {
                 // parsing; mirror a well-formed client by setting the request body (which
                 // also sets Content-Length on the mock), otherwise the 413 guard rejects
                 // the call before it reaches the subscribe routing under test here.
-                servletRequest.setContent(request.getBytes());
+                servletRequest.setContent(request.getBytes(StandardCharsets.UTF_8));
 
                 ResponseEntity<?> response = controller.handleJsonRpc(request, servletRequest);
 

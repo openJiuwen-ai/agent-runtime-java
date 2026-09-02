@@ -241,8 +241,8 @@ class DualRuntimeCallbackIntegrationTest {
                     Map.of("kind", "url", "url", "https://example.com/attachments/id-card.png", "filename",
                             "id-card.png", "mediaType", "image/png"),
                     Map.of("kind", "raw", "bytesBase64",
-                            java.util.Base64.getEncoder().encodeToString(RAW_TEXT.getBytes()), "filename", "note.txt",
-                            "mediaType", "text/plain"),
+                            java.util.Base64.getEncoder().encodeToString(RAW_TEXT.getBytes(StandardCharsets.UTF_8)),
+                            "filename", "note.txt", "mediaType", "text/plain"),
                     Map.of("kind", "data", "data", Map.of("orderId", "A-1024", "vip", true)));
             return new QueryResponse(
                     Map.of("role", "assistant", "_interrupt",
@@ -284,7 +284,6 @@ class DualRuntimeCallbackIntegrationTest {
             observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, response.getResult()));
             observer.onComplete();
         }
-
     }
 
     private static QueryResponse response(ServeRequest request, String content) {

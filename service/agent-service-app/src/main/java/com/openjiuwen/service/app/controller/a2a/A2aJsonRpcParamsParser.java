@@ -204,21 +204,19 @@ final class A2aJsonRpcParamsParser {
      * @return the normalized part map, or empty for a blank text part (legacy skip)
      */
     private static Optional<Map<String, Object>> parseNormalizedPart(JsonObject part, String path) {
-        String text = textContent(part, path);
-        Optional<JsonElement> raw = contentOrEmpty(part, "raw");
-        Optional<JsonElement> url = contentOrEmpty(part, "url");
-        Optional<JsonElement> data = contentOrEmpty(part, "data");
-        Optional<String> kind = singleContentKind(part, path, text, raw, url, data);
+        PartContent content = new PartContent(textContent(part, path), contentOrEmpty(part, "raw"),
+                contentOrEmpty(part, "url"), contentOrEmpty(part, "data"));
+        Optional<String> kind = singleContentKind(part, path, content);
         if (kind.isEmpty()) {
             return Optional.empty(); // blank text part, legacy skip
         }
         Map<String, Object> normalized = new LinkedHashMap<>();
         normalized.put("kind", kind.get());
         switch (kind.get()) {
-        case "text" -> normalized.put("text", text);
-        case "raw" -> normalized.put("bytesBase64", requiredString(raw.orElseThrow(), path + ".raw"));
-        case "url" -> normalized.put("url", requiredString(url.orElseThrow(), path + ".url"));
-        case "data" -> normalized.put("data", DATA_GSON.fromJson(data.orElseThrow(), Object.class));
+        case "text" -> normalized.put("text", content.text().orElseThrow());
+        case "raw" -> normalized.put("bytesBase64", requiredString(content.raw().orElseThrow(), path + ".raw"));
+        case "url" -> normalized.put("url", requiredString(content.url().orElseThrow(), path + ".url"));
+        case "data" -> normalized.put("data", DATA_GSON.fromJson(content.data().orElseThrow(), Object.class));
         default -> throw invalid(path + " must contain exactly one of text/raw/url/data");
         }
         optionalNonBlankString(part, "filename", path + ".filename").ifPresent(v -> normalized.put("filename", v));
@@ -230,22 +228,27 @@ final class A2aJsonRpcParamsParser {
         return Optional.of(normalized);
     }
 
+    /** The four mutually-exclusive content candidates of one wire part (design §5.2). */
+    private record PartContent(Optional<String> text, Optional<JsonElement> raw, Optional<JsonElement> url,
+            Optional<JsonElement> data) {
+    }
+
     /**
      * Extracts the non-blank text content of a wire part.
      *
      * @param part the wire part JSON object
      * @param path the JSON path of the part, used in error messages
-     * @return the non-blank text value, or {@code null} when absent or blank
+     * @return the non-blank text value, or empty when absent or blank
      */
-    private static String textContent(JsonObject part, String path) {
+    private static Optional<String> textContent(JsonObject part, String path) {
         if (!part.has("text") || part.get("text").isJsonNull()) {
-            return null;
+            return Optional.empty();
         }
         if (!part.get("text").isJsonPrimitive() || !part.getAsJsonPrimitive("text").isString()) {
             throw invalid(path + ".text must be a string");
         }
         String value = part.get("text").getAsString();
-        return value.isBlank() ? null : value;
+        return value.isBlank() ? Optional.empty() : Optional.of(value);
     }
 
     /**
@@ -253,28 +256,16 @@ final class A2aJsonRpcParamsParser {
      *
      * @param part the wire part JSON object
      * @param path the JSON path of the part, used in error messages
-     * @param text the parsed non-blank text content, or {@code null}
-     * @param raw the raw content element, or empty
-     * @param url the url content element, or empty
-     * @param data the data content element, or empty
+     * @param content the content candidates of the part
      * @return the single content kind among text/raw/url/data, or empty for a blank
      *         text part (legacy skip)
      */
-    private static Optional<String> singleContentKind(JsonObject part, String path, String text,
-            Optional<JsonElement> raw, Optional<JsonElement> url, Optional<JsonElement> data) {
+    private static Optional<String> singleContentKind(JsonObject part, String path, PartContent content) {
         List<String> present = new ArrayList<>();
-        if (text != null) {
-            present.add("text");
-        }
-        if (raw.isPresent()) {
-            present.add("raw");
-        }
-        if (url.isPresent()) {
-            present.add("url");
-        }
-        if (data.isPresent()) {
-            present.add("data");
-        }
+        content.text().ifPresent(v -> present.add("text"));
+        content.raw().ifPresent(v -> present.add("raw"));
+        content.url().ifPresent(v -> present.add("url"));
+        content.data().ifPresent(v -> present.add("data"));
         if (present.size() > 1) {
             throw invalid(path + " must contain exactly one of text/raw/url/data");
         }

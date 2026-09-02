@@ -76,17 +76,19 @@ public final class A2aPartRules {
             return Optional.of("params.message.parts kind must be one of text/raw/url/data");
         }
         String expectedField = KIND_PAYLOAD.get(kind);
-        boolean payloadPresent = false;
-        boolean foreignPresent = false;
+        boolean isPayloadPresent = false;
+        boolean isForeignPresent = false;
         for (Map.Entry<String, String> entry : KIND_PAYLOAD.entrySet()) {
-            boolean present = part.containsKey(entry.getValue()) && part.get(entry.getValue()) != null;
+            boolean isFieldPresent = part.containsKey(entry.getValue()) && part.get(entry.getValue()) != null;
             if (entry.getValue().equals(expectedField)) {
-                payloadPresent = present;
-            } else if (present) {
-                foreignPresent = true;
+                isPayloadPresent = isFieldPresent;
+            } else if (isFieldPresent) {
+                isForeignPresent = true;
+            } else {
+                // foreign field absent: contributes to neither presence flag
             }
         }
-        if (!payloadPresent || foreignPresent) {
+        if (!isPayloadPresent || isForeignPresent) {
             return Optional.of("params.message.parts must contain exactly one of text/raw/url/data");
         }
         if ("url".equals(kind)) {
@@ -168,7 +170,7 @@ public final class A2aPartRules {
             return String.valueOf(number).length();
         }
         if (value instanceof Map<?, ?> map) {
-            long total = 2;
+            long total = 2L;
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 total += jsonSize(entry.getKey()) + 1 + 1 + jsonSize(entry.getValue()) + 1;
             }

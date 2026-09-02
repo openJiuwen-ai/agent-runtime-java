@@ -7,19 +7,6 @@ package com.openjiuwen.service.app.it;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
@@ -57,6 +44,19 @@ import org.springframework.test.annotation.DirtiesContext.ClassMode;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * L2 interop test (design FEAT-036 §3.1/§3.2): the "remote lowcode workflow" is a
@@ -187,6 +187,8 @@ class L2StubRemotePartsIntegrationTest {
      * multimodal payload, and after the final success the caller task is resumed with
      * the stub result. Exhausted retries fall back to the existing failure surface
      * (covered by DualRuntimeFailureIntegrationTest).
+     *
+     * @throws Exception when the reflective backoff override or task polling fails
      */
     @Test
     void remoteClientRetriesTransient5xxWithBackoffAndPartsPreserved() throws Exception {
@@ -252,13 +254,12 @@ class L2StubRemotePartsIntegrationTest {
                         Map.of("role", "ROLE_USER", "messageId", "msg-l2-exhaust", "contextId", "ctx-l2-exhaust",
                                 "parts", List.of(Map.of("text", "delegate to lowcode stub until exhausted"))))));
         String taskId = taskId(first);
+        Task completed = awaitCompletedTask(taskId);
 
         // §7.3: the original multimodal parts survive in the task snapshot — the FEAT-004
         // shadow task (`shadow:<agentId>:<parentTaskId>`, metadata `_remote_batch`) retains
         // `members[].parts` while the batch settles; the test CallerHandler captured it from
         // the resume call stack, before the normal post-resume cleanup deletes the shadow.
-        Task completed = awaitCompletedTask(taskId);
-
         Map<String, Object> shadowSnapshot = CallerHandler.SHADOW_SNAPSHOTS.stream()
                 .filter(snapshot -> snapshot.get("parentTaskId").equals(taskId)).findFirst().orElse(null);
         assertThat(shadowSnapshot).as("shadow task snapshot must exist at resume time").isNotNull();
@@ -309,6 +310,9 @@ class L2StubRemotePartsIntegrationTest {
      * Hand-written 1.0.0 stub endpoint. The response templates below are authored from
      * the specification (flat parts, member-name discriminators, SCREAMING_SNAKE_CASE
      * states, {@code result.task} wrapper) and must not be produced via our SDK.
+     *
+     * @param exchange the inbound stub HTTP exchange
+     * @throws IOException when the stub fails to read the request or write the response
      */
     private void handleStub(HttpExchange exchange) throws IOException {
         try {
