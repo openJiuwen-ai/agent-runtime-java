@@ -90,7 +90,17 @@ class SendMessageCallbackIntegrationTest {
     private ResponseEntity<String> postA2a(Map<String, Object> body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        return rest.postForEntity("/a2a/", new HttpEntity<>(body, headers), String.class);
+        // String body so the client sets Content-Length; the /a2a pre-check rejects
+        // chunked (missing Content-Length) requests with 413.
+        return rest.postForEntity("/a2a/", new HttpEntity<>(toJson(body), headers), String.class);
+    }
+
+    private String toJson(Map<String, Object> body) {
+        try {
+            return mapper.writeValueAsString(body);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @SuppressWarnings("unchecked")
