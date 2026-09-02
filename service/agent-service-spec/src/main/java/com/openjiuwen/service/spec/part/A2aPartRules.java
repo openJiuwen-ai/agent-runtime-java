@@ -84,8 +84,6 @@ public final class A2aPartRules {
                 isPayloadPresent = isFieldPresent;
             } else if (isFieldPresent) {
                 isForeignPresent = true;
-            } else {
-                // foreign field absent: contributes to neither presence flag
             }
         }
         if (!isPayloadPresent || isForeignPresent) {
@@ -160,8 +158,8 @@ public final class A2aPartRules {
         if (value == null) {
             return 4;
         }
-        if (value instanceof Boolean bool) {
-            return bool ? 4 : 5;
+        if (value instanceof Boolean isTrue) {
+            return isTrue ? 4 : 5;
         }
         if (value instanceof String string) {
             return utf8Length(string) + 2;

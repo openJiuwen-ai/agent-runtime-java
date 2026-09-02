@@ -261,7 +261,8 @@ class DualRuntimeCallbackIntegrationTest {
     }
 
     private static final class DelayedCalleeHandler implements AgentHandler {
-        private static final java.util.concurrent.ConcurrentLinkedQueue<ServeRequest> CAPTURED = new java.util.concurrent.ConcurrentLinkedQueue<>();
+        private static final java.util.concurrent.ConcurrentLinkedQueue<ServeRequest> CAPTURED =
+                new java.util.concurrent.ConcurrentLinkedQueue<>();
 
         static java.util.Queue<ServeRequest> capturedRequests() {
             return CAPTURED;

@@ -59,8 +59,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * wire,
  * and are delivered to the callee handler as normalized message parts.
  */
-@SpringBootTest(classes = DualRuntimePartsIntegrationTest.CallerRuntimeApplication.class, webEnvironment = WebEnvironment.RANDOM_PORT, properties = {
-        "spring.application.name=caller-parts-it"})
+@SpringBootTest(classes = DualRuntimePartsIntegrationTest.CallerRuntimeApplication.class,
+        webEnvironment = WebEnvironment.RANDOM_PORT, properties = {"spring.application.name=caller-parts-it"})
 @AutoConfigureTestRestTemplate
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class DualRuntimePartsIntegrationTest {

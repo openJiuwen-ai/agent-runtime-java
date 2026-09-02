@@ -14,6 +14,8 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 
 import org.a2aproject.sdk.spec.AgentCapabilities;
 import org.a2aproject.sdk.spec.AgentCard;
@@ -41,9 +43,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.annotation.DirtiesContext.ClassMode;
-
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -255,6 +254,7 @@ class L2StubRemotePartsIntegrationTest {
                                 "parts", List.of(Map.of("text", "delegate to lowcode stub until exhausted"))))));
         String taskId = taskId(first);
         Task completed = awaitCompletedTask(taskId);
+        assertThat(completed).as("exhausted delegate must settle as a completed task").isNotNull();
 
         // §7.3: the original multimodal parts survive in the task snapshot — the FEAT-004
         // shadow task (`shadow:<agentId>:<parentTaskId>`, metadata `_remote_batch`) retains
