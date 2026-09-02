@@ -5,14 +5,21 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
+import com.openjiuwen.service.spec.part.A2aPartLimits;
+import com.openjiuwen.service.spec.part.A2aPartRules;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.spec.AuthenticationInfo;
+import org.a2aproject.sdk.spec.DataPart;
+import org.a2aproject.sdk.spec.FilePart;
+import org.a2aproject.sdk.spec.FileWithBytes;
+import org.a2aproject.sdk.spec.FileWithUri;
 import org.a2aproject.sdk.spec.InvalidParamsError;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.MessageSendConfiguration;
@@ -27,6 +34,7 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,6 +48,10 @@ final class A2aJsonRpcParamsParser {
 
     private static final Gson GSON = new Gson();
 
+    /** Parses DataPart payloads with SDK-aligned number semantics (integers as Long). */
+    private static final Gson DATA_GSON = new GsonBuilder()
+            .setObjectToNumberStrategy(com.google.gson.ToNumberPolicy.LONG_OR_DOUBLE).create();
+
     private static final Type METADATA_TYPE = new TypeToken<Map<String, Object>>() {
     }.getType();
 
@@ -52,9 +64,6 @@ final class A2aJsonRpcParamsParser {
             JsonObject messageObject = requiredObject(params, "message", "params.message");
             JsonArray partObjects = requiredNonEmptyArray(messageObject, "parts", "params.message.parts");
             List<Part<?>> parts = parseParts(partObjects);
-            if (parts.isEmpty()) {
-                throw invalid("params.message.parts must contain at least one non-blank text part");
-            }
             Message message = buildMessage(messageObject, parts);
             MessageSendParams.Builder builder = MessageSendParams.builder().message(message)
                     .metadata(parseMetadata(params, "params.metadata"));
@@ -93,8 +102,8 @@ final class A2aJsonRpcParamsParser {
                 }
             }
             if (inlinePushConfig != null && !inlinePushConfig.isJsonNull()) {
-                builder.taskPushNotificationConfig(parseTaskPushNotificationConfig(inlinePushConfig,
-                        "params.pushNotificationConfig"));
+                builder.taskPushNotificationConfig(
+                        parseTaskPushNotificationConfig(inlinePushConfig, "params.pushNotificationConfig"));
                 builder.returnImmediately(true);
             }
             return Optional.of(builder.build());
@@ -166,24 +175,133 @@ final class A2aJsonRpcParamsParser {
     }
 
     private static List<Part<?>> parseParts(JsonArray partObjects) {
-        List<Part<?>> parts = new ArrayList<>();
-        for (JsonElement element : partObjects) {
+        List<Map<String, Object>> normalized = new ArrayList<>();
+        for (int i = 0; i < partObjects.size(); i++) {
+            JsonElement element = partObjects.get(i);
             if (!element.isJsonObject()) {
                 throw invalid("params.message.parts entries must be objects");
             }
-            JsonObject part = element.getAsJsonObject();
-            if (part.has("text") && !part.get("text").isJsonNull()) {
-                if (!part.get("text").isJsonPrimitive() || !part.getAsJsonPrimitive("text").isString()) {
-                    throw invalid("params.message.parts[].text must be a string");
-                }
-                String text = part.get("text").getAsString();
-                if (!text.isBlank()) {
-                    Map<String, Object> metadata = parseMetadata(part, "params.message.parts[].metadata");
-                    parts.add(metadata.isEmpty() ? new TextPart(text) : new TextPart(text, metadata));
-                }
+            Map<String, Object> part = parseNormalizedPart(element.getAsJsonObject(),
+                    "params.message.parts[" + i + "]");
+            if (part != null) {
+                normalized.add(part);
+            }
+        }
+        A2aPartRules.validate(normalized, A2aPartLimits.DEFAULT_MAX_RAW_BYTES,
+                A2aPartLimits.DEFAULT_MAX_TEXT_DATA_BYTES, A2aPartLimits.DEFAULT_MAX_PARTS).ifPresent(msg -> {
+                    throw invalid(msg);
+                });
+        if (normalized.isEmpty()) {
+            throw invalid("params.message.parts must contain at least one part");
+        }
+        return toSdkParts(normalized);
+    }
+
+    /**
+     * Parses one wire part into the normalized map representation (design FEAT-036 §5.2):
+     * exactly one content field among text/raw/url/data plus shared metadata. Blank text
+     * parts keep the legacy skip behavior; a part with no content field is rejected.
+     */
+    private static Map<String, Object> parseNormalizedPart(JsonObject part, String path) {
+        String text = null;
+        if (part.has("text") && !part.get("text").isJsonNull()) {
+            if (!part.get("text").isJsonPrimitive() || !part.getAsJsonPrimitive("text").isString()) {
+                throw invalid(path + ".text must be a string");
+            }
+            String value = part.get("text").getAsString();
+            if (!value.isBlank()) {
+                text = value;
+            }
+        }
+        JsonElement raw = contentOrNull(part, "raw");
+        JsonElement url = contentOrNull(part, "url");
+        JsonElement data = contentOrNull(part, "data");
+        List<String> present = new ArrayList<>();
+        if (text != null) {
+            present.add("text");
+        }
+        if (raw != null) {
+            present.add("raw");
+        }
+        if (url != null) {
+            present.add("url");
+        }
+        if (data != null) {
+            present.add("data");
+        }
+        if (present.size() > 1) {
+            throw invalid(path + " must contain exactly one of text/raw/url/data");
+        }
+        if (present.isEmpty()) {
+            if (part.has("text")) {
+                return null; // blank text part, legacy skip
+            }
+            throw invalid(path + " must contain exactly one of text/raw/url/data");
+        }
+        String kind = present.get(0);
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        normalized.put("kind", kind);
+        switch (kind) {
+        case "text" -> normalized.put("text", text);
+        case "raw" -> normalized.put("bytesBase64", requiredString(raw, path + ".raw"));
+        case "url" -> normalized.put("url", requiredString(url, path + ".url"));
+        case "data" -> normalized.put("data", DATA_GSON.fromJson(data, Object.class));
+        default -> throw invalid(path + " must contain exactly one of text/raw/url/data");
+        }
+        optionalNonBlankString(part, "filename", path + ".filename").ifPresent(v -> normalized.put("filename", v));
+        optionalNonBlankString(part, "mediaType", path + ".mediaType").ifPresent(v -> normalized.put("mediaType", v));
+        Map<String, Object> metadata = parseMetadata(part, path + ".metadata");
+        if (!metadata.isEmpty()) {
+            normalized.put("metadata", metadata);
+        }
+        return normalized;
+    }
+
+    private static JsonElement contentOrNull(JsonObject part, String member) {
+        JsonElement value = part.get(member);
+        return value == null || value.isJsonNull() ? null : value;
+    }
+
+    private static String requiredString(JsonElement value, String path) {
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+            throw invalid(path + " must be a string");
+        }
+        return value.getAsString();
+    }
+
+    private static List<Part<?>> toSdkParts(List<Map<String, Object>> normalized) {
+        List<Part<?>> parts = new ArrayList<>();
+        for (Map<String, Object> part : normalized) {
+            String kind = String.valueOf(part.get("kind"));
+            Map<String, Object> metadata = part.get("metadata") instanceof Map<?, ?> rawMetadata
+                    ? castMetadata(rawMetadata)
+                    : null;
+            switch (kind) {
+            case "text" -> parts.add(metadata == null ? new TextPart((String) part.get("text"))
+                    : new TextPart((String) part.get("text"), metadata));
+            case "raw" -> parts.add(new FilePart(
+                    new FileWithBytes(mediaTypeOf(part), filenameOf(part), (String) part.get("bytesBase64")),
+                    metadata));
+            case "url" -> parts.add(new FilePart(
+                    new FileWithUri(mediaTypeOf(part), filenameOf(part), (String) part.get("url")), metadata));
+            case "data" -> parts.add(new DataPart(part.get("data"), metadata));
+            default -> throw invalid("params.message.parts kind must be one of text/raw/url/data");
             }
         }
         return parts;
+    }
+
+    private static String filenameOf(Map<String, Object> part) {
+        return part.get("filename") instanceof String filename ? filename : "";
+    }
+
+    private static String mediaTypeOf(Map<String, Object> part) {
+        return part.get("mediaType") instanceof String mediaType ? mediaType : "";
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castMetadata(Map<?, ?> rawMetadata) {
+        return (Map<String, Object>) rawMetadata;
     }
 
     private static Message buildMessage(JsonObject messageObject, List<Part<?>> parts) {

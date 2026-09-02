@@ -76,7 +76,17 @@ class TaskStoreCallbackBindingTest {
     private String postA2a(Map<String, Object> body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        return rest.postForObject("/a2a/", new HttpEntity<>(body, headers), String.class);
+        // String body so the client sets Content-Length; the /a2a pre-check rejects
+        // chunked (missing Content-Length) requests with 413 (FEAT-036 §2.2).
+        return rest.postForObject("/a2a/", new HttpEntity<>(toJson(body), headers), String.class);
+    }
+
+    private String toJson(Map<String, Object> body) {
+        try {
+            return mapper.writeValueAsString(body);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @SuppressWarnings("unchecked")

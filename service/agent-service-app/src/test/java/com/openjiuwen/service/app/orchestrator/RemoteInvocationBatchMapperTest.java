@@ -82,6 +82,55 @@ class RemoteInvocationBatchMapperTest {
     }
 
     @Test
+    void parseReadsOptionalInterruptPartsAsNormalizedList() {
+        Map<String, Object> urlPart = Map.of("kind", "url", "url", "https://example.com/report.pdf", "filename",
+                "report.pdf", "mediaType", "application/pdf");
+        Map<String, Object> item = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-call-a",
+                "message", "message-call-a", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                        "agentName", "agent-a", "resume", true, "parts", List.of(urlPart)));
+
+        RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(item)), request(), "parent-1",
+                observer());
+
+        assertThat(batch.members.get(0).parts).containsExactly(urlPart);
+    }
+
+    @Test
+    void parseDefaultsMemberPartsToNullWhenAbsent() {
+        RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(interruptMember(0, "call-a", true))),
+                request(), "parent-1", observer());
+
+        assertThat(batch.members.get(0).parts).isNull();
+    }
+
+    @Test
+    void parseMarksMemberFailedWhenPartsStructureInvalid() {
+        Map<String, Object> item = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-call-a",
+                "message", "message-call-a", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                        "agentName", "agent-a", "resume", true, "parts", List.of("not-a-map")));
+
+        RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(item)), request(), "parent-1",
+                observer());
+
+        assertThat(batch.members.get(0).state).isEqualTo(MemberState.FAILED);
+        assertThat(batch.members.get(0).resultCategory).isEqualTo("CORE_INTERRUPT_PARTS_INVALID");
+    }
+
+    @Test
+    void snapshotAndRestorePreserveMemberParts() {
+        Member carrier = member("call-a");
+        carrier.state = MemberState.QUEUED;
+        carrier.parts = List.of(Map.of("kind", "raw", "bytesBase64", "aGVsbG8=", "byteSize", 5, "filename",
+                "doc.txt", "mediaType", "text/plain"));
+
+        Map<String, Object> snapshot = mapper.snapshot(batch(List.of(carrier), true), "READY_TO_RESUME");
+        RemoteInvocationBatch restored = mapper.restore(snapshot, request(), "parent-1", observer());
+
+        assertThat(restored.members.get(0).parts).containsExactly(Map.of("kind", "raw", "bytesBase64",
+                "aGVsbG8=", "byteSize", 5, "filename", "doc.txt", "mediaType", "text/plain"));
+    }
+
+    @Test
     void restorePreservesFailureDetailsAndMemberOrder() {
         Map<String, Object> snapshot = Map.of("batchId", "batch-1", "resume", false, "members",
                 List.of(snapshotMember(1, "call-b", "COMPLETED", "result-b"), snapshotMember(0, "call-a", "FAILED",

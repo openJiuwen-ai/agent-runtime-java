@@ -58,8 +58,7 @@ final class RemoteInvocationBatchMapper {
             if (!toolCallIds.add(toolCallId)) {
                 throw new IllegalArgumentException("CORE_INTERRUPT_CORRELATION_CONFLICT: " + toolCallId);
             }
-            Map<String, Object> context = item.get("context") instanceof Map<?, ?> rawContext
-                    ? copyMap(rawContext)
+            Map<String, Object> context = item.get("context") instanceof Map<?, ?> rawContext ? copyMap(rawContext)
                     : Map.of();
             if (!"a2a_delegate".equals(stringValue(context.get("_interrupt_kind")))) {
                 throw new IllegalArgumentException("CORE_INTERRUPT_KIND_MIXED_UNSUPPORTED");
@@ -76,8 +75,10 @@ final class RemoteInvocationBatchMapper {
                 isBatchResume = isMemberResume;
             }
             int memberIndex = item.get("index") instanceof Number number ? number.intValue() : index;
-            members.add(new Member(memberIndex, toolCallId, stringValue(item.get("toolName")),
-                    agentName, stringValue(item.get("message"))));
+            Member member = new Member(memberIndex, toolCallId, stringValue(item.get("toolName")), agentName,
+                    stringValue(item.get("message")));
+            member.parts = parseMemberParts(context.get("parts"), member);
+            members.add(member);
         }
         members.sort(Comparator.comparingInt(member -> member.index));
         return new RemoteInvocationBatch(UUID.randomUUID().toString(), parentTaskId, request, observer, members,
@@ -98,6 +99,7 @@ final class RemoteInvocationBatchMapper {
             int index = rawMember.get("index") instanceof Number number ? number.intValue() : members.size();
             Member member = new Member(index, stringValue(rawMember.get("toolCallId")),
                     stringValue(rawMember.get("toolName")), stringValue(rawMember.get("agentName")), "");
+            member.parts = normalizedParts(rawMember.get("parts"));
             member.state = MemberState.valueOf(stringValue(rawMember.get("state")));
             member.remoteTaskId = stringValue(rawMember.get("remoteTaskId"));
             member.resultCategory = optionalNonBlank(stringValue(rawMember.get("resultCategory"))).orElse(null);
@@ -145,8 +147,7 @@ final class RemoteInvocationBatchMapper {
             member.state = MemberState.COMPLETED;
             member.result = outcome.result() == null ? "" : outcome.result();
         } else {
-            String message = outcome.result() == null || outcome.result().isBlank()
-                    ? "Remote task did not complete"
+            String message = outcome.result() == null || outcome.result().isBlank() ? "Remote task did not complete"
                     : outcome.result();
             member.fail(MemberState.FAILED, outcome.resultCategory(), message);
             member.remoteFailure = outcome.remoteFailure();
@@ -165,11 +166,9 @@ final class RemoteInvocationBatchMapper {
             String inputPrompt = statusText.isBlank() ? "Remote agent requires input" : statusText;
             return new RemoteCallOutcome(task.id(), state, resultCategory(state), null, inputPrompt);
         }
-        String resultText = state == TaskState.TASK_STATE_COMPLETED
-                ? (taskText.isBlank() ? statusText : taskText)
+        String resultText = state == TaskState.TASK_STATE_COMPLETED ? (taskText.isBlank() ? statusText : taskText)
                 : (statusText.isBlank() ? taskText : statusText);
-        AgentFailureDescriptor remoteFailure = status == null || status.message() == null
-                ? null
+        AgentFailureDescriptor remoteFailure = status == null || status.message() == null ? null
                 : A2aErrorMetadata.decode(status.message().metadata()).orElse(null);
         return new RemoteCallOutcome(task.id(), state, resultCategory(state), resultText, null, remoteFailure);
     }
@@ -190,10 +189,12 @@ final class RemoteInvocationBatchMapper {
             value.put("agentName", member.agentName);
             value.put("state", member.state.name());
             putIfNotBlank(value, "remoteTaskId", member.remoteTaskId);
+            if (member.parts != null) {
+                value.put("parts", member.parts);
+            }
             putIfNotBlank(value, "resultCategory", member.resultCategory);
             if (member.state != MemberState.INPUT_REQUIRED) {
-                Object result = member.state == MemberState.COMPLETED && member.result != null
-                        ? member.result
+                Object result = member.state == MemberState.COMPLETED && member.result != null ? member.result
                         : toolResult(member);
                 value.put("result", result);
             }
@@ -326,9 +327,7 @@ final class RemoteInvocationBatchMapper {
             request.getMessages().forEach(message -> messages.add(new LinkedHashMap<>(message)));
         }
         snapshot.put("messages", messages);
-        snapshot.put("metadata", request.getMetadata() == null
-                ? Map.of()
-                : new LinkedHashMap<>(request.getMetadata()));
+        snapshot.put("metadata", request.getMetadata() == null ? Map.of() : new LinkedHashMap<>(request.getMetadata()));
         return snapshot;
     }
 
@@ -367,8 +366,7 @@ final class RemoteInvocationBatchMapper {
     }
 
     private static String safeMessage(Throwable error) {
-        return error.getMessage() == null || error.getMessage().isBlank()
-                ? error.getClass().getSimpleName()
+        return error.getMessage() == null || error.getMessage().isBlank() ? error.getClass().getSimpleName()
                 : error.getMessage();
     }
 
@@ -400,6 +398,31 @@ final class RemoteInvocationBatchMapper {
 
     private static String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private static List<Map<String, Object>> parseMemberParts(Object rawParts, Member member) {
+        if (rawParts == null) {
+            return null;
+        }
+        if (!(rawParts instanceof List<?> values) || values.isEmpty()
+                || values.stream().anyMatch(value -> !(value instanceof Map<?, ?>))) {
+            member.fail(MemberState.FAILED, "CORE_INTERRUPT_PARTS_INVALID", "interrupt parts must be object list");
+            return null;
+        }
+        // 结构与校验由中断产生方（S2 入站校验/S3b rail 映射）保证，此处仅做类型容错。
+        return normalizedParts(values);
+    }
+
+    private static List<Map<String, Object>> normalizedParts(Object rawParts) {
+        if (!(rawParts instanceof List<?> values) || values.isEmpty()
+                || values.stream().anyMatch(value -> !(value instanceof Map<?, ?>))) {
+            return null;
+        }
+        List<Map<String, Object>> parts = new ArrayList<>();
+        for (Object value : values) {
+            parts.add(copyMap((Map<?, ?>) value));
+        }
+        return List.copyOf(parts);
     }
 
     private static Optional<String> optionalNonBlank(String value) {

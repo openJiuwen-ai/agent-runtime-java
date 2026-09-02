@@ -149,6 +149,7 @@ class A2ARemoteAgentClientClassLoaderTest {
         }).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
 
         A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        shrinkRetryBackoff(remoteClient);
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
@@ -173,6 +174,7 @@ class A2ARemoteAgentClientClassLoaderTest {
                 .sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
 
         A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
+        shrinkRetryBackoff(remoteClient);
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
@@ -193,8 +195,7 @@ class A2ARemoteAgentClientClassLoaderTest {
         registry.register("linkage-failing-agent", card, 30, false);
         ClientBuilder builder = mock(ClientBuilder.class);
         Client sdkClient = mock(Client.class);
-        NoClassDefFoundError linkageFailure = new NoClassDefFoundError(
-                "org/a2aproject/sdk/grpc/SendMessageRequest");
+        NoClassDefFoundError linkageFailure = new NoClassDefFoundError("org/a2aproject/sdk/grpc/SendMessageRequest");
         doThrow(linkageFailure).when(sdkClient).sendMessage(any(MessageSendParams.class), anyList(), any(), isNull());
 
         A2ARemoteAgentClient remoteClient = new A2ARemoteAgentClient(registry);
@@ -204,8 +205,7 @@ class A2ARemoteAgentClientClassLoaderTest {
             var outcome = remoteClient.callOutcome(remoteCall("linkage-failing-agent"),
                     mock(RemoteAgentCaller.EventObserver.class));
 
-            assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS))
-                    .hasCauseInstanceOf(NoClassDefFoundError.class)
+            assertThatThrownBy(() -> outcome.get(1, TimeUnit.SECONDS)).hasCauseInstanceOf(NoClassDefFoundError.class)
                     .hasRootCauseMessage("org/a2aproject/sdk/grpc/SendMessageRequest");
         } finally {
             remoteClient.shutdown();
@@ -233,9 +233,9 @@ class A2ARemoteAgentClientClassLoaderTest {
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
-            var outcome = remoteClient.callOutcome(remoteCall("message-agent"),
-                    mock(RemoteAgentCaller.EventObserver.class))
-                .get(2, TimeUnit.SECONDS);
+            var outcome = remoteClient
+                    .callOutcome(remoteCall("message-agent"), mock(RemoteAgentCaller.EventObserver.class))
+                    .get(2, TimeUnit.SECONDS);
 
             assertThat(outcome.remoteState()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
             assertThat(outcome.result()).isEqualTo("hello world");
@@ -269,9 +269,9 @@ class A2ARemoteAgentClientClassLoaderTest {
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
-            var outcome = remoteClient.callOutcome(remoteCall("task-agent"),
-                    mock(RemoteAgentCaller.EventObserver.class))
-                .get(2, TimeUnit.SECONDS);
+            var outcome = remoteClient
+                    .callOutcome(remoteCall("task-agent"), mock(RemoteAgentCaller.EventObserver.class))
+                    .get(2, TimeUnit.SECONDS);
 
             assertThat(outcome.result()).isEqualTo("hello world");
         }
@@ -301,9 +301,9 @@ class A2ARemoteAgentClientClassLoaderTest {
         try (MockedStatic<Client> clientFactory = mockStatic(Client.class)) {
             stubClient(clientFactory, card, builder, sdkClient);
 
-            var outcome = remoteClient.callOutcome(remoteCall("status-agent"),
-                    mock(RemoteAgentCaller.EventObserver.class))
-                .get(2, TimeUnit.SECONDS);
+            var outcome = remoteClient
+                    .callOutcome(remoteCall("status-agent"), mock(RemoteAgentCaller.EventObserver.class))
+                    .get(2, TimeUnit.SECONDS);
 
             assertThat(outcome.result()).isEqualTo("status result");
         }
@@ -326,10 +326,8 @@ class A2ARemoteAgentClientClassLoaderTest {
             stubClient(clientFactory, firstCard, firstBuilder, firstClient);
             stubClient(clientFactory, secondCard, secondBuilder, secondClient);
 
-            var first = remoteClient.callOutcome(remoteCall("first"),
-                    mock(RemoteAgentCaller.EventObserver.class));
-            var second = remoteClient.callOutcome(remoteCall("second"),
-                    mock(RemoteAgentCaller.EventObserver.class));
+            var first = remoteClient.callOutcome(remoteCall("first"), mock(RemoteAgentCaller.EventObserver.class));
+            var second = remoteClient.callOutcome(remoteCall("second"), mock(RemoteAgentCaller.EventObserver.class));
 
             verify(firstBuilder).build();
             verify(secondBuilder).build();
@@ -414,6 +412,20 @@ class A2ARemoteAgentClientClassLoaderTest {
         when(builder.clientConfig(any(ClientConfig.class))).thenReturn(builder);
         when(builder.withTransport(eq(JSONRPCTransport.class), any(JSONRPCTransportConfig.class))).thenReturn(builder);
         when(builder.build()).thenReturn(client);
+    }
+
+    /**
+     * Shrinks the outbound retry backoff base so deterministic failures that burn the
+     * full retry budget (3 retries) still complete well within the 1s assertion window.
+     */
+    private static void shrinkRetryBackoff(A2ARemoteAgentClient remoteClient) {
+        try {
+            java.lang.reflect.Field backoff = A2ARemoteAgentClient.class.getDeclaredField("retryBackoffBaseMillis");
+            backoff.setAccessible(true);
+            backoff.setLong(remoteClient, 10L);
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException("retryBackoffBaseMillis field missing", ex);
+        }
     }
 
     private static RemoteCall remoteCall(String agentName) {

@@ -6,12 +6,18 @@ package com.openjiuwen.service.app.controller.a2a;
 
 import com.openjiuwen.service.spec.dto.ServeRequest;
 
+import org.a2aproject.sdk.spec.DataPart;
+import org.a2aproject.sdk.spec.FilePart;
+import org.a2aproject.sdk.spec.FileWithBytes;
+import org.a2aproject.sdk.spec.FileWithUri;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -34,11 +40,8 @@ public class A2AProtocolAdapter {
 
     private static final String REMOTE_TOOL_INPUTS = "runtime.remoteToolInputs";
 
-    private static final List<String> RESERVED_METADATA_KEYS = List.of(
-            PARENT_TASK_ID,
-            REMOTE_TOOL_INPUTS,
-            "runtime.remoteBatchId",
-            "runtime.remoteToolResults");
+    private static final List<String> RESERVED_METADATA_KEYS = List.of(PARENT_TASK_ID, REMOTE_TOOL_INPUTS,
+            "runtime.remoteBatchId", "runtime.remoteToolResults");
 
     /**
      * Converts an A2A message context into an internal {@link ServeRequest}.
@@ -70,6 +73,11 @@ public class A2AProtocolAdapter {
         Map<String, Object> userMsg = new LinkedHashMap<>();
         userMsg.put("role", normalizeRole(msg.role().name()));
         userMsg.put("content", rawText);
+        // message.parts → normalized part maps (design FEAT-036 §5.2), order preserved
+        List<Map<String, Object>> normalizedParts = extractParts(msg.parts());
+        if (!normalizedParts.isEmpty()) {
+            userMsg.put("parts", normalizedParts);
+        }
         if (msg.metadata() != null) {
             userMsg.put("metadata", new LinkedHashMap<>(msg.metadata()));
         }
@@ -79,6 +87,66 @@ public class A2AProtocolAdapter {
                 ctx.getContextId(), req.getConversationId(), rawText != null ? rawText.length() : 0);
 
         return req;
+    }
+
+    /**
+     * Normalizes SDK parts into the unified map representation (design FEAT-036 §5.2):
+     * kind = text/raw/url/data plus shared metadata fields, preserving inbound order.
+     */
+    private static List<Map<String, Object>> extractParts(List<Part<?>> parts) {
+        List<Map<String, Object>> normalized = new ArrayList<>(parts.size());
+        for (Part<?> part : parts) {
+            Map<String, Object> entry = null;
+            if (part instanceof TextPart textPart) {
+                entry = new LinkedHashMap<>();
+                entry.put("kind", "text");
+                entry.put("text", textPart.text());
+                copyMetadata(entry, textPart.metadata());
+            } else if (part instanceof FilePart filePart && filePart.file() instanceof FileWithBytes withBytes) {
+                entry = new LinkedHashMap<>();
+                entry.put("kind", "raw");
+                entry.put("bytesBase64", withBytes.bytes());
+                entry.put("byteSize", decodedByteSize(withBytes.bytes()));
+                putIfNotBlank(entry, "filename", withBytes.name());
+                putIfNotBlank(entry, "mediaType", withBytes.mimeType());
+                copyMetadata(entry, filePart.metadata());
+            } else if (part instanceof FilePart filePart && filePart.file() instanceof FileWithUri withUri) {
+                entry = new LinkedHashMap<>();
+                entry.put("kind", "url");
+                entry.put("url", withUri.uri());
+                putIfNotBlank(entry, "filename", withUri.name());
+                putIfNotBlank(entry, "mediaType", withUri.mimeType());
+                copyMetadata(entry, filePart.metadata());
+            } else if (part instanceof DataPart dataPart) {
+                entry = new LinkedHashMap<>();
+                entry.put("kind", "data");
+                entry.put("data", dataPart.data());
+                copyMetadata(entry, dataPart.metadata());
+            }
+            if (entry != null) {
+                normalized.add(entry);
+            }
+        }
+        return normalized;
+    }
+
+    private static long decodedByteSize(String bytesBase64) {
+        if (bytesBase64 == null || bytesBase64.isEmpty()) {
+            return 0L;
+        }
+        return Base64.getMimeDecoder().decode(bytesBase64).length;
+    }
+
+    private static void putIfNotBlank(Map<String, Object> entry, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            entry.put(key, value);
+        }
+    }
+
+    private static void copyMetadata(Map<String, Object> entry, Map<String, Object> metadata) {
+        if (metadata != null && !metadata.isEmpty()) {
+            entry.put("metadata", new LinkedHashMap<>(metadata));
+        }
     }
 
     private static TextExtraction extractText(List<Part<?>> parts) {

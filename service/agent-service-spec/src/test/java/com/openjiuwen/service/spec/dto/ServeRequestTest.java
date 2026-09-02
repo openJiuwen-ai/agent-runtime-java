@@ -45,6 +45,27 @@ class ServeRequestTest {
         assertThat(request.lastUserMessageMetadata()).isEmpty();
     }
 
+    @Test
+    void returnsPartsFromSameLatestUserMessageAsQuery() {
+        Map<String, Object> latest = message("user", "latest", Map.of());
+        latest.put("parts", List.of(Map.of("kind", "text", "text", "latest")));
+        Map<String, Object> first = message("user", "first", Map.of());
+        first.put("parts", List.of(Map.of("kind", "text", "text", "first")));
+        ServeRequest request = new ServeRequest();
+        request.setMessages(List.of(first, message("assistant", "middle", Map.of()), latest));
+
+        assertThat(request.lastUserQuery()).isEqualTo("latest");
+        assertThat(request.lastUserParts()).extracting(part -> part.get("text")).containsExactly("latest");
+    }
+
+    @Test
+    void lastUserPartsReturnsEmptyListWhenAbsent() {
+        ServeRequest request = new ServeRequest();
+        request.setMessages(List.of(message("user", "hello", Map.of())));
+
+        assertThat(request.lastUserParts()).isEmpty();
+    }
+
     private static Map<String, Object> message(String role, String content, Map<String, Object> metadata) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("role", role);

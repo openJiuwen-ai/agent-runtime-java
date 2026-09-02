@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
@@ -63,6 +64,8 @@ class DualRuntimeCallbackIntegrationTest {
 
     private static final String CALLBACK_ID_METADATA = "runtime.a2a.callbackId";
 
+    private static final String RAW_TEXT = "callback-parts-raw-payload";
+
     @Autowired
     private TestRestTemplate rest;
 
@@ -107,11 +110,35 @@ class DualRuntimeCallbackIntegrationTest {
 
         assertThat(completedTask.id()).isEqualTo(taskId);
         assertThat(completedTask.status().state()).isEqualTo(org.a2aproject.sdk.spec.TaskState.TASK_STATE_COMPLETED);
-        assertThat(A2aPartContent.extractTaskResult(completedTask))
-            .contains("caller resumed")
-            .contains("callee result:delegate:start dual runtime");
-        assertThat(completedTask.history()).allSatisfy(message ->
-                assertThat(A2aPartContent.extract(message.parts())).doesNotContain("continue"));
+        assertThat(A2aPartContent.extractTaskResult(completedTask)).contains("caller resumed")
+                .contains("callee result:delegate:start dual runtime");
+        assertThat(completedTask.history())
+                .allSatisfy(message -> assertThat(A2aPartContent.extract(message.parts())).doesNotContain("continue"));
+
+        // FEAT-036 §3.4: callback mode + multimodal parts — the delegate payload survives
+        // the push-notification round trip and the callee business handler receives the
+        // full normalized parts (leading delegate text + url/raw/data in order).
+        assertThat(DelayedCalleeHandler.capturedRequests()).hasSize(1);
+        ServeRequest remoteRequest = DelayedCalleeHandler.capturedRequests().peek();
+        List<Map<String, Object>> deliveredParts = remoteRequest.lastUserParts();
+        assertThat(deliveredParts).extracting(part -> part.get("kind")).containsExactly("text", "url", "raw", "data");
+        assertThat(deliveredParts.get(0).get("text")).isEqualTo("delegate:start dual runtime");
+
+        Map<String, Object> urlPart = deliveredParts.get(1);
+        assertThat(urlPart.get("url")).isEqualTo("https://example.com/attachments/id-card.png");
+        assertThat(urlPart.get("filename")).isEqualTo("id-card.png");
+        assertThat(urlPart.get("mediaType")).isEqualTo("image/png");
+
+        Map<String, Object> rawPart = deliveredParts.get(2);
+        assertThat(rawPart.get("bytesBase64"))
+                .isEqualTo(java.util.Base64.getEncoder().encodeToString(RAW_TEXT.getBytes()));
+        assertThat(rawPart.get("filename")).isEqualTo("note.txt");
+        assertThat(rawPart.get("mediaType")).isEqualTo("text/plain");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) deliveredParts.get(3).get("data");
+        assertThat(data.get("orderId")).isEqualTo("A-1024");
+        assertThat(data.get("vip")).isEqualTo(true);
     }
 
     private Task awaitCompletedTask(String taskId) throws Exception {
@@ -126,14 +153,24 @@ class DualRuntimeCallbackIntegrationTest {
             lastObserved = task == null || task.status() == null ? "<missing>" : String.valueOf(task.status().state());
             Thread.sleep(100);
         }
-        throw new AssertionError("parent task did not complete automatically: " + taskId
-                + ", lastObserved=" + lastObserved);
+        throw new AssertionError(
+                "parent task did not complete automatically: " + taskId + ", lastObserved=" + lastObserved);
     }
 
     private ResponseEntity<String> postA2a(Map<String, Object> body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        return rest.postForEntity("/a2a/", new HttpEntity<>(body, headers), String.class);
+        // String body so the client sets Content-Length; the /a2a pre-check rejects
+        // chunked (missing Content-Length) requests with 413 (FEAT-036 §2.2).
+        return rest.postForEntity("/a2a/", new HttpEntity<>(toJson(body), headers), String.class);
+    }
+
+    private String toJson(Map<String, Object> body) {
+        try {
+            return mapper.writeValueAsString(body);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private Map<String, Object> json(ResponseEntity<String> response) throws Exception {
@@ -197,12 +234,21 @@ class DualRuntimeCallbackIntegrationTest {
             if (results instanceof Map<?, ?> remoteResults) {
                 return response(request, "caller resumed:" + remoteResults.get("call-callee"));
             }
+            // FEAT-036 §4.5: delegate interrupt carries tool attachments as normalized
+            // parts alongside the message text.
+            java.util.List<Map<String, Object>> attachments = List.of(
+                    Map.of("kind", "url", "url", "https://example.com/attachments/id-card.png", "filename",
+                            "id-card.png", "mediaType", "image/png"),
+                    Map.of("kind", "raw", "bytesBase64",
+                            java.util.Base64.getEncoder().encodeToString(RAW_TEXT.getBytes()), "filename", "note.txt",
+                            "mediaType", "text/plain"),
+                    Map.of("kind", "data", "data", Map.of("orderId", "A-1024", "vip", true)));
             return new QueryResponse(
                     Map.of("role", "assistant", "_interrupt",
-                            Map.of("batchId", "dual-runtime-batch", "items",
-                                    List.of(Map.of("index", 0, "toolCallId", "call-callee", "toolName", "callee-tool",
-                                            "message", "delegate:" + request.lastUserQuery(), "context",
-                                            Map.of("_interrupt_kind", "a2a_delegate", "agentName", "callee"))))),
+                            Map.of("batchId", "dual-runtime-batch", "items", List.of(Map.of("index", 0, "toolCallId",
+                                    "call-callee", "toolName", "callee-tool", "message",
+                                    "delegate:" + request.lastUserQuery(), "context", Map.of("_interrupt_kind",
+                                            "a2a_delegate", "agentName", "callee", "parts", attachments))))),
                     request.getConversationId());
         }
 
@@ -214,8 +260,15 @@ class DualRuntimeCallbackIntegrationTest {
     }
 
     private static final class DelayedCalleeHandler implements AgentHandler {
+        private static final java.util.concurrent.ConcurrentLinkedQueue<ServeRequest> CAPTURED = new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+        static java.util.Queue<ServeRequest> capturedRequests() {
+            return CAPTURED;
+        }
+
         @Override
         public QueryResponse query(ServeRequest request) {
+            CAPTURED.add(request);
             try {
                 Thread.sleep(500);
             } catch (InterruptedException ex) {
@@ -230,6 +283,7 @@ class DualRuntimeCallbackIntegrationTest {
             observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, response.getResult()));
             observer.onComplete();
         }
+
     }
 
     private static QueryResponse response(ServeRequest request, String content) {

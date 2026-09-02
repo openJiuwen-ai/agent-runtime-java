@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.app.config;
 
+import com.openjiuwen.service.spec.part.A2aPartLimits;
+
 import lombok.Data;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -66,6 +68,14 @@ public class A2AProperties {
      * @since 0.1.2
      */
     private long taskStoreWriteThrottleMs = 200L;
+
+    /**
+     * Max JSON-RPC request body size for {@code /a2a} in bytes. The Content-Length
+     * pre-check rejects requests that are missing Content-Length or exceed this limit
+     * with HTTP 413 before JSON parsing (design FEAT-036 §2.2). {@code -1} disables
+     * the pre-check as an emergency switch.
+     */
+    private long maxMessageBytes = A2aPartLimits.DEFAULT_MAX_REQUEST_BODY_BYTES;
 
     /**
      * A2A platform agent execution pool size. Values <= 0 mean auto-sizing

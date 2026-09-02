@@ -9,6 +9,7 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /** Mutable state for one remote invocation batch. */
@@ -54,6 +55,9 @@ final class RemoteInvocationBatch {
         final String agentName;
 
         String message;
+
+        /** Normalized Part list (design FEAT-036 §5.2) carried from the interrupt payload; nullable. */
+        List<Map<String, Object>> parts;
 
         volatile MemberState state = MemberState.QUEUED;
 
