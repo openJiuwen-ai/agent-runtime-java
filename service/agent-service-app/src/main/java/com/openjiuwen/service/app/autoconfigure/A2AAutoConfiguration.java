@@ -438,14 +438,17 @@ public class A2AAutoConfiguration {
 
 final class A2AExecutionResources {
     /**
-     * Auto-sized agent pool floor. I/O-bound agent tasks park on remote LLM or
-     * backend calls, so the baseline mirrors {@code QuerySsePumpExecutor}:
-     * {@code max(32, availableProcessors * 8)} instead of raw CPU cores.
+     * Auto-sized agent pool floor — the lower bound applied when
+     * {@code availableProcessors * AUTO_POOL_MULTIPLIER} falls below this value.
+     * I/O-bound agent tasks park on remote LLM or backend calls, so the baseline
+     * mirrors {@code QuerySsePumpExecutor}. On machines with 8 or fewer cores this
+     * floor dominates, yielding a fixed 64-slot pool.
      */
-    static final int AUTO_POOL_FLOOR = 32;
+    static final int AUTO_POOL_FLOOR = 64;
 
     /**
-     * Auto-sized agent pool multiplier per CPU core.
+     * Auto-sized agent pool multiplier per CPU core. Combined with
+     * {@link #AUTO_POOL_FLOOR} via {@code max(floor, cores * multiplier)}.
      */
     static final int AUTO_POOL_MULTIPLIER = 8;
 

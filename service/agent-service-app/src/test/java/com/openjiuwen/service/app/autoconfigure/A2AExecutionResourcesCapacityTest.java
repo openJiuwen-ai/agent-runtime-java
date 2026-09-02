@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Capacity tests for the A2A agent execution pool and its coupling with the
  * admission guard (DFX-002): the platform pool default is auto-sized
- * {@code max(32, cores*8)} (not raw CPU cores), can be overridden via
+ * {@code max(64, cores*8)} (not raw CPU cores), can be overridden via
  * {@code openjiuwen.service.a2a.agent-threads}, and startup fails fast when
  * the admission limit exceeds the pool capacity. Virtual executors have
  * no pool capacity limit, while business admission remains enabled.
@@ -48,8 +48,8 @@ class A2AExecutionResourcesCapacityTest {
     void autoPoolSizeFollowsSsePumpBaseline() {
         int cores = Runtime.getRuntime().availableProcessors();
         assertThat(A2AExecutionResources.autoAgentPoolSize())
-                .as("auto pool size must be max(32, cores*8)")
-                .isEqualTo(Math.max(32, cores * 8));
+                .as("auto pool size must be max(64, cores*8)")
+                .isEqualTo(Math.max(64, cores * 8));
     }
 
     @Test
@@ -60,7 +60,7 @@ class A2AExecutionResourcesCapacityTest {
             assertThat(resources.agentConcurrencyCapacity())
                     .as("default capacity must follow the I/O-friendly auto baseline")
                     .isEqualTo(A2AExecutionResources.autoAgentPoolSize())
-                    .isGreaterThanOrEqualTo(32);
+                    .isGreaterThanOrEqualTo(64);
         });
     }
 
