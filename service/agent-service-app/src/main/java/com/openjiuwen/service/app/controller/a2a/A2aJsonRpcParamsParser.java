@@ -201,6 +201,10 @@ final class A2aJsonRpcParamsParser {
      * Parses one wire part into the normalized map representation (design FEAT-036 §5.2):
      * exactly one content field among text/raw/url/data plus shared metadata. Blank text
      * parts keep the legacy skip behavior; a part with no content field is rejected.
+     *
+     * @param part the wire part JSON object
+     * @param path the JSON path of the part, used in error messages
+     * @return the normalized part map, or {@code null} for a blank text part (legacy skip)
      */
     private static Map<String, Object> parseNormalizedPart(JsonObject part, String path) {
         String text = null;
@@ -277,18 +281,24 @@ final class A2aJsonRpcParamsParser {
                     ? castMetadata(rawMetadata)
                     : null;
             switch (kind) {
-            case "text" -> parts.add(metadata == null ? new TextPart((String) part.get("text"))
-                    : new TextPart((String) part.get("text"), metadata));
+            case "text" -> {
+                String text = payloadString(part, "text");
+                parts.add(metadata == null ? new TextPart(text) : new TextPart(text, metadata));
+            }
             case "raw" -> parts.add(new FilePart(
-                    new FileWithBytes(mediaTypeOf(part), filenameOf(part), (String) part.get("bytesBase64")),
+                    new FileWithBytes(mediaTypeOf(part), filenameOf(part), payloadString(part, "bytesBase64")),
                     metadata));
             case "url" -> parts.add(new FilePart(
-                    new FileWithUri(mediaTypeOf(part), filenameOf(part), (String) part.get("url")), metadata));
+                    new FileWithUri(mediaTypeOf(part), filenameOf(part), payloadString(part, "url")), metadata));
             case "data" -> parts.add(new DataPart(part.get("data"), metadata));
             default -> throw invalid("params.message.parts kind must be one of text/raw/url/data");
             }
         }
         return parts;
+    }
+
+    private static String payloadString(Map<String, Object> part, String key) {
+        return part.get(key) instanceof String value ? value : "";
     }
 
     private static String filenameOf(Map<String, Object> part) {

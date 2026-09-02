@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -131,8 +132,8 @@ class DualRuntimePartsIntegrationTest {
 
         Map<String, Object> rawPart = deliveredParts.get(2);
         assertThat(rawPart.get("bytesBase64")).isEqualTo(RAW_BASE64);
-        assertThat(new String(Base64.getDecoder().decode((String) rawPart.get("bytesBase64")), StandardCharsets.UTF_8))
-                .isEqualTo(RAW_TEXT);
+        assertThat(new String(Base64.getDecoder().decode(assertInstanceOf(String.class, rawPart.get("bytesBase64"))),
+                StandardCharsets.UTF_8)).isEqualTo(RAW_TEXT);
         assertThat(rawPart.get("mediaType")).isEqualTo("text/plain");
         assertThat(rawPart.get("filename")).isEqualTo("note.txt");
 

@@ -46,6 +46,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -131,7 +132,7 @@ class DualRuntimeCallbackIntegrationTest {
 
         Map<String, Object> rawPart = deliveredParts.get(2);
         assertThat(rawPart.get("bytesBase64"))
-                .isEqualTo(java.util.Base64.getEncoder().encodeToString(RAW_TEXT.getBytes()));
+                .isEqualTo(java.util.Base64.getEncoder().encodeToString(RAW_TEXT.getBytes(StandardCharsets.UTF_8)));
         assertThat(rawPart.get("filename")).isEqualTo("note.txt");
         assertThat(rawPart.get("mediaType")).isEqualTo("text/plain");
 

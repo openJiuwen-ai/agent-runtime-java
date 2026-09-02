@@ -122,6 +122,8 @@ public class A2AProtocolAdapter {
                 entry.put("kind", "data");
                 entry.put("data", dataPart.data());
                 copyMetadata(entry, dataPart.metadata());
+            } else {
+                // unsupported part type: skipped, entry stays null
             }
             if (entry != null) {
                 normalized.add(entry);

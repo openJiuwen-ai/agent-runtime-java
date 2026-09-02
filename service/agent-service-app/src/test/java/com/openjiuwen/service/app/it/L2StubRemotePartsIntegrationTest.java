@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -236,10 +237,12 @@ class L2StubRemotePartsIntegrationTest {
      * with the REMOTE_UNAVAILABLE failure surface, and the original multimodal parts
      * survive in the task snapshot — the INPUT_REQUIRED status message keeps the
      * delegate interrupt payload (message + context parts) for resume/replay.
+     *
+     * @throws Exception when the exhaustion flow or task polling fails
      */
     @Test
     @SuppressWarnings("unchecked")
-    void remoteClientExhaustsRetriesThenResumesWithUnavailableAndPartsSnapshotted() throws Exception {
+    void remoteClientExhaustsRetriesThenResumesWithUnavailable() throws Exception {
         // keep the DEFAULT backoff base (200ms) so the INPUT_REQUIRED window
         // (200+400+800ms of retries) is wide enough to observe the snapshot
         failFirstN.set(Integer.MAX_VALUE);
@@ -466,6 +469,8 @@ class L2StubRemotePartsIntegrationTest {
          * Captures the FEAT-004 shadow task snapshot (`_remote_batch` metadata) while the
          * resume is still in flight — the caller handler runs on the resume call stack,
          * before the coordinator deletes the settled READY shadow.
+         *
+         * @param request the in-flight resume request whose conversation is inspected
          */
         private static void captureShadowSnapshot(ServeRequest request) {
             org.a2aproject.sdk.server.tasks.TaskStore store = handlerTaskStore;

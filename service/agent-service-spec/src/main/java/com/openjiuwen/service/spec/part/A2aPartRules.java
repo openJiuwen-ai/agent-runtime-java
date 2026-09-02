@@ -175,7 +175,7 @@ public final class A2aPartRules {
             return total;
         }
         if (value instanceof List<?> list) {
-            long total = 2 + list.size();
+            long total = 2L + list.size();
             for (Object item : list) {
                 total += jsonSize(item);
             }

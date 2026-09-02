@@ -191,6 +191,9 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * leading part; normalized non-text parts follow in order; additional text parts are
      * appended after them so files keep their position ahead of trailing context text.
      * Inbound format is preserved (url in → FileWithUri out, raw in → FileWithBytes out).
+     *
+     * @param call the remote call carrying the normalized outbound parts
+     * @return the assembled SDK parts with the leading text part
      */
     private static List<Part<?>> outboundParts(RemoteCall call) {
         List<Map<String, Object>> normalized = call.parts();

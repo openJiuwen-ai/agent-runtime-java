@@ -417,6 +417,8 @@ class A2ARemoteAgentClientClassLoaderTest {
     /**
      * Shrinks the outbound retry backoff base so deterministic failures that burn the
      * full retry budget (3 retries) still complete well within the 1s assertion window.
+     *
+     * @param remoteClient the client under test whose backoff base is shrunk
      */
     private static void shrinkRetryBackoff(A2ARemoteAgentClient remoteClient) {
         try {

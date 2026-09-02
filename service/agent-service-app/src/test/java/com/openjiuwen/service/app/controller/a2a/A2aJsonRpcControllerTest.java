@@ -36,6 +36,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.Flow;
 import java.util.concurrent.RejectedExecutionException;
@@ -279,7 +280,7 @@ class A2aJsonRpcControllerTest {
                         String request = """
                                         {"jsonrpc":"2.0","id":"req-1","method":"%s","params":{}}
                                         """.formatted(method);
-                        servletRequest.setContent(request.getBytes());
+                        servletRequest.setContent(request.getBytes(StandardCharsets.UTF_8));
                         ResponseEntity<?> response = controller.handleJsonRpc(request, servletRequest);
 
                         JsonObject body = jsonBody(response);

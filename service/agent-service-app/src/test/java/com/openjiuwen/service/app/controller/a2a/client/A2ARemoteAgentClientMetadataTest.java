@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.FilePart;

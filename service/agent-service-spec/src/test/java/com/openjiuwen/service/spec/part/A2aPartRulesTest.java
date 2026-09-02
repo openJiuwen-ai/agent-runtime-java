@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -32,8 +33,8 @@ class A2aPartRulesTest {
 
     @Test
     void acceptsValidTextPart() {
-        assertThat(A2aPartRules.validate(List.of(part("text", "hello")), RAW_LIMIT, TEXT_DATA_LIMIT,
-                PARTS_LIMIT)).isEmpty();
+        assertThat(A2aPartRules.validate(List.of(part("text", "hello")), RAW_LIMIT, TEXT_DATA_LIMIT, PARTS_LIMIT))
+                .isEmpty();
     }
 
     @Test
