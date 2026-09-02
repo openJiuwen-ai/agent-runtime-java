@@ -40,7 +40,7 @@ class A2aPartRulesTest {
     @Test
     void acceptsValidRawPart() {
         Map<String, Object> raw = part("raw", null);
-        raw.put("bytesBase64", Base64.getEncoder().encodeToString("hello".getBytes()));
+        raw.put("bytesBase64", Base64.getEncoder().encodeToString("hello".getBytes(StandardCharsets.UTF_8)));
         raw.put("byteSize", 5L);
         raw.put("filename", "report.pdf");
         raw.put("mediaType", "application/pdf");

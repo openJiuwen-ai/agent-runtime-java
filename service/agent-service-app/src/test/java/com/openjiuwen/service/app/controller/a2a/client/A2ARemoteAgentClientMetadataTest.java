@@ -92,23 +92,25 @@ class A2ARemoteAgentClientMetadataTest {
         List<Part<?>> parts = params.message().parts();
         assertThat(parts).hasSize(5);
         assertThat(parts.get(0)).isInstanceOf(TextPart.class);
-        assertThat(((TextPart) parts.get(0)).text()).isEqualTo("analyze");
+        assertThat(assertInstanceOf(TextPart.class, parts.get(0)).text()).isEqualTo("analyze");
         assertThat(parts.get(1)).isInstanceOf(FilePart.class);
-        assertThat(((FilePart) parts.get(1)).file()).isInstanceOfSatisfying(FileWithUri.class, uri -> {
-            assertThat(uri.uri()).isEqualTo("https://example.com/report.pdf");
-            assertThat(uri.name()).isEqualTo("report.pdf");
-            assertThat(uri.mimeType()).isEqualTo("application/pdf");
-        });
+        assertThat(assertInstanceOf(FilePart.class, parts.get(1)).file()).isInstanceOfSatisfying(FileWithUri.class,
+                uri -> {
+                    assertThat(uri.uri()).isEqualTo("https://example.com/report.pdf");
+                    assertThat(uri.name()).isEqualTo("report.pdf");
+                    assertThat(uri.mimeType()).isEqualTo("application/pdf");
+                });
         assertThat(parts.get(2)).isInstanceOf(FilePart.class);
-        assertThat(((FilePart) parts.get(2)).file()).isInstanceOfSatisfying(FileWithBytes.class, bytes -> {
-            assertThat(bytes.bytes()).isEqualTo("aGVsbG8=");
-            assertThat(bytes.name()).isEqualTo("doc.txt");
-            assertThat(bytes.mimeType()).isEqualTo("text/plain");
-        });
+        assertThat(assertInstanceOf(FilePart.class, parts.get(2)).file()).isInstanceOfSatisfying(FileWithBytes.class,
+                bytes -> {
+                    assertThat(bytes.bytes()).isEqualTo("aGVsbG8=");
+                    assertThat(bytes.name()).isEqualTo("doc.txt");
+                    assertThat(bytes.mimeType()).isEqualTo("text/plain");
+                });
         assertThat(parts.get(3)).isInstanceOf(DataPart.class);
-        assertThat(((DataPart) parts.get(3)).data()).isEqualTo(Map.of("amount", 100));
+        assertThat(assertInstanceOf(DataPart.class, parts.get(3)).data()).isEqualTo(Map.of("amount", 100));
         assertThat(parts.get(4)).isInstanceOf(TextPart.class);
-        assertThat(((TextPart) parts.get(4)).text()).isEqualTo("extra context");
+        assertThat(assertInstanceOf(TextPart.class, parts.get(4)).text()).isEqualTo("extra context");
     }
 
     @Test

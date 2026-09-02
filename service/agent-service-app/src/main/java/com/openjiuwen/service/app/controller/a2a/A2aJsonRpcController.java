@@ -107,38 +107,11 @@ public class A2aJsonRpcController {
         } catch (A2aJsonRpcProtocol.RequestException e) {
             return A2aJsonRpcProtocol.errorResponse(e.getRequestId(), e.getError());
         }
-
         String method = request.method();
         Object id = request.id();
         ServerCallContext ctx = buildCallContext(servletRequest);
-
         try {
-            return switch (method) {
-            case A2AMethods.SEND_MESSAGE_METHOD -> {
-                ctx.getState().put("_a2a_stream", false);
-                var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
-                validateInlinePushNotificationConfig(params);
-                if (isAdmissionRejected(ctx, params.message().contextId())) {
-                    yield admissionRejectedResponse(id);
-                }
-                EventKind result = requestHandler.onMessageSend(params, ctx);
-                yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
-            }
-            case A2AMethods.SEND_STREAMING_MESSAGE_METHOD -> {
-                ctx.getState().put("_a2a_stream", true);
-                var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
-                validateInlinePushNotificationConfig(params);
-                if (isAdmissionRejected(ctx, params.message().contextId())) {
-                    yield admissionRejectedResponse(id);
-                }
-                Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
-                yield streamToSse(pub, id);
-            }
-            case A2AMethods.GET_TASK_METHOD -> handleGetTask(request.payload(), id, ctx);
-            case A2AMethods.SUBSCRIBE_TO_TASK_METHOD -> handleSubscribeToTask(request.payload(), id, ctx);
-            default -> A2aJsonRpcProtocol.errorResponse(id,
-                    new MethodNotFoundError(null, "Method not found: " + method, null));
-            };
+            return dispatch(method, request, id, ctx);
         } catch (A2AError e) {
             releasePreAcquiredAdmission(ctx);
             log.info("A2A protocol error: method={}, code={}, message={}", method, e.getCode(), e.getMessage());
@@ -148,6 +121,47 @@ public class A2aJsonRpcController {
             log.error("A2A request failed", e);
             return A2aJsonRpcProtocol.errorResponse(id, new InternalError("Internal error"));
         }
+    }
+
+    /**
+     * Routes one parsed JSON-RPC request to its handler method.
+     *
+     * @param method the JSON-RPC method name
+     * @param request the parsed JSON-RPC request
+     * @param id the JSON-RPC request id
+     * @param ctx the server call context
+     * @return the JSON-RPC response entity
+     * @throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException when the
+     *         response payload cannot be serialized
+     */
+    private ResponseEntity<?> dispatch(String method, A2aJsonRpcProtocol.Request request, Object id,
+            ServerCallContext ctx) throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException {
+        return switch (method) {
+        case A2AMethods.SEND_MESSAGE_METHOD -> {
+            ctx.getState().put("_a2a_stream", false);
+            var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
+            validateInlinePushNotificationConfig(params);
+            if (isAdmissionRejected(ctx, params.message().contextId())) {
+                yield admissionRejectedResponse(id);
+            }
+            EventKind result = requestHandler.onMessageSend(params, ctx);
+            yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
+        }
+        case A2AMethods.SEND_STREAMING_MESSAGE_METHOD -> {
+            ctx.getState().put("_a2a_stream", true);
+            var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
+            validateInlinePushNotificationConfig(params);
+            if (isAdmissionRejected(ctx, params.message().contextId())) {
+                yield admissionRejectedResponse(id);
+            }
+            Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
+            yield streamToSse(pub, id);
+        }
+        case A2AMethods.GET_TASK_METHOD -> handleGetTask(request.payload(), id, ctx);
+        case A2AMethods.SUBSCRIBE_TO_TASK_METHOD -> handleSubscribeToTask(request.payload(), id, ctx);
+        default -> A2aJsonRpcProtocol.errorResponse(id,
+                new MethodNotFoundError(null, "Method not found: " + method, null));
+        };
     }
 
     /**

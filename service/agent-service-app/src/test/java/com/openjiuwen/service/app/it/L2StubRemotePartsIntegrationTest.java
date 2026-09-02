@@ -167,8 +167,8 @@ class L2StubRemotePartsIntegrationTest {
         Map<String, Object> rawPart = parts.get(2);
         assertThat(rawPart).doesNotContainKey("kind").doesNotContainKey("file");
         assertThat(rawPart.get("raw")).isEqualTo(RAW_BASE64);
-        assertThat(new String(Base64.getDecoder().decode((String) rawPart.get("raw")), StandardCharsets.UTF_8))
-                .isEqualTo(RAW_TEXT);
+        assertThat(new String(Base64.getDecoder().decode(assertInstanceOf(String.class, rawPart.get("raw"))),
+                StandardCharsets.UTF_8)).isEqualTo(RAW_TEXT);
         assertThat(rawPart.get("filename")).isEqualTo("note.txt");
         assertThat(rawPart.get("mediaType")).isEqualTo("text/plain");
 
@@ -253,12 +253,12 @@ class L2StubRemotePartsIntegrationTest {
                                 "parts", List.of(Map.of("text", "delegate to lowcode stub until exhausted"))))));
         String taskId = taskId(first);
 
-        Task completed = awaitCompletedTask(taskId);
-
         // §7.3: the original multimodal parts survive in the task snapshot — the FEAT-004
         // shadow task (`shadow:<agentId>:<parentTaskId>`, metadata `_remote_batch`) retains
         // `members[].parts` while the batch settles; the test CallerHandler captured it from
         // the resume call stack, before the normal post-resume cleanup deletes the shadow.
+        Task completed = awaitCompletedTask(taskId);
+
         Map<String, Object> shadowSnapshot = CallerHandler.SHADOW_SNAPSHOTS.stream()
                 .filter(snapshot -> snapshot.get("parentTaskId").equals(taskId)).findFirst().orElse(null);
         assertThat(shadowSnapshot).as("shadow task snapshot must exist at resume time").isNotNull();
@@ -487,7 +487,7 @@ class L2StubRemotePartsIntegrationTest {
                         SHADOW_SNAPSHOTS.add(copy);
                     }
                 }
-            } catch (RuntimeException ignored) {
+            } catch (IllegalStateException | IllegalArgumentException | UnsupportedOperationException ignored) {
                 // best-effort diagnostics capture; the exhaustion test asserts on the result
             }
         }

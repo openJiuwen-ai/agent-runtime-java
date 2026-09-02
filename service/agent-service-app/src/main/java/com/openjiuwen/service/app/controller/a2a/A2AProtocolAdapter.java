@@ -124,6 +124,7 @@ public class A2AProtocolAdapter {
                 copyMetadata(entry, dataPart.metadata());
             } else {
                 // unsupported part type: skipped, entry stays null
+                log.debug("Skipping unsupported A2A part type {}", part.getClass().getName());
             }
             if (entry != null) {
                 normalized.add(entry);

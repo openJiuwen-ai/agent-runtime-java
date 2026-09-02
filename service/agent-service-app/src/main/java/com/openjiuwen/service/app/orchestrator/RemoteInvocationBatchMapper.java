@@ -189,7 +189,7 @@ final class RemoteInvocationBatchMapper {
             value.put("agentName", member.agentName);
             value.put("state", member.state.name());
             putIfNotBlank(value, "remoteTaskId", member.remoteTaskId);
-            if (member.parts != null) {
+            if (!member.parts.isEmpty()) {
                 value.put("parts", member.parts);
             }
             putIfNotBlank(value, "resultCategory", member.resultCategory);
@@ -402,12 +402,12 @@ final class RemoteInvocationBatchMapper {
 
     private static List<Map<String, Object>> parseMemberParts(Object rawParts, Member member) {
         if (rawParts == null) {
-            return null;
+            return List.of();
         }
         if (!(rawParts instanceof List<?> values) || values.isEmpty()
                 || values.stream().anyMatch(value -> !(value instanceof Map<?, ?>))) {
             member.fail(MemberState.FAILED, "CORE_INTERRUPT_PARTS_INVALID", "interrupt parts must be object list");
-            return null;
+            return List.of();
         }
         // 结构与校验由中断产生方（S2 入站校验/S3b rail 映射）保证，此处仅做类型容错。
         return normalizedParts(values);
@@ -416,7 +416,7 @@ final class RemoteInvocationBatchMapper {
     private static List<Map<String, Object>> normalizedParts(Object rawParts) {
         if (!(rawParts instanceof List<?> values) || values.isEmpty()
                 || values.stream().anyMatch(value -> !(value instanceof Map<?, ?>))) {
-            return null;
+            return List.of();
         }
         List<Map<String, Object>> parts = new ArrayList<>();
         for (Object value : values) {

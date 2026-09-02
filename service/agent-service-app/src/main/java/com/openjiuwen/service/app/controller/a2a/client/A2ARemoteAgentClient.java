@@ -129,8 +129,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private static ExecutorService newIoExecutor(int ioConcurrency) {
         if (VirtualThreadSupport.isSupported()) {
             return VirtualThreadSupport.newVirtualExecutor("a2a-remote-io",
-                    (thread, error) -> log.error("Uncaught A2A remote I/O error thread={}",
-                            thread.getName(), error));
+                    (thread, error) -> log.error("Uncaught A2A remote I/O error thread={}", thread.getName(), error));
         }
         AtomicInteger threadIndex = new AtomicInteger();
         return new ThreadPoolExecutor(ioConcurrency, ioConcurrency, 0L, TimeUnit.MILLISECONDS,
@@ -204,35 +203,41 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         parts.add(new TextPart(call.message()));
         List<Part<?>> trailingText = new ArrayList<>();
         for (Map<String, Object> part : normalized) {
-            Part<?> mapped = toSdkPart(part);
-            if (mapped == null) {
+            Optional<Part<?>> mapped = toSdkPartOrEmpty(part);
+            if (mapped.isEmpty()) {
                 continue;
             }
-            if (mapped instanceof TextPart text) {
+            if (mapped.get() instanceof TextPart text) {
                 trailingText.add(text);
             } else {
-                parts.add(mapped);
+                parts.add(mapped.get());
             }
         }
         parts.addAll(trailingText);
         return parts;
     }
 
-    private static Part<?> toSdkPart(Map<String, Object> part) {
+    /**
+     * Maps one normalized part to its SDK representation.
+     *
+     * @param part the normalized part map (kind + payload fields)
+     * @return the SDK part, or empty for unsupported kinds / non-string text payloads
+     */
+    private static Optional<Part<?>> toSdkPartOrEmpty(Map<String, Object> part) {
         String kind = String.valueOf(part.get("kind"));
         switch (kind) {
         case "url":
-            return new FilePart(new FileWithUri(stringOrNull(part.get("mediaType")), stringOrNull(part.get("filename")),
-                    stringOrNull(part.get("url"))));
+            return Optional.of(new FilePart(new FileWithUri(nonBlankString(part.get("mediaType")),
+                    nonBlankString(part.get("filename")), nonBlankString(part.get("url")))));
         case "raw":
-            return new FilePart(new FileWithBytes(stringOrNull(part.get("mediaType")),
-                    stringOrNull(part.get("filename")), String.valueOf(part.get("bytesBase64"))));
+            return Optional.of(new FilePart(new FileWithBytes(nonBlankString(part.get("mediaType")),
+                    nonBlankString(part.get("filename")), String.valueOf(part.get("bytesBase64")))));
         case "data":
-            return new DataPart(part.get("data") instanceof Map<?, ?> data ? copyData(data) : Map.of());
+            return Optional.of(new DataPart(part.get("data") instanceof Map<?, ?> data ? copyData(data) : Map.of()));
         case "text":
-            return part.get("text") instanceof String text ? new TextPart(text) : null;
+            return part.get("text") instanceof String text ? Optional.of(new TextPart(text)) : Optional.empty();
         default:
-            return null;
+            return Optional.empty();
         }
     }
 
@@ -242,11 +247,14 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         return copy;
     }
 
-    private static String stringOrNull(Object value) {
-        if (!(value instanceof String text) || text.isBlank()) {
-            return null;
-        }
-        return text;
+    /**
+     * Resolves an optional normalized part string field.
+     *
+     * @param value the raw field value
+     * @return the non-blank string, or an empty string when absent/blank
+     */
+    private static String nonBlankString(Object value) {
+        return value instanceof String text && !text.isBlank() ? text : "";
     }
 
     private static Map<String, Object> paramsMetadata(Map<String, Object> metadata) {
@@ -428,7 +436,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                     } catch (RuntimeException ex) {
                         attempt++;
                         if (result.isDone() || attempt > MAX_RETRY_ATTEMPTS
-                                || !awaitRetryBackoff(call, isStreaming, setup.contextId(), attempt, ex, result)) {
+                                || !awaitRetryBackoff(new RetryContext(call, isStreaming, setup.contextId(), result),
+                                        attempt, ex)) {
                             log.error("A2A remote call failed agent={} streaming={} taskId={} contextId={} attempts={}",
                                     call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new",
                                     setup.contextId(), attempt, ex);
@@ -447,25 +456,44 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         }
     }
 
+    /** Retry-time coordinates shared by the backoff sleeper and its callers (for logging/completion). */
+    private record RetryContext(RemoteCall call, boolean isStreaming, String contextId,
+            CompletableFuture<RemoteCallOutcome> result) {
+    }
+
     /**
      * Sleeps the exponential backoff slot before the next retry attempt. Returns
      * {@code false} (completing the future exceptionally with the original failure)
      * when the wait is interrupted.
+     *
+     * @param retry the retry coordinates (call, mode, context, result future)
+     * @param attempt the retry attempt number, starting at 1
+     * @param failure the transient failure that triggered the retry
+     * @return {@code true} to proceed with the retry, {@code false} when interrupted
      */
-    private boolean awaitRetryBackoff(RemoteCall call, boolean isStreaming, String contextId, int attempt,
-            RuntimeException failure, CompletableFuture<RemoteCallOutcome> result) {
+    private boolean awaitRetryBackoff(RetryContext retry, int attempt, RuntimeException failure) {
         long backoffMillis = retryBackoffBaseMillis << (attempt - 1);
         log.warn("A2A remote transient failure agent={} streaming={} taskId={} contextId={} attempt={}/{} retryIn={}ms",
-                call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new", contextId, attempt,
+                retry.call().agentName(), retry.isStreaming(),
+                retry.call().taskId() != null ? retry.call().taskId() : "new", retry.contextId(), attempt,
                 MAX_RETRY_ATTEMPTS, backoffMillis, failure);
         try {
             Thread.sleep(backoffMillis);
             return true;
         } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            result.completeExceptionally(failure);
+            log.debug("A2A retry backoff interrupted, restoring interrupt status", interrupted);
+            restoreInterruptStatus();
+            retry.result().completeExceptionally(failure);
             return false;
         }
+    }
+
+    /**
+     * Restores the interrupt status after a caught {@link InterruptedException}
+     * (Effective Java item: preserve the interruption status of the thread).
+     */
+    private static void restoreInterruptStatus() {
+        Thread.currentThread().interrupt();
     }
 
     private static void cancelInvocationOnCompletion(CompletableFuture<?> result,

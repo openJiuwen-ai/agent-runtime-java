@@ -56,8 +56,8 @@ final class RemoteInvocationBatch {
 
         String message;
 
-        /** Normalized Part list (design FEAT-036 §5.2) carried from the interrupt payload; nullable. */
-        List<Map<String, Object>> parts;
+        /** Normalized Part list (design FEAT-036 §5.2) carried from the interrupt payload; empty when absent. */
+        List<Map<String, Object>> parts = List.of();
 
         volatile MemberState state = MemberState.QUEUED;
 
