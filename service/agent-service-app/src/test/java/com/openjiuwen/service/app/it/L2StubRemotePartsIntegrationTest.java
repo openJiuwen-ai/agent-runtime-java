@@ -64,8 +64,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * test proves {@code A2ARemoteAgentClient} interoperates with an independent
  * implementation instead of merely round-tripping our own serialization.
  */
-@SpringBootTest(classes = L2StubRemotePartsIntegrationTest.CallerRuntimeApplication.class, webEnvironment = WebEnvironment.RANDOM_PORT, properties = {
-        "spring.application.name=caller-l2-stub-it"})
+@SpringBootTest(classes = L2StubRemotePartsIntegrationTest.CallerRuntimeApplication.class,
+        webEnvironment = WebEnvironment.RANDOM_PORT, properties = {"spring.application.name=caller-l2-stub-it"})
 @AutoConfigureTestRestTemplate
 @DirtiesContext(classMode = ClassMode.AFTER_CLASS)
 class L2StubRemotePartsIntegrationTest {

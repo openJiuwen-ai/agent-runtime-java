@@ -82,8 +82,8 @@ public final class A2aPartRules {
             boolean isFieldPresent = part.containsKey(entry.getValue()) && part.get(entry.getValue()) != null;
             if (entry.getValue().equals(expectedField)) {
                 isPayloadPresent = isFieldPresent;
-            } else if (isFieldPresent) {
-                isForeignPresent = true;
+            } else {
+                isForeignPresent |= isFieldPresent;
             }
         }
         if (!isPayloadPresent || isForeignPresent) {
