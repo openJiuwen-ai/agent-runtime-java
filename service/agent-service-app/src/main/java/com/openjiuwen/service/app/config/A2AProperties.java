@@ -69,7 +69,7 @@ public class A2AProperties {
 
     /**
      * A2A platform agent execution pool size. Values <= 0 mean auto-sizing
-     * ({@code max(32, availableProcessors * 8)}), matching the SSE pump
+     * ({@code max(40, availableProcessors * 8)}), matching the SSE pump
      * executor baseline for I/O-bound agent workloads. The admission
      * guard rejects startup when the task admission limit exceeds this
      * capacity. On runtimes supporting virtual threads, this setting does

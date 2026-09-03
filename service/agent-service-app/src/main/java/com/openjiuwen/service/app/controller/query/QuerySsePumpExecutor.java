@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>On JDK 21 and later, each active SSE connection runs on its own virtual thread without executor-level
  * concurrency or queue limits. On JDK 17, the existing bounded platform pool is retained: default
- * {@code max(32, CPU×8)} worker threads plus an {@link ArrayBlockingQueue} with a default capacity of 128.
+ * {@code max(40, CPU×8)} worker threads plus an {@link ArrayBlockingQueue} with a default capacity of 128.
  * When the JDK 17 pool is saturated, {@link #execute(Runnable)} throws {@link RejectedExecutionException}
  * so the HTTP layer can fail fast with 503.</p>
  *
@@ -42,7 +42,7 @@ final class QuerySsePumpExecutor {
 
     private static final String QUEUE_SIZE_PROPERTY = "openjiuwen.service.query.sse-pump.queue-size";
 
-    private static final int DEFAULT_MAX_SIZE = Math.max(32, Runtime.getRuntime().availableProcessors() * 8);
+    private static final int DEFAULT_MAX_SIZE = Math.max(40, Runtime.getRuntime().availableProcessors() * 8);
 
     private static final int DEFAULT_QUEUE_SIZE = 128;
 
