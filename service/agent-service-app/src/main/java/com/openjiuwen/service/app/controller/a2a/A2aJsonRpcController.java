@@ -10,6 +10,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.openjiuwen.service.app.config.A2AProperties;
+import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
@@ -43,7 +44,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * JSON-RPC controller for A2A protocol endpoints. Handles {@code SendMessage}, {@code SendStreamingMessage},
@@ -56,6 +60,14 @@ public class A2aJsonRpcController {
     private static final Logger log = LoggerFactory.getLogger(A2aJsonRpcController.class);
 
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
+
+    /**
+     * Executor that drives A2A SSE subscription. On JDK 21 each subscription runs on its own
+     * virtual thread; on JDK 17 a small daemon platform pool is used. This keeps the A2A
+     * streaming path off {@code ForkJoinPool.commonPool()} so that long-lived subscriptions
+     * do not starve the common pool and benefit from virtual-thread scaling.
+     */
+    private static final Executor SSE_EXECUTOR = createSseExecutor();
 
     private final RequestHandler requestHandler;
 
@@ -291,7 +303,7 @@ public class A2aJsonRpcController {
             public void onComplete() {
                 emitter.complete();
             }
-        })).whenComplete((ignored, failure) -> {
+        }), SSE_EXECUTOR).whenComplete((ignored, failure) -> {
             if (failure != null) {
                 log.error("A2A SSE subscription failed requestId={}", requestId, failure);
                 // subscribe() may throw synchronously (e.g. executor rejection) before the
@@ -374,5 +386,29 @@ public class A2aJsonRpcController {
         String idJson = id != null ? GSON.toJson(id) : "null";
         return "{\"jsonrpc\":\"2.0\",\"id\":" + idJson
                 + ",\"error\":{\"code\":-32603,\"message\":\"Service Unavailable: concurrent task limit reached\"}}";
+    }
+
+    /**
+     * Builds the SSE subscription executor. On JDK 21+ uses a per-task virtual-thread executor so each
+     * A2A streaming subscription runs on its own virtual thread; on JDK 17 falls back to a small
+     * daemon platform-thread pool sized to the CPU count. The platform pool is unbounded-queue
+     * cached-style: subscriptions are long-lived but few, and a cached pool avoids rejecting under
+     * bursty load while still bounding peak threads by the subscription count.
+     *
+     * @return executor for driving {@code publisher.subscribe(...)}
+     */
+    private static Executor createSseExecutor() {
+        if (VirtualThreadSupport.isSupported()) {
+            return VirtualThreadSupport.newVirtualExecutor("a2a-sse",
+                    (thread, error) -> log.error("Uncaught A2A SSE thread={}", thread.getName(), error));
+        }
+        AtomicInteger idx = new AtomicInteger();
+        return Executors.newCachedThreadPool(runnable -> {
+            Thread thread = new Thread(runnable, "a2a-sse-" + idx.incrementAndGet());
+            thread.setDaemon(true);
+            thread.setUncaughtExceptionHandler((source, error) ->
+                    log.error("Uncaught A2A SSE thread={}", source.getName(), error));
+            return thread;
+        });
     }
 }
