@@ -43,6 +43,13 @@ import java.util.concurrent.TimeoutException;
  * @since 0.1.0
  */
 final class RemoteInvocationBatchMapper {
+    private static final Set<String> RESERVED_RESUME_METADATA = Set.of(
+            "_interrupt",
+            "runtime.parentTaskId",
+            "runtime.remoteToolInputs",
+            "runtime.remoteBatchId",
+            "runtime.remoteToolResults");
+
     RemoteInvocationBatch parse(Map<String, Object> interrupt, ServeRequest request, String parentTaskId,
             SerialQueryStreamObserver observer) {
         List<Map<String, Object>> items = interruptItems(interrupt);
@@ -223,7 +230,9 @@ final class RemoteInvocationBatchMapper {
             }
             request.setMessages(copiedMessages);
         }
-        request.setMetadata(rawRequest.get("metadata") instanceof Map<?, ?> metadata ? copyMap(metadata) : Map.of());
+        request.setMetadata(rawRequest.get("metadata") instanceof Map<?, ?> metadata
+                ? cleanRequestMetadata(metadata)
+                : Map.of());
         return request;
     }
 
@@ -326,10 +335,20 @@ final class RemoteInvocationBatchMapper {
             request.getMessages().forEach(message -> messages.add(new LinkedHashMap<>(message)));
         }
         snapshot.put("messages", messages);
-        snapshot.put("metadata", request.getMetadata() == null
-                ? Map.of()
-                : new LinkedHashMap<>(request.getMetadata()));
+        snapshot.put("metadata", cleanRequestMetadata(request.getMetadata()));
         return snapshot;
+    }
+
+    private static Map<String, Object> cleanRequestMetadata(Map<?, ?> source) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (source != null) {
+            source.forEach((key, value) -> {
+                if (!RESERVED_RESUME_METADATA.contains(String.valueOf(key))) {
+                    metadata.put(String.valueOf(key), value);
+                }
+            });
+        }
+        return metadata;
     }
 
     private static String resultCategory(TaskState state) {
