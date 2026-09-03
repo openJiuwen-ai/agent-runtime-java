@@ -442,9 +442,9 @@ final class A2AExecutionResources {
      * {@code availableProcessors * AUTO_POOL_MULTIPLIER} falls below this value.
      * I/O-bound agent tasks park on remote LLM or backend calls, so the baseline
      * mirrors {@code QuerySsePumpExecutor}. On machines with 8 or fewer cores this
-     * floor dominates, yielding a fixed 64-slot pool.
+     * floor dominates, yielding a fixed 40-slot pool.
      */
-    static final int AUTO_POOL_FLOOR = 64;
+    static final int AUTO_POOL_FLOOR = 40;
 
     /**
      * Auto-sized agent pool multiplier per CPU core. Combined with
