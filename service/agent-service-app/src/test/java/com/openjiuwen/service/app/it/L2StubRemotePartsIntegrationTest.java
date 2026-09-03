@@ -58,7 +58,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * L2 interop test (design FEAT-036 §3.1/§3.2): the "remote lowcode workflow" is a
+ * L2 interop test: the "remote lowcode workflow" is a
  * plain JDK {@link HttpServer} stub whose JSON-RPC responses are hand-written per the
  * A2A 1.0.0 wire specification — deliberately NOT generated through our SDK — so the
  * test proves {@code A2ARemoteAgentClient} interoperates with an independent
@@ -100,7 +100,7 @@ class L2StubRemotePartsIntegrationTest {
 
     private final AtomicInteger requestCount = new AtomicInteger();
 
-    /** Number of leading requests the stub answers with HTTP 500 (retry rehearsal, FEAT-036 §2.4 step 5). */
+    /** Number of leading requests the stub answers with HTTP 500 (retry rehearsal). */
     private final AtomicInteger failFirstN = new AtomicInteger();
 
     @BeforeEach
@@ -181,7 +181,7 @@ class L2StubRemotePartsIntegrationTest {
     }
 
     /**
-     * FEAT-036 §2.4 step 5: transient remote failures (connection refused / 5xx) are
+     * Transient remote failures (connection refused / 5xx) are
      * retried with exponential backoff (cap 3 retries); every replay re-sends the full
      * multimodal payload, and after the final success the caller task is resumed with
      * the stub result. Exhausted retries fall back to the existing failure surface
@@ -234,7 +234,7 @@ class L2StubRemotePartsIntegrationTest {
     }
 
     /**
-     * FEAT-036 §7.3 last row: when every retry is exhausted the caller task is resumed
+     * When every retry is exhausted the caller task is resumed
      * with the REMOTE_UNAVAILABLE failure surface, and the original multimodal parts
      * survive in the task snapshot — the INPUT_REQUIRED status message keeps the
      * delegate interrupt payload (message + context parts) for resume/replay.
@@ -256,7 +256,7 @@ class L2StubRemotePartsIntegrationTest {
         Task completed = awaitCompletedTask(taskId);
         assertThat(completed).as("exhausted delegate must settle as a completed task").isNotNull();
 
-        // §7.3: the original multimodal parts survive in the task snapshot — the FEAT-004
+        // the original multimodal parts survive in the task snapshot — the
         // shadow task (`shadow:<agentId>:<parentTaskId>`, metadata `_remote_batch`) retains
         // `members[].parts` while the batch settles; the test CallerHandler captured it from
         // the resume call stack, before the normal post-resume cleanup deletes the shadow.
@@ -283,14 +283,14 @@ class L2StubRemotePartsIntegrationTest {
         assertThat(data.get("orderId")).isEqualTo("A-1024");
         assertThat(data.get("vip")).isEqualTo(true);
 
-        // the settled snapshot already carries the FEAT-004 failure回填 result
+        // the settled snapshot already carries the failure backfill result
         @SuppressWarnings("unchecked")
         Map<String, Object> failureResult = (Map<String, Object>) failedMember.get("result");
         assertThat(failureResult.get("ok")).isEqualTo(false);
         assertThat(failureResult.get("code")).isEqualTo("REMOTE_UNAVAILABLE");
         assertThat(String.valueOf(failureResult.get("message"))).contains("500");
 
-        // FEAT-004 §3.4: after a normal (failure) resume the READY shadow is deleted
+        // after a normal (failure) resume the READY shadow is deleted
         assertThat(taskStore.list(org.a2aproject.sdk.spec.ListTasksParams.builder().contextId("ctx-l2-exhaust").build())
                 .tasks()).noneMatch(task -> task.id() != null && task.id().startsWith("shadow:"));
 
@@ -429,7 +429,7 @@ class L2StubRemotePartsIntegrationTest {
 
     /**
      * Raises an a2a_delegate interrupt whose context carries tool attachments as
-     * normalized parts (design FEAT-036 §4.5/§5.2), then resumes with the stub result.
+     * normalized parts, then resumes with the stub result.
      */
     private static final class CallerHandler implements AgentHandler {
         /** Shadow-task snapshots captured on the resume call stack (best effort, diagnostics). */
@@ -470,7 +470,7 @@ class L2StubRemotePartsIntegrationTest {
         }
 
         /**
-         * Captures the FEAT-004 shadow task snapshot (`_remote_batch` metadata) while the
+         * Captures the shadow task snapshot (`_remote_batch` metadata) while the
          * resume is still in flight — the caller handler runs on the resume call stack,
          * before the coordinator deletes the settled READY shadow.
          *

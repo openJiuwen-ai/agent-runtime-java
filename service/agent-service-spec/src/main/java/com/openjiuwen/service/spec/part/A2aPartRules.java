@@ -13,12 +13,12 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Protocol-level hygiene rules for normalized A2A parts (design doc FEAT-036 §4.1).
+ * Protocol-level hygiene rules for normalized A2A parts.
  *
  * <p>Works on the normalized part map representation (kind + mutually exclusive
- * payload fields, see design §5.2) and never depends on the A2A SDK, so both the
+ * payload fields) and never depends on the A2A SDK, so both the
  * runtime inbound parser and the custom-rest SPI bridge share the same limits.
- * Business-level file type validation (EDP-FILE-003) stays out of scope.</p>
+ * Business-level file type validation stays out of scope.</p>
  *
  * @since 0.1.0
  */
@@ -29,7 +29,7 @@ public final class A2aPartRules {
 
     private static final Set<String> KINDS = Set.of("text", "raw", "url", "data");
 
-    /** Discriminator payload fields, one per kind (design §5.2). */
+    /** Discriminator payload fields, one per kind. */
     private static final Map<String, String> KIND_PAYLOAD = Map.of("text", "text", "raw", "bytesBase64", "url", "url",
             "data", "data");
 

@@ -61,7 +61,7 @@ public class ServeRequest {
     }
 
     /**
-     * Returns the normalized parts (design FEAT-036 §5.2) of the latest message selected by
+     * Returns the normalized parts of the latest message selected by
      * {@link #lastUserQuery()}.
      *
      * @return latest user-message parts, or an empty list when absent

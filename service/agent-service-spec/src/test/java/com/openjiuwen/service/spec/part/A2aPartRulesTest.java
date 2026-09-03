@@ -17,10 +17,10 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Tests the protocol-level hygiene rules for normalized A2A parts
- * (design doc FEAT-036 §4.1/§7.4: mutual exclusion, base64 validity,
+ * Tests the protocol-level hygiene rules for normalized A2A parts:
+ * mutual exclusion, base64 validity,
  * raw/parts/text-data size boundaries, url scheme whitelist,
- * filename/metadata length hygiene).
+ * filename/metadata length hygiene.
  *
  * @since 0.1.0
  */

@@ -24,7 +24,7 @@ import java.util.Base64;
 import java.util.List;
 
 /**
- * Tests A2A SendMessage params Part parsing for the FEAT-036 multi-Part wire
+ * Tests A2A SendMessage params Part parsing for the multi-Part wire
  * format (text/raw/url/data flat discriminators).
  *
  * @since 0.1.0

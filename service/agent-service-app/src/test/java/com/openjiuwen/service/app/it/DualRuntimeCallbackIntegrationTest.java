@@ -116,7 +116,7 @@ class DualRuntimeCallbackIntegrationTest {
         assertThat(completedTask.history())
                 .allSatisfy(message -> assertThat(A2aPartContent.extract(message.parts())).doesNotContain("continue"));
 
-        // FEAT-036 §3.4: callback mode + multimodal parts — the delegate payload survives
+        // callback mode + multimodal parts — the delegate payload survives
         // the push-notification round trip and the callee business handler receives the
         // full normalized parts (leading delegate text + url/raw/data in order).
         assertThat(DelayedCalleeHandler.capturedRequests()).hasSize(1);
@@ -162,7 +162,7 @@ class DualRuntimeCallbackIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         // String body so the client sets Content-Length; the /a2a pre-check rejects
-        // chunked (missing Content-Length) requests with 413 (FEAT-036 §2.2).
+        // chunked (missing Content-Length) requests with 413.
         return rest.postForEntity("/a2a/", new HttpEntity<>(toJson(body), headers), String.class);
     }
 
@@ -235,7 +235,7 @@ class DualRuntimeCallbackIntegrationTest {
             if (results instanceof Map<?, ?> remoteResults) {
                 return response(request, "caller resumed:" + remoteResults.get("call-callee"));
             }
-            // FEAT-036 §4.5: delegate interrupt carries tool attachments as normalized
+            // delegate interrupt carries tool attachments as normalized
             // parts alongside the message text.
             java.util.List<Map<String, Object>> attachments = List.of(
                     Map.of("kind", "url", "url", "https://example.com/attachments/id-card.png", "filename",

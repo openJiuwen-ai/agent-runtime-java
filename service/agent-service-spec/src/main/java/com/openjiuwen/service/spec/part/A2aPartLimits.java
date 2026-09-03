@@ -5,7 +5,7 @@
 package com.openjiuwen.service.spec.part;
 
 /**
- * Default A2A part protocol limits (design doc FEAT-036 §4.1, values from §2.2).
+ * Default A2A part protocol limits.
  * Callers may override them via configuration; these are the spec defaults.
  *
  * @since 0.1.0

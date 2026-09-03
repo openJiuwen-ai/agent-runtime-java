@@ -22,7 +22,7 @@ import java.util.Map;
  * @param isCallerStreaming whether the current inbound request is streaming;
  *                          gates remote A2A streaming so a non-streaming caller
  *                          never receives streamed artifacts
- * @param parts           normalized Part list (design FEAT-036 §5.2) mapped back to
+ * @param parts           normalized Part list mapped back to
  *                        outbound SDK parts after the leading text part, or {@code null}
  *                        when the call carries text only
  */

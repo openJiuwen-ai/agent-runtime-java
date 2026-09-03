@@ -195,7 +195,7 @@ final class A2aJsonRpcParamsParser {
     }
 
     /**
-     * Parses one wire part into the normalized map representation (design FEAT-036 §5.2):
+     * Parses one wire part into the normalized map representation:
      * exactly one content field among text/raw/url/data plus shared metadata. Blank text
      * parts keep the legacy skip behavior; a part with no content field is rejected.
      *
@@ -228,7 +228,7 @@ final class A2aJsonRpcParamsParser {
         return Optional.of(normalized);
     }
 
-    /** The four mutually-exclusive content candidates of one wire part (design §5.2). */
+    /** The four mutually-exclusive content candidates of one wire part. */
     private record PartContent(Optional<String> text, Optional<JsonElement> raw, Optional<JsonElement> url,
             Optional<JsonElement> data) {
     }
@@ -252,7 +252,7 @@ final class A2aJsonRpcParamsParser {
     }
 
     /**
-     * Resolves the single mutually-exclusive content kind of a wire part (design §5.2).
+     * Resolves the single mutually-exclusive content kind of a wire part.
      *
      * @param part the wire part JSON object
      * @param path the JSON path of the part, used in error messages

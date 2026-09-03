@@ -73,7 +73,7 @@ public class A2AProtocolAdapter {
         Map<String, Object> userMsg = new LinkedHashMap<>();
         userMsg.put("role", normalizeRole(msg.role().name()));
         userMsg.put("content", rawText);
-        // message.parts → normalized part maps (design FEAT-036 §5.2), order preserved
+        // message.parts → normalized part maps, order preserved
         List<Map<String, Object>> normalizedParts = extractParts(msg.parts());
         if (!normalizedParts.isEmpty()) {
             userMsg.put("parts", normalizedParts);
@@ -90,7 +90,7 @@ public class A2AProtocolAdapter {
     }
 
     /**
-     * Normalizes SDK parts into the unified map representation (design FEAT-036 §5.2):
+     * Normalizes SDK parts into the unified map representation:
      * kind = text/raw/url/data plus shared metadata fields, preserving inbound order.
      *
      * @param parts the inbound SDK message parts in wire order

@@ -53,8 +53,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * Dual-runtime integration for delegate parts forwarding (design FEAT-036 mode
- * B):
+ * Dual-runtime integration for delegate parts forwarding:
  * caller tool attachments travel through the a2a_delegate interrupt, outbound
  * wire,
  * and are delivered to the callee handler as normalized message parts.
@@ -103,7 +102,7 @@ class DualRuntimePartsIntegrationTest {
     @Test
     void callerDelegatesMultimodalPartsToCallee() throws Exception {
         // caller first message: plain text; handler raises a2a_delegate interrupt
-        // whose context carries tool attachments as normalized parts (FEAT-036 §5.2)
+        // whose context carries tool attachments as normalized parts
         ResponseEntity<String> first = postA2a(rpc("SendMessage", "parts-delegate-start",
                 Map.of("message", Map.of("role", "ROLE_USER", "messageId", "msg-parts-start", "contextId",
                         "ctx-parts-delegate", "parts", List.of(Map.of("text", "start parts delegate"))))));
@@ -120,7 +119,7 @@ class DualRuntimePartsIntegrationTest {
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> deliveredParts = (List<Map<String, Object>>) userMessage.get("parts");
-        // design FEAT-036 §5.4: the delegate message text is the leading part,
+        // the delegate message text is the leading part,
         // normalized non-text attachments follow in order
         assertThat(deliveredParts).extracting(part -> part.get("kind")).containsExactly("text", "url", "raw", "data");
         assertThat(deliveredParts.get(0).get("text")).isEqualTo("start parts delegate");
@@ -226,7 +225,7 @@ class DualRuntimePartsIntegrationTest {
 
     /**
      * Raises an a2a_delegate interrupt whose context carries tool attachments as
-     * normalized parts (design FEAT-036 §4.5/§5.2), then resumes with the remote
+     * normalized parts, then resumes with the remote
      * result.
      */
     private static final class CallerHandler implements AgentHandler {

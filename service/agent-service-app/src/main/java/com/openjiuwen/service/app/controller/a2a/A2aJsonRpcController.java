@@ -9,8 +9,8 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
+import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
@@ -105,7 +105,7 @@ public class A2aJsonRpcController {
     @AuthorizedResource(resource = "a2a", action = "rpc")
     public ResponseEntity<?> handleJsonRpc(@RequestBody(required = false) String rawBody,
             jakarta.servlet.http.HttpServletRequest servletRequest) {
-        // Content-Length pre-check (design FEAT-036 §2.2 step 1): reject oversized or
+        // Content-Length pre-check: reject oversized or
         // chunked bodies with HTTP 413 before JSON-RPC parsing; -1 disables the check.
         long maxMessageBytes = a2aProperties != null ? a2aProperties.getMaxMessageBytes()
                 : com.openjiuwen.service.spec.part.A2aPartLimits.DEFAULT_MAX_REQUEST_BODY_BYTES;

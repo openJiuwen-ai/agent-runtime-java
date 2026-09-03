@@ -207,7 +207,7 @@ class A2aJsonRpcControllerTest {
         String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\""
                 + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
                 + "\",\"params\":{\"id\":\"task-1\",\"tenant\":\"tenant-1\"}}";
-        // FEAT-036 §2.2: the /a2a endpoint pre-checks Content-Length before JSON
+        // the /a2a endpoint pre-checks Content-Length before JSON
         // parsing; mirror a well-formed client by setting the request body (which
         // also sets Content-Length on the mock), otherwise the 413 guard rejects
         // the call before it reaches the subscribe routing under test here.

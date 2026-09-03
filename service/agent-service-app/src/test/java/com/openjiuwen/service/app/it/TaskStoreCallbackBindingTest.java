@@ -77,7 +77,7 @@ class TaskStoreCallbackBindingTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         // String body so the client sets Content-Length; the /a2a pre-check rejects
-        // chunked (missing Content-Length) requests with 413 (FEAT-036 §2.2).
+        // chunked (missing Content-Length) requests with 413.
         return rest.postForObject("/a2a/", new HttpEntity<>(toJson(body), headers), String.class);
     }
 

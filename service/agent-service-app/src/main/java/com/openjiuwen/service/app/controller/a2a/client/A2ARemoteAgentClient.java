@@ -98,8 +98,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private final ExecutorService ioExecutor;
 
     /**
-     * Base delay for outbound transient-failure retries (design FEAT-036 §2.4 step 5:
-     * exponential backoff, {@value #MAX_RETRY_ATTEMPTS} retries). Doubles per attempt;
+     * Base delay for outbound transient-failure retries
+     * (exponential backoff, {@value #MAX_RETRY_ATTEMPTS} retries). Doubles per attempt;
      * tests shrink it via reflection to keep the suite fast.
      */
     private volatile long retryBackoffBaseMillis = 200L;
@@ -187,7 +187,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     /**
-     * Outbound part assembly (design FEAT-036 §5.4): the legacy text payload stays the
+     * Outbound part assembly: the legacy text payload stays the
      * leading part; normalized non-text parts follow in order; additional text parts are
      * appended after them so files keep their position ahead of trailing context text.
      * Inbound format is preserved (url in → FileWithUri out, raw in → FileWithBytes out).
@@ -417,7 +417,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         boolean isStreaming = setup.entry.isStreaming() && call.isCallerStreaming();
         try {
             AtomicReference<Future<?>> invocationTask = new AtomicReference<>(ioExecutor.submit(() -> {
-                // design FEAT-036 §2.4 step 5: transient transport failures (connection
+                // transient transport failures (connection
                 // refused, remote 5xx) are replayed with exponential backoff, capped at
                 // MAX_RETRY_ATTEMPTS; the send params (including multimodal parts) are
                 // re-sent verbatim, so the remote sees the identical payload per retry.
