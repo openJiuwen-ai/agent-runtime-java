@@ -550,7 +550,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 .build();
     }
 
-    /** Builds request-scoped envs without mutating the Agent config env map. */
+    /**
+     * Builds request-scoped envs without mutating the Agent config env map.
+     *
+     * @param request request whose identity fields are copied to the Session envs
+     * @return request-scoped Session envs
+     */
     protected Map<String, Object> requestSessionEnvs(ServeRequest request) {
         Map<String, Object> envs = new LinkedHashMap<>();
         putIfNotBlank(envs, INPUT_CONVERSATION_ID, request.getConversationId());
