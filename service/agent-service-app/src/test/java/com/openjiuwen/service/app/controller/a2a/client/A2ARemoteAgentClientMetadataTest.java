@@ -140,6 +140,37 @@ class A2ARemoteAgentClientMetadataTest {
         }
 
         @Test
+        void buildSendParamsPreservesPartMetadataAndNonMapData() {
+                var call = new RemoteCall("remote", "analyze", "ctx", null, Map.of(), Map.of(), false,
+                                List.of(Map.of("kind", "url", "url", "https://example.com/report.pdf",
+                                                "mediaType", "application/pdf", "metadata", Map.of("traceId", "t-1")),
+                                                Map.of("kind", "raw", "bytesBase64", "aGVsbG8=", "byteSize", 5,
+                                                                "filename", "doc.txt", "mediaType", "text/plain",
+                                                                "metadata", Map.of("source", "upload")),
+                                                Map.of("kind", "data", "data", List.of("a", "b"),
+                                                                "metadata", Map.of("format", "list")),
+                                                Map.of("kind", "data", "data", 42),
+                                                Map.of("kind", "text", "text", "extra",
+                                                                "metadata", Map.of("lang", "en"))));
+
+                MessageSendParams params = A2ARemoteAgentClient.buildSendParams(call, "ctx");
+
+                List<Part<?>> parts = params.message().parts();
+                assertThat(parts).hasSize(6);
+                assertThat(assertInstanceOf(FilePart.class, parts.get(1)).metadata())
+                                .containsExactlyEntriesOf(Map.of("traceId", "t-1"));
+                assertThat(assertInstanceOf(FilePart.class, parts.get(2)).metadata())
+                                .containsExactlyEntriesOf(Map.of("source", "upload"));
+                DataPart listData = assertInstanceOf(DataPart.class, parts.get(3));
+                assertThat(listData.data()).isEqualTo(List.of("a", "b"));
+                assertThat(listData.metadata()).containsExactlyEntriesOf(Map.of("format", "list"));
+                DataPart scalarData = assertInstanceOf(DataPart.class, parts.get(4));
+                assertThat(scalarData.data()).isEqualTo(42);
+                assertThat(assertInstanceOf(TextPart.class, parts.get(5)).metadata())
+                                .containsExactlyEntriesOf(Map.of("lang", "en"));
+        }
+
+        @Test
         void outboundPartsSerializeToFlatV100WireFormat() {
                 var call = new RemoteCall("remote", "analyze", "ctx", null, Map.of(), Map.of(), false, List.of(
                                 Map.of("kind", "url", "url", "https://example.com/chart.png", "filename", "chart.png",

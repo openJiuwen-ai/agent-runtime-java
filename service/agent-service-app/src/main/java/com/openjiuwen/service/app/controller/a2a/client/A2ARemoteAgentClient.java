@@ -226,26 +226,48 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      */
     private static Optional<Part<?>> toSdkPartOrEmpty(Map<String, Object> part) {
         String kind = String.valueOf(part.get("kind"));
+        Map<String, Object> metadata = part.get("metadata") instanceof Map<?, ?> rawMetadata
+                ? castMetadata(rawMetadata)
+                : null;
         switch (kind) {
         case "url":
             return Optional.of(new FilePart(new FileWithUri(nonBlankString(part.get("mediaType")),
-                    nonBlankString(part.get("filename")), nonBlankString(part.get("url")))));
+                    nonBlankString(part.get("filename")), nonBlankString(part.get("url"))), metadata));
         case "raw":
             return Optional.of(new FilePart(new FileWithBytes(nonBlankString(part.get("mediaType")),
-                    nonBlankString(part.get("filename")), String.valueOf(part.get("bytesBase64")))));
+                    nonBlankString(part.get("filename")), String.valueOf(part.get("bytesBase64"))), metadata));
         case "data":
-            return Optional.of(new DataPart(part.get("data") instanceof Map<?, ?> data ? copyData(data) : Map.of()));
+            return Optional.of(new DataPart(dataPayload(part), metadata));
         case "text":
-            return part.get("text") instanceof String text ? Optional.of(new TextPart(text)) : Optional.empty();
+            return part.get("text") instanceof String text ? Optional.of(new TextPart(text, metadata))
+                    : Optional.empty();
         default:
             return Optional.empty();
         }
     }
 
-    private static Map<String, Object> copyData(Map<?, ?> data) {
-        Map<String, Object> copy = new LinkedHashMap<>();
-        data.forEach((key, value) -> copy.put(String.valueOf(key), value));
-        return copy;
+    /**
+     * Resolves the data part payload, keeping any JSON value type (map, list,
+     * string, number, boolean) intact per the inbound contract; a missing/null
+     * payload falls back to an empty object so the SDK constructor precondition
+     * (non-null data) holds.
+     *
+     * @param part the normalized part map
+     * @return the data payload value
+     */
+    private static Object dataPayload(Map<String, Object> part) {
+        return part.get("data") == null ? Map.of() : part.get("data");
+    }
+
+    /**
+     * Casts a raw metadata map into the string-keyed part metadata shape.
+     *
+     * @param rawMetadata the raw metadata map read from a normalized part
+     * @return the metadata map typed for {@code Part} construction
+     */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castMetadata(Map<?, ?> rawMetadata) {
+        return (Map<String, Object>) rawMetadata;
     }
 
     /**

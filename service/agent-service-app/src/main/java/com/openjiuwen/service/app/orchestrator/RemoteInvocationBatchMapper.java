@@ -11,6 +11,8 @@ import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.part.A2aPartLimits;
+import com.openjiuwen.service.spec.part.A2aPartRules;
 
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
@@ -409,8 +411,16 @@ final class RemoteInvocationBatchMapper {
             member.fail(MemberState.FAILED, "CORE_INTERRUPT_PARTS_INVALID", "interrupt parts must be object list");
             return List.of();
         }
-        // 结构与校验由中断产生方（S2 入站校验/S3b rail 映射）保证，此处仅做类型容错。
-        return normalizedParts(values);
+        List<Map<String, Object>> parts = normalizedParts(values);
+        // 消费边界独立执行协议级卫生校验（PR 评审 6.6）：interrupt 可能来自旧版本、
+        // 其他实现或外部恢复数据，不依赖中断产生方（S2 入站校验/S3b rail 映射）。
+        Optional<String> violation = A2aPartRules.validate(parts, A2aPartLimits.DEFAULT_MAX_RAW_BYTES,
+                A2aPartLimits.DEFAULT_MAX_TEXT_DATA_BYTES, A2aPartLimits.DEFAULT_MAX_PARTS);
+        if (violation.isPresent()) {
+            member.fail(MemberState.FAILED, "CORE_INTERRUPT_PARTS_INVALID", violation.get());
+            return List.of();
+        }
+        return parts;
     }
 
     private static List<Map<String, Object>> normalizedParts(Object rawParts) {

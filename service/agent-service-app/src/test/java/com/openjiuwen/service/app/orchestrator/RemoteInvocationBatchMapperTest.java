@@ -122,6 +122,63 @@ class RemoteInvocationBatchMapperTest {
         }
 
         @Test
+        void parseMarksMemberFailedWhenPartKindUnknown() {
+                Map<String, Object> part = Map.of("kind", "unknown", "value", "x");
+                Map<String, Object> item = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-call-a",
+                                "message", "message-call-a", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                                                "agentName", "agent-a", "resume", true, "parts", List.of(part)));
+
+                RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(item)), request(), "parent-1",
+                                observer());
+
+                assertThat(batch.members.get(0).state).isEqualTo(MemberState.FAILED);
+                assertThat(batch.members.get(0).resultCategory).isEqualTo("CORE_INTERRUPT_PARTS_INVALID");
+        }
+
+        @Test
+        void parseMarksMemberFailedWhenPartPayloadNotMutuallyExclusive() {
+                Map<String, Object> part = Map.of("kind", "url", "url", "https://example.com/report.pdf", "text",
+                                "conflicting payload");
+                Map<String, Object> item = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-call-a",
+                                "message", "message-call-a", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                                                "agentName", "agent-a", "resume", true, "parts", List.of(part)));
+
+                RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(item)), request(), "parent-1",
+                                observer());
+
+                assertThat(batch.members.get(0).state).isEqualTo(MemberState.FAILED);
+                assertThat(batch.members.get(0).resultCategory).isEqualTo("CORE_INTERRUPT_PARTS_INVALID");
+        }
+
+        @Test
+        void parseMarksMemberFailedWhenRawBase64Invalid() {
+                Map<String, Object> part = Map.of("kind", "raw", "bytesBase64", "not-valid-base64!!!");
+                Map<String, Object> item = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-call-a",
+                                "message", "message-call-a", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                                                "agentName", "agent-a", "resume", true, "parts", List.of(part)));
+
+                RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(item)), request(), "parent-1",
+                                observer());
+
+                assertThat(batch.members.get(0).state).isEqualTo(MemberState.FAILED);
+                assertThat(batch.members.get(0).resultCategory).isEqualTo("CORE_INTERRUPT_PARTS_INVALID");
+        }
+
+        @Test
+        void parseMarksMemberFailedWhenUrlSchemeNotAllowed() {
+                Map<String, Object> part = Map.of("kind", "url", "url", "ftp://example.com/report.pdf");
+                Map<String, Object> item = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-call-a",
+                                "message", "message-call-a", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                                                "agentName", "agent-a", "resume", true, "parts", List.of(part)));
+
+                RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(item)), request(), "parent-1",
+                                observer());
+
+                assertThat(batch.members.get(0).state).isEqualTo(MemberState.FAILED);
+                assertThat(batch.members.get(0).resultCategory).isEqualTo("CORE_INTERRUPT_PARTS_INVALID");
+        }
+
+        @Test
         void snapshotAndRestorePreserveMemberParts() {
                 Member carrier = member("call-a");
                 carrier.state = MemberState.QUEUED;
