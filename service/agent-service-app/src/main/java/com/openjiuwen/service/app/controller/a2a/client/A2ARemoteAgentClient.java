@@ -25,6 +25,10 @@ import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.AgentCard;
+import org.a2aproject.sdk.spec.DataPart;
+import org.a2aproject.sdk.spec.FilePart;
+import org.a2aproject.sdk.spec.FileWithBytes;
+import org.a2aproject.sdk.spec.FileWithUri;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.MessageSendConfiguration;
 import org.a2aproject.sdk.spec.MessageSendParams;
@@ -38,6 +42,7 @@ import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -53,6 +58,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
@@ -82,12 +88,21 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentClient.class);
     private static final int DEFAULT_IO_CONCURRENCY = 16;
+    private static final int MAX_RETRY_ATTEMPTS = 3;
+    private static final long CANCEL_POLL_INTERVAL_NANOS = 50_000_000L;
 
     private final A2ARemoteAgentCardRegistry registry;
 
     private final Map<ClientCacheKey, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final ExecutorService ioExecutor;
+
+    /**
+     * Base delay for outbound transient-failure retries
+     * (exponential backoff, {@value #MAX_RETRY_ATTEMPTS} retries). Doubles per attempt;
+     * tests shrink it via reflection to keep the suite fast.
+     */
+    private volatile long retryBackoffBaseMillis = 200L;
 
     /**
      * Constructs the remote agent client with the default I/O concurrency.
@@ -115,8 +130,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private static ExecutorService newIoExecutor(int ioConcurrency) {
         if (VirtualThreadSupport.isSupported()) {
             return VirtualThreadSupport.newVirtualExecutor("a2a-remote-io",
-                    (thread, error) -> log.error("Uncaught A2A remote I/O error thread={}",
-                            thread.getName(), error));
+                    (thread, error) -> log.error("Uncaught A2A remote I/O error thread={}", thread.getName(), error));
         }
         AtomicInteger threadIndex = new AtomicInteger();
         return new ThreadPoolExecutor(ioConcurrency, ioConcurrency, 0L, TimeUnit.MILLISECONDS,
@@ -160,7 +174,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
     static MessageSendParams buildSendParams(RemoteCall call, String contextId) {
         var messageBuilder = Message.builder().role(Message.Role.ROLE_USER).contextId(contextId)
-                .parts(List.<Part<?>>of(new TextPart(call.message()))).metadata(call.messageMetadata());
+                .parts(outboundParts(call)).metadata(call.messageMetadata());
         if (call.taskId() != null && !call.taskId().isBlank()) {
             messageBuilder.taskId(call.taskId());
         }
@@ -170,6 +184,100 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 .ifPresent(config -> configurationBuilder.returnImmediately(true).taskPushNotificationConfig(config));
         return MessageSendParams.builder().message(messageBuilder.build()).configuration(configurationBuilder.build())
                 .metadata(paramsMetadata).build();
+    }
+
+    /**
+     * Outbound part assembly: the legacy text payload stays the
+     * leading part; normalized non-text parts follow in order; additional text parts are
+     * appended after them so files keep their position ahead of trailing context text.
+     * Inbound format is preserved (url in → FileWithUri out, raw in → FileWithBytes out).
+     *
+     * @param call the remote call carrying the normalized outbound parts
+     * @return the assembled SDK parts with the leading text part
+     */
+    private static List<Part<?>> outboundParts(RemoteCall call) {
+        List<Map<String, Object>> normalized = call.parts();
+        if (normalized == null || normalized.isEmpty()) {
+            return List.of(new TextPart(call.message()));
+        }
+        List<Part<?>> parts = new ArrayList<>(normalized.size() + 1);
+        parts.add(new TextPart(call.message()));
+        List<Part<?>> trailingText = new ArrayList<>();
+        for (Map<String, Object> part : normalized) {
+            Optional<Part<?>> mapped = toSdkPartOrEmpty(part);
+            if (mapped.isEmpty()) {
+                continue;
+            }
+            if (mapped.get() instanceof TextPart text) {
+                trailingText.add(text);
+            } else {
+                parts.add(mapped.get());
+            }
+        }
+        parts.addAll(trailingText);
+        return parts;
+    }
+
+    /**
+     * Maps one normalized part to its SDK representation.
+     *
+     * @param part the normalized part map (kind + payload fields)
+     * @return the SDK part, or empty for unsupported kinds / non-string text payloads
+     */
+    private static Optional<Part<?>> toSdkPartOrEmpty(Map<String, Object> part) {
+        String kind = String.valueOf(part.get("kind"));
+        Map<String, Object> metadata = part.get("metadata") instanceof Map<?, ?> rawMetadata
+                ? castMetadata(rawMetadata)
+                : null;
+        switch (kind) {
+        case "url":
+            return Optional.of(new FilePart(new FileWithUri(nonBlankString(part.get("mediaType")),
+                    nonBlankString(part.get("filename")), nonBlankString(part.get("url"))), metadata));
+        case "raw":
+            return Optional.of(new FilePart(new FileWithBytes(nonBlankString(part.get("mediaType")),
+                    nonBlankString(part.get("filename")), String.valueOf(part.get("bytesBase64"))), metadata));
+        case "data":
+            return Optional.of(new DataPart(dataPayload(part), metadata));
+        case "text":
+            return part.get("text") instanceof String text ? Optional.of(new TextPart(text, metadata))
+                    : Optional.empty();
+        default:
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Resolves the data part payload, keeping any JSON value type (map, list,
+     * string, number, boolean) intact per the inbound contract; a missing/null
+     * payload falls back to an empty object so the SDK constructor precondition
+     * (non-null data) holds.
+     *
+     * @param part the normalized part map
+     * @return the data payload value
+     */
+    private static Object dataPayload(Map<String, Object> part) {
+        return part.get("data") == null ? Map.of() : part.get("data");
+    }
+
+    /**
+     * Casts a raw metadata map into the string-keyed part metadata shape.
+     *
+     * @param rawMetadata the raw metadata map read from a normalized part
+     * @return the metadata map typed for {@code Part} construction
+     */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castMetadata(Map<?, ?> rawMetadata) {
+        return (Map<String, Object>) rawMetadata;
+    }
+
+    /**
+     * Resolves an optional normalized part string field.
+     *
+     * @param value the raw field value
+     * @return the non-blank string, or an empty string when absent/blank
+     */
+    private static String nonBlankString(Object value) {
+        return value instanceof String text && !text.isBlank() ? text : "";
     }
 
     private static Map<String, Object> paramsMetadata(Map<String, Object> metadata) {
@@ -207,11 +315,9 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private Client createClient(RemoteAgentEntry entry, boolean isStreaming) {
         AgentCard card = entry.card();
         ClientCacheKey key = new ClientCacheKey(entry.name(), endpoint(card), isStreaming);
-        return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
-                ignored -> Client.builder(card)
-                        .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
-                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig(createHttpClient()))
-                        .build()));
+        return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key, ignored -> Client.builder(card)
+                .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
+                .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig(createHttpClient())).build()));
     }
 
     /**
@@ -281,8 +387,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     private CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
-            RemoteAgentCaller.EventObserver eventObserver,
-            boolean isStreaming) {
+            RemoteAgentCaller.EventObserver eventObserver, boolean isStreaming) {
         RemoteCallSetup setup;
         try {
             setup = prepareCall(call);
@@ -313,21 +418,19 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             logRemoteError("client creation", call, isStreaming, setup.contextId, error);
             throw error;
         }
-        submitInvocation(call, setup, client,
-                (event, ignoredCard) -> {
-                    try {
-                        handleClientEvent(event, result, eventObserver, hasTaskPushConfig(setup.params), isStreaming);
-                    } catch (RuntimeException ex) {
-                        log.error("A2A remote event failed agent={} streaming={} taskId={} contextId={}",
-                                call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new",
-                                setup.contextId, ex);
-                        result.completeExceptionally(ex);
-                    } catch (Error error) {
-                        logRemoteError("event", call, isStreaming, setup.contextId, error);
-                        result.completeExceptionally(error);
-                        throw error;
-                    }
-                }, result);
+        submitInvocation(call, setup, client, (event, ignoredCard) -> {
+            try {
+                handleClientEvent(event, result, eventObserver, hasTaskPushConfig(setup.params), isStreaming);
+            } catch (RuntimeException ex) {
+                log.error("A2A remote event failed agent={} streaming={} taskId={} contextId={}", call.agentName(),
+                        isStreaming, call.taskId() != null ? call.taskId() : "new", setup.contextId, ex);
+                result.completeExceptionally(ex);
+            } catch (Error error) {
+                logRemoteError("event", call, isStreaming, setup.contextId, error);
+                result.completeExceptionally(error);
+                throw error;
+            }
+        }, result);
         return result;
     }
 
@@ -336,20 +439,35 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         boolean isStreaming = setup.entry.isStreaming() && call.isCallerStreaming();
         try {
             AtomicReference<Future<?>> invocationTask = new AtomicReference<>(ioExecutor.submit(() -> {
-                try {
-                    withApplicationClassLoader(() -> {
-                        client.sendMessage(setup.params, List.of(eventConsumer),
-                                error -> completeOutcomeOnStreamEnd(call.agentName(), result, error), null);
+                // transient transport failures (connection
+                // refused, remote 5xx) are replayed with exponential backoff, capped at
+                // MAX_RETRY_ATTEMPTS; the send params (including multimodal parts) are
+                // re-sent verbatim, so the remote sees the identical payload per retry.
+                int attempt = 0;
+                while (true) {
+                    try {
+                        withApplicationClassLoader(() -> {
+                            client.sendMessage(setup.params, List.of(eventConsumer),
+                                    error -> completeOutcomeOnStreamEnd(call.agentName(), result, error), null);
+                            return null;
+                        });
                         return null;
-                    });
-                } catch (RuntimeException ex) {
-                    log.error("A2A remote call failed agent={} streaming={} taskId={} contextId={}", call.agentName(),
-                            isStreaming, call.taskId() != null ? call.taskId() : "new", setup.contextId, ex);
-                    result.completeExceptionally(ex);
-                } catch (Error error) {
-                    logRemoteError("call", call, isStreaming, setup.contextId, error);
-                    result.completeExceptionally(error);
-                    throw error;
+                    } catch (Error error) {
+                        logRemoteError("call", call, isStreaming, setup.contextId(), error);
+                        result.completeExceptionally(error);
+                        throw error;
+                    } catch (RuntimeException ex) {
+                        attempt++;
+                        if (result.isDone() || attempt > MAX_RETRY_ATTEMPTS
+                                || !awaitRetryBackoff(new RetryContext(call, isStreaming, setup.contextId(), result),
+                                        attempt, ex)) {
+                            log.error("A2A remote call failed agent={} streaming={} taskId={} contextId={} attempts={}",
+                                    call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new",
+                                    setup.contextId(), attempt, ex);
+                            result.completeExceptionally(ex);
+                            return null;
+                        }
+                    }
                 }
             }));
             if (result.isDone()) {
@@ -359,6 +477,43 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         } catch (RejectedExecutionException ex) {
             result.completeExceptionally(ex);
         }
+    }
+
+    /** Retry-time coordinates shared by the backoff sleeper and its callers (for logging/completion). */
+    private record RetryContext(RemoteCall call, boolean isStreaming, String contextId,
+            CompletableFuture<RemoteCallOutcome> result) {
+    }
+
+    /**
+     * Sleeps the exponential backoff slot before the next retry attempt. Returns
+     * {@code false} (completing the future exceptionally with the original failure)
+     * when the result future was completed or cancelled during the wait.
+     *
+     * @param retry the retry coordinates (call, mode, context, result future)
+     * @param attempt the retry attempt number, starting at 1
+     * @param failure the transient failure that triggered the retry
+     * @return {@code true} to proceed with the retry, {@code false} when aborted
+     */
+    private boolean awaitRetryBackoff(RetryContext retry, int attempt, RuntimeException failure) {
+        long backoffMillis = retryBackoffBaseMillis << (attempt - 1);
+        log.warn("A2A remote transient failure agent={} streaming={} taskId={} contextId={} attempt={}/{} retryIn={}ms",
+                retry.call().agentName(), retry.isStreaming(),
+                retry.call().taskId() != null ? retry.call().taskId() : "new", retry.contextId(), attempt,
+                MAX_RETRY_ATTEMPTS, backoffMillis, failure);
+        // G.CON.10: cooperative cancellation — the sleeper periodically polls the
+        // shared result future instead of relying on thread interruption; when the
+        // future is already settled (cancelled or completed elsewhere) the retry
+        // loop aborts and cleans up on its own.
+        long deadline = System.nanoTime() + backoffMillis * 1_000_000L;
+        long remaining;
+        while ((remaining = deadline - System.nanoTime()) > 0) {
+            if (retry.result().isDone()) {
+                log.debug("A2A retry backoff aborted, result already settled");
+                return false;
+            }
+            LockSupport.parkNanos(Math.min(remaining, CANCEL_POLL_INTERVAL_NANOS));
+        }
+        return true;
     }
 
     private static void cancelInvocationOnCompletion(CompletableFuture<?> result,

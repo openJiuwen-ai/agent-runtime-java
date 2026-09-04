@@ -61,6 +61,20 @@ public class ServeRequest {
     }
 
     /**
+     * Returns the normalized parts of the latest message selected by
+     * {@link #lastUserQuery()}.
+     *
+     * @return latest user-message parts, or an empty list when absent
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> lastUserParts() {
+        return lastMessageWithContent()
+                .filter(message -> message.get("parts") instanceof List<?>)
+                .map(message -> (List<Map<String, Object>>) message.get("parts"))
+                .orElseGet(List::of);
+    }
+
+    /**
      * Returns a defensive copy of the metadata attached to the latest message selected by
      * {@link #lastUserQuery()}.
      *

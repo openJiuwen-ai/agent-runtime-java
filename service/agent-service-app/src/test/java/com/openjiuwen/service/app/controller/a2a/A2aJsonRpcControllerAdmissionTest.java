@@ -218,7 +218,9 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     private static MockHttpServletRequest servletRequest() {
-        return new MockHttpServletRequest("POST", "/a2a");
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/a2a");
+        request.setContent(new byte[] {'{', '}'});
+        return request;
     }
 
     private static String sendMessageJson() {
