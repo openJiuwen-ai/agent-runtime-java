@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.config;
 
+import com.openjiuwen.service.adapters.common.security.ExternalTlsConfig;
 import lombok.Data;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -121,5 +122,8 @@ public class A2AProperties {
         private int timeoutSeconds = 300;
 
         private boolean isStreaming = false;
+
+        /** Optional reuse of the common outbound TLS configuration. */
+        private ExternalTlsConfig tls;
     }
 }

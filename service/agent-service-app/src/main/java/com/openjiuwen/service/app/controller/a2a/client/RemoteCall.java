@@ -18,12 +18,14 @@ import java.util.Map;
  * @param taskId          remote task ID to resume, or {@code null} for a new task
  * @param metadata        params-level metadata
  * @param messageMetadata message-level metadata
+ * @param protocolTenant A2A protocol tenant, not an authenticated tenant identity
  * @param isCallerStreaming whether the current inbound request is streaming;
  *                          gates remote A2A streaming so a non-streaming caller
  *                          never receives streamed artifacts
  */
 public record RemoteCall(String agentName, String message, String contextId, String taskId,
-        Map<String, Object> metadata, Map<String, Object> messageMetadata, boolean isCallerStreaming) {
+        Map<String, Object> metadata, Map<String, Object> messageMetadata, String protocolTenant,
+        boolean isCallerStreaming) {
     public RemoteCall {
         metadata = immutableMetadata(metadata);
         messageMetadata = immutableMetadata(messageMetadata);
@@ -31,12 +33,18 @@ public record RemoteCall(String agentName, String message, String contextId, Str
 
     public RemoteCall(String agentName, String message, String contextId, String taskId,
             Map<String, Object> metadata, Map<String, Object> messageMetadata) {
-        this(agentName, message, contextId, taskId, metadata, messageMetadata, false);
+        this(agentName, message, contextId, taskId, metadata, messageMetadata, null, false);
     }
 
     public RemoteCall(String agentName, String message, String contextId, String taskId,
             Map<String, Object> metadata) {
-        this(agentName, message, contextId, taskId, metadata, null, false);
+        this(agentName, message, contextId, taskId, metadata, null, null, false);
+    }
+
+    /** Compatibility constructor preserving existing call sites. */
+    public RemoteCall(String agentName, String message, String contextId, String taskId,
+            Map<String, Object> metadata, Map<String, Object> messageMetadata, boolean isCallerStreaming) {
+        this(agentName, message, contextId, taskId, metadata, messageMetadata, null, isCallerStreaming);
     }
 
     private static Map<String, Object> immutableMetadata(Map<String, Object> metadata) {

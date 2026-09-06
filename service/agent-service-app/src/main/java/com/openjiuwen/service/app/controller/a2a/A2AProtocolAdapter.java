@@ -34,6 +34,9 @@ public class A2AProtocolAdapter {
 
     private static final String REMOTE_TOOL_INPUTS = "runtime.remoteToolInputs";
 
+    /** Internal context key; never accepts a client-supplied metadata value. */
+    public static final String PROTOCOL_TENANT = "runtime.a2a.protocolTenant";
+
     private static final List<String> RESERVED_METADATA_KEYS = List.of(
             PARENT_TASK_ID,
             REMOTE_TOOL_INPUTS,
@@ -115,6 +118,10 @@ public class A2AProtocolAdapter {
             metadata.putAll(ctx.getMetadata());
         }
         RESERVED_METADATA_KEYS.forEach(metadata::remove);
+        metadata.remove(PROTOCOL_TENANT);
+        if (ctx.getProtocolTenant() != null && !ctx.getProtocolTenant().isBlank()) {
+            metadata.put(PROTOCOL_TENANT, ctx.getProtocolTenant());
+        }
         if (ctx.getTaskId() != null && !ctx.getTaskId().isBlank()) {
             metadata.put(PARENT_TASK_ID, ctx.getTaskId());
         }

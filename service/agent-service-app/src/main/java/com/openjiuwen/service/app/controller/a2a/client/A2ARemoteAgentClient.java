@@ -5,6 +5,8 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
+import com.openjiuwen.service.adapters.common.security.ExternalAuthProperties;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
 import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
@@ -21,6 +23,7 @@ import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.client.config.ClientConfig;
 import org.a2aproject.sdk.client.http.A2AHttpClient;
 import org.a2aproject.sdk.client.http.A2AHttpClientFactory;
+import org.a2aproject.sdk.client.http.JdkA2AHttpClient;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AException;
@@ -55,6 +58,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
+import com.openjiuwen.service.spec.security.ExternalTargetRef;
 
 /**
  * Baseline {@link RemoteAgentCaller} using the official A2A SDK
@@ -85,6 +89,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
     private final A2ARemoteAgentCardRegistry registry;
 
+    private final ExternalOutboundSecuritySupport securitySupport;
+
     private final Map<ClientCacheKey, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final ExecutorService ioExecutor;
@@ -105,10 +111,16 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * @param ioConcurrency maximum concurrent blocking SDK calls on JDK 17
      */
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency) {
+        this(registry, ioConcurrency, null);
+    }
+
+    public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency,
+            ExternalOutboundSecuritySupport securitySupport) {
         if (ioConcurrency <= 0) {
             throw new IllegalArgumentException("ioConcurrency must be greater than zero");
         }
         this.registry = registry;
+        this.securitySupport = securitySupport;
         this.ioExecutor = newIoExecutor(ioConcurrency);
     }
 
@@ -168,8 +180,12 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         var configurationBuilder = MessageSendConfiguration.builder().returnImmediately(false);
         callbackConfig(call, contextId)
                 .ifPresent(config -> configurationBuilder.returnImmediately(true).taskPushNotificationConfig(config));
-        return MessageSendParams.builder().message(messageBuilder.build()).configuration(configurationBuilder.build())
-                .metadata(paramsMetadata).build();
+        MessageSendParams.Builder paramsBuilder = MessageSendParams.builder().message(messageBuilder.build())
+                .configuration(configurationBuilder.build()).metadata(paramsMetadata);
+        if (call.protocolTenant() != null && !call.protocolTenant().isBlank()) {
+            paramsBuilder.tenant(call.protocolTenant());
+        }
+        return paramsBuilder.build();
     }
 
     private static Map<String, Object> paramsMetadata(Map<String, Object> metadata) {
@@ -210,7 +226,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
                 ignored -> Client.builder(card)
                         .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
-                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig(createHttpClient()))
+                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig(createHttpClient(entry)))
                         .build()));
     }
 
@@ -223,6 +239,23 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      *
      * @return the HTTP client to back the JSON-RPC transport
      */
+    A2AHttpClient createHttpClient(RemoteAgentEntry entry) {
+        if (securitySupport == null) {
+            return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create());
+        }
+        ExternalTargetRef target = new ExternalTargetRef("A2A", entry.name(), endpoint(entry.card()), 11);
+        ExternalOutboundSecuritySupport.PreparedOutboundSecurity prepared = securitySupport.prepare(target, entry.tls(),
+                new ExternalAuthProperties(), java.time.Duration.ofSeconds(Math.max(1, entry.timeoutSeconds())));
+        if (prepared.authMaterial() != null && !prepared.authMaterial().queryParams().isEmpty()) {
+            throw new IllegalStateException("A2A outbound authentication query parameters are not supported");
+        }
+        A2AHttpClient base = prepared.jdkHttpClient() == null ? A2AHttpClientFactory.create()
+                : new JdkA2AHttpClient(prepared.jdkHttpClient());
+        Map<String, String> headers = prepared.authMaterial() == null ? Map.of() : prepared.authMaterial().headers();
+        return new HeaderInjectingA2AHttpClient(base, headers);
+    }
+
+    /** Preserves the package-level test and extension hook for the default client path. */
     static A2AHttpClient createHttpClient() {
         return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create());
     }
