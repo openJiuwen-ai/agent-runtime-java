@@ -27,6 +27,37 @@ import java.util.Map;
  */
 class A2ARemoteAgentClientMetadataTest {
         @Test
+        void buildSendParamsPreservesFilePartsWithoutSettingTenant() {
+                List<Map<String, Object>> parts = List.of(Map.of("kind", "url", "url",
+                                "https://example.com/report.pdf", "mediaType", "application/pdf"));
+                var call = new RemoteCall("remote", "analyze", "ctx", null, Map.of(), Map.of(),
+                                true, parts);
+
+                MessageSendParams params = A2ARemoteAgentClient.buildSendParams(call, "ctx");
+
+                assertThat(params.tenant()).isNull();
+                assertThat(params.message().parts()).hasSize(2);
+                assertThat(assertInstanceOf(FilePart.class, params.message().parts().get(1)).file())
+                                .isInstanceOfSatisfying(FileWithUri.class,
+                                                uri -> assertThat(uri.uri())
+                                                        .isEqualTo("https://example.com/report.pdf"));
+                assertThat(params.metadata()).isEmpty();
+                assertThat(params.message().metadata()).isEmpty();
+        }
+
+        @Test
+        void compatibilityConstructorsPreservePartsDefaults() {
+                List<Map<String, Object>> parts = List.of(Map.of("kind", "data", "data", Map.of("amount", 100)));
+                var partsCall = new RemoteCall("remote", "hello", "ctx", null, Map.of(), Map.of(), true, parts);
+                var legacyCall = new RemoteCall("remote", "hello", "ctx", null, Map.of(), Map.of(), true);
+
+                assertThat(partsCall.parts()).isEqualTo(parts);
+                assertThat(A2ARemoteAgentClient.buildSendParams(partsCall, "ctx").tenant()).isNull();
+                assertThat(legacyCall.parts()).isNull();
+                assertThat(legacyCall.isCallerStreaming()).isTrue();
+        }
+
+        @Test
         void buildsIndependentParamsAndMessageMetadata() {
                 Map<String, Object> paramsMetadata = new LinkedHashMap<>(Map.of("scope", "params"));
                 Map<String, Object> messageMetadata = new LinkedHashMap<>(

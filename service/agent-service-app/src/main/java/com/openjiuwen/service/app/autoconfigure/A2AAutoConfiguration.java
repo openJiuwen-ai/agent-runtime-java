@@ -30,6 +30,7 @@ import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -340,12 +341,15 @@ public class A2AAutoConfiguration {
      *
      * @param registry the remote agent card registry
      * @param props A2A runtime properties
+     * @param securitySupportProvider provider for optional outbound security support
      * @return the default remote agent caller
      */
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCaller.class)
-    public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props) {
-        return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency());
+    public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props,
+            ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider) {
+        return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency(),
+                securitySupportProvider.getIfAvailable());
     }
 
     /**

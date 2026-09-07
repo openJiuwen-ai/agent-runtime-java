@@ -5,11 +5,14 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
+import com.openjiuwen.service.adapters.common.security.ExternalAuthProperties;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
 import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
+import com.openjiuwen.service.spec.security.ExternalTargetRef;
 
 import jakarta.annotation.PreDestroy;
 
@@ -21,6 +24,7 @@ import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.client.config.ClientConfig;
 import org.a2aproject.sdk.client.http.A2AHttpClient;
 import org.a2aproject.sdk.client.http.A2AHttpClientFactory;
+import org.a2aproject.sdk.client.http.JdkA2AHttpClient;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransport;
 import org.a2aproject.sdk.client.transport.jsonrpc.JSONRPCTransportConfig;
 import org.a2aproject.sdk.spec.A2AClientException;
@@ -42,6 +46,8 @@ import org.a2aproject.sdk.spec.TaskPushNotificationConfig;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
+import org.a2aproject.sdk.spec.TransportProtocol;
+import org.a2aproject.sdk.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,6 +102,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
     private final A2ARemoteAgentCardRegistry registry;
 
+    private final ExternalOutboundSecuritySupport securitySupport;
+
     private final Map<ClientCacheKey, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final ExecutorService ioExecutor;
@@ -123,10 +131,16 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * @param ioConcurrency maximum concurrent blocking SDK calls on JDK 17
      */
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency) {
+        this(registry, ioConcurrency, null);
+    }
+
+    public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency,
+            ExternalOutboundSecuritySupport securitySupport) {
         if (ioConcurrency <= 0) {
             throw new IllegalArgumentException("ioConcurrency must be greater than zero");
         }
         this.registry = registry;
+        this.securitySupport = securitySupport;
         this.ioExecutor = newIoExecutor(ioConcurrency);
     }
 
@@ -325,6 +339,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     /**
      * Creates or retrieves a cached SDK {@link Client} for the given card and
      * streaming mode.
+     * Authentication headers are prepared on cache creation, not on every request.
      *
      * @param entry the registered remote agent entry
      * @param isStreaming
@@ -334,30 +349,56 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private Client createClient(RemoteAgentEntry entry, boolean isStreaming) {
         AgentCard card = entry.card();
         ClientCacheKey key = new ClientCacheKey(entry.name(), endpoint(card), isStreaming);
-        return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key, ignored -> Client.builder(card)
-                .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
-                .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig(createHttpClient())).build()));
+        return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
+                ignored -> Client.builder(card)
+                        .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
+                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig(createHttpClient(entry)))
+                        .build()));
     }
 
     /**
-     * Builds the HTTP client for outbound A2A calls: the client selected by the SDK
-     * provider mechanism ({@link A2AHttpClientFactory#create()}), decorated with
-     * propagation-header injection. Custom {@code A2AHttpClientProvider} deployments
-     * are therefore preserved; injection is a no-op until a provider is registered in
-     * {@link A2APropagationHeaderRegistry}.
+     * Builds the HTTP client for outbound A2A calls. Without target TLS, preserves
+     * the SDK provider mechanism ({@link A2AHttpClientFactory#create()}); with target
+     * TLS, adapts the prepared JDK client. Both paths inject propagation headers and
+     * the fixed authentication headers supplied when the client is created.
      *
+     * @param entry registered remote agent entry
      * @return the HTTP client to back the JSON-RPC transport
+     */
+    A2AHttpClient createHttpClient(RemoteAgentEntry entry) {
+        if (securitySupport == null) {
+            return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create());
+        }
+        ExternalTargetRef target = new ExternalTargetRef("A2A", entry.name(), endpoint(entry.card()), 11);
+        ExternalOutboundSecuritySupport.PreparedOutboundSecurity prepared = securitySupport.prepare(target, entry.tls(),
+                new ExternalAuthProperties(), java.time.Duration.ofSeconds(Math.max(1, entry.timeoutSeconds())));
+        if (prepared.authMaterial() != null && !prepared.authMaterial().queryParams().isEmpty()) {
+            throw new IllegalStateException("A2A outbound authentication query parameters are not supported");
+        }
+        A2AHttpClient base = prepared.jdkHttpClient() == null ? A2AHttpClientFactory.create()
+                : new JdkA2AHttpClient(prepared.jdkHttpClient());
+        Map<String, String> headers = prepared.authMaterial() == null ? Map.of() : prepared.authMaterial().headers();
+        return new HeaderInjectingA2AHttpClient(base, headers);
+    }
+
+    /**
+     * Preserves the package-level test and extension hook for the default client path.
+     *
+     * @return the SDK-selected client with propagation-header injection
      */
     static A2AHttpClient createHttpClient() {
         return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create());
     }
 
     private static String endpoint(AgentCard card) {
-        if (card.supportedInterfaces() != null && !card.supportedInterfaces().isEmpty()
-                && card.supportedInterfaces().get(0).url() != null) {
-            return card.supportedInterfaces().get(0).url();
+        if (card.supportedInterfaces() == null || card.supportedInterfaces().isEmpty()) {
+            throw new A2AClientException("No server interface available in the AgentCard");
         }
-        return card.url() == null ? "" : card.url();
+        // This client enables only JSON-RPC; match the SDK's first compatible interface and URL.
+        return card.supportedInterfaces().stream()
+                .filter(iface -> TransportProtocol.JSONRPC.asString().equals(iface.protocolBinding()))
+                .findFirst().map(iface -> Utils.buildBaseUrl(iface, null))
+                .orElseThrow(() -> new A2AClientException("No compatible transport found"));
     }
 
     private static <T> T withApplicationClassLoader(Supplier<T> action) {
