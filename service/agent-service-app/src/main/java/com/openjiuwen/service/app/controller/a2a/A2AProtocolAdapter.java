@@ -40,6 +40,10 @@ public class A2AProtocolAdapter {
 
     private static final String REMOTE_TOOL_INPUTS = "runtime.remoteToolInputs";
 
+    /**
+     * Metadata keys the server owns. They are stripped from inbound client metadata so a caller
+     * cannot forge server-produced facts by naming a key the same way.
+     */
     private static final List<String> RESERVED_METADATA_KEYS = List.of(PARENT_TASK_ID, REMOTE_TOOL_INPUTS,
             "runtime.remoteBatchId", "runtime.remoteToolResults");
 
