@@ -10,6 +10,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
+import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
@@ -72,6 +73,8 @@ public class A2aJsonRpcController {
 
     private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
 
+    private A2AProperties a2aProperties;
+
     /**
      * Constructs the JSON-RPC controller.
      *
@@ -86,6 +89,11 @@ public class A2aJsonRpcController {
         this.admissionGateProvider = admissionGateProvider;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setA2aProperties(A2AProperties a2aProperties) {
+        this.a2aProperties = a2aProperties;
+    }
+
     /**
      * Handles all A2A JSON-RPC requests via {@code POST} on the standard and no-slash paths.
      *
@@ -97,44 +105,25 @@ public class A2aJsonRpcController {
     @AuthorizedResource(resource = "a2a", action = "rpc")
     public ResponseEntity<?> handleJsonRpc(@RequestBody(required = false) String rawBody,
             jakarta.servlet.http.HttpServletRequest servletRequest) {
+        // Content-Length pre-check: reject oversized or
+        // chunked bodies with HTTP 413 before JSON-RPC parsing; -1 disables the check.
+        long maxMessageBytes = a2aProperties != null ? a2aProperties.getMaxMessageBytes()
+                : com.openjiuwen.service.spec.part.A2aPartLimits.DEFAULT_MAX_REQUEST_BODY_BYTES;
+        long contentLength = servletRequest.getContentLengthLong();
+        if (maxMessageBytes >= 0 && (contentLength < 0 || contentLength > maxMessageBytes)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE).build();
+        }
         A2aJsonRpcProtocol.Request request;
         try {
             request = A2aJsonRpcProtocol.parseRequest(rawBody);
         } catch (A2aJsonRpcProtocol.RequestException e) {
             return A2aJsonRpcProtocol.errorResponse(e.getRequestId(), e.getError());
         }
-
         String method = request.method();
         Object id = request.id();
         ServerCallContext ctx = buildCallContext(servletRequest);
-
         try {
-            return switch (method) {
-                case A2AMethods.SEND_MESSAGE_METHOD -> {
-                    ctx.getState().put("_a2a_stream", false);
-                    var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
-                    validateInlinePushNotificationConfig(params);
-                    if (isAdmissionRejected(ctx, params.message().contextId())) {
-                        yield admissionRejectedResponse(id);
-                    }
-                    EventKind result = requestHandler.onMessageSend(params, ctx);
-                    yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
-                }
-                case A2AMethods.SEND_STREAMING_MESSAGE_METHOD -> {
-                    ctx.getState().put("_a2a_stream", true);
-                    var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
-                    validateInlinePushNotificationConfig(params);
-                    if (isAdmissionRejected(ctx, params.message().contextId())) {
-                        yield admissionRejectedResponse(id);
-                    }
-                    Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
-                    yield streamToSse(pub, id);
-                }
-                case A2AMethods.GET_TASK_METHOD -> handleGetTask(request.payload(), id, ctx);
-                case A2AMethods.SUBSCRIBE_TO_TASK_METHOD -> handleSubscribeToTask(request.payload(), id, ctx);
-                default -> A2aJsonRpcProtocol.errorResponse(id,
-                        new MethodNotFoundError(null, "Method not found: " + method, null));
-            };
+            return dispatch(method, request, id, ctx);
         } catch (A2AError e) {
             releasePreAcquiredAdmission(ctx);
             log.info("A2A protocol error: method={}, code={}, message={}", method, e.getCode(), e.getMessage());
@@ -144,6 +133,47 @@ public class A2aJsonRpcController {
             log.error("A2A request failed", e);
             return A2aJsonRpcProtocol.errorResponse(id, new InternalError("Internal error"));
         }
+    }
+
+    /**
+     * Routes one parsed JSON-RPC request to its handler method.
+     *
+     * @param method the JSON-RPC method name
+     * @param request the parsed JSON-RPC request
+     * @param id the JSON-RPC request id
+     * @param ctx the server call context
+     * @return the JSON-RPC response entity
+     * @throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException when the
+     *         response payload cannot be serialized
+     */
+    private ResponseEntity<?> dispatch(String method, A2aJsonRpcProtocol.Request request, Object id,
+            ServerCallContext ctx) throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException {
+        return switch (method) {
+        case A2AMethods.SEND_MESSAGE_METHOD -> {
+            ctx.getState().put("_a2a_stream", false);
+            var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
+            validateInlinePushNotificationConfig(params);
+            if (isAdmissionRejected(ctx, params.message().contextId())) {
+                yield admissionRejectedResponse(id);
+            }
+            EventKind result = requestHandler.onMessageSend(params, ctx);
+            yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
+        }
+        case A2AMethods.SEND_STREAMING_MESSAGE_METHOD -> {
+            ctx.getState().put("_a2a_stream", true);
+            var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
+            validateInlinePushNotificationConfig(params);
+            if (isAdmissionRejected(ctx, params.message().contextId())) {
+                yield admissionRejectedResponse(id);
+            }
+            Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
+            yield streamToSse(pub, id);
+        }
+        case A2AMethods.GET_TASK_METHOD -> handleGetTask(request.payload(), id, ctx);
+        case A2AMethods.SUBSCRIBE_TO_TASK_METHOD -> handleSubscribeToTask(request.payload(), id, ctx);
+        default -> A2aJsonRpcProtocol.errorResponse(id,
+                new MethodNotFoundError(null, "Method not found: " + method, null));
+        };
     }
 
     /**
@@ -193,8 +223,7 @@ public class A2aJsonRpcController {
             // submission), so this release is not paired with task_released —
             // log it to keep gate-count changes traceable.
             log.warn("[CONCURRENCY] admission_returned reason=\"sync_failure_before_execution\" "
-                    + "currentActive={} maxConcurrent={}",
-                    admissionGate.currentCount(), admissionGate.limit());
+                    + "currentActive={} maxConcurrent={}", admissionGate.currentCount(), admissionGate.limit());
         });
     }
 
@@ -212,8 +241,9 @@ public class A2aJsonRpcController {
     }
 
     private void logRejected(String conversationId) {
-        admissionGate().ifPresent(gate -> log.warn("[CONCURRENCY] task_rejected conversationId={} "
-                + "currentActive={} maxConcurrent={} reason=\"limit_reached\"",
+        admissionGate().ifPresent(gate -> log.warn(
+                "[CONCURRENCY] task_rejected conversationId={} "
+                        + "currentActive={} maxConcurrent={} reason=\"limit_reached\"",
                 conversationId, gate.currentCount(), gate.limit()));
     }
 

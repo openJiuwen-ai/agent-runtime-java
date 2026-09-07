@@ -36,10 +36,8 @@ import java.util.Map;
 @SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @Import(IngressAuthorizationTestSupport.AllowAnnotatedIngressAuthorizerConfig.class)
-@TestPropertySource(properties = {
-    "openjiuwen.service.security.enabled=true",
-    "openjiuwen.service.security.auth.enabled=true"
-})
+@TestPropertySource(properties = {"openjiuwen.service.security.enabled=true",
+        "openjiuwen.service.security.auth.enabled=true"})
 class SecurityA2aAuthorizationIntegrationTest {
     @Autowired
     private TestRestTemplate rest;
@@ -57,12 +55,12 @@ class SecurityA2aAuthorizationIntegrationTest {
         headers.set("X-User-ID", "u1");
         headers.set("X-Space-ID", "s1");
         headers.set("X-Tenant-ID", "t1");
-        Map<String, Object> body = Map.of("jsonrpc", "2.0", "id", "1", "method", "SendMessage", "params",
-            Map.of("message",
+        Map<String, Object> body = Map.of("jsonrpc", "2.0", "id", "1", "method", "SendMessage", "params", Map.of(
+                "message",
                 Map.of("role", "ROLE_USER", "parts", List.of(Map.of("text", "hello")), "contextId", "ctx-a2a")));
 
         ResponseEntity<String> response = rest.postForEntity(A2AServicePaths.A2A_JSONRPC,
-            new HttpEntity<>(body, headers), String.class);
+                new HttpEntity<>(toJson(body), headers), String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).doesNotContain("ACCESS_DENIED");
@@ -83,11 +81,13 @@ class SecurityA2aAuthorizationIntegrationTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-User-ID", "u1");
         Map<String, Object> body = Map.of("jsonrpc", "2.0", "id", "biz-err", "method", "SendMessage", "params",
-            Map.of("message", Map.of("role", "ROLE_USER", "parts",
-                List.of(Map.of("text", MultiTurnEchoHandler.SYNC_FAILURE_QUERY)), "contextId", "ctx-a2a-fail")));
+                Map.of("message",
+                        Map.of("role", "ROLE_USER", "parts",
+                                List.of(Map.of("text", MultiTurnEchoHandler.SYNC_FAILURE_QUERY)), "contextId",
+                                "ctx-a2a-fail")));
 
         ResponseEntity<String> response = rest.postForEntity(A2AServicePaths.A2A_JSONRPC,
-            new HttpEntity<>(body, headers), String.class);
+                new HttpEntity<>(toJson(body), headers), String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> json = mapper.readValue(response.getBody(), Map.class);
@@ -95,5 +95,13 @@ class SecurityA2aAuthorizationIntegrationTest {
         assertThat(response.getBody()).doesNotContain("ACCESS_DENIED");
         assertThat(json).doesNotContainKey("code");
         assertThat(json.containsKey("error") || json.containsKey("result")).isTrue();
+    }
+
+    private String toJson(Map<String, Object> body) {
+        try {
+            return mapper.writeValueAsString(body);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }
