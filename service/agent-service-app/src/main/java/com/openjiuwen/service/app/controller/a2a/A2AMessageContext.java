@@ -41,9 +41,6 @@ public class A2AMessageContext {
 
     private Map<String, String> headers;
 
-    /** A2A protocol tenant; deliberately separate from the trusted HTTP tenant header. */
-    private String protocolTenant;
-
     /**
      * Creates an {@link A2AMessageContext} from the SDK request context.
      *
@@ -56,7 +53,6 @@ public class A2AMessageContext {
         tmpCtx.contextId = ctx.getContextId();
         tmpCtx.taskId = ctx.getTaskId();
         tmpCtx.metadata = ctx.getMetadata();
-        tmpCtx.protocolTenant = ctx.getTenant();
 
         Task existingTask = ctx.getTask();
         if (existingTask != null) {

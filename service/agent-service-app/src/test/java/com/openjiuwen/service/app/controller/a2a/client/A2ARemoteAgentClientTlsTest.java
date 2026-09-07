@@ -15,6 +15,7 @@ import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.security.tls.TlsTestCertificates;
 import com.openjiuwen.service.spec.security.TlsMaterial;
 import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsExchange;
 import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
 
@@ -28,6 +29,7 @@ import org.springframework.core.io.DefaultResourceLoader;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.SSLContext;
@@ -40,6 +42,8 @@ class A2ARemoteAgentClientTlsTest {
     private static TlsTestCertificates.Material certificates;
 
     private final AtomicInteger requests = new AtomicInteger();
+
+    private final List<String> negotiatedProtocols = new CopyOnWriteArrayList<>();
 
     private HttpsServer server;
 
@@ -103,6 +107,36 @@ class A2ARemoteAgentClientTlsTest {
         assertThat(requests).hasValue(0);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"TLSv1.2", "TLSv1.3"})
+    void configuredProtocolRestrictsActualHandshake(String protocol) throws Exception {
+        String endpoint = startServer(false);
+        ExternalTlsConfig config = tls(false);
+        config.setEnabledProtocols(List.of(protocol));
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("restricted", A2ARemoteAgentClientSecurityTest.card(endpoint, null), 5, true, config);
+        client = newClient(registry);
+
+        A2ARemoteAgentClientSecurityTest.invoke(client, "restricted", false);
+        A2ARemoteAgentClientSecurityTest.invoke(client, "restricted", true);
+
+        assertThat(negotiatedProtocols).containsExactly(protocol, protocol);
+    }
+
+    @Test
+    void incompatibleProtocolFailsBeforeHttp() throws Exception {
+        String endpoint = startServer(false, "TLSv1.3");
+        ExternalTlsConfig config = tls(false);
+        config.setEnabledProtocols(List.of("TLSv1.2"));
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        registry.register("incompatible", A2ARemoteAgentClientSecurityTest.card(endpoint, null), 5, false, config);
+        client = newClient(registry);
+
+        assertThatThrownBy(() -> A2ARemoteAgentClientSecurityTest.invoke(client, "incompatible", false))
+                .hasStackTraceContaining("SSLHandshakeException");
+        assertThat(requests).hasValue(0);
+    }
+
     private A2ARemoteAgentClient newClient(A2ARemoteAgentCardRegistry registry) {
         return new A2ARemoteAgentClient(registry, 2,
                 ExternalOutboundSecuritySupport.createDefault(value -> value));
@@ -120,7 +154,7 @@ class A2ARemoteAgentClientTlsTest {
         return config;
     }
 
-    private String startServer(boolean mtls) throws Exception {
+    private String startServer(boolean mtls, String... protocols) throws Exception {
         char[] password = TlsTestCertificates.PASSWORD.toCharArray();
         TlsMaterial material = new TlsMaterial(certificates.serverKeyStoreLocation(), password, "PKCS12",
                 certificates.serverTrustStoreLocation(), password, "PKCS12", List.of("TLSv1.3"), true);
@@ -130,6 +164,9 @@ class A2ARemoteAgentClientTlsTest {
             @Override
             public void configure(HttpsParameters parameters) {
                 SSLParameters sslParameters = sslContext.getDefaultSSLParameters();
+                if (protocols.length > 0) {
+                    sslParameters.setProtocols(protocols);
+                }
                 sslParameters.setNeedClientAuth(mtls);
                 parameters.setSSLParameters(sslParameters);
             }
@@ -137,6 +174,7 @@ class A2ARemoteAgentClientTlsTest {
         server.createContext("/a2a", exchange -> {
             try (exchange) {
                 requests.incrementAndGet();
+                negotiatedProtocols.add(((HttpsExchange) exchange).getSSLSession().getProtocol());
                 var request = JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(),
                         StandardCharsets.UTF_8)).getAsJsonObject();
                 A2ARemoteAgentClientSecurityTest.writeResponse(exchange, request);

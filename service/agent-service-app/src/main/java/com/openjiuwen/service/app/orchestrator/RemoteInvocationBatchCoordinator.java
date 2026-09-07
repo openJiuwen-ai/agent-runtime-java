@@ -4,7 +4,6 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
-import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller.EventObserver;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
@@ -366,19 +365,17 @@ final class RemoteInvocationBatchCoordinator {
     }
 
     private void start(PendingInvocation invocation) {
+        Member member = invocation.member();
+        RemoteInvocationBatch batch = invocation.batch();
         if (!state.prepareStart(invocation)) {
             startNextQueuedAfterReleasedSlot();
             return;
         }
-        RemoteInvocationBatch batch = invocation.batch();
         Map<String, Object> metadata = outboundMetadata(batch.request.getMetadata());
         String userId = batch.request.getUserId();
         if (userId != null && !userId.isBlank() && !metadata.containsKey("userId")) {
             metadata.put("userId", userId);
         }
-        // Inbound tenant belongs to this Runtime; forwarding it changes the remote SDK URL.
-        metadata.remove(A2AProtocolAdapter.PROTOCOL_TENANT);
-        Member member = invocation.member();
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
                 optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
                 batch.request.isStream(), member.parts);

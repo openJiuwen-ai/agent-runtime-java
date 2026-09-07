@@ -21,11 +21,14 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
+import org.a2aproject.sdk.spec.A2AClientException;
 import org.a2aproject.sdk.spec.AgentCapabilities;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.AgentInterface;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -123,8 +126,6 @@ class A2ARemoteAgentClientSecurityTest {
             invoke(client, "remote", true);
             assertThat(requests).extracting(ReceivedRequest::path)
                     .containsExactly("/a2a/card-default", "/a2a/card-default");
-            assertThat(requests).allSatisfy(request -> assertThat(request.body().toString())
-                    .doesNotContain("runtime.a2a.protocolTenant"));
         });
     }
 
@@ -152,6 +153,54 @@ class A2ARemoteAgentClientSecurityTest {
             assertThatThrownBy(() -> invoke(context.getBean(A2ARemoteAgentClient.class), "remote", false))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("query parameters are not supported");
+            assertThat(requests).isEmpty();
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "card-default"})
+    void authenticatorTargetMatchesFirstJsonRpcInterfaceAndActualUrl(String tenant) throws Exception {
+        String endpoint = startServer();
+        String expectedUrl = endpoint + (tenant.isEmpty() ? "" : "/" + tenant);
+        List<ExternalTargetRef> targets = new CopyOnWriteArrayList<>();
+        ExternalAuthenticator authenticator = (target, config) -> {
+            targets.add(target);
+            assertThat(target.url()).isEqualTo(expectedUrl);
+            return new AuthMaterial(Map.of("Authorization", "Bearer jsonrpc-test"), Map.of(), Map.of());
+        };
+        contextRunner.withBean(ExternalAuthenticator.class, () -> authenticator).run(context -> {
+            AgentCard card = card(List.of(new AgentInterface("GRPC", endpoint + "/grpc", null, "1.0"),
+                    new AgentInterface("JSONRPC", endpoint + "/", tenant, "1.0"),
+                    new AgentInterface("JSONRPC", endpoint + "/unused", null, "1.0")));
+            context.getBean(A2ARemoteAgentCardRegistry.class).register("remote", card, 5, true);
+            A2ARemoteAgentClient client = context.getBean(A2ARemoteAgentClient.class);
+
+            invoke(client, "remote", false);
+            invoke(client, "remote", true);
+
+            assertThat(targets).hasSize(2);
+            assertThat(requests).hasSize(2).allSatisfy(request -> {
+                assertThat(request.path()).isEqualTo(java.net.URI.create(expectedUrl).getPath());
+                assertThat(request.authorization()).isEqualTo("Bearer jsonrpc-test");
+            });
+        });
+    }
+
+    @Test
+    void incompatibleCardFailsBeforePreparingAuthentication() throws Exception {
+        String endpoint = startServer();
+        List<ExternalTargetRef> targets = new CopyOnWriteArrayList<>();
+        ExternalAuthenticator authenticator = (target, config) -> {
+            targets.add(target);
+            return AuthMaterial.none();
+        };
+        contextRunner.withBean(ExternalAuthenticator.class, () -> authenticator).run(context -> {
+            AgentCard card = card(List.of(new AgentInterface("GRPC", endpoint, null, "1.0")));
+            context.getBean(A2ARemoteAgentCardRegistry.class).register("remote", card, 5, false);
+
+            assertThatThrownBy(() -> invoke(context.getBean(A2ARemoteAgentClient.class), "remote", false))
+                    .isInstanceOf(A2AClientException.class).hasMessage("No compatible transport found");
+            assertThat(targets).isEmpty();
             assertThat(requests).isEmpty();
         });
     }
@@ -196,11 +245,15 @@ class A2ARemoteAgentClientSecurityTest {
     }
 
     static AgentCard card(String endpoint, String tenant) {
+        return card(List.of(new AgentInterface("JSONRPC", endpoint, tenant, "1.0")));
+    }
+
+    private static AgentCard card(List<AgentInterface> interfaces) {
         return AgentCard.builder().name("remote").description("remote").version("1.0")
                 .capabilities(new AgentCapabilities(true, false, false, List.of())).defaultInputModes(List.of("text"))
                 .defaultOutputModes(List.of("text")).skills(List.of()).securitySchemes(Map.of())
                 .securityRequirements(List.of())
-                .supportedInterfaces(List.of(new AgentInterface("JSONRPC", endpoint, tenant, "1.0"))).url(endpoint)
+                .supportedInterfaces(interfaces).url(interfaces.get(0).url())
                 .preferredTransport("JSONRPC").additionalInterfaces(List.of()).build();
     }
 

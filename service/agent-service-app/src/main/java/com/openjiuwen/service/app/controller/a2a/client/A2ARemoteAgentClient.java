@@ -46,6 +46,8 @@ import org.a2aproject.sdk.spec.TaskPushNotificationConfig;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
+import org.a2aproject.sdk.spec.TransportProtocol;
+import org.a2aproject.sdk.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -389,11 +391,14 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     private static String endpoint(AgentCard card) {
-        if (card.supportedInterfaces() != null && !card.supportedInterfaces().isEmpty()
-                && card.supportedInterfaces().get(0).url() != null) {
-            return card.supportedInterfaces().get(0).url();
+        if (card.supportedInterfaces() == null || card.supportedInterfaces().isEmpty()) {
+            throw new A2AClientException("No server interface available in the AgentCard");
         }
-        return card.url() == null ? "" : card.url();
+        // This client enables only JSON-RPC; match the SDK's first compatible interface and URL.
+        return card.supportedInterfaces().stream()
+                .filter(iface -> TransportProtocol.JSONRPC.asString().equals(iface.protocolBinding()))
+                .findFirst().map(iface -> Utils.buildBaseUrl(iface, null))
+                .orElseThrow(() -> new A2AClientException("No compatible transport found"));
     }
 
     private static <T> T withApplicationClassLoader(Supplier<T> action) {

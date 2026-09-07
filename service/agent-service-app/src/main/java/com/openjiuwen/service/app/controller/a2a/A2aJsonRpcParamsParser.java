@@ -67,7 +67,6 @@ final class A2aJsonRpcParamsParser {
             Message message = buildMessage(messageObject, parts);
             MessageSendParams.Builder builder = MessageSendParams.builder().message(message)
                     .metadata(parseMetadata(params, "params.metadata"));
-            optionalNonBlankString(params, "tenant", "params.tenant").ifPresent(builder::tenant);
             parseConfiguration(params).ifPresent(builder::configuration);
             return builder.build();
         } catch (InvalidParamsError e) {

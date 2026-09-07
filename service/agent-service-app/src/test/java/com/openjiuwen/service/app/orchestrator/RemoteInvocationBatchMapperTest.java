@@ -257,7 +257,7 @@ class RemoteInvocationBatchMapperTest {
                 request.setSpaceId("space-1");
                 request.setTenantId("tenant-1");
                 request.setMessages(List.of(Map.of("role", "user", "content", "delegate")));
-                request.setMetadata(Map.of("traceId", "trace-1", "runtime.a2a.protocolTenant", "protocol-tenant"));
+                request.setMetadata(Map.of("traceId", "trace-1"));
                 RemoteInvocationBatch batch = new RemoteInvocationBatch("batch-persisted", "parent-persisted", request,
                                 observer(), List.of(member("call-a")), true);
                 Map<String, Object> snapshot = mapper.snapshot(batch, "READY_TO_RESUME");
@@ -276,8 +276,7 @@ class RemoteInvocationBatchMapperTest {
                 assertThat(restored.getSpaceId()).isEqualTo("space-1");
                 assertThat(restored.getTenantId()).isEqualTo("tenant-1");
                 assertThat(restored.getMessages()).containsExactly(Map.of("role", "user", "content", "delegate"));
-                assertThat(restored.getMetadata()).containsExactlyEntriesOf(Map.of(
-                                "traceId", "trace-1", "runtime.a2a.protocolTenant", "protocol-tenant"));
+                assertThat(restored.getMetadata()).containsExactlyEntriesOf(Map.of("traceId", "trace-1"));
         }
 
         @Test
