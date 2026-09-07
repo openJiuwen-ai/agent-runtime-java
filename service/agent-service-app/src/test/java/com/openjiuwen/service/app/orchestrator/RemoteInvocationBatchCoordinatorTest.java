@@ -16,6 +16,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller.EventObserver;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
@@ -58,6 +59,29 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 class RemoteInvocationBatchCoordinatorTest {
     private static final int REMOTE_OUTPUT_COUNT = 256;
+
+    @Test
+    void inboundTenantStaysLocalAndDoesNotChangeDownstreamCalls() {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        when(client.callOutcome(any(), any())).thenReturn(
+                CompletableFuture.completedFuture(completed("remote-a", "result-a")));
+        ServeRequest request = request("parent-tenant", Map.of(
+                A2AProtocolAdapter.PROTOCOL_TENANT, "local tenant", "traceId", "trace-1"));
+        request.setTenantId("trusted-tenant");
+
+        coordinator(client, 2).execute(batch("batch-tenant", "call-a", "call-b"), request,
+                mock(QueryStreamObserver.class)).join();
+
+        ArgumentCaptor<RemoteCall> calls = ArgumentCaptor.forClass(RemoteCall.class);
+        verify(client, times(2)).callOutcome(calls.capture(), any());
+        assertThat(calls.getAllValues()).allSatisfy(call -> {
+            assertThat(call.metadata()).containsEntry("traceId", "trace-1")
+                    .doesNotContainKey(A2AProtocolAdapter.PROTOCOL_TENANT);
+            assertThat(call.messageMetadata()).doesNotContainKey(A2AProtocolAdapter.PROTOCOL_TENANT);
+        });
+        assertThat(request.getMetadata()).containsEntry(A2AProtocolAdapter.PROTOCOL_TENANT, "local tenant");
+        assertThat(request.getTenantId()).isEqualTo("trusted-tenant");
+    }
 
     @Test
     void concurrentCompletionKeepsOriginalToolCallOrder() {

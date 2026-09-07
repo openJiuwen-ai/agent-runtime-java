@@ -197,12 +197,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         var configurationBuilder = MessageSendConfiguration.builder().returnImmediately(false);
         callbackConfig(call, contextId)
                 .ifPresent(config -> configurationBuilder.returnImmediately(true).taskPushNotificationConfig(config));
-        MessageSendParams.Builder paramsBuilder = MessageSendParams.builder().message(messageBuilder.build())
-                .configuration(configurationBuilder.build()).metadata(paramsMetadata);
-        if (call.protocolTenant() != null && !call.protocolTenant().isBlank()) {
-            paramsBuilder.tenant(call.protocolTenant());
-        }
-        return paramsBuilder.build();
+        return MessageSendParams.builder().message(messageBuilder.build()).configuration(configurationBuilder.build())
+                .metadata(paramsMetadata).build();
     }
 
     /**
@@ -341,6 +337,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     /**
      * Creates or retrieves a cached SDK {@link Client} for the given card and
      * streaming mode.
+     * Authentication headers are prepared on cache creation, not on every request.
      *
      * @param entry the registered remote agent entry
      * @param isStreaming
@@ -358,11 +355,10 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     /**
-     * Builds the HTTP client for outbound A2A calls: the client selected by the SDK
-     * provider mechanism ({@link A2AHttpClientFactory#create()}), decorated with
-     * propagation-header injection. Custom {@code A2AHttpClientProvider} deployments
-     * are therefore preserved; injection is a no-op until a provider is registered in
-     * {@link A2APropagationHeaderRegistry}.
+     * Builds the HTTP client for outbound A2A calls. Without target TLS, preserves
+     * the SDK provider mechanism ({@link A2AHttpClientFactory#create()}); with target
+     * TLS, adapts the prepared JDK client. Both paths inject propagation headers and
+     * the fixed authentication headers supplied when the client is created.
      *
      * @param entry registered remote agent entry
      * @return the HTTP client to back the JSON-RPC transport

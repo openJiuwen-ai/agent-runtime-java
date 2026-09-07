@@ -376,12 +376,12 @@ final class RemoteInvocationBatchCoordinator {
         if (userId != null && !userId.isBlank() && !metadata.containsKey("userId")) {
             metadata.put("userId", userId);
         }
-        String protocolTenant = Optional.ofNullable(metadata.remove(A2AProtocolAdapter.PROTOCOL_TENANT))
-                .map(String::valueOf).filter(value -> !value.isBlank()).orElse(null);
+        // Inbound tenant belongs to this Runtime; forwarding it changes the remote SDK URL.
+        metadata.remove(A2AProtocolAdapter.PROTOCOL_TENANT);
         Member member = invocation.member();
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
                 optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
-                protocolTenant, batch.request.isStream(), member.parts);
+                batch.request.isStream(), member.parts);
         CompletableFuture<RemoteCallOutcome> future;
         try {
             future = client.callOutcome(call, new MemberEventObserver(batch, member));
