@@ -4,8 +4,9 @@
 
 package com.openjiuwen.service.app.a2a.catalog;
 
-import org.a2aproject.sdk.spec.AgentCard;
 import com.openjiuwen.service.adapters.common.security.ExternalTlsConfig;
+
+import org.a2aproject.sdk.spec.AgentCard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -141,6 +142,15 @@ public class A2ARemoteAgentCardRegistry {
         register(name, card, timeoutSeconds, isStreaming, null);
     }
 
+    /**
+     * Registers a remote agent card with timeout, streaming, and TLS settings.
+     *
+     * @param name the agent name
+     * @param card the agent card
+     * @param timeoutSeconds remote call timeout in seconds
+     * @param isStreaming whether Runtime should prefer streaming invocation
+     * @param tls target-specific outbound TLS configuration
+     */
     public void register(String name, AgentCard card, int timeoutSeconds, boolean isStreaming,
             ExternalTlsConfig tls) {
         RemoteAgentCatalogSnapshot updatedSnapshot;

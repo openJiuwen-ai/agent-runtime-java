@@ -36,11 +36,6 @@ public record RemoteCall(String agentName, String message, String contextId, Str
     }
 
     public RemoteCall(String agentName, String message, String contextId, String taskId,
-            Map<String, Object> metadata, Map<String, Object> messageMetadata, boolean isCallerStreaming) {
-        this(agentName, message, contextId, taskId, metadata, messageMetadata, null, isCallerStreaming, null);
-    }
-
-    public RemoteCall(String agentName, String message, String contextId, String taskId,
             Map<String, Object> metadata, Map<String, Object> messageMetadata) {
         this(agentName, message, contextId, taskId, metadata, messageMetadata, null, false, null);
     }
@@ -64,6 +59,42 @@ public record RemoteCall(String agentName, String message, String contextId, Str
     public RemoteCall(String agentName, String message, String contextId, String taskId,
             Map<String, Object> metadata, Map<String, Object> messageMetadata, boolean isCallerStreaming) {
         this(agentName, message, contextId, taskId, metadata, messageMetadata, null, isCallerStreaming, null);
+    }
+
+    /**
+     * Creates a call with normalized parts and no protocol tenant.
+     *
+     * @param agentName remote agent name
+     * @param message message text
+     * @param contextId conversation context identifier
+     * @param taskId remote task identifier
+     * @param metadata params-level metadata
+     * @param messageMetadata message-level metadata
+     * @param isCallerStreaming whether the caller accepts streaming
+     * @param parts normalized outbound parts
+     */
+    public RemoteCall(String agentName, String message, String contextId, String taskId,
+            Map<String, Object> metadata, Map<String, Object> messageMetadata, boolean isCallerStreaming,
+            List<Map<String, Object>> parts) {
+        this(agentName, message, contextId, taskId, metadata, messageMetadata, null, isCallerStreaming, parts);
+    }
+
+    /**
+     * Creates a tenant-aware call without normalized parts.
+     *
+     * @param agentName remote agent name
+     * @param message message text
+     * @param contextId conversation context identifier
+     * @param taskId remote task identifier
+     * @param metadata params-level metadata
+     * @param messageMetadata message-level metadata
+     * @param protocolTenant A2A protocol tenant, not an authenticated identity
+     * @param isCallerStreaming whether the caller accepts streaming
+     */
+    public RemoteCall(String agentName, String message, String contextId, String taskId,
+            Map<String, Object> metadata, Map<String, Object> messageMetadata, String protocolTenant,
+            boolean isCallerStreaming) {
+        this(agentName, message, contextId, taskId, metadata, messageMetadata, protocolTenant, isCallerStreaming, null);
     }
 
     private static Map<String, Object> immutableMetadata(Map<String, Object> metadata) {

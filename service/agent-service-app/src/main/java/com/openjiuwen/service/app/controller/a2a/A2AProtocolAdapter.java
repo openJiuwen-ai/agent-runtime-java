@@ -31,6 +31,11 @@ import java.util.Map;
  * @since 0.1.0
  */
 public class A2AProtocolAdapter {
+    /**
+     * Internal context key; never accepts a client-supplied metadata value.
+     */
+    public static final String PROTOCOL_TENANT = "runtime.a2a.protocolTenant";
+
     private static final Logger log = LoggerFactory.getLogger(A2AProtocolAdapter.class);
 
     private static final Map<String, String> ROLE_MAP = Map.of("ROLE_USER", "user", "ROLE_AGENT", "assistant",
@@ -39,9 +44,6 @@ public class A2AProtocolAdapter {
     private static final String PARENT_TASK_ID = "runtime.parentTaskId";
 
     private static final String REMOTE_TOOL_INPUTS = "runtime.remoteToolInputs";
-
-    /** Internal context key; never accepts a client-supplied metadata value. */
-    public static final String PROTOCOL_TENANT = "runtime.a2a.protocolTenant";
 
     private static final List<String> RESERVED_METADATA_KEYS = List.of(PARENT_TASK_ID, REMOTE_TOOL_INPUTS,
             "runtime.remoteBatchId", "runtime.remoteToolResults");

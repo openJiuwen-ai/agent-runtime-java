@@ -341,6 +341,7 @@ public class A2AAutoConfiguration {
      *
      * @param registry the remote agent card registry
      * @param props A2A runtime properties
+     * @param securitySupportProvider provider for optional outbound security support
      * @return the default remote agent caller
      */
     @Bean

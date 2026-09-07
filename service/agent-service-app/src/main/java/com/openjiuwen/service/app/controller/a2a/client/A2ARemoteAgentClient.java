@@ -12,6 +12,7 @@ import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
 import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
+import com.openjiuwen.service.spec.security.ExternalTargetRef;
 
 import jakarta.annotation.PreDestroy;
 
@@ -67,7 +68,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
-import com.openjiuwen.service.spec.security.ExternalTargetRef;
 
 /**
  * Baseline {@link RemoteAgentCaller} using the official A2A SDK
@@ -364,6 +364,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * are therefore preserved; injection is a no-op until a provider is registered in
      * {@link A2APropagationHeaderRegistry}.
      *
+     * @param entry registered remote agent entry
      * @return the HTTP client to back the JSON-RPC transport
      */
     A2AHttpClient createHttpClient(RemoteAgentEntry entry) {
@@ -382,7 +383,11 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         return new HeaderInjectingA2AHttpClient(base, headers);
     }
 
-    /** Preserves the package-level test and extension hook for the default client path. */
+    /**
+     * Preserves the package-level test and extension hook for the default client path.
+     *
+     * @return the SDK-selected client with propagation-header injection
+     */
     static A2AHttpClient createHttpClient() {
         return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create());
     }
