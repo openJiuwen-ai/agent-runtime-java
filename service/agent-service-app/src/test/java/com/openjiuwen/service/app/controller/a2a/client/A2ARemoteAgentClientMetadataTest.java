@@ -39,7 +39,8 @@ class A2ARemoteAgentClientMetadataTest {
                 assertThat(params.message().parts()).hasSize(2);
                 assertThat(assertInstanceOf(FilePart.class, params.message().parts().get(1)).file())
                                 .isInstanceOfSatisfying(FileWithUri.class,
-                                                uri -> assertThat(uri.uri()).isEqualTo("https://example.com/report.pdf"));
+                                                uri -> assertThat(uri.uri())
+                                                        .isEqualTo("https://example.com/report.pdf"));
                 assertThat(params.metadata()).isEmpty();
                 assertThat(params.message().metadata()).isEmpty();
         }
