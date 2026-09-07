@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.Mockito.mock;
 
 import com.google.gson.JsonObject;
@@ -62,7 +63,7 @@ class A2ARemoteAgentClientSecurityTest {
     }
 
     @Test
-    void springAuthenticatorAddsTargetHeadersToJsonRpcAndSseAndCachesMaterials() throws Exception {
+    void springAuthenticatorCachesHeadersForJsonRpcAndSse() throws Exception {
         String endpoint = startServer();
         List<ExternalTargetRef> targets = new CopyOnWriteArrayList<>();
         ExternalAuthenticator authenticator = (target, config) -> {
@@ -106,8 +107,8 @@ class A2ARemoteAgentClientSecurityTest {
             A2ARemoteAgentCardRegistry registry = context.getBean(A2ARemoteAgentCardRegistry.class);
             registry.register("remote", card(endpoint, null), 5, true);
             A2ARemoteAgentClient client = context.getBean(A2ARemoteAgentClient.class);
-            HeaderInjectingA2AHttpClient http = (HeaderInjectingA2AHttpClient) client
-                    .createHttpClient(registry.get("remote").orElseThrow());
+            HeaderInjectingA2AHttpClient http = assertInstanceOf(HeaderInjectingA2AHttpClient.class,
+                    client.createHttpClient(registry.get("remote").orElseThrow()));
             assertThat(http.unwrap()).isInstanceOf(TestTaggingA2AHttpClientProvider.TaggingA2AHttpClient.class);
             invoke(client, "remote", false);
             invoke(client, "remote", true);
@@ -229,16 +230,16 @@ class A2ARemoteAgentClientSecurityTest {
         response.add("result", JsonParser.parseString("""
                 {"message":{"messageId":"reply","role":"ROLE_AGENT","parts":[{"text":"ok"}]}}
                 """));
-        boolean streaming = "SendStreamingMessage".equals(request.get("method").getAsString());
-        String wire = streaming ? "data: " + response + "\n\n" : response.toString();
+        boolean isStreaming = "SendStreamingMessage".equals(request.get("method").getAsString());
+        String wire = isStreaming ? "data: " + response + "\n\n" : response.toString();
         byte[] bytes = wire.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", streaming ? "text/event-stream" : "application/json");
+        exchange.getResponseHeaders().set("Content-Type", isStreaming ? "text/event-stream" : "application/json");
         exchange.sendResponseHeaders(200, bytes.length);
         exchange.getResponseBody().write(bytes);
     }
 
-    static void invoke(A2ARemoteAgentClient client, String name, boolean streaming) throws Exception {
-        RemoteCall call = new RemoteCall(name, "hello", "ctx", null, Map.of(), Map.of(), streaming);
+    static void invoke(A2ARemoteAgentClient client, String name, boolean isStreaming) throws Exception {
+        RemoteCall call = new RemoteCall(name, "hello", "ctx", null, Map.of(), Map.of(), isStreaming);
         RemoteCallOutcome outcome = client.callOutcome(call, mock(RemoteAgentCaller.EventObserver.class))
                 .get(10, TimeUnit.SECONDS);
         assertThat(outcome.result()).isEqualTo("ok");

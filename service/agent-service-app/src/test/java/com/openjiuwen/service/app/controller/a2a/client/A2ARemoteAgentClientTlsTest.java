@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.google.gson.JsonParser;
 import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
@@ -66,10 +67,10 @@ class A2ARemoteAgentClientTlsTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void targetTrustStoreAndClientCertificateReachActualTransport(boolean mtls) throws Exception {
-        String endpoint = startServer(mtls);
+    void targetTrustStoreAndClientCertificateReachActualTransport(boolean isMtls) throws Exception {
+        String endpoint = startServer(isMtls);
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
-        registry.register("trusted", A2ARemoteAgentClientSecurityTest.card(endpoint, null), 5, true, tls(mtls));
+        registry.register("trusted", A2ARemoteAgentClientSecurityTest.card(endpoint, null), 5, true, tls(isMtls));
         client = newClient(registry);
 
         A2ARemoteAgentClientSecurityTest.invoke(client, "trusted", false);
@@ -142,19 +143,19 @@ class A2ARemoteAgentClientTlsTest {
                 ExternalOutboundSecuritySupport.createDefault(value -> value));
     }
 
-    private ExternalTlsConfig tls(boolean clientCertificate) {
+    private ExternalTlsConfig tls(boolean hasClientCertificate) {
         ExternalTlsConfig config = new ExternalTlsConfig();
         config.setEnabled(true);
         config.setTrustStore(certificates.clientTrustStoreLocation());
         config.setTrustStorePassword(TlsTestCertificates.PASSWORD);
-        if (clientCertificate) {
+        if (hasClientCertificate) {
             config.setKeyStore(certificates.clientKeyStoreLocation());
             config.setKeyStorePassword(TlsTestCertificates.PASSWORD);
         }
         return config;
     }
 
-    private String startServer(boolean mtls, String... protocols) throws Exception {
+    private String startServer(boolean isMtls, String... protocols) throws Exception {
         char[] password = TlsTestCertificates.PASSWORD.toCharArray();
         TlsMaterial material = new TlsMaterial(certificates.serverKeyStoreLocation(), password, "PKCS12",
                 certificates.serverTrustStoreLocation(), password, "PKCS12", List.of("TLSv1.3"), true);
@@ -167,14 +168,15 @@ class A2ARemoteAgentClientTlsTest {
                 if (protocols.length > 0) {
                     sslParameters.setProtocols(protocols);
                 }
-                sslParameters.setNeedClientAuth(mtls);
+                sslParameters.setNeedClientAuth(isMtls);
                 parameters.setSSLParameters(sslParameters);
             }
         });
         server.createContext("/a2a", exchange -> {
             try (exchange) {
                 requests.incrementAndGet();
-                negotiatedProtocols.add(((HttpsExchange) exchange).getSSLSession().getProtocol());
+                HttpsExchange httpsExchange = assertInstanceOf(HttpsExchange.class, exchange);
+                negotiatedProtocols.add(httpsExchange.getSSLSession().getProtocol());
                 var request = JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(),
                         StandardCharsets.UTF_8)).getAsJsonObject();
                 A2ARemoteAgentClientSecurityTest.writeResponse(exchange, request);
