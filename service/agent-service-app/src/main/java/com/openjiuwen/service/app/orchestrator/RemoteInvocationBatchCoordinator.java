@@ -382,7 +382,7 @@ final class RemoteInvocationBatchCoordinator {
                 .map(String::valueOf).filter(value -> !value.isBlank()).orElse(null);
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
                 optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
-                protocolTenant, batch.request.isStream());
+                protocolTenant, batch.request.isStream(), member.parts);
         CompletableFuture<RemoteCallOutcome> future;
         try {
             future = client.callOutcome(call, new MemberEventObserver(batch, member));

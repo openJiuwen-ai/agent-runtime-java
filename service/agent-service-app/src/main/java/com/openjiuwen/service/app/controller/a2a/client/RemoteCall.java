@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -22,29 +23,47 @@ import java.util.Map;
  * @param isCallerStreaming whether the current inbound request is streaming;
  *                          gates remote A2A streaming so a non-streaming caller
  *                          never receives streamed artifacts
+ * @param parts           normalized Part list mapped back to
+ *                        outbound SDK parts after the leading text part, or {@code null}
+ *                        when the call carries text only
  */
 public record RemoteCall(String agentName, String message, String contextId, String taskId,
         Map<String, Object> metadata, Map<String, Object> messageMetadata, String protocolTenant,
-        boolean isCallerStreaming) {
+        boolean isCallerStreaming, List<Map<String, Object>> parts) {
     public RemoteCall {
         metadata = immutableMetadata(metadata);
         messageMetadata = immutableMetadata(messageMetadata);
     }
 
     public RemoteCall(String agentName, String message, String contextId, String taskId,
+            Map<String, Object> metadata, Map<String, Object> messageMetadata, boolean isCallerStreaming) {
+        this(agentName, message, contextId, taskId, metadata, messageMetadata, null, isCallerStreaming, null);
+    }
+
+    public RemoteCall(String agentName, String message, String contextId, String taskId,
             Map<String, Object> metadata, Map<String, Object> messageMetadata) {
-        this(agentName, message, contextId, taskId, metadata, messageMetadata, null, false);
+        this(agentName, message, contextId, taskId, metadata, messageMetadata, null, false, null);
     }
 
     public RemoteCall(String agentName, String message, String contextId, String taskId,
             Map<String, Object> metadata) {
-        this(agentName, message, contextId, taskId, metadata, null, null, false);
+        this(agentName, message, contextId, taskId, metadata, null, null, false, null);
     }
 
-    /** Compatibility constructor preserving existing call sites. */
+    /**
+     * Compatibility constructor preserving existing call sites.
+     *
+     * @param agentName remote agent name
+     * @param message message text
+     * @param contextId conversation context identifier
+     * @param taskId remote task identifier
+     * @param metadata params-level metadata
+     * @param messageMetadata message-level metadata
+     * @param isCallerStreaming whether the caller accepts streaming
+     */
     public RemoteCall(String agentName, String message, String contextId, String taskId,
             Map<String, Object> metadata, Map<String, Object> messageMetadata, boolean isCallerStreaming) {
-        this(agentName, message, contextId, taskId, metadata, messageMetadata, null, isCallerStreaming);
+        this(agentName, message, contextId, taskId, metadata, messageMetadata, null, isCallerStreaming, null);
     }
 
     private static Map<String, Object> immutableMetadata(Map<String, Object> metadata) {
