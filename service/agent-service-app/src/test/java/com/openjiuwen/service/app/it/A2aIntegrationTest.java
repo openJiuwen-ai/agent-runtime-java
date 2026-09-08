@@ -212,7 +212,7 @@ class A2aIntegrationTest {
         Map<String, Object> body = json(resp.getBody());
         assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.INVALID_PARAMS.code())
                 .containsEntry("message",
-                        "Invalid params: params.message.parts must contain at least one non-blank text part");
+                        "Invalid params: params.message.parts must contain at least one part");
     }
 
     @Test

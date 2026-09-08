@@ -26,13 +26,29 @@ import java.util.function.Consumer;
 public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
     private final A2AHttpClient delegate;
 
+    private final Map<String, String> fixedHeaders;
+
     /**
      * Wraps the given client.
      *
      * @param delegate the client executing the actual HTTP I/O
      */
     public HeaderInjectingA2AHttpClient(A2AHttpClient delegate) {
+        this(delegate, Map.of());
+    }
+
+    /**
+     * Wraps a client and adds fixed headers to every request in addition to
+     * the existing per-request propagation headers.
+     *
+     * @param delegate client executing the request
+     * @param fixedHeaders headers supplied by the outbound authenticator
+     */
+    public HeaderInjectingA2AHttpClient(A2AHttpClient delegate, Map<String, String> fixedHeaders) {
         this.delegate = delegate;
+        this.fixedHeaders = fixedHeaders == null || fixedHeaders.isEmpty()
+                ? Map.of()
+                : Map.copyOf(fixedHeaders);
     }
 
     A2AHttpClient unwrap() {
@@ -41,25 +57,27 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
 
     @Override
     public GetBuilder createGet() {
-        return new GetWrapper(delegate.createGet());
+        return new GetWrapper(delegate.createGet(), fixedHeaders);
     }
 
     @Override
     public PostBuilder createPost() {
-        return new PostWrapper(delegate.createPost());
+        return new PostWrapper(delegate.createPost(), fixedHeaders);
     }
 
     @Override
     public DeleteBuilder createDelete() {
-        return new DeleteWrapper(delegate.createDelete());
+        return new DeleteWrapper(delegate.createDelete(), fixedHeaders);
     }
 
     private abstract static class BaseWrapper<B extends A2AHttpClient.Builder<B>> {
         final B delegate;
+        final Map<String, String> fixedHeaders;
         private boolean isInjected;
 
-        BaseWrapper(B delegate) {
+        BaseWrapper(B delegate, Map<String, String> fixedHeaders) {
             this.delegate = delegate;
+            this.fixedHeaders = fixedHeaders;
         }
 
         /**
@@ -104,6 +122,7 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
             // 标记在注入成功后才置位：provider 抛异常时同一 builder 重试仍会重新注入
             A2APropagationHeaderRegistry.provide(request)
                     .forEach((key, value) -> delegate.addHeader(key, value));
+            fixedHeaders.forEach((key, value) -> delegate.addHeader(key, value));
             isInjected = true;
         }
 
@@ -120,8 +139,8 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
             extends BaseWrapper<A2AHttpClient.GetBuilder> implements A2AHttpClient.GetBuilder {
         private String url;
 
-        GetWrapper(A2AHttpClient.GetBuilder delegate) {
-            super(delegate);
+        GetWrapper(A2AHttpClient.GetBuilder delegate, Map<String, String> fixedHeaders) {
+            super(delegate, fixedHeaders);
         }
 
         @Override
@@ -164,8 +183,8 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         private String url;
         private String body;
 
-        PostWrapper(A2AHttpClient.PostBuilder delegate) {
-            super(delegate);
+        PostWrapper(A2AHttpClient.PostBuilder delegate, Map<String, String> fixedHeaders) {
+            super(delegate, fixedHeaders);
         }
 
         @Override
@@ -214,8 +233,8 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
             extends BaseWrapper<A2AHttpClient.DeleteBuilder> implements A2AHttpClient.DeleteBuilder {
         private String url;
 
-        DeleteWrapper(A2AHttpClient.DeleteBuilder delegate) {
-            super(delegate);
+        DeleteWrapper(A2AHttpClient.DeleteBuilder delegate, Map<String, String> fixedHeaders) {
+            super(delegate, fixedHeaders);
         }
 
         @Override

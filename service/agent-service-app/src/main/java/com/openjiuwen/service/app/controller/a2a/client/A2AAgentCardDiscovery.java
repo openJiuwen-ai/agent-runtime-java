@@ -146,7 +146,7 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
 
     private void discoverAndRegister(RemoteAgentProperties remote) {
         AgentCard card = fetchCardInternal(remote.getUrl());
-        registry.register(remote.getName(), card, remote.getTimeoutSeconds(), remote.isStreaming());
+        registry.register(remote.getName(), card, remote.getTimeoutSeconds(), remote.isStreaming(), remote.getTls());
         log.info("Discovered remote agent '{}'", remote.getName());
     }
 

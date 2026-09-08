@@ -30,6 +30,7 @@ import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -340,12 +341,15 @@ public class A2AAutoConfiguration {
      *
      * @param registry the remote agent card registry
      * @param props A2A runtime properties
+     * @param securitySupportProvider provider for optional outbound security support
      * @return the default remote agent caller
      */
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCaller.class)
-    public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props) {
-        return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency());
+    public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props,
+            ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider) {
+        return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency(),
+                securitySupportProvider.getIfAvailable());
     }
 
     /**
@@ -438,14 +442,17 @@ public class A2AAutoConfiguration {
 
 final class A2AExecutionResources {
     /**
-     * Auto-sized agent pool floor. I/O-bound agent tasks park on remote LLM or
-     * backend calls, so the baseline mirrors {@code QuerySsePumpExecutor}:
-     * {@code max(32, availableProcessors * 8)} instead of raw CPU cores.
+     * Auto-sized agent pool floor — the lower bound applied when
+     * {@code availableProcessors * AUTO_POOL_MULTIPLIER} falls below this value.
+     * I/O-bound agent tasks park on remote LLM or backend calls, so the baseline
+     * mirrors {@code QuerySsePumpExecutor}. On machines with 8 or fewer cores this
+     * floor dominates, yielding a fixed 40-slot pool.
      */
-    static final int AUTO_POOL_FLOOR = 32;
+    static final int AUTO_POOL_FLOOR = 40;
 
     /**
-     * Auto-sized agent pool multiplier per CPU core.
+     * Auto-sized agent pool multiplier per CPU core. Combined with
+     * {@link #AUTO_POOL_FLOOR} via {@code max(floor, cores * multiplier)}.
      */
     static final int AUTO_POOL_MULTIPLIER = 8;
 
