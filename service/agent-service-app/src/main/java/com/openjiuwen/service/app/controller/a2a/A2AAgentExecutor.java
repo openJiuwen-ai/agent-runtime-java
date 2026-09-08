@@ -277,26 +277,24 @@ public class A2AAgentExecutor implements AgentExecutor {
     private void executeStreaming(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
             AgentEmitter emitter) {
         AtomicBoolean cancelled = new AtomicBoolean(false);
-        AtomicBoolean interrupted = new AtomicBoolean(false);
-        AtomicBoolean failed = new AtomicBoolean(false);
-        AtomicBoolean canceled = new AtomicBoolean(false);
+        StreamVerdict verdict = new StreamVerdict();
         activeCancellations.put(ctx.getContextId(), cancelled);
         try {
             orchestrator.streamQuery(req, new QueryStreamObserver() {
                 @Override
                 public void onNext(QueryChunk chunk) {
-                    handleStreamingChunk(chunk, msgCtx, emitter, interrupted, failed, canceled);
+                    handleStreamingChunk(chunk, msgCtx, emitter, verdict);
                 }
 
                 @Override
                 public void onComplete() {
-                    if (interrupted.get()) {
+                    if (verdict.interrupted.get()) {
                         log.info("A2A stream ended after interrupt (COMPLETED suppressed) taskId={}",
                                 msgCtx.getTaskId());
-                    } else if (canceled.get()) {
+                    } else if (verdict.canceled.get()) {
                         log.info("A2A stream ended after cancel (COMPLETED suppressed) taskId={}",
                                 msgCtx.getTaskId());
-                    } else if (failed.get()) {
+                    } else if (verdict.failed.get()) {
                         log.info("A2A stream ended after failure (COMPLETED suppressed) taskId={}", msgCtx.getTaskId());
                     } else {
                         log.info("A2A stream complete taskId={}", msgCtx.getTaskId());
@@ -308,7 +306,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 public void onError(Throwable error) {
                     log.error("A2A agent stream error taskId={} contextId={}", msgCtx.getTaskId(),
                             msgCtx.getContextId(), error);
-                    if (failed.compareAndSet(false, true)) {
+                    if (verdict.failed.compareAndSet(false, true)) {
                         failAndDrain(emitter, msgCtx, error);
                     }
                 }
@@ -323,21 +321,40 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
+    /**
+     * Terminal signals seen on one stream.
+     *
+     * <p>The three flags travel together: every reader wants "has this task already been decided",
+     * and the first one to be set wins. Keeping them in one object is also what keeps the chunk
+     * handler's parameter list within the limit.</p>
+     */
+    private static final class StreamVerdict {
+        private final AtomicBoolean interrupted = new AtomicBoolean(false);
+
+        private final AtomicBoolean failed = new AtomicBoolean(false);
+
+        private final AtomicBoolean canceled = new AtomicBoolean(false);
+
+        private boolean decided() {
+            return interrupted.get() || failed.get() || canceled.get();
+        }
+    }
+
     private void handleStreamingChunk(QueryChunk chunk, A2AMessageContext msgCtx, AgentEmitter emitter,
-            AtomicBoolean interrupted, AtomicBoolean failed, AtomicBoolean canceled) {
-        if (interrupted.get() || failed.get() || canceled.get()) {
+            StreamVerdict verdict) {
+        if (verdict.decided()) {
             // A terminal signal already decided this task; later chunks must not change the verdict.
             return;
         }
         if (QueryChunk.TYPE_CANCEL.equals(chunk.getType())) {
             log.info("A2A cancel requested by the execution side taskId={} contextId={} reason={}",
                     msgCtx.getTaskId(), msgCtx.getContextId(), cancelReason(chunk.getData()));
-            canceled.set(true);
+            verdict.canceled.set(true);
             cancelTask(msgCtx, emitter);
             return;
         }
         if (QueryChunk.TYPE_ERROR.equals(chunk.getType())) {
-            failed.set(true);
+            verdict.failed.set(true);
             failAndDrain(emitter, msgCtx, streamChunkFailure(chunk));
             return;
         }
@@ -350,7 +367,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 emitter.requiresInput();
             }
             closeEventQueue(emitter, msgCtx.getTaskId());
-            interrupted.set(true);
+            verdict.interrupted.set(true);
             return;
         }
         if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())
