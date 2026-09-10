@@ -14,9 +14,20 @@ import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
+import java.beans.Introspector;
+import java.beans.PropertyDescriptor;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Verifies hosted Card overrides, defaults and endpoint construction.
@@ -107,5 +118,42 @@ class HostedAgentCardFactoryTest {
         properties.getAgents().put("b", b);
         assertThatThrownBy(() -> new HostedAgentCardFactory(definitions, properties, new ServiceProperties()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("modes");
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(booleans = {true, false})
+    void bindsOriginalCapabilityNamesAndPreservesInheritance(Boolean isEnabled) {
+        String prefix = "openjiuwen.service.a2a";
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put(prefix + ".streaming", true);
+        values.put(prefix + ".push-notifications", true);
+        values.put(prefix + ".agents.b.agent-name", "Display B");
+        if (isEnabled != null) {
+            values.put(prefix + ".agents.b.streaming", isEnabled);
+            values.put(prefix + ".agents.b.push-notifications", isEnabled);
+        }
+        var binder = new Binder(new MapConfigurationPropertySource(values));
+        var properties = binder.bind(prefix, Bindable.of(A2AProperties.class)).get();
+        var overrides = properties.getAgents().get("b");
+        assertThat(overrides.getStreaming()).isEqualTo(isEnabled);
+        assertThat(overrides.getPushNotifications()).isEqualTo(isEnabled);
+        var factory = new HostedAgentCardFactory(definitions, properties, new ServiceProperties());
+        var capabilities = factory.card("b", "http://host", false).capabilities();
+        assertThat(capabilities.streaming()).isEqualTo(!Boolean.FALSE.equals(isEnabled));
+        assertThat(capabilities.pushNotifications()).isEqualTo(!Boolean.FALSE.equals(isEnabled));
+        properties.setStreaming(false);
+        properties.setPushNotifications(false);
+        var disabled = new HostedAgentCardFactory(definitions, properties, new ServiceProperties());
+        assertThat(disabled.card("b", "http://host", false).capabilities().streaming()).isFalse();
+        assertThat(disabled.card("b", "http://host", false).capabilities().pushNotifications()).isFalse();
+    }
+
+    @Test
+    void exposesOnlyOriginalCapabilityBeanProperties() throws Exception {
+        var properties = Introspector.getBeanInfo(A2AProperties.HostedCardProperties.class).getPropertyDescriptors();
+        assertThat(Arrays.stream(properties).map(PropertyDescriptor::getName).toList())
+                .contains("streaming", "pushNotifications")
+                .doesNotContain("isStreaming", "isPushNotifications");
     }
 }

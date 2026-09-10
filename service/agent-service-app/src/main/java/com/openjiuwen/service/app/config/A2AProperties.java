@@ -7,12 +7,15 @@ package com.openjiuwen.service.app.config;
 import com.openjiuwen.service.adapters.common.security.ExternalTlsConfig;
 import com.openjiuwen.service.spec.part.A2aPartLimits;
 
+import lombok.AccessLevel;
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -128,9 +131,49 @@ public class A2AProperties {
 
         private List<SkillProperties> skills = List.of();
 
-        private Boolean streaming;
+        @Getter(AccessLevel.NONE)
+        @Setter(AccessLevel.NONE)
+        private Boolean isStreaming;
 
-        private Boolean pushNotifications;
+        @Getter(AccessLevel.NONE)
+        @Setter(AccessLevel.NONE)
+        private Boolean isPushNotifications;
+
+        /**
+         * Returns the instance's streaming capability override.
+         *
+         * @return override, or null to inherit the global setting
+         */
+        public Boolean getStreaming() {
+            return isStreaming;
+        }
+
+        /**
+         * Sets the instance's streaming capability override.
+         *
+         * @param isStreaming override, or null to inherit the global setting
+         */
+        public void setStreaming(Boolean isStreaming) {
+            this.isStreaming = isStreaming;
+        }
+
+        /**
+         * Returns the instance's push notification capability override.
+         *
+         * @return override, or null to inherit the global setting
+         */
+        public Boolean getPushNotifications() {
+            return isPushNotifications;
+        }
+
+        /**
+         * Sets the instance's push notification capability override.
+         *
+         * @param isPushNotifications override, or null to inherit the global setting
+         */
+        public void setPushNotifications(Boolean isPushNotifications) {
+            this.isPushNotifications = isPushNotifications;
+        }
     }
 
     /**
