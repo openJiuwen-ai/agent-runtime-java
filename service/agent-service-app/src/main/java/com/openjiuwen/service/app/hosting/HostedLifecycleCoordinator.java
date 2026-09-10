@@ -150,8 +150,8 @@ public final class HostedLifecycleCoordinator implements AgentLifecycleManager {
             try {
                 long remaining = Math.max(0, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
                 prepared.get(i).stop(remaining);
-            } catch (RuntimeException failure) {
-                log.error("Hosted shared resource stop failed type={}", failure.getClass().getSimpleName());
+            } catch (RuntimeException exception) {
+                log.error("Hosted shared resource stop failed type={}", exception.getClass().getSimpleName());
             }
         }
         configuration.resources().close();
@@ -161,9 +161,9 @@ public final class HostedLifecycleCoordinator implements AgentLifecycleManager {
     private static void stopAction(String agentId, String operation, Runnable action) {
         try {
             action.run();
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException exception) {
             log.error("Hosted shutdown failed agentId={} operation={} type={}", agentId, operation,
-                    failure.getClass().getSimpleName());
+                    exception.getClass().getSimpleName());
         }
     }
 
@@ -173,8 +173,8 @@ public final class HostedLifecycleCoordinator implements AgentLifecycleManager {
         for (int i = hooks.size() - 1; i >= 0; i--) {
             try {
                 hooks.get(i).onShutdown(context);
-            } catch (Exception failure) {
-                log.error("Hosted shutdown hook failed type={}", failure.getClass().getSimpleName());
+            } catch (Exception exception) {
+                log.error("Hosted shutdown hook failed type={}", exception.getClass().getSimpleName());
             }
         }
     }
@@ -186,9 +186,9 @@ public final class HostedLifecycleCoordinator implements AgentLifecycleManager {
             instance.handler().stop();
             log.info("Hosted agent agentId={} operation=stop result=success rollback={}",
                     instance.agentId(), isRollback);
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException exception) {
             log.error("Hosted agent agentId={} operation=stop result=failure rollback={} type={}", instance.agentId(),
-                    isRollback, failure.getClass().getSimpleName());
+                    isRollback, exception.getClass().getSimpleName());
         }
     }
 

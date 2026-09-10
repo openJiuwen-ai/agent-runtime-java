@@ -153,8 +153,8 @@ public final class HostedRuntimeAssembler {
         for (int i = actions.size() - 1; i >= 0; i--) {
             try {
                 actions.get(i).run();
-            } catch (RuntimeException failure) {
-                log.error("Hosted resource cleanup failed type={}", failure.getClass().getSimpleName());
+            } catch (RuntimeException exception) {
+                log.error("Hosted resource cleanup failed type={}", exception.getClass().getSimpleName());
             }
         }
     }
