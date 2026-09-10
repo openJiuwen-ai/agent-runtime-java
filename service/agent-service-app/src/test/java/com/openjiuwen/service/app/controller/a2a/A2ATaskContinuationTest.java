@@ -33,7 +33,6 @@ import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -164,24 +163,25 @@ class A2ATaskContinuationTest {
 
     @Test
     void saturatedExecutorDoesNotHoldShutdownLockDuringInlineContinuation() throws Exception {
-        var releaseWorker = new CountDownLatch(1);
-        var workerEntered = new CountDownLatch(1);
-        var releaseContinuation = new CountDownLatch(1);
-        var continuationEntered = new CountDownLatch(1);
         var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
                 new ThreadPoolExecutor.CallerRunsPolicy());
-        var callers = Executors.newFixedThreadPool(2);
         @SuppressWarnings("unchecked")
         ObjectProvider<A2AAgentExecutor> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(agentExecutor);
         continuation.shutdown();
         continuation = new A2ATaskContinuation(taskStore, new InMemoryQueueManager(null, new MainEventBus()),
                 provider, executor, RETRY_BASE_DELAY_MS);
+        var releaseContinuation = new CountDownLatch(1);
+        var continuationEntered = new CountDownLatch(1);
         doAnswer(invocation -> {
             continuationEntered.countDown();
             releaseContinuation.await();
             return null;
         }).when(agentExecutor).continueTask(any(), any(), any());
+        var releaseWorker = new CountDownLatch(1);
+        var workerEntered = new CountDownLatch(1);
+        var callers = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(2),
+                new ThreadPoolExecutor.AbortPolicy());
         try {
             var worker = executor.submit(() -> {
                 workerEntered.countDown();
