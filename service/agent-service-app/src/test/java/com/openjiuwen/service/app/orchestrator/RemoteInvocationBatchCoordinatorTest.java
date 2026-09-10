@@ -35,6 +35,10 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import java.util.ArrayList;
@@ -58,6 +62,39 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 class RemoteInvocationBatchCoordinatorTest {
     private static final int REMOTE_OUTPUT_COUNT = 256;
+
+    @ParameterizedTest
+    @CsvSource({
+        "0, -1, 0, maxConcurrency must be greater than zero",
+        "-1, 0, 30, maxConcurrency must be greater than zero",
+        "1, -1, 0, maxQueueSize must not be negative",
+        "1, 0, 0, queueTimeoutSeconds must be greater than zero",
+        "1, 0, -1, queueTimeoutSeconds must be greater than zero"
+    })
+    void legacyConstructorPreservesDispatchValidation(int maxConcurrency, int maxQueueSize,
+            long queueTimeoutSeconds, String message) {
+        TaskStore store = new InMemoryTaskStore();
+        RemoteAgentCaller client = mock(RemoteAgentCaller.class);
+        assertThatThrownBy(() -> new RemoteInvocationBatchCoordinator(store, client, "test-agent",
+                maxConcurrency, maxQueueSize, queueTimeoutSeconds))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage(message);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t"})
+    void legacyConstructorUsesFallbackAgentIdForShadowTasks(String agentId) {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        RemoteAgentCaller client = (call, observer) ->
+                CompletableFuture.completedFuture(inputRequired("remote-a", "input-a"));
+        var coordinator = new RemoteInvocationBatchCoordinator(store, client, agentId, 1, 0, 30);
+
+        var resolution = coordinator.execute(batch("batch-fallback", "call-a"),
+                request("parent-fallback", Map.of()), mock(QueryStreamObserver.class)).join();
+
+        assertThat(resolution.isReadyToResume()).isFalse();
+        assertThat(store.get("shadow:agent:parent-fallback")).isNotNull();
+    }
 
     @Test
     void concurrentCompletionKeepsOriginalToolCallOrder() {

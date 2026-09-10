@@ -125,22 +125,8 @@ final class RemoteInvocationBatchCoordinator {
 
     RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId, int maxConcurrency,
             int maxQueueSize, long queueTimeoutSeconds, Consumer<ServeRequest> continuation) {
-        if (maxConcurrency <= 0) {
-            throw new IllegalArgumentException("maxConcurrency must be greater than zero");
-        }
-        if (maxQueueSize < 0) {
-            throw new IllegalArgumentException("maxQueueSize must not be negative");
-        }
-        if (queueTimeoutSeconds <= 0) {
-            throw new IllegalArgumentException("queueTimeoutSeconds must be greater than zero");
-        }
-        this.taskStore = taskStore;
-        this.client = client;
-        this.agentId = agentId == null || agentId.isBlank() ? "agent" : agentId;
-        this.queueTimeout = Duration.ofSeconds(queueTimeoutSeconds);
-        this.dispatcher = new RemoteInvocationDispatcher(maxConcurrency, maxQueueSize, queueTimeout);
-        this.state = new RemoteInvocationCoordinatorState(dispatcher);
-        this.continuation = continuation;
+        this(taskStore, client, agentId == null || agentId.isBlank() ? "agent" : agentId,
+                createDispatcher(maxConcurrency, maxQueueSize, queueTimeoutSeconds), continuation);
     }
 
     RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId,
@@ -152,6 +138,20 @@ final class RemoteInvocationBatchCoordinator {
         this.dispatcher = dispatcher;
         this.state = new RemoteInvocationCoordinatorState(dispatcher);
         this.continuation = continuation;
+    }
+
+    private static RemoteInvocationDispatcher createDispatcher(int maxConcurrency, int maxQueueSize,
+            long queueTimeoutSeconds) {
+        if (maxConcurrency <= 0) {
+            throw new IllegalArgumentException("maxConcurrency must be greater than zero");
+        }
+        if (maxQueueSize < 0) {
+            throw new IllegalArgumentException("maxQueueSize must not be negative");
+        }
+        if (queueTimeoutSeconds <= 0) {
+            throw new IllegalArgumentException("queueTimeoutSeconds must be greater than zero");
+        }
+        return new RemoteInvocationDispatcher(maxConcurrency, maxQueueSize, Duration.ofSeconds(queueTimeoutSeconds));
     }
 
     void stopDispatching() {
@@ -383,7 +383,7 @@ final class RemoteInvocationBatchCoordinator {
     }
 
     private void start(PendingInvocation invocation) {
-        if (invocation.owner() != null && invocation.owner() != this) {
+        if (invocation.owner() != this) {
             invocation.owner().start(invocation);
             return;
         }
@@ -436,7 +436,7 @@ final class RemoteInvocationBatchCoordinator {
 
     private void logExpiredInvocations(List<PendingInvocation> expired) {
         for (PendingInvocation candidate : expired) {
-            if (candidate.owner() != null && candidate.owner() != this) {
+            if (candidate.owner() != this) {
                 candidate.owner().logExpiredInvocations(List.of(candidate));
                 continue;
             }

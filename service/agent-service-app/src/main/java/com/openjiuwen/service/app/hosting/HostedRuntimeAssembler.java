@@ -73,11 +73,10 @@ public final class HostedRuntimeAssembler {
             TaskStore store = A2AAutoConfiguration.createTaskStore(dependencies.middleware(), scoped,
                     dependencies.properties());
             assembly.taskStateProvider = store instanceof TaskStateProvider provider ? provider : null;
-            assembly.taskStore = store;
             for (Extension extension : extensions) {
                 store = Objects.requireNonNull(extension.decorateTaskStore(assembly, store), "Decorated TaskStore");
-                assembly.taskStore = store;
             }
+            assembly.taskStore = store;
             buildExecution(assembly);
             for (Extension extension : extensions) {
                 extension.configureHandler(assembly);

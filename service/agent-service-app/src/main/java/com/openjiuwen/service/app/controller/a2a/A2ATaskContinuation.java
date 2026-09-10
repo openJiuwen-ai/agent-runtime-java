@@ -75,9 +75,9 @@ public class A2ATaskContinuation {
     private final long retryBaseDelayMs;
 
     /**
-     * Dispatches retry attempts after a delay. Single daemon thread: it only
-     * re-submits work to the shared executor and never runs agent logic itself,
-     * so retrying cannot consume shared pool capacity.
+     * Dispatches retry attempts after a delay on a single daemon thread.
+     * Re-submits work to the shared executor; CallerRunsPolicy may run the
+     * continuation on this thread when that executor is saturated.
      */
     private final ScheduledExecutorService retryScheduler;
 
