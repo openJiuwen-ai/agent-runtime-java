@@ -192,17 +192,17 @@ public class A2ATaskContinuation {
     }
 
     private void dispatch(String taskId, String batchId, String continuationId, ServeRequest request) {
-        synchronized (lifecycleLock) {
-            if (isStopped) {
-                activeContinuations.remove(continuationId);
-                return;
-            }
-            try {
-                executor.execute(() -> continueTask(taskId, batchId, continuationId, request));
-            } catch (RejectedExecutionException ex) {
-                activeContinuations.remove(continuationId);
-                log.warn("A2A callback continuation was rejected taskId={}", taskId, ex);
-            }
+        if (isStopped) {
+            activeContinuations.remove(continuationId);
+            return;
+        }
+        // CallerRunsPolicy may execute the entire continuation here. Never hold
+        // the lifecycle lock across submission; continueTask rechecks shutdown.
+        try {
+            executor.execute(() -> continueTask(taskId, batchId, continuationId, request));
+        } catch (RejectedExecutionException ex) {
+            activeContinuations.remove(continuationId);
+            log.warn("A2A callback continuation was rejected taskId={}", taskId, ex);
         }
     }
 

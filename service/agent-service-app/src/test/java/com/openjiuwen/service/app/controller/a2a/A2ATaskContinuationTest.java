@@ -29,9 +29,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
+import java.util.ArrayDeque;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -156,6 +160,69 @@ class A2ATaskContinuationTest {
 
         Thread.sleep(QUIET_PERIOD_MS);
         verify(agentExecutor, times(2)).continueTask(any(), any(), any());
+    }
+
+    @Test
+    void saturatedExecutorDoesNotHoldShutdownLockDuringInlineContinuation() throws Exception {
+        var releaseWorker = new CountDownLatch(1);
+        var workerEntered = new CountDownLatch(1);
+        var releaseContinuation = new CountDownLatch(1);
+        var continuationEntered = new CountDownLatch(1);
+        var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
+                new ThreadPoolExecutor.CallerRunsPolicy());
+        var callers = Executors.newFixedThreadPool(2);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<A2AAgentExecutor> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(agentExecutor);
+        continuation.shutdown();
+        continuation = new A2ATaskContinuation(taskStore, new InMemoryQueueManager(null, new MainEventBus()),
+                provider, executor, RETRY_BASE_DELAY_MS);
+        doAnswer(invocation -> {
+            continuationEntered.countDown();
+            releaseContinuation.await();
+            return null;
+        }).when(agentExecutor).continueTask(any(), any(), any());
+        try {
+            var worker = executor.submit(() -> {
+                workerEntered.countDown();
+                releaseWorker.await();
+                return null;
+            });
+            assertThat(workerEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            var queued = executor.submit(() -> { });
+            var submitted = callers.submit(() -> continuation.submit(request()));
+            assertThat(continuationEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            // The continuation is still executing inline on the submitting thread.
+            // Shutdown must return before that invocation is allowed to finish.
+            callers.submit(continuation::shutdown).get(5, TimeUnit.SECONDS);
+            assertThat(submitted.isDone()).isFalse();
+            continuation.submit(request());
+            releaseContinuation.countDown();
+            submitted.get(5, TimeUnit.SECONDS);
+            releaseWorker.countDown();
+            worker.get(5, TimeUnit.SECONDS);
+            queued.get(5, TimeUnit.SECONDS);
+            verify(agentExecutor, times(1)).continueTask(any(), any(), any());
+        } finally {
+            releaseContinuation.countDown();
+            releaseWorker.countDown();
+            callers.shutdown();
+            executor.shutdown();
+            assertThat(callers.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void submittedContinuationDoesNotExecuteAfterShutdown() {
+        var pending = new ArrayDeque<Runnable>();
+        continuation.shutdown();
+        continuation = new A2ATaskContinuation(taskStore, null, null, pending::add, RETRY_BASE_DELAY_MS);
+        continuation.submit(request());
+        assertThat(pending).hasSize(1);
+        continuation.shutdown();
+        pending.remove().run();
+        org.mockito.Mockito.verifyNoInteractions(taskStore, agentExecutor);
     }
 
     @Test

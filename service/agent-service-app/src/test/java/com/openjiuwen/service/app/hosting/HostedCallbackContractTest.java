@@ -9,6 +9,7 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.controller.a2a.HttpPushNotificationSender;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -19,6 +20,7 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.spec.Message;
+import org.a2aproject.sdk.server.tasks.InMemoryPushNotificationConfigStore;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskPushNotificationConfig;
 import org.a2aproject.sdk.spec.TaskState;
@@ -83,10 +85,12 @@ class HostedCallbackContractTest {
         seed(b, id, true);
         for (HostedAgentRuntime target : List.of(b, a)) {
             String path = CALLBACK + "/" + target.agentId();
-            target.execution().pushConfigStore().setInfo(TaskPushNotificationConfig.builder()
+            // Simulate the remote peer sending to the public callback endpoint.
+            var remoteConfigs = new InMemoryPushNotificationConfigStore();
+            remoteConfigs.setInfo(TaskPushNotificationConfig.builder()
                     .id(id).taskId("remote-" + id).url("http://127.0.0.1:" + port + path).token(TEST_TOKEN).build());
             Task task = remoteTask(id, "result-" + target.agentId());
-            target.execution().pushSender().sendNotification(TaskStatusUpdateEvent.builder()
+            new HttpPushNotificationSender(remoteConfigs).sendNotification(TaskStatusUpdateEvent.builder()
                     .taskId(task.id()).contextId(task.contextId()).status(task.status()).build(), task);
             await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
                 Task parent = target.taskStore().get(id);

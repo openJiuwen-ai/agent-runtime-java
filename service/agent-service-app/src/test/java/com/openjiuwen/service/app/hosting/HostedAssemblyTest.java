@@ -11,6 +11,10 @@ import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.autoconfigure.HostedRuntimeAutoConfiguration;
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
+import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
+import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
+import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
+import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
@@ -18,6 +22,7 @@ import com.openjiuwen.service.app.lifecycle.ActiveStreamInterruptor;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleHooks;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.spec.dto.QueryResponse;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.hosting.HostedSharedLifecycle;
@@ -27,12 +32,19 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
+import org.a2aproject.sdk.server.events.MainEventBus;
+import org.a2aproject.sdk.server.events.MainEventBusProcessor;
+import org.a2aproject.sdk.server.events.QueueManager;
+import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
+import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -56,6 +68,23 @@ class HostedAssemblyTest {
             .withConfiguration(AutoConfigurations.of(HostedRuntimeAutoConfiguration.class, A2AAutoConfiguration.class))
             .withUserConfiguration(Handlers.class).withPropertyValues("spring.application.name=hosted-test");
 
+    @ParameterizedTest
+    @MethodSource("unsupportedGlobalComponents")
+    <T> void rejectsGlobalComponentsThatHostedExecutionWouldIgnore(Class<T> type) {
+        runner.withBean("customGlobalComponent", type, () -> org.mockito.Mockito.mock(type)).run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasMessageContaining("Unscoped " + type.getSimpleName())
+                    .hasMessageContaining("customGlobalComponent");
+        });
+    }
+
+    private static List<Class<?>> unsupportedGlobalComponents() {
+        return List.of(TaskAdmissionListener.class, PushNotificationConfigStore.class, PushNotificationSender.class,
+                MainEventBus.class, MainEventBusProcessor.class, QueueManager.class, A2AAgentExecutor.class,
+                A2ATaskContinuation.class, A2aPushNotificationCallbackStore.class,
+                A2aPushNotificationCallbackHandler.class);
+    }
+
     @Test
     void bindsHandlerBeansAndTargetStateBeforePublication() {
         runner.run(context -> {
@@ -70,10 +99,10 @@ class HostedAssemblyTest {
             assertThat(a.handler()).isSameAs(context.getBean("first"));
             assertThat(b.handler()).isSameAs(context.getBean("second"));
             assertThat(a.taskStore()).isNotSameAs(b.taskStore());
-            assertThat(a.execution().agentExecutor()).isNotSameAs(b.execution().agentExecutor());
-            assertThat(a.execution().queueManager()).isNotSameAs(b.execution().queueManager());
+            assertThat(a.requestHandler()).isNotSameAs(b.requestHandler());
+            assertThat(a.orchestrator()).isNotSameAs(b.orchestrator());
             assertThat(a.execution().eventProcessor()).isNotSameAs(b.execution().eventProcessor());
-            assertThat(a.execution().pushConfigStore()).isNotSameAs(b.execution().pushConfigStore());
+            assertThat(a.execution().continuation()).isNotSameAs(b.execution().continuation());
             Task task = Task.builder().id("same-task").contextId("same-conversation")
                     .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
             b.taskStore().save(task, true);

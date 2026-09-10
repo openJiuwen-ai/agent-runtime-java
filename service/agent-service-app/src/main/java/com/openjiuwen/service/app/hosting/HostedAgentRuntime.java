@@ -4,19 +4,14 @@
 
 package com.openjiuwen.service.app.hosting;
 
-import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
-import org.a2aproject.sdk.server.events.MainEventBus;
 import org.a2aproject.sdk.server.events.MainEventBusProcessor;
-import org.a2aproject.sdk.server.events.QueueManager;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
-import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
-import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 
 import java.util.List;
@@ -121,9 +116,7 @@ public final class HostedAgentRuntime {
      * SDK and orchestration references bound before publication.
      */
     public record Execution(A2AEnabledServeOrchestrator orchestrator, RequestHandler requestHandler,
-            TaskStore taskStore, ActiveStreamRegistry streams, A2AAgentExecutor agentExecutor,
-            A2ATaskContinuation continuation, MainEventBus eventBus, MainEventBusProcessor eventProcessor,
-            QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
-            PushNotificationSender pushSender, A2aPushNotificationCallbackStore callbackStore) {
+            TaskStore taskStore, ActiveStreamRegistry streams, A2ATaskContinuation continuation,
+            MainEventBusProcessor eventProcessor, A2aPushNotificationCallbackStore callbackStore) {
     }
 }

@@ -68,7 +68,7 @@ public final class HostedRuntimeAssembler {
         RuntimeRedisClient scoped = dependencies.redisClient() == null ? null
                 : new ScopedRuntimeRedisClient(dependencies.redisClient(),
                         ScopedRuntimeRedisClient.namespace(applicationName, entry.agentId()));
-        Assembly assembly = new Assembly(applicationName, entry, scoped);
+        Assembly assembly = new Assembly(entry, scoped);
         try {
             TaskStore store = A2AAutoConfiguration.createTaskStore(dependencies.middleware(), scoped,
                     dependencies.properties());
@@ -132,7 +132,7 @@ public final class HostedRuntimeAssembler {
             throw new IllegalStateException("Initialized SDK handler must implement RequestHandler");
         }
         assembly.execution = new HostedAgentRuntime.Execution(orchestrator, requestHandler, store, streams,
-                executor, continuation, bus, processor, queues, pushConfigs, sender,
+                continuation, processor,
                 new InMemoryA2aPushNotificationCallbackStore());
     }
 
@@ -194,8 +194,6 @@ public final class HostedRuntimeAssembler {
      * Controlled startup view; components cannot be rebound after publication.
      */
     public static final class Assembly {
-        private final String applicationName;
-
         private final HostedAgentDefinitions.Entry entry;
 
         private final RuntimeRedisClient redisClient;
@@ -210,14 +208,9 @@ public final class HostedRuntimeAssembler {
 
         private HostedAgentRuntime.Execution execution;
 
-        private Assembly(String applicationName, HostedAgentDefinitions.Entry entry, RuntimeRedisClient redisClient) {
-            this.applicationName = applicationName;
+        private Assembly(HostedAgentDefinitions.Entry entry, RuntimeRedisClient redisClient) {
             this.entry = entry;
             this.redisClient = redisClient;
-        }
-
-        public String applicationName() {
-            return applicationName;
         }
 
         /**
@@ -245,20 +238,6 @@ public final class HostedRuntimeAssembler {
          */
         public Optional<RuntimeRedisClient> redisClient() {
             return Optional.ofNullable(redisClient);
-        }
-
-        public TaskStore taskStore() {
-            return taskStore;
-        }
-
-        /**
-         * Returns the assembled execution graph for handler configuration.
-         *
-         * @return target-local execution graph
-         * @throws IllegalStateException if execution is not assembled
-         */
-        public HostedAgentRuntime.Execution execution() {
-            return Objects.requireNonNull(execution, "Execution graph is not assembled yet");
         }
 
         /**

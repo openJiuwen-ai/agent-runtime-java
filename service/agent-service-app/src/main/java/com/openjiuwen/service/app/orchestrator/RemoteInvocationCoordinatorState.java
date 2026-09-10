@@ -9,7 +9,6 @@ import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState
 
 import org.a2aproject.sdk.spec.Task;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,10 +25,6 @@ final class RemoteInvocationCoordinatorState {
     private final Map<String, String> coreResumeClaims = new LinkedHashMap<>();
 
     private final Map<String, Task> earlyCallbacksByRemoteTaskId = new LinkedHashMap<>();
-
-    RemoteInvocationCoordinatorState(int maxConcurrency, int maxQueueSize, Duration queueTimeout) {
-        this(new RemoteInvocationDispatcher(maxConcurrency, maxQueueSize, queueTimeout));
-    }
 
     RemoteInvocationCoordinatorState(RemoteInvocationDispatcher dispatcher) {
         this.dispatcher = dispatcher;

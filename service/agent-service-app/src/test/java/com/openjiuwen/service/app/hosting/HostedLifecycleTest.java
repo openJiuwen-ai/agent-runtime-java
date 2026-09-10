@@ -121,8 +121,7 @@ class HostedLifecycleTest {
                 return false;
             });
             var execution = new HostedAgentRuntime.Execution(mock(A2AEnabledServeOrchestrator.class), null,
-                    null, streams, null, mock(A2ATaskContinuation.class), null,
-                    mock(MainEventBusProcessor.class), null, null, null, null);
+                    null, streams, mock(A2ATaskContinuation.class), mock(MainEventBusProcessor.class), null);
             targets.add(new HostedAgentRuntime(id, handler, execution, Map.of(),
                     List.of(() -> actions.add("cleanup:" + id))));
         }

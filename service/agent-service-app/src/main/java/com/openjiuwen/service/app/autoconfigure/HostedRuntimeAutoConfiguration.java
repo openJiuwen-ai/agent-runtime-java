@@ -9,7 +9,9 @@ import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration.HostedResou
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.LifecycleProperties;
 import com.openjiuwen.service.app.config.ServiceProperties;
+import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
+import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCapabilityGate;
@@ -25,6 +27,7 @@ import com.openjiuwen.service.app.lifecycle.AgentLifecycleHooks;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationDispatcher;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.hosting.HostedSharedLifecycle;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
@@ -32,7 +35,12 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
+import org.a2aproject.sdk.server.events.MainEventBus;
+import org.a2aproject.sdk.server.events.MainEventBusProcessor;
+import org.a2aproject.sdk.server.events.QueueManager;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
+import org.a2aproject.sdk.server.tasks.PushNotificationConfigStore;
+import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -313,6 +321,15 @@ public class HostedRuntimeAutoConfiguration {
             rejectUnscopedReplacement(TaskStore.class, "hostedDefaultTaskStore");
             rejectUnscopedReplacement(RequestHandler.class, "hostedDefaultRequestHandler");
             rejectUnscopedReplacement(ServeOrchestrator.class, "hostedDefaultOrchestrator");
+            rejectUnscopedReplacement(A2aPushNotificationCallbackStore.class, "hostedDefaultCallbackStore");
+            rejectUnscopedReplacement(A2aPushNotificationCallbackHandler.class, "hostedDefaultCallbackHandler");
+            // These components are assembled per target, not taken from global beans.
+            // Reject unsupported replacements rather than silently ignoring user configuration.
+            for (Class<?> type : List.of(TaskAdmissionListener.class, PushNotificationConfigStore.class,
+                    PushNotificationSender.class, MainEventBus.class, MainEventBusProcessor.class,
+                    QueueManager.class, A2AAgentExecutor.class, A2ATaskContinuation.class)) {
+                rejectUnscopedReplacement(type, null);
+            }
         };
     }
 
