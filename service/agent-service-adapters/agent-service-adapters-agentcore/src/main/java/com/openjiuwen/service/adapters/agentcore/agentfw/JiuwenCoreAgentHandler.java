@@ -92,8 +92,6 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private final ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar;
 
-    private final boolean hasCustomExternalRegistrar;
-
     private volatile boolean isHostedRuntime;
 
     private boolean hasStarted;
@@ -138,10 +136,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
-        this.hasCustomExternalRegistrar = externalSvcAdapterRegistrar != null;
-        this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
-                ? externalSvcAdapterRegistrar
-                : ExternalSvcAdapterRegistrar.noop();
+        this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar;
     }
 
     /**
@@ -171,7 +166,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (middlewareAdapterRegistrar != null && middlewareAdapterRegistrar != sharedMiddleware) {
             throw new IllegalStateException("Hosted Core handler has a different middleware registrar");
         }
-        if (hasCustomExternalRegistrar && externalSvcAdapterRegistrar != sharedExternal) {
+        if (externalSvcAdapterRegistrar != null && externalSvcAdapterRegistrar != sharedExternal) {
             throw new IllegalStateException("Hosted Core handler has a different external registrar");
         }
     }
@@ -226,7 +221,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         log.info("Starting AgentCore Runner");
         try {
-            externalSvcAdapterRegistrar.registerToRunner();
+            if (externalSvcAdapterRegistrar != null) {
+                externalSvcAdapterRegistrar.registerToRunner();
+            }
             Runner.start();
         } catch (RuntimeException | Error ex) {
             RUNNER_STARTED.set(false);

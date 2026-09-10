@@ -63,6 +63,10 @@ class CoreRunnerLifecycleCoordinatorTest {
         assertThatThrownBy(() -> coordinator.prepare("app",
                 HostedAgentDefinitions.builder().add("custom", custom).build()))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("different middleware registrar");
+        var customExternal = new JiuwenCoreAgentHandler(new Object(), ExternalSvcAdapterRegistrar.noop());
+        assertThatThrownBy(() -> coordinator.prepare("app",
+                HostedAgentDefinitions.builder().add("custom-external", customExternal).build()))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("different external registrar");
     }
 
     @Test
