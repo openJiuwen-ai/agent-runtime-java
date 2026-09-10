@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.reset;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.hosting.HostedIngressResolver;
 import com.openjiuwen.service.app.controller.query.QueryIngressSupport;
 import com.openjiuwen.service.spec.dto.ResetConversationRequest;
 import com.openjiuwen.service.spec.dto.ResetConversationResponse;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
+import java.util.Map;
 
 /**
  * MVC stack reset conversation controller ({@code POST /v1/reset_conversation}).
@@ -41,6 +43,9 @@ public class ResetConversationMvcController {
     private final ObjectProvider<AgentReadiness> readinessProvider;
 
     private final ObjectMapper objectMapper;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private HostedIngressResolver hostedResolver;
 
     public ResetConversationMvcController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
         ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
@@ -75,7 +80,23 @@ public class ResetConversationMvcController {
             writeJson(response, HttpStatus.SERVICE_UNAVAILABLE.value(), QueryIngressSupport.agentNotReady());
             return null;
         }
-        ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
+        ServeOrchestrator orchestrator;
+        try {
+            if (hostedResolver == null) {
+                orchestrator = orchestratorProvider.getIfAvailable();
+            } else {
+                var target = hostedResolver.resolveOrDefault(request.getAgentId());
+                if (org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()
+                        instanceof org.springframework.web.context.request.ServletRequestAttributes attributes) {
+                    HostedIngressResolver.selected(attributes.getRequest(), target);
+                }
+                orchestrator = target.orchestrator();
+            }
+        } catch (HostedIngressResolver.SelectionException error) {
+            writeJson(response, error.status(), Map.of("type", "error", "error", error.getMessage(),
+                    "reason", error.reason()));
+            return null;
+        }
         if (orchestrator == null) {
             writeJson(response, HttpStatus.SERVICE_UNAVAILABLE.value(), QueryIngressSupport.serviceUnavailable());
             return null;

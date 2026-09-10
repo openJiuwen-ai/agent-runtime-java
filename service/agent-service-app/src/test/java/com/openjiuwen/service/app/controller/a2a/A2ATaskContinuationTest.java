@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 
 /**
  * Unit tests for the admission-rejection retry of {@link A2ATaskContinuation}.
@@ -153,6 +154,78 @@ class A2ATaskContinuationTest {
 
         Thread.sleep(QUIET_PERIOD_MS);
         verify(agentExecutor, times(2)).continueTask(any(), any(), any());
+    }
+
+    @Test
+    void stoppingOneBorrowerCancelsOnlyItsRetryAndKeepsOtherInstanceSchedulerAlive() throws Exception {
+        var scheduler = new ScheduledThreadPoolExecutor(1);
+        scheduler.setRemoveOnCancelPolicy(true);
+        var started = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        // Hold the real scheduler so both continuations are queued before shutdown races with execution.
+        var blocker = scheduler.submit(() -> {
+            started.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException failure) {
+                throw new IllegalStateException("Retry test interrupted", failure);
+            }
+        });
+        assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+        var firstExecutor = mock(A2AAgentExecutor.class);
+        var secondExecutor = mock(A2AAgentExecutor.class);
+        var firstCalls = new AtomicInteger();
+        var secondCalls = new AtomicInteger();
+        var succeeded = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            firstCalls.incrementAndGet();
+            throw admissionRejected();
+        }).when(firstExecutor).continueTask(any(), any(), any());
+        doAnswer(invocation -> {
+            if (secondCalls.incrementAndGet() == 1) {
+                throw admissionRejected();
+            }
+            succeeded.countDown();
+            return null;
+        }).when(secondExecutor).continueTask(any(), any(), any());
+        var first = borrower(firstExecutor, scheduler);
+        var second = borrower(secondExecutor, scheduler);
+        try {
+            first.submit(request());
+            second.submit(request());
+            assertThat(scheduler.getQueue()).hasSize(2);
+            first.shutdown();
+            assertThat(scheduler.isShutdown()).isFalse();
+            assertThat(scheduler.getQueue()).hasSize(1);
+            first.submit(request());
+            release.countDown();
+            blocker.get(5, TimeUnit.SECONDS);
+            assertThat(succeeded.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(firstCalls.get()).isEqualTo(1);
+            assertThat(secondCalls.get()).isEqualTo(2);
+            second.shutdown();
+            assertThat(scheduler.isShutdown()).isFalse();
+            assertThat(scheduler.getQueue()).isEmpty();
+        } finally {
+            release.countDown();
+            first.shutdown();
+            second.shutdown();
+            scheduler.shutdownNow();
+            assertThat(scheduler.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private static A2ATaskContinuation borrower(A2AAgentExecutor executor, ScheduledThreadPoolExecutor scheduler) {
+        var store = new org.a2aproject.sdk.server.tasks.InMemoryTaskStore();
+        store.save(inputRequiredTask(), true);
+        var provider = new ObjectProvider<A2AAgentExecutor>() {
+            @Override
+            public A2AAgentExecutor getObject() {
+                return executor;
+            }
+        };
+        return new A2ATaskContinuation(store, new InMemoryQueueManager(null, new MainEventBus()), provider,
+                Runnable::run, scheduler);
     }
 
     private static A2AError admissionRejected() {

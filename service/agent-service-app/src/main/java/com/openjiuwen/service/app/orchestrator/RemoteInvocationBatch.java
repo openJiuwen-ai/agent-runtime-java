@@ -28,7 +28,7 @@ final class RemoteInvocationBatch {
 
     final CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> completion = new CompletableFuture<>();
 
-    boolean isResolved;
+    volatile boolean isResolved;
 
     RemoteInvocationBatch(String batchId, String parentTaskId, ServeRequest request, SerialQueryStreamObserver observer,
             List<Member> members, boolean shouldResume) {

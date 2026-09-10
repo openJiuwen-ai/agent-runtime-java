@@ -92,13 +92,19 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private final ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar;
 
+    private final boolean hasCustomExternalRegistrar;
+
+    private volatile boolean isHostedRuntime;
+
+    private boolean hasStarted;
+
     /**
      * Creates a handler with the given agent and default middleware/external registrars.
      *
      * @param agent the agent instance or agent-id string
      */
     public JiuwenCoreAgentHandler(Object agent) {
-        this(agent, null, ExternalSvcAdapterRegistrar.noop());
+        this(agent, null, null);
     }
 
     /**
@@ -108,7 +114,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param middlewareAdapterRegistrar the middleware adapter registrar
      */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar) {
-        this(agent, middlewareAdapterRegistrar, ExternalSvcAdapterRegistrar.noop());
+        this(agent, middlewareAdapterRegistrar, null);
     }
 
     /**
@@ -132,6 +138,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
+        this.hasCustomExternalRegistrar = externalSvcAdapterRegistrar != null;
         this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
                 ? externalSvcAdapterRegistrar
                 : ExternalSvcAdapterRegistrar.noop();
@@ -144,6 +151,35 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      */
     protected Object getAgent() {
         return agent;
+    }
+
+    /**
+     * Indicates that process resources are managed externally by hosted lifecycle.
+     * Subclasses still own their local enhancement installation and removal.
+     *
+     * @return whether this handler is bound to hosted runtime ownership
+     */
+    protected final boolean isHostedRuntime() {
+        return isHostedRuntime;
+    }
+
+    synchronized void validateHostedRunner(MiddlewareAdapterRegistrar sharedMiddleware,
+            ExternalSvcAdapterRegistrar sharedExternal) {
+        if (hasStarted || isHostedRuntime) {
+            throw new IllegalStateException("Core handler already started or bound to a hosted runtime");
+        }
+        if (middlewareAdapterRegistrar != null && middlewareAdapterRegistrar != sharedMiddleware) {
+            throw new IllegalStateException("Hosted Core handler has a different middleware registrar");
+        }
+        if (hasCustomExternalRegistrar && externalSvcAdapterRegistrar != sharedExternal) {
+            throw new IllegalStateException("Hosted Core handler has a different external registrar");
+        }
+    }
+
+    synchronized void bindHostedRunner(MiddlewareAdapterRegistrar sharedMiddleware,
+            ExternalSvcAdapterRegistrar sharedExternal) {
+        validateHostedRunner(sharedMiddleware, sharedExternal);
+        isHostedRuntime = true;
     }
 
     /**
@@ -177,7 +213,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     @Override
-    public void start() {
+    public synchronized void start() {
+        hasStarted = true;
+        if (isHostedRuntime) {
+            return;
+        }
         if (!RUNNER_STARTED.compareAndSet(false, true)) {
             return;
         }
@@ -196,6 +236,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     @Override
     public void stop() {
+        if (isHostedRuntime) {
+            return;
+        }
         if (!RUNNER_STARTED.get()) {
             return;
         }

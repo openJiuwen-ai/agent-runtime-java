@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.controller.a2a.client;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Callable;
 
 /**
  * Registry for the outbound A2A propagation-header provider. Consumers (for example an
@@ -28,12 +29,14 @@ import java.util.concurrent.atomic.AtomicReference;
  *   when registration and close race.</li>
  *   <li>The provider receives the outbound A-&gt;B request coordinates as an
  *   {@link A2AOutboundRequest} — not the inbound user-to-runtime request.</li>
- *   <li>The provider is invoked on the runtime's remote-call I/O worker threads
- *   ({@code A2ARemoteAgentClient}'s executor), not on the inbound request thread — it
- *   must be thread-safe and must not rely on caller-thread state such as
- *   {@code ThreadLocal}, logging MDC, OpenTelemetry {@code Context.current()} or the
- *   Spring request context; capturing and correlating propagation state across threads
- *   (for example via an explicit context stash) is the provider's responsibility.</li>
+ *   <li>{@link A2APropagationHeaderProvider#capture()} runs before the remote call is
+ *   scheduled. A provider may capture the caller's current propagation state and
+ *   return a provider bound to that invocation. Its headers are then computed on the
+ *   I/O worker for the call and its retries, and the binding is restored on exit.
+ *   The default capture method returns the original provider, preserving existing
+ *   behavior. Header computation must be thread-safe; uncaptured caller-thread state
+ *   such as MDC, OpenTelemetry context or Spring request context is unavailable on
+ *   the I/O worker.</li>
  *   <li>Provider headers are added after SDK-set headers via
  *   {@code addHeader}; the outcome for a same-named header is defined by the underlying
  *   HTTP client implementation (the JDK client keeps the last written value; custom
@@ -51,6 +54,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class A2APropagationHeaderRegistry {
     private static final AtomicReference<A2APropagationHeaderProvider> PROVIDER = new AtomicReference<>();
+    private static final ThreadLocal<A2APropagationHeaderProvider> INVOCATION = new ThreadLocal<>();
 
     private A2APropagationHeaderRegistry() {
     }
@@ -74,12 +78,40 @@ public final class A2APropagationHeaderRegistry {
      * @return headers to inject (empty when no provider is registered or it returns null)
      */
     public static Map<String, String> provide(A2AOutboundRequest request) {
-        A2APropagationHeaderProvider current = PROVIDER.get();
+        A2APropagationHeaderProvider current = INVOCATION.get();
+        if (current == null) {
+            current = PROVIDER.get();
+        }
         if (current == null) {
             return Map.of();
         }
         Map<String, String> headers = current.headersFor(request);
         return headers != null ? headers : Map.of();
+    }
+
+    /** Captures before scheduling; restores the worker's prior binding even on failure or interruption. */
+    static <T> Callable<T> captureInvocation(Callable<T> action) {
+        A2APropagationHeaderProvider provider = INVOCATION.get();
+        if (provider == null) {
+            provider = PROVIDER.get();
+        }
+        if (provider == null) {
+            return action;
+        }
+        A2APropagationHeaderProvider captured = provider.capture();
+        return () -> {
+            A2APropagationHeaderProvider previous = INVOCATION.get();
+            INVOCATION.set(captured);
+            try {
+                return action.call();
+            } finally {
+                if (previous == null) {
+                    INVOCATION.remove();
+                } else {
+                    INVOCATION.set(previous);
+                }
+            }
+        };
     }
 
     /**

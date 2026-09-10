@@ -12,6 +12,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Binds {@code openjiuwen.service.a2a.*} for AgentCard content, remote agents,
@@ -52,6 +54,9 @@ public class A2AProperties {
     private List<SkillProperties> skills = List.of();
 
     private List<RemoteAgentProperties> remoteAgents = List.of();
+
+    /** Card-only overrides keyed by identifiers declared in HostedAgentDefinitions. */
+    private Map<String, HostedCardProperties> agents = new LinkedHashMap<>();
 
     private String jsonRpcPath = "/a2a";
 
@@ -98,6 +103,34 @@ public class A2AProperties {
         private int maxQueueSize = 256;
 
         private long queueTimeoutSeconds = 30L;
+    }
+
+    /** Optional per-target Card fields; no execution or infrastructure overrides. */
+    @Data
+    public static class HostedCardProperties {
+        private String agentName;
+
+        private String agentDescription;
+
+        private String version;
+
+        private String providerOrganization;
+
+        private String providerUrl;
+
+        private String documentationUrl;
+
+        private String iconUrl;
+
+        private List<String> defaultInputModes;
+
+        private List<String> defaultOutputModes;
+
+        private List<SkillProperties> skills = List.of();
+
+        private Boolean streaming;
+
+        private Boolean pushNotifications;
     }
 
     /**

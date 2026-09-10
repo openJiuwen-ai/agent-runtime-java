@@ -10,10 +10,7 @@ import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState
 import org.a2aproject.sdk.spec.Task;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,13 +19,7 @@ import java.util.Map;
 final class RemoteInvocationCoordinatorState {
     private static final int MAX_EARLY_CALLBACKS = 256;
 
-    private final int maxConcurrency;
-
-    private final int maxQueueSize;
-
-    private final Duration queueTimeout;
-
-    private final Deque<PendingInvocation> queue = new ArrayDeque<>();
+    private final RemoteInvocationDispatcher dispatcher;
 
     private final Map<String, RemoteInvocationBatch> activeByParent = new LinkedHashMap<>();
 
@@ -36,12 +27,12 @@ final class RemoteInvocationCoordinatorState {
 
     private final Map<String, Task> earlyCallbacksByRemoteTaskId = new LinkedHashMap<>();
 
-    private int activeCount;
-
     RemoteInvocationCoordinatorState(int maxConcurrency, int maxQueueSize, Duration queueTimeout) {
-        this.maxConcurrency = maxConcurrency;
-        this.maxQueueSize = maxQueueSize;
-        this.queueTimeout = queueTimeout;
+        this(new RemoteInvocationDispatcher(maxConcurrency, maxQueueSize, queueTimeout));
+    }
+
+    RemoteInvocationCoordinatorState(RemoteInvocationDispatcher dispatcher) {
+        this.dispatcher = dispatcher;
     }
 
     synchronized boolean hasActiveBatch(String parentTaskId) {
@@ -83,39 +74,15 @@ final class RemoteInvocationCoordinatorState {
     }
 
     synchronized Submission submit(PendingInvocation invocation) {
-        if (invocation.batch.isResolved) {
-            return Submission.IGNORED;
-        }
-        if (activeCount < maxConcurrency) {
-            activeCount++;
-            invocation.member.state = MemberState.RUNNING;
-            invocation.member.startedAt = Instant.now();
-            return Submission.START;
-        }
-        if (queue.size() < maxQueueSize) {
-            invocation.member.state = MemberState.QUEUED;
-            invocation.member.queuedAt = Instant.now();
-            queue.addLast(invocation);
-            return Submission.QUEUED;
-        }
-        invocation.member.fail(MemberState.FAILED, "REMOTE_OVERLOADED", "Remote invocation queue is full");
-        return Submission.OVERLOADED;
+        return dispatcher.submit(invocation);
     }
 
     synchronized boolean expireQueued(PendingInvocation invocation) {
-        if (invocation.batch.isResolved || invocation.member.state != MemberState.QUEUED || !queue.remove(invocation)) {
-            return false;
-        }
-        invocation.member.fail(MemberState.FAILED, "REMOTE_OVERLOADED", "Remote invocation queue wait timed out");
-        return true;
+        return dispatcher.expireQueued(invocation);
     }
 
     synchronized boolean prepareStart(PendingInvocation invocation) {
-        boolean isStartAllowed = !invocation.batch.isResolved && invocation.member.state == MemberState.RUNNING;
-        if (!isStartAllowed) {
-            activeCount = Math.max(0, activeCount - 1);
-        }
-        return isStartAllowed;
+        return dispatcher.prepareStart(invocation);
     }
 
     synchronized void captureRemoteTaskId(RemoteInvocationBatch batch, Member member, String remoteTaskId) {
@@ -129,35 +96,12 @@ final class RemoteInvocationCoordinatorState {
         if (shouldApplyOutcome) {
             outcomeApplier.run();
         }
-        activeCount = Math.max(0, activeCount - 1);
-        Dispatch dispatch = nextDispatch();
+        Dispatch dispatch = dispatcher.finish(invocation);
         return new InvocationCompletion(shouldApplyOutcome, dispatch.expired, dispatch.next);
     }
 
     synchronized Dispatch dispatchAfterSlotRelease() {
-        return nextDispatch();
-    }
-
-    private Dispatch nextDispatch() {
-        List<PendingInvocation> expired = new ArrayList<>();
-        PendingInvocation next = null;
-        while (activeCount < maxConcurrency && !queue.isEmpty() && next == null) {
-            PendingInvocation candidate = queue.removeFirst();
-            if (candidate.batch.isResolved) {
-                continue;
-            }
-            if (Duration.between(candidate.member.queuedAt, Instant.now()).compareTo(queueTimeout) > 0) {
-                candidate.member.fail(MemberState.FAILED, "REMOTE_OVERLOADED",
-                        "Remote invocation queue wait timed out");
-                expired.add(candidate);
-            } else {
-                activeCount++;
-                candidate.member.state = MemberState.RUNNING;
-                candidate.member.startedAt = Instant.now();
-                next = candidate;
-            }
-        }
-        return new Dispatch(expired, next);
+        return dispatcher.nextDispatch();
     }
 
     synchronized boolean isResolved(RemoteInvocationBatch batch) {
@@ -179,7 +123,7 @@ final class RemoteInvocationCoordinatorState {
         }
         batch.isResolved = true;
         activeByParent.remove(batch.parentTaskId, batch);
-        queue.removeIf(invocation -> invocation.batch == batch);
+        dispatcher.removeBatch(batch);
         return true;
     }
 
@@ -199,7 +143,7 @@ final class RemoteInvocationCoordinatorState {
         START, QUEUED, OVERLOADED, IGNORED
     }
 
-    record PendingInvocation(RemoteInvocationBatch batch, Member member) {
+    record PendingInvocation(RemoteInvocationBatch batch, Member member, RemoteInvocationBatchCoordinator owner) {
     }
 
     record Dispatch(List<PendingInvocation> expired, PendingInvocation next) {

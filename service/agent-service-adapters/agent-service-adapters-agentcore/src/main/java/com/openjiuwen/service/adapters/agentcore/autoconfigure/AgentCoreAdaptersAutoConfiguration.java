@@ -7,6 +7,8 @@ package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 import com.openjiuwen.core.foundation.tool.mcp.McpClientProvider;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientProvider;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
+import com.openjiuwen.service.adapters.agentcore.agentfw.CoreRunnerLifecycleCoordinator;
+import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalProperties;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreMcpClientDecoratorFactory;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreRemoteClientDecoratorFactory;
@@ -30,6 +32,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -136,12 +139,20 @@ public class AgentCoreAdaptersAutoConfiguration {
      * @return agent-core-backed service handler bean
      */
     @Bean
-    @ConditionalOnMissingBean(AgentHandler.class)
+    @ConditionalOnMissingBean({AgentHandler.class, HostedAgentDefinitions.class})
     @ConditionalOnExpression(
         "'${openjiuwen.service.agent-id:}' != '' " + "&& '${openjiuwen.service.handler:agentcore}' == 'agentcore'")
     public AgentHandler coreAgentHandler(@Value("${openjiuwen.service.agent-id}") String agentId,
         @Autowired(required = false) MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
         ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         return new JiuwenCoreAgentHandler(agentId, middlewareAdapterRegistrar, externalSvcAdapterRegistrar);
+    }
+
+    @Bean
+    @ConditionalOnBean(HostedAgentDefinitions.class)
+    @ConditionalOnMissingBean(CoreRunnerLifecycleCoordinator.class)
+    public CoreRunnerLifecycleCoordinator hostedCoreRunnerLifecycle(ObjectProvider<MiddlewareAdapterRegistrar> middleware,
+            ExternalSvcAdapterRegistrar external) {
+        return new CoreRunnerLifecycleCoordinator(middleware.getIfAvailable(), external);
     }
 }

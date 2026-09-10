@@ -8,6 +8,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
+import com.openjiuwen.service.app.hosting.HostedIngressResolver;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
@@ -49,6 +50,9 @@ public class A2aPushNotificationCallbackController {
 
     private final List<Object> callbackLocks = callbackLocks();
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private HostedIngressResolver hostedResolver;
+
     public A2aPushNotificationCallbackController(A2aPushNotificationCallbackStore callbackStore,
             A2aPushNotificationCallbackHandler callbackHandler, A2aPushNotificationCapabilityGate capabilityGate) {
         this.callbackStore = callbackStore;
@@ -63,7 +67,8 @@ public class A2aPushNotificationCallbackController {
      * @param request the HTTP servlet request
      * @return the callback acceptance response
      */
-    @PostMapping(value = A2AServicePaths.A2A_PUSH_NOTIFICATION_CALLBACK, consumes = MediaType.APPLICATION_JSON_VALUE,
+    @PostMapping(value = {A2AServicePaths.A2A_PUSH_NOTIFICATION_CALLBACK, A2AServicePaths.HOSTED_AGENT_CALLBACK},
+            consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     @AuthorizedResource(resource = "a2a-push-callback", action = "receive")
     public ResponseEntity<String> handleCallback(@RequestBody(required = false) String rawBody,
@@ -99,13 +104,31 @@ public class A2aPushNotificationCallbackController {
         } catch (IllegalArgumentException e) {
             return badRequest("callback result.task is required");
         }
-        return handleValidatedCallback(notificationId, body, task);
+        A2aPushNotificationCallbackStore selectedStore = callbackStore;
+        A2aPushNotificationCallbackHandler selectedHandler = callbackHandler;
+        Object variables = request.getAttribute(org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
+        String agentId = variables instanceof Map<?, ?> paths ? (String) paths.get("agentId") : null;
+        if (hostedResolver == null && agentId != null) {
+            return status(HttpStatus.NOT_FOUND, "not found", notificationId);
+        }
+        if (hostedResolver != null) {
+            try {
+                var target = hostedResolver.resolveOrDefault(agentId);
+                selectedStore = target.execution().callbackStore();
+                selectedHandler = target.orchestrator();
+                HostedIngressResolver.selected(request, target);
+            } catch (HostedIngressResolver.SelectionException error) {
+                return status(HttpStatus.valueOf(error.status()), error.getMessage(), notificationId);
+            }
+        }
+        return handleValidatedCallback(notificationId, body, task, selectedStore, selectedHandler);
     }
 
-    private ResponseEntity<String> handleValidatedCallback(String notificationId, JsonObject body, Task task) {
+    private ResponseEntity<String> handleValidatedCallback(String notificationId, JsonObject body, Task task,
+            A2aPushNotificationCallbackStore selectedStore, A2aPushNotificationCallbackHandler selectedHandler) {
         String payloadHash = sha256(body.toString());
         synchronized (callbackLock(notificationId)) {
-            A2aPushNotificationCallbackStore.SaveResult result = callbackStore.saveIfAbsent(notificationId,
+            A2aPushNotificationCallbackStore.SaveResult result = selectedStore.saveIfAbsent(notificationId,
                     payloadHash);
             if (result == A2aPushNotificationCallbackStore.SaveResult.CONFLICT) {
                 return status(HttpStatus.CONFLICT, "conflict", notificationId);
@@ -115,10 +138,10 @@ public class A2aPushNotificationCallbackController {
             }
             boolean isHandled = false;
             try {
-                isHandled = callbackHandler.onAccepted(new A2aPushNotificationCallback(notificationId, task));
+                isHandled = selectedHandler.onAccepted(new A2aPushNotificationCallback(notificationId, task));
             } finally {
                 if (!isHandled) {
-                    callbackStore.removeIfMatch(notificationId, payloadHash);
+                    selectedStore.removeIfMatch(notificationId, payloadHash);
                 }
             }
             return isHandled

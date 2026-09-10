@@ -105,6 +105,8 @@ final class RemoteInvocationBatchCoordinator {
 
     private final Consumer<ServeRequest> continuation;
 
+    private final RemoteInvocationDispatcher dispatcher;
+
     /**
      * Creates a coordinator with a global bounded dispatcher.
      *
@@ -136,8 +138,24 @@ final class RemoteInvocationBatchCoordinator {
         this.client = client;
         this.agentId = agentId == null || agentId.isBlank() ? "agent" : agentId;
         this.queueTimeout = Duration.ofSeconds(queueTimeoutSeconds);
-        this.state = new RemoteInvocationCoordinatorState(maxConcurrency, maxQueueSize, queueTimeout);
+        this.dispatcher = new RemoteInvocationDispatcher(maxConcurrency, maxQueueSize, queueTimeout);
+        this.state = new RemoteInvocationCoordinatorState(dispatcher);
         this.continuation = continuation;
+    }
+
+    RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId,
+            RemoteInvocationDispatcher dispatcher, Consumer<ServeRequest> continuation) {
+        this.taskStore = taskStore;
+        this.client = client;
+        this.agentId = agentId;
+        this.queueTimeout = dispatcher.queueTimeout();
+        this.dispatcher = dispatcher;
+        this.state = new RemoteInvocationCoordinatorState(dispatcher);
+        this.continuation = continuation;
+    }
+
+    void stopDispatching() {
+        logExpiredInvocations(dispatcher.stopOwner(this));
     }
 
     /**
@@ -162,7 +180,7 @@ final class RemoteInvocationBatchCoordinator {
             return conflict.get();
         }
         for (Member member : batch.members) {
-            submit(new PendingInvocation(batch, member));
+            submit(new PendingInvocation(batch, member, this));
         }
         return batch.completion;
     }
@@ -327,7 +345,7 @@ final class RemoteInvocationBatchCoordinator {
             return Optional.of(CompletableFuture
                     .failedFuture(new IllegalStateException("REMOTE_BATCH_ALREADY_ACTIVE: " + parentTaskId)));
         }
-        selected.forEach(member -> submit(new PendingInvocation(batch, member)));
+        selected.forEach(member -> submit(new PendingInvocation(batch, member, this)));
         return Optional.of(batch.completion);
     }
 
@@ -365,10 +383,15 @@ final class RemoteInvocationBatchCoordinator {
     }
 
     private void start(PendingInvocation invocation) {
+        if (invocation.owner() != null && invocation.owner() != this) {
+            invocation.owner().start(invocation);
+            return;
+        }
         Member member = invocation.member();
         RemoteInvocationBatch batch = invocation.batch();
         if (!state.prepareStart(invocation)) {
             startNextQueuedAfterReleasedSlot();
+            finishBatchIfSettled(batch);
             return;
         }
         Map<String, Object> metadata = outboundMetadata(batch.request.getMetadata());
@@ -413,6 +436,10 @@ final class RemoteInvocationBatchCoordinator {
 
     private void logExpiredInvocations(List<PendingInvocation> expired) {
         for (PendingInvocation candidate : expired) {
+            if (candidate.owner() != null && candidate.owner() != this) {
+                candidate.owner().logExpiredInvocations(List.of(candidate));
+                continue;
+            }
             if (state.isResolved(candidate.batch())) {
                 continue;
             }
@@ -655,10 +682,7 @@ final class RemoteInvocationBatchCoordinator {
 
     private void startNextQueuedAfterReleasedSlot() {
         Dispatch dispatch = state.dispatchAfterSlotRelease();
-        for (PendingInvocation candidate : dispatch.expired()) {
-            logMemberState(candidate.batch(), candidate.member());
-            finishBatchIfSettled(candidate.batch());
-        }
+        logExpiredInvocations(dispatch.expired());
         PendingInvocation next = dispatch.next();
         if (next != null) {
             logMemberState(next.batch(), next.member());
