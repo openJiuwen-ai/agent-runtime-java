@@ -5,21 +5,22 @@
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.core.graph.pregel.PregelConstants;
+import com.openjiuwen.core.graph.store.GraphStoreState;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSessionApi;
-import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.core.session.checkpointer.Checkpointer;
-import com.openjiuwen.core.session.internal.WorkflowSession;
+import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
+import com.openjiuwen.core.session.checkpointer.InMemoryCheckpointer;
 import com.openjiuwen.core.session.interaction.InteractiveInput;
+import com.openjiuwen.core.session.internal.WorkflowSession;
 import com.openjiuwen.core.session.state.InMemoryState;
 import com.openjiuwen.core.session.state.WorkflowCommitState;
-import com.openjiuwen.core.graph.store.GraphStoreState;
-import com.openjiuwen.core.graph.pregel.PregelConstants;
-import com.openjiuwen.core.session.checkpointer.InMemoryCheckpointer;
 import com.openjiuwen.core.singleagent.rail.AgentCallbackContext;
 import com.openjiuwen.core.singleagent.rail.AgentRail;
 import com.openjiuwen.core.singleagent.schema.AgentCard;
@@ -37,16 +38,16 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPooled;
+import redis.clients.jedis.exceptions.JedisConnectionException;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
-
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPooled;
-import redis.clients.jedis.exceptions.JedisConnectionException;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -63,11 +64,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Actual DeepAgent/Runner/checkpointer execution with a deterministic HTTP model transport. */
+/**
+ * Actual DeepAgent/Runner/checkpointer execution with a deterministic HTTP model transport.
+ */
 @Timeout(90)
 class HostedDeepAgentIntegrationTest {
     private static final String PROBE = "hosted_checkpoint_probe";
     private static final ObjectMapper JSON = new ObjectMapper();
+
     private final List<DeepAgent> agents = new ArrayList<>();
     private final AtomicInteger modelCalls = new AtomicInteger();
     private HttpServer model;
@@ -158,21 +162,13 @@ class HostedDeepAgentIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"memory", "redis"})
-    void workflowGraphStateKeepsExistingSessionScopeAndParentReleaseBoundary(String storage) throws Exception {
+    void workflowGraphRetainsSessionScopeAndReleaseBoundary(String storage) throws Exception {
         var handlers = startHosted(storage, agent("core-first", true, new ProbeRail("first")),
                 agent("core-second", true, new ProbeRail("second")), false);
         Checkpointer checkpointer = CheckpointerFactory.getCheckpointer();
         String parent = "parent-" + UUID.randomUUID();
         String derived = parent + "-child";
-        saveWorkflow(checkpointer, parent, "workflow-first", "first");
-        saveWorkflow(checkpointer, parent, "workflow-second", "second");
-        saveWorkflow(checkpointer, derived, "workflow-child", "child");
-        for (String id : List.of("workflow-first", "workflow-second")) {
-            var restored = new WorkflowSession(id, null, parent, InMemoryState.create(), null);
-            checkpointer.preWorkflowExecute(restored, new InteractiveInput("resume"));
-            assertThat(restored.state().getGlobal("owner")).isEqualTo(id.substring("workflow-".length()));
-            assertThat(checkpointer.graphStore().get(parent, id)).isPresent();
-        }
+        saveAndRestoreWorkflows(checkpointer, parent, derived);
         // Runtime registration and the calling Core ID do not add another workflow namespace.
         handlers.get(0).clearSession(parent);
         assertThat(checkpointer.sessionExists(parent)).isFalse();
@@ -186,11 +182,23 @@ class HostedDeepAgentIntegrationTest {
         assertThat(checkpointer.graphStore().get(derived, "workflow-child")).isEmpty();
     }
 
+    private static void saveAndRestoreWorkflows(Checkpointer checkpointer, String parent, String derived) {
+        saveWorkflow(checkpointer, parent, "workflow-first", "first");
+        saveWorkflow(checkpointer, parent, "workflow-second", "second");
+        saveWorkflow(checkpointer, derived, "workflow-child", "child");
+        for (String id : List.of("workflow-first", "workflow-second")) {
+            var restored = new WorkflowSession(id, null, parent, InMemoryState.create(), null);
+            checkpointer.preWorkflowExecute(restored, new InteractiveInput("resume"));
+            assertThat(restored.state().getGlobal("owner")).isEqualTo(id.substring("workflow-".length()));
+            assertThat(checkpointer.graphStore().get(parent, id)).isPresent();
+        }
+    }
+
     private static void saveWorkflow(Checkpointer checkpointer, String conversation, String id, String owner) {
         var session = new WorkflowSession(id, null, conversation, InMemoryState.create(), null);
         checkpointer.preWorkflowExecute(session, null);
         session.state().updateGlobal(Map.of("owner", owner));
-        ((WorkflowCommitState) session.state()).commit();
+        assertInstanceOf(WorkflowCommitState.class, session.state()).commit();
         checkpointer.graphStore().save(conversation, id,
                 GraphStoreState.create(id, 1, Map.of("owner", owner), List.of(), Map.of(), Map.of()));
         checkpointer.postWorkflowExecute(session, Map.of(PregelConstants.TASK_STATUS_INTERRUPT, true), null);
@@ -378,7 +386,7 @@ class HostedDeepAgentIntegrationTest {
             int count = 1;
             if (saved instanceof Map<?, ?> previous) {
                 assertThat(previous.get("owner")).isEqualTo(owner);
-                count += ((Number) previous.get("count")).intValue();
+                count += assertInstanceOf(Number.class, previous.get("count")).intValue();
             }
             context.getSession().updateState(Map.of(PROBE, Map.of("owner", owner, "count", count)));
             observed.add(context.getSession().getSessionId() + ":" + owner + ":" + count);

@@ -149,7 +149,9 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                 dispatcher, continuation::submit);
     }
 
-    /** Stops this instance's pending dispatches without releasing other targets' resources. */
+    /**
+     * Stops this instance's pending dispatches without releasing other targets' resources.
+     */
     public void stopDispatching() {
         batchCoordinator.stopDispatching();
     }

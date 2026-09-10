@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.hosting;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
@@ -19,6 +20,7 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
+
 import org.a2aproject.sdk.spec.AgentCapabilities;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.AgentInterface;
@@ -47,14 +49,16 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-/** Two real Runtime HTTP servers: outbound push negotiation through named callback to automatic parent resume. */
+/**
+ * Two real Runtime HTTP servers: outbound push negotiation through named callback to automatic parent resume.
+ */
 class HostedPushJourneyTest {
     private static final String CALLBACK = "/a2a/push-notifications/callback";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Test
     @Timeout(60)
-    void bothInstancesNegotiateOwnCallbackAndResumeOwnParentThroughRealRemoteRuntime() throws Exception {
+    void instancesResumeOwnParentsThroughRemoteCallbacks() throws Exception {
         int port;
         try (var reservation = new ServerSocket(0)) {
             port = reservation.getLocalPort();
@@ -113,8 +117,10 @@ class HostedPushJourneyTest {
                 assertThat(part.get("data")).isEqualTo(Map.of("unchanged", "attachment"));
             });
         }
-        assertThat(((CallerHandler) catalog.resolve("a").handler()).resumes).containsExactly(firstTask);
-        assertThat(((CallerHandler) catalog.resolve("b").handler()).resumes).containsExactly(secondTask);
+        assertThat(assertInstanceOf(CallerHandler.class, catalog.resolve("a").handler()).resumes)
+                .containsExactly(firstTask);
+        assertThat(assertInstanceOf(CallerHandler.class, catalog.resolve("b").handler()).resumes)
+                .containsExactly(secondTask);
     }
 
     private static void assertCompleted(HostedRuntimeCatalog catalog, String id, String taskId, String contextId) {
@@ -122,8 +128,8 @@ class HostedPushJourneyTest {
         assertThat(task.status().state()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
         assertThat(task.contextId()).isEqualTo(contextId);
         assertThat(A2aPartContent.extractTaskResult(task)).contains("resumed-" + id, "remote-result:target-" + id)
-                .doesNotContain("resumed-" + (id.equals("a") ? "b" : "a"));
-        assertThat(catalog.resolve(id.equals("a") ? "b" : "a").taskStore().get(taskId)).isNull();
+                .doesNotContain("resumed-" + ("a".equals(id) ? "b" : "a"));
+        assertThat(catalog.resolve("a".equals(id) ? "b" : "a").taskStore().get(taskId)).isNull();
     }
 
     private static CompletableFuture<HttpResponse<String>> start(HttpClient client, int port, String id,
@@ -166,7 +172,7 @@ class HostedPushJourneyTest {
         @Bean
         FilterRegistrationBean<Filter> capture(CallbackCapture capture) {
             var registration = new FilterRegistrationBean<Filter>((request, response, chain) -> {
-                var http = (HttpServletRequest) request;
+                var http = assertInstanceOf(HttpServletRequest.class, request);
                 capture.requests.add(http.getRequestURI() + "|" + http.getHeader("Authorization"));
                 chain.doFilter(request, response);
             });

@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.autoconfigure;
 import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
@@ -30,11 +31,10 @@ import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
-import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
+import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
-import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
@@ -67,18 +67,18 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
+import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
 /**
  * Auto-configuration for A2A Server + Client beans. Activated only when {@code
@@ -132,7 +132,14 @@ public class A2AAutoConfiguration {
         return createTaskStore(middlewareProperties, redisClient, a2aProperties);
     }
 
-    /** Builds the existing store chain for either the legacy root or a fixed scoped client. */
+    /**
+     * Builds the existing store chain for either the legacy root or a fixed scoped client.
+     *
+     * @param middlewareProperties optional middleware and checkpoint configuration
+     * @param redisClient root or scoped Redis client; required for Redis storage
+     * @param a2aProperties task store cache configuration
+     * @return configured task store chain
+     */
     public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
             RuntimeRedisClient redisClient, A2AProperties a2aProperties) {
         if (middlewareProperties != null && "redis".equals(middlewareProperties.getCheckpointer().getType())) {
@@ -238,7 +245,15 @@ public class A2AAutoConfiguration {
         return createEventProcessor(mainEventBus, taskStore, pushSender, queueManager);
     }
 
-    /** Builds the existing event processor with its original finalization callback. */
+    /**
+     * Builds the existing event processor with its original finalization callback.
+     *
+     * @param mainEventBus SDK event bus
+     * @param taskStore final task store
+     * @param pushSender push notification sender
+     * @param queueManager SDK event queues
+     * @return processor with task finalization cleanup installed
+     */
     public static MainEventBusProcessor createEventProcessor(MainEventBus mainEventBus, TaskStore taskStore,
             PushNotificationSender pushSender, QueueManager queueManager) {
         ResilientMainEventBusProcessor processor = new ResilientMainEventBusProcessor(mainEventBus, taskStore,
@@ -457,7 +472,9 @@ public class A2AAutoConfiguration {
         }
     }
 
-    /** Process-owned pools borrowed by every hosted SDK pipeline. */
+    /**
+     * Process-owned pools borrowed by every hosted SDK pipeline.
+     */
     public static final class HostedResources implements AutoCloseable {
         private final A2AExecutionResources execution;
 
@@ -465,7 +482,7 @@ public class A2AAutoConfiguration {
 
         private final ScheduledThreadPoolExecutor retries;
 
-        private boolean closed;
+        private boolean isClosed;
 
         public HostedResources(A2AProperties properties, int instances, TaskAdmissionGate gate) {
             execution = new A2AExecutionResources(null, properties.getAgentThreads());
@@ -482,10 +499,20 @@ public class A2AAutoConfiguration {
             }
         }
 
+        /**
+         * Returns the process-owned agent execution pool.
+         *
+         * @return shared execution pool
+         */
         public Executor agentExecutor() {
             return execution.agentExecutor();
         }
 
+        /**
+         * Returns the process-owned SDK event consumer pool.
+         *
+         * @return shared event consumer pool
+         */
         public Executor eventConsumerExecutor() {
             return execution.eventConsumerExecutor();
         }
@@ -494,17 +521,22 @@ public class A2AAutoConfiguration {
             return retries;
         }
 
-        /** Runs an SDK processor through its public Runnable API, with explicit local cancellation ownership. */
+        /**
+         * Runs an SDK processor through its public Runnable API, with explicit local cancellation ownership.
+         *
+         * @param processor target-local SDK processor
+         * @return task handle used for target-local cancellation
+         */
         public Future<?> startProcessor(MainEventBusProcessor processor) {
             return processors.submit(processor);
         }
 
         @Override
         public synchronized void close() {
-            if (closed) {
+            if (isClosed) {
                 return;
             }
-            closed = true;
+            isClosed = true;
             retries.shutdownNow();
             processors.shutdownNow();
             execution.shutdown();
@@ -536,10 +568,14 @@ final class A2AExecutionResources {
 
     private static final Logger log = LoggerFactory.getLogger(A2AExecutionResources.class);
 
-    /** Capacity of the agent task submission queue. */
+    /**
+     * Capacity of the agent task submission queue.
+     */
     private static final int AGENT_QUEUE_CAPACITY = 256;
 
-    /** Idle timeout of event consumer threads before reclamation. */
+    /**
+     * Idle timeout of event consumer threads before reclamation.
+     */
     private static final long EVENT_CONSUMER_KEEP_ALIVE_SECONDS = 60L;
 
     /**

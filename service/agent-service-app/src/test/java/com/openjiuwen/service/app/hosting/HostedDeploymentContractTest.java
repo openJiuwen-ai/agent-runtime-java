@@ -17,9 +17,9 @@ import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
+import org.a2aproject.sdk.spec.TaskState;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import org.a2aproject.sdk.spec.TaskState;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -37,13 +37,19 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Verifies hosted endpoints, remote discovery and deployment path compatibility.
+ *
+ * @since 0.1.2
+ */
 class HostedDeploymentContractTest {
     private static final ObjectMapper JSON = new ObjectMapper();
+
     private final HttpClient client = HttpClient.newHttpClient();
 
     @Test
     @Timeout(60)
-    void servletPrefixCardDiscoveryDisabledEntrypointsAndShutdownRemainConsistent() throws Exception {
+    void preservesPrefixedDiscoveryDisabledEntriesAndShutdown() throws Exception {
         try (var context = application(true).run()) {
             String base = "http://127.0.0.1:"
                     + context.getEnvironment().getRequiredProperty("local.server.port") + "/gateway";
@@ -77,7 +83,7 @@ class HostedDeploymentContractTest {
 
     @Test
     @Timeout(60)
-    void configuredDiscoveryPreservesNamedBaseUrlsPrefixAndAliasesForActualRemoteCalls() throws Exception {
+    void discoveryPreservesNamedUrlsPrefixesAndAliases() throws Exception {
         try (var target = application(true).run()) {
             String base = "http://127.0.0.1:"
                     + target.getEnvironment().getRequiredProperty("local.server.port") + "/gateway";
@@ -101,7 +107,7 @@ class HostedDeploymentContractTest {
                     var catalog = target.getBean(HostedRuntimeCatalog.class);
                     assertThat(catalog.resolve(id).taskStore().get(result.remoteTaskId()).contextId())
                             .isEqualTo("original-context");
-                    assertThat(catalog.resolve(id.equals("a") ? "b" : "a").taskStore()
+                    assertThat(catalog.resolve("a".equals(id) ? "b" : "a").taskStore()
                             .get(result.remoteTaskId())).isNull();
                 }
             }

@@ -31,9 +31,9 @@ import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 
 /**
  * Unit tests for the admission-rejection retry of {@link A2ATaskContinuation}.
@@ -43,7 +43,9 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 class A2ATaskContinuationTest {
     private static final long RETRY_BASE_DELAY_MS = 20L;
 
-    /** Quiet period longer than the full backoff chain (20+40+80+160+320 ms). */
+    /**
+     * Quiet period longer than the full backoff chain (20+40+80+160+320 ms).
+     */
     private static final long QUIET_PERIOD_MS = 1500L;
 
     private static final String TASK_ID = "parent-1";
@@ -157,21 +159,10 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void stoppingOneBorrowerCancelsOnlyItsRetryAndKeepsOtherInstanceSchedulerAlive() throws Exception {
+    void stoppingBorrowerKeepsOtherRetriesAndSharedScheduler() throws Exception {
         var scheduler = new ScheduledThreadPoolExecutor(1);
         scheduler.setRemoveOnCancelPolicy(true);
-        var started = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        // Hold the real scheduler so both continuations are queued before shutdown races with execution.
-        var blocker = scheduler.submit(() -> {
-            started.countDown();
-            try {
-                release.await();
-            } catch (InterruptedException failure) {
-                throw new IllegalStateException("Retry test interrupted", failure);
-            }
-        });
-        assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
         var firstExecutor = mock(A2AAgentExecutor.class);
         var secondExecutor = mock(A2AAgentExecutor.class);
         var firstCalls = new AtomicInteger();
@@ -191,6 +182,7 @@ class A2ATaskContinuationTest {
         var first = borrower(firstExecutor, scheduler);
         var second = borrower(secondExecutor, scheduler);
         try {
+            var blocker = blockScheduler(scheduler, release);
             first.submit(request());
             second.submit(request());
             assertThat(scheduler.getQueue()).hasSize(2);
@@ -213,6 +205,22 @@ class A2ATaskContinuationTest {
             scheduler.shutdownNow();
             assertThat(scheduler.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    private static java.util.concurrent.Future<?> blockScheduler(ScheduledThreadPoolExecutor scheduler,
+            CountDownLatch release) throws InterruptedException {
+        var started = new CountDownLatch(1);
+        // Hold the scheduler until both continuations are queued and one has been stopped.
+        var blocker = scheduler.submit(() -> {
+            started.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException failure) {
+                throw new IllegalStateException("Retry test interrupted", failure);
+            }
+        });
+        assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+        return blocker;
     }
 
     private static A2ATaskContinuation borrower(A2AAgentExecutor executor, ScheduledThreadPoolExecutor scheduler) {

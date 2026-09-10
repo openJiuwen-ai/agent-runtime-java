@@ -57,23 +57,47 @@ public final class HostedAgentRuntime {
         return handler;
     }
 
+    /**
+     * Returns this target's request orchestrator.
+     *
+     * @return target-local orchestrator
+     */
     public A2AEnabledServeOrchestrator orchestrator() {
         return execution.orchestrator();
     }
 
+    /**
+     * Returns this target's SDK request handler.
+     *
+     * @return target-local SDK handler
+     */
     public RequestHandler requestHandler() {
         return execution.requestHandler();
     }
 
+    /**
+     * Returns this target's task storage view.
+     *
+     * @return target-local task store
+     */
     public TaskStore taskStore() {
         return execution.taskStore();
     }
 
+    /**
+     * Returns the active streams owned by this target.
+     *
+     * @return target-local stream registry
+     */
     public ActiveStreamRegistry streams() {
         return execution.streams();
     }
 
-    /** Returns the SDK graph for framework assembly and lifecycle consumers. */
+    /**
+     * Returns the SDK graph for framework assembly and lifecycle consumers.
+     *
+     * @return target-local execution graph
+     */
     public Execution execution() {
         return execution;
     }
@@ -93,7 +117,9 @@ public final class HostedAgentRuntime {
         return cleanup;
     }
 
-    /** SDK and orchestration references bound before publication. */
+    /**
+     * SDK and orchestration references bound before publication.
+     */
     public record Execution(A2AEnabledServeOrchestrator orchestrator, RequestHandler requestHandler,
             TaskStore taskStore, ActiveStreamRegistry streams, A2AAgentExecutor agentExecutor,
             A2ATaskContinuation continuation, MainEventBus eventBus, MainEventBusProcessor eventProcessor,

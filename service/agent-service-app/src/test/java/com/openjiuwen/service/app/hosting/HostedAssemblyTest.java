@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.hosting;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.autoconfigure.HostedRuntimeAutoConfiguration;
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
@@ -24,11 +25,10 @@ import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
-import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
-import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
+import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
@@ -41,18 +41,23 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * Verifies handler identity, isolated assembly and resource rollback.
+ *
+ * @since 0.1.2
+ */
 class HostedAssemblyTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(HostedRuntimeAutoConfiguration.class, A2AAutoConfiguration.class))
             .withUserConfiguration(Handlers.class).withPropertyValues("spring.application.name=hosted-test");
 
     @Test
-    void preservesHandlerBeansAndBindsAllTargetStateBeforeAtomicPublication() {
+    void bindsHandlerBeansAndTargetStateBeforePublication() {
         runner.run(context -> {
             assertThat(context).hasNotFailed();
             var catalog = context.getBean(HostedRuntimeCatalog.class);
@@ -86,13 +91,13 @@ class HostedAssemblyTest {
     }
 
     @Test
-    void rollsBackAllStartedHandlersAndSharedResourcesWhenLaterHandlerFails() {
+    void rollsBackStartedHandlersAndResourcesOnFailure() {
         var shared = new CountingSharedLifecycle();
         runner.withBean(HostedSharedLifecycle.class, () -> shared).run(context -> {
             var first = context.getBean("first", CountingHandler.class);
             var second = context.getBean("second", CountingHandler.class);
-            second.failStart = true;
-            first.failStop = true;
+            second.shouldFailStart = true;
+            first.shouldFailStop = true;
             var lifecycle = context.getBean(HostedLifecycleCoordinator.class);
             assertThatThrownBy(lifecycle::runInitPhase).hasRootCauseMessage("start failed");
             assertThat(first.starts).isEqualTo(1);
@@ -116,7 +121,7 @@ class HostedAssemblyTest {
             var second = context.getBean("second", CountingHandler.class);
             var lifecycle = context.getBean(HostedLifecycleCoordinator.class);
             lifecycle.runInitPhase();
-            second.failStop = true;
+            second.shouldFailStop = true;
             lifecycle.runShutdownPhase();
             assertThat(first.stops).isEqualTo(1);
             assertThat(second.stops).isEqualTo(1);
@@ -125,7 +130,7 @@ class HostedAssemblyTest {
     }
 
     @Test
-    void cancellingSameConversationInOneInstancePreservesOthersUntilProcessShutdown() {
+    void cancellingOneConversationKeepsOtherInstancesActive() {
         runner.run(context -> {
             var lifecycle = context.getBean(HostedLifecycleCoordinator.class);
             lifecycle.runInitPhase();
@@ -149,7 +154,7 @@ class HostedAssemblyTest {
     }
 
     @Test
-    void boundRemoteCallerChangesOnlyAlreadySelectedPushAddressAndKeepsPartsAndCorrelation() {
+    void boundCallerPreservesPartsAndCorrelationWhenSelectingPush() {
         List<RemoteCall> sent = new ArrayList<>();
         RemoteAgentCaller transport = (call, observer) -> {
             sent.add(call);
@@ -163,21 +168,27 @@ class HostedAssemblyTest {
                     var catalog = context.getBean(HostedRuntimeCatalog.class);
                     for (String id : List.of("a", "b")) {
                         var caller = catalog.resolve(id).extension(RemoteAgentCaller.class).orElseThrow();
-                        RemoteCall plain = new RemoteCall("remote", "hello", "original-context", "original-task",
+                        RemoteCall plain = new RemoteCall("remote", "hello",
+                                "original-context", "original-task",
                                 Map.of("business", "value"));
                         caller.callOutcome(plain, null).join();
                         assertThat(sent.get(sent.size() - 1)).isSameAs(plain);
                         var parts = List.<Map<String, Object>>of(Map.of("kind", "data", "data", Map.of("count", 3)));
                         var metadata = Map.<String, Object>of("runtime.a2a.callbackUrl", "https://old.example/callback",
-                                "runtime.a2a.callbackId", "original-id", "runtime.a2a.callbackToken", "test-token",
+                                "runtime.a2a.callbackId", "original-id",
+                                        "runtime.a2a.callbackToken", "test-token",
                                 "business", "value");
-                        var push = new RemoteCall("remote", "hello", "original-context", "original-task", metadata,
+                        var push = new RemoteCall("remote", "hello",
+                                "original-context", "original-task", metadata,
                                 Map.of("message-marker", "unchanged"), true, parts);
                         caller.callOutcome(push, null).join();
                         RemoteCall actual = sent.get(sent.size() - 1);
-                        assertThat(actual).isEqualTo(new RemoteCall("remote", "hello", "original-context", "original-task",
-                                Map.of("runtime.a2a.callbackUrl", "https://runtime.example/prefix/a2a/push-notifications/callback/" + id,
-                                        "runtime.a2a.callbackId", "original-id", "runtime.a2a.callbackToken", "test-token",
+                        assertThat(actual).isEqualTo(new RemoteCall("remote", "hello",
+                                "original-context", "original-task",
+                                Map.of("runtime.a2a.callbackUrl",
+                                        "https://runtime.example/prefix/a2a/push-notifications/callback/" + id,
+                                        "runtime.a2a.callbackId", "original-id",
+                                        "runtime.a2a.callbackToken", "test-token",
                                         "business", "value"), push.messageMetadata(), true, parts));
                         assertThat(push.metadata()).isEqualTo(metadata);
                     }
@@ -186,7 +197,8 @@ class HostedAssemblyTest {
 
     static final class CapturedCaller implements HostedRuntimeAssembler.Extension {
         @Override
-        public RemoteAgentCaller decorateRemoteCaller(HostedRuntimeAssembler.Assembly assembly, RemoteAgentCaller caller) {
+        public RemoteAgentCaller decorateRemoteCaller(HostedRuntimeAssembler.Assembly assembly,
+                RemoteAgentCaller caller) {
             assembly.bind(RemoteAgentCaller.class, caller);
             return caller;
         }
@@ -306,13 +318,13 @@ class HostedAssemblyTest {
     static class CountingHandler implements AgentHandler {
         int starts;
         int stops;
-        boolean failStart;
-        boolean failStop;
+        boolean shouldFailStart;
+        boolean shouldFailStop;
 
         @Override
         public void start() {
             starts++;
-            if (failStart) {
+            if (shouldFailStart) {
                 throw new IllegalStateException("start failed");
             }
         }
@@ -320,7 +332,7 @@ class HostedAssemblyTest {
         @Override
         public void stop() {
             stops++;
-            if (failStop) {
+            if (shouldFailStop) {
                 throw new IllegalStateException("stop failed");
             }
         }

@@ -15,6 +15,11 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import org.junit.jupiter.api.Test;
 
+/**
+ * Verifies optional instance routing fields on existing request DTOs.
+ *
+ * @since 0.1.2
+ */
 class HostedRequestDtoTest {
     private final ObjectMapper mapper = new ObjectMapper();
 

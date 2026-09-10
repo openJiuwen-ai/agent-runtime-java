@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.hosting;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -52,6 +53,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
                 "spring.application.name=hosted-callback-test", "openjiuwen.service.a2a.push-notifications=true",
                 "openjiuwen.service.a2a.agents.a.push-notifications=false",
                 "openjiuwen.service.security.enabled=true", "openjiuwen.service.security.auth.enabled=true"})
+/**
+ * Verifies per-target callback authorization, deduplication and selection.
+ *
+ * @since 0.1.2
+ */
 @AutoConfigureTestRestTemplate
 class HostedCallbackContractTest {
     private static final String CALLBACK = "/a2a/push-notifications/callback";
@@ -69,7 +75,7 @@ class HostedCallbackContractTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void runtimeSenderUsesNamedCallbackAndTokenThenResumesOnlyItsOwnParent() {
+    void namedCallbackWithTokenResumesOnlyItsOwnParent() {
         String id = UUID.randomUUID().toString();
         var a = catalog.resolve("a");
         var b = catalog.resolve("b");
@@ -99,7 +105,7 @@ class HostedCallbackContractTest {
     }
 
     @Test
-    void identicalNotificationIdsAreDeduplicatedPerTargetAndFailureRollsBackOnlyThatTarget() throws Exception {
+    void notificationDeduplicationAndRollbackStayWithinTarget() throws Exception {
         String id = UUID.randomUUID().toString();
         var a = catalog.resolve("a");
         var b = catalog.resolve("b");
@@ -119,7 +125,7 @@ class HostedCallbackContractTest {
     }
 
     @Test
-    void oldCallbackPathUsesOnlyDefaultAndUnknownTargetDoesNotScanOtherStores() throws Exception {
+    void defaultCallbackAndUnknownTargetNeverScanOtherStores() throws Exception {
         String id = UUID.randomUUID().toString();
         var a = catalog.resolve("a");
         var b = catalog.resolve("b");
@@ -135,7 +141,7 @@ class HostedCallbackContractTest {
     }
 
     @Test
-    void publishesDefaultAndNamedSelectionOnceAndDoesNotPublishRejectedRequests() throws Exception {
+    void publishesSelectionOnceAndNeverForRejectedRequests() throws Exception {
         String id = UUID.randomUUID().toString();
         seed(catalog.resolve("a"), id, false);
         seed(catalog.resolve("b"), id, false);
@@ -168,21 +174,21 @@ class HostedCallbackContractTest {
                 new HttpEntity<>(headers), String.class).getStatusCode().value()).isEqualTo(403);
     }
 
-    private ResponseEntity<String> post(String path, Map<String, Object> body, boolean authorized) throws Exception {
+    private ResponseEntity<String> post(String path, Map<String, Object> body, boolean isAuthorized) throws Exception {
         var headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-User-ID", authorized ? "allow" : "deny");
+        headers.set("X-User-ID", isAuthorized ? "allow" : "deny");
         if (body.get("notificationId") instanceof String notificationId) {
             headers.set("X-Selection-Test", notificationId);
         }
-        if (authorized) {
+        if (isAuthorized) {
             headers.setBearerAuth(TEST_TOKEN);
         }
         return rest.postForEntity(path, new HttpEntity<>(mapper.writeValueAsBytes(body), headers), String.class);
     }
 
-    private static void seed(HostedAgentRuntime target, String id, boolean includeParent) {
-        if (includeParent) {
+    private static void seed(HostedAgentRuntime target, String id, boolean shouldIncludeParent) {
+        if (shouldIncludeParent) {
             target.taskStore().save(Task.builder().id(id).contextId("context-" + id)
                     .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED)).build(), true);
         }
@@ -243,7 +249,8 @@ class HostedCallbackContractTest {
 
         @Override
         public AuthorizationResult authorize(com.openjiuwen.service.spec.security.AuthorizationRequest input) {
-            var request = ((ServletRequestAttributes) RequestContextHolder.currentRequestAttributes()).getRequest();
+            var request = assertInstanceOf(ServletRequestAttributes.class,
+                    RequestContextHolder.currentRequestAttributes()).getRequest();
             if ("deny".equals(input.userId()) || "a2a-push-callback".equals(input.resource())
                     && !("Bearer " + TEST_TOKEN).equals(request.getHeader("Authorization"))) {
                 return AuthorizationResult.deny("test policy denied");

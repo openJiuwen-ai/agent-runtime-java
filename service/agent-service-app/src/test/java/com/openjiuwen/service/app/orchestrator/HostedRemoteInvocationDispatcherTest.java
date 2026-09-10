@@ -24,6 +24,11 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Verifies per-target cancellation under shared remote concurrency limits.
+ *
+ * @since 0.1.2
+ */
 class HostedRemoteInvocationDispatcherTest {
     @Test
     void fourInstancesShareOneQueueAndDispatchBackToOriginalStore() throws Exception {
@@ -36,6 +41,7 @@ class HostedRemoteInvocationDispatcherTest {
         var a = execute(targets.get(0));
         var b = execute(targets.get(1));
         var c = execute(targets.get(2));
+        assertThat(c).isNotDone();
         var d = execute(targets.get(3));
         assertThat(started).containsExactly("a");
         assertThat(d.isDone()).isTrue();
@@ -56,7 +62,7 @@ class HostedRemoteInvocationDispatcherTest {
     }
 
     @Test
-    void stoppingOneQueuedInstanceDoesNotCancelAnotherOrReleaseRunningSlot() {
+    void stoppingQueuedTargetKeepsOtherTasksAndRunningSlot() {
         var dispatcher = new RemoteInvocationDispatcher(1, 3, Duration.ofSeconds(30));
         List<String> started = new ArrayList<>();
         Target a = target("a", dispatcher, started);

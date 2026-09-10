@@ -20,10 +20,10 @@ import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.AgentInterface;
 import org.a2aproject.sdk.spec.AgentProvider;
 import org.a2aproject.sdk.spec.AgentSkill;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -126,6 +126,13 @@ public class AgentCardController {
             List.of());
     }
 
+    /**
+     * Returns the Card for an explicitly selected hosted registration.
+     *
+     * @param agentId registration ID from the URL
+     * @param request HTTP request used to resolve the public base URL
+     * @return selected target's Card
+     */
     @GetMapping(A2AServicePaths.HOSTED_AGENT_CARD)
     @AuthorizedResource(resource = "agent-card", action = "read")
     public AgentCard getHostedCard(@PathVariable String agentId, HttpServletRequest request) {
@@ -133,6 +140,11 @@ public class AgentCardController {
         return hostedCard(agentId, request, false);
     }
 
+    /**
+     * Lists published registration IDs and the default registration.
+     *
+     * @return public discovery response
+     */
     @GetMapping(A2AServicePaths.HOSTED_AGENTS)
     @AuthorizedResource(resource = "agent-card", action = "read")
     public HostedAgentsResponse getHostedAgents() {
@@ -142,6 +154,12 @@ public class AgentCardController {
                 hostedCatalog.defaultAgentId());
     }
 
+    /**
+     * Projects hosted selection failures into the Card endpoint error format.
+     *
+     * @param error selection failure
+     * @return HTTP status and error body
+     */
     @ExceptionHandler(HostedIngressResolver.SelectionException.class)
     public ResponseEntity<?> hostedSelectionError(HostedIngressResolver.SelectionException error) {
         return ResponseEntity.status(error.status()).body(Map.of("type", "error", "error", error.getMessage(),
@@ -161,7 +179,9 @@ public class AgentCardController {
         }
     }
 
-    /** Read-only discovery data; no configuration or execution objects are exposed. */
+    /**
+     * Read-only discovery data; no configuration or execution objects are exposed.
+     */
     public record HostedAgentsResponse(List<String> agents, String defaultAgent) {
         public HostedAgentsResponse {
             agents = List.copyOf(agents);

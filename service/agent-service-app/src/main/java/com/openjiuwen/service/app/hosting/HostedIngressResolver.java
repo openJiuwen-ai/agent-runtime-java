@@ -8,8 +8,8 @@ import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 
 /**
@@ -19,7 +19,9 @@ import java.util.function.Consumer;
  * @since 0.1.2
  */
 public final class HostedIngressResolver {
-    /** Request attribute for optional ingress observers; never a business DTO field. */
+    /**
+     * Request attribute for optional ingress observers; never a business DTO field.
+     */
     public static final String SELECTED_RUNTIME_ATTRIBUTE = HostedIngressResolver.class.getName() + ".selected";
 
     private static final String OBSERVERS_ATTRIBUTE = HostedIngressResolver.class.getName() + ".observers";
@@ -30,6 +32,13 @@ public final class HostedIngressResolver {
         this.catalog = catalog;
     }
 
+    /**
+     * Validates the registration ID and resolves a published target.
+     *
+     * @param agentId registration ID, or null for the default
+     * @return selected runtime
+     * @throws SelectionException if invalid, unknown or unavailable
+     */
     public HostedAgentRuntime resolveOrDefault(String agentId) {
         if (agentId != null && !HostedAgentDefinitions.isValidAgentId(agentId)) {
             throw new SelectionException(400, "HOSTED_AGENT_INVALID", "Invalid agent ID");
@@ -53,7 +62,12 @@ public final class HostedIngressResolver {
         return resolveOrDefault(values.get(0));
     }
 
-    /** Registers a request-local observer; observers never resolve or change the selected target. */
+    /**
+     * Registers a request-local observer; observers never resolve or change the selected target.
+     *
+     * @param request current HTTP request
+     * @param observer callback notified when this request selects its target
+     */
     public static void observeSelection(HttpServletRequest request, Consumer<HostedAgentRuntime> observer) {
         Object existing = request.getAttribute(OBSERVERS_ATTRIBUTE);
         SelectionObservers observers;
@@ -66,7 +80,12 @@ public final class HostedIngressResolver {
         observers.callbacks.add(observer);
     }
 
-    /** Publishes the controller's validated selection before execution starts. */
+    /**
+     * Publishes the controller's validated selection before execution starts.
+     *
+     * @param request current HTTP request
+     * @param target validated runtime selection
+     */
     public static void selected(HttpServletRequest request, HostedAgentRuntime target) {
         Object previous = request.getAttribute(SELECTED_RUNTIME_ATTRIBUTE);
         if (previous == target) {
@@ -85,7 +104,9 @@ public final class HostedIngressResolver {
         private final List<Consumer<HostedAgentRuntime>> callbacks = new ArrayList<>();
     }
 
-    /** Internal selection error, translated by REST or the SDK transport boundary. */
+    /**
+     * Internal selection error, translated by REST or the SDK transport boundary.
+     */
     public static final class SelectionException extends RuntimeException {
         private static final long serialVersionUID = 1L;
 

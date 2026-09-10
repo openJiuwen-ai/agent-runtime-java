@@ -92,14 +92,12 @@ public final class HostedRuntimeAssembler {
 
     private void buildExecution(Assembly assembly) {
         TaskStore store = assembly.taskStore;
-        var streams = new ActiveStreamRegistry();
         var bus = new MainEventBus();
         TaskStateProvider provider = store instanceof TaskStateProvider stateProvider
                 ? stateProvider : assembly.taskStateProvider;
         var queues = new InMemoryQueueManager(provider, bus);
         var pushConfigs = new InMemoryPushNotificationConfigStore();
         var sender = new HttpPushNotificationSender(pushConfigs, dependencies.httpClient());
-        var processor = A2AAutoConfiguration.createEventProcessor(bus, store, sender, queues);
         AtomicReference<A2AAgentExecutor> localExecutor = new AtomicReference<>();
         ObjectProvider<A2AAgentExecutor> executorProvider = new ObjectProvider<>() {
             @Override
@@ -114,19 +112,25 @@ public final class HostedRuntimeAssembler {
         for (Extension extension : extensions) {
             caller = Objects.requireNonNull(extension.decorateRemoteCaller(assembly, caller), "RemoteAgentCaller");
         }
+        var streams = new ActiveStreamRegistry();
         var orchestrator = new A2AEnabledServeOrchestrator(assembly.handler(), store, caller, streams,
                 assembly.agentId(), dependencies.dispatcher(), continuation);
         assembly.onClose(orchestrator::stopDispatching);
         var listener = assembly.component(TaskAdmissionListener.class).orElse(null);
-        var executor = new A2AAgentExecutor(orchestrator, dependencies.protocol(), dependencies.admissionGate(), listener);
+        var executor = new A2AAgentExecutor(orchestrator, dependencies.protocol(),
+                dependencies.admissionGate(), listener);
         localExecutor.set(executor);
+        var processor = A2AAutoConfiguration.createEventProcessor(bus, store, sender, queues);
         var sdkHandler = new DefaultRequestHandler(executor, store, queues, pushConfigs, processor,
                 dependencies.resources().agentExecutor(), dependencies.resources().eventConsumerExecutor());
         // Only the new SDK object needs @Inject/@PostConstruct. User handlers and
         // explicitly decorated stores never re-enter Spring bean post-processing.
         dependencies.beanFactory().autowireBean(sdkHandler);
-        RequestHandler requestHandler = (RequestHandler) dependencies.beanFactory()
+        Object initialized = dependencies.beanFactory()
                 .initializeBean(sdkHandler, "hostedSdkRequestHandler:" + assembly.agentId());
+        if (!(initialized instanceof RequestHandler requestHandler)) {
+            throw new IllegalStateException("Initialized SDK handler must implement RequestHandler");
+        }
         assembly.execution = new HostedAgentRuntime.Execution(orchestrator, requestHandler, store, streams,
                 executor, continuation, bus, processor, queues, pushConfigs, sender,
                 new InMemoryA2aPushNotificationCallbackStore());
@@ -156,14 +160,18 @@ public final class HostedRuntimeAssembler {
         }
     }
 
-    /** Shared inputs resolved once by framework auto-configuration. */
+    /**
+     * Shared inputs resolved once by framework auto-configuration.
+     */
     public record Dependencies(A2AProperties properties, MiddlewareProperties middleware,
             RuntimeRedisClient redisClient, RemoteAgentCaller remoteCaller, A2AProtocolAdapter protocol,
             TaskAdmissionGate admissionGate, HostedResources resources, RemoteInvocationDispatcher dispatcher,
             HostedAgentCardFactory cards, AutowireCapableBeanFactory beanFactory, HttpClient httpClient) {
     }
 
-    /** Framework module hook; not an application registration API. */
+    /**
+     * Framework module hook; not an application registration API.
+     */
     public interface Extension {
         default TaskStore decorateTaskStore(Assembly assembly, TaskStore store) {
             return store;
@@ -173,11 +181,18 @@ public final class HostedRuntimeAssembler {
             return caller;
         }
 
+        /**
+         * Configures the original handler after its execution graph is assembled.
+         *
+         * @param assembly target-local assembly view
+         */
         default void configureHandler(Assembly assembly) {
         }
     }
 
-    /** Controlled startup view; components cannot be rebound after publication. */
+    /**
+     * Controlled startup view; components cannot be rebound after publication.
+     */
     public static final class Assembly {
         private final String applicationName;
 
@@ -205,14 +220,29 @@ public final class HostedRuntimeAssembler {
             return applicationName;
         }
 
+        /**
+         * Returns the registration ID used for routing and Runtime storage isolation.
+         *
+         * @return registration ID
+         */
         public String agentId() {
             return entry.agentId();
         }
 
+        /**
+         * Returns the original registered handler instance.
+         *
+         * @return user handler
+         */
         public AgentHandler handler() {
             return entry.handler();
         }
 
+        /**
+         * Returns the non-owning Redis view scoped to this registration.
+         *
+         * @return scoped client, or empty when Redis is disabled
+         */
         public Optional<RuntimeRedisClient> redisClient() {
             return Optional.ofNullable(redisClient);
         }
@@ -221,20 +251,46 @@ public final class HostedRuntimeAssembler {
             return taskStore;
         }
 
+        /**
+         * Returns the assembled execution graph for handler configuration.
+         *
+         * @return target-local execution graph
+         * @throws IllegalStateException if execution is not assembled
+         */
         public HostedAgentRuntime.Execution execution() {
             return Objects.requireNonNull(execution, "Execution graph is not assembled yet");
         }
 
+        /**
+         * Binds one framework dependency before runtime publication.
+         *
+         * @param <T> dependency type
+         * @param type lookup type
+         * @param component target-local dependency
+         * @throws IllegalStateException if this type is already bound
+         */
         public <T> void bind(Class<T> type, T component) {
             if (components.putIfAbsent(type, Objects.requireNonNull(component)) != null) {
                 throw new IllegalStateException("Hosted component already bound: " + type.getName());
             }
         }
 
+        /**
+         * Looks up a framework dependency bound during assembly.
+         *
+         * @param <T> dependency type
+         * @param type lookup type
+         * @return bound dependency, or empty if not configured
+         */
         public <T> Optional<T> component(Class<T> type) {
             return Optional.ofNullable(type.cast(components.get(type)));
         }
 
+        /**
+         * Registers cleanup, run in reverse order on rollback or shutdown.
+         *
+         * @param action cleanup action
+         */
         public void onClose(Runnable action) {
             cleanup.add(Objects.requireNonNull(action));
         }

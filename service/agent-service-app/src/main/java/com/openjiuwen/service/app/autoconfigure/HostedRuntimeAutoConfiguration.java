@@ -41,10 +41,10 @@ import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.BindHandler;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.bind.handler.NoUnboundElementsBindHandler;
-import org.springframework.boot.context.properties.bind.BindHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
@@ -87,6 +87,12 @@ public class HostedRuntimeAutoConfiguration {
     @Autowired
     private Environment environment;
 
+    /**
+     * Creates the publication catalog after checking for a single registration declaration.
+     *
+     * @param definitions immutable handler registrations
+     * @return configured component
+     */
     @Bean
     public HostedRuntimeCatalog hostedRuntimeCatalog(HostedAgentDefinitions definitions) {
         if (beanFactory.getBeanNamesForType(HostedAgentDefinitions.class).length != 1) {
@@ -95,11 +101,25 @@ public class HostedRuntimeAutoConfiguration {
         return new HostedRuntimeCatalog(definitions);
     }
 
+    /**
+     * Creates the ingress selector for published targets.
+     *
+     * @param catalog published target catalog
+     * @return configured component
+     */
     @Bean
     public HostedIngressResolver hostedIngressResolver(HostedRuntimeCatalog catalog) {
         return new HostedIngressResolver(catalog);
     }
 
+    /**
+     * Validates hosted Card configuration and creates the per-target Card factory.
+     *
+     * @param definitions immutable handler registrations
+     * @param properties process-level A2A configuration
+     * @param serviceProperties service identity configuration
+     * @return configured component
+     */
     @Bean
     public HostedAgentCardFactory hostedAgentCardFactory(HostedAgentDefinitions definitions, A2AProperties properties,
             ServiceProperties serviceProperties) {
@@ -112,11 +132,24 @@ public class HostedRuntimeAutoConfiguration {
         return new HostedAgentCardFactory(definitions, properties, serviceProperties);
     }
 
+    /**
+     * Creates process-owned execution resources shared by all hosted targets.
+     *
+     * @param properties process-level A2A configuration
+     * @param definitions immutable handler registrations
+     * @return configured component
+     */
     @Bean(destroyMethod = "close")
     public HostedResources hostedResources(A2AProperties properties, HostedAgentDefinitions definitions) {
         return new HostedResources(properties, definitions.entries().size(), admissionGate.getIfAvailable());
     }
 
+    /**
+     * Creates the process-wide remote invocation concurrency limiter.
+     *
+     * @param properties process-level A2A configuration
+     * @return configured component
+     */
     @Bean
     public RemoteInvocationDispatcher hostedRemoteDispatcher(A2AProperties properties) {
         var limits = properties.getRemoteInvocation();
@@ -124,6 +157,16 @@ public class HostedRuntimeAutoConfiguration {
                 Duration.ofSeconds(limits.getQueueTimeoutSeconds()));
     }
 
+    /**
+     * Creates the assembler using shared inputs and ordered framework extensions.
+     *
+     * @param properties process-level A2A configuration
+     * @param resources shared execution resources
+     * @param dispatcher shared remote invocation limiter
+     * @param cards per-target Card factory
+     * @param remoteCaller shared remote transport
+     * @return configured component
+     */
     @Bean
     public HostedRuntimeAssembler hostedRuntimeAssembler(A2AProperties properties, HostedResources resources,
             RemoteInvocationDispatcher dispatcher, HostedAgentCardFactory cards, RemoteAgentCaller remoteCaller) {
@@ -134,53 +177,106 @@ public class HostedRuntimeAutoConfiguration {
         return new HostedRuntimeAssembler(dependencies, extensions.orderedStream().toList());
     }
 
+    /**
+     * Creates the coordinator that starts, publishes and closes all hosted targets.
+     *
+     * @param definitions immutable handler registrations
+     * @param assembler target-local graph assembler
+     * @param catalog published target catalog
+     * @param identity process service identity
+     * @param readiness process readiness state
+     * @return configured component
+     */
     @Bean
     public HostedLifecycleCoordinator hostedLifecycleCoordinator(HostedAgentDefinitions definitions,
             HostedRuntimeAssembler assembler, HostedRuntimeCatalog catalog, AgentServiceIdentity identity,
             DefaultAgentReadiness readiness) {
         var configuration = new HostedLifecycleCoordinator.Configuration(definitions, identity,
-                beanFactory.getBean(AgentLifecycleHooks.class), readiness, beanFactory.getBean(LifecycleProperties.class),
+                beanFactory.getBean(AgentLifecycleHooks.class), readiness,
+                beanFactory.getBean(LifecycleProperties.class),
                 sharedLifecycles.orderedStream().toList(), beanFactory.getBean(HostedResources.class),
                 beanFactory.getBean(ActiveStreamInterruptor.class));
         return new HostedLifecycleCoordinator(configuration, assembler, catalog);
     }
 
+    /**
+     * Creates a lazy default-target facade for legacy AgentHandler consumers.
+     *
+     * @param catalog published target catalog
+     * @return configured component
+     */
     @Bean(name = "hostedDefaultAgentHandler", destroyMethod = "")
     @Primary
     public AgentHandler hostedDefaultAgentHandler(HostedRuntimeCatalog catalog) {
         return facade(AgentHandler.class, catalog, HostedAgentRuntime::handler);
     }
 
+    /**
+     * Creates a lazy default-target facade for legacy Orchestrator consumers.
+     *
+     * @param catalog published target catalog
+     * @return configured component
+     */
     @Bean(name = "hostedDefaultOrchestrator", destroyMethod = "")
     @Primary
     public ServeOrchestrator hostedDefaultOrchestrator(HostedRuntimeCatalog catalog) {
         return facade(ServeOrchestrator.class, catalog, HostedAgentRuntime::orchestrator);
     }
 
+    /**
+     * Creates a lazy default-target facade for legacy TaskStore consumers.
+     *
+     * @param catalog published target catalog
+     * @return configured component
+     */
     @Bean(name = "hostedDefaultTaskStore", destroyMethod = "")
     @Primary
     public TaskStore hostedDefaultTaskStore(HostedRuntimeCatalog catalog) {
         return facade(TaskStore.class, catalog, HostedAgentRuntime::taskStore);
     }
 
+    /**
+     * Creates a lazy default-target facade for legacy RequestHandler consumers.
+     *
+     * @param catalog published target catalog
+     * @return configured component
+     */
     @Bean(name = "hostedDefaultRequestHandler", destroyMethod = "")
     @Primary
     public RequestHandler hostedDefaultRequestHandler(HostedRuntimeCatalog catalog) {
         return facade(RequestHandler.class, catalog, HostedAgentRuntime::requestHandler);
     }
 
+    /**
+     * Creates a lazy default-target facade for legacy CallbackStore consumers.
+     *
+     * @param catalog published target catalog
+     * @return configured component
+     */
     @Bean(name = "hostedDefaultCallbackStore", destroyMethod = "")
     @Primary
     public A2aPushNotificationCallbackStore hostedDefaultCallbackStore(HostedRuntimeCatalog catalog) {
         return facade(A2aPushNotificationCallbackStore.class, catalog, target -> target.execution().callbackStore());
     }
 
+    /**
+     * Creates a lazy default-target facade for legacy CallbackHandler consumers.
+     *
+     * @param catalog published target catalog
+     * @return configured component
+     */
     @Bean(name = "hostedDefaultCallbackHandler", destroyMethod = "")
     @Primary
     public A2aPushNotificationCallbackHandler hostedDefaultCallbackHandler(HostedRuntimeCatalog catalog) {
         return facade(A2aPushNotificationCallbackHandler.class, catalog, HostedAgentRuntime::orchestrator);
     }
 
+    /**
+     * Exposes the process-level push capability switch in hosted mode.
+     *
+     * @param properties process-level A2A configuration
+     * @return configured component
+     */
     @Bean
     public A2aPushNotificationCapabilityGate hostedPushCapabilityGate(A2AProperties properties) {
         return new A2aPushNotificationCapabilityGate(properties, null, null, null) {
@@ -191,13 +287,19 @@ public class HostedRuntimeAutoConfiguration {
         };
     }
 
+    /**
+     * Validates handler registrations and rejects unscoped component replacements.
+     *
+     * @param definitions immutable handler registrations
+     * @return configured component
+     */
     @Bean
     public SmartInitializingSingleton hostedDeclarationValidation(HostedAgentDefinitions definitions) {
         return () -> {
             List<AgentHandler> registered = definitions.entries().stream().map(HostedAgentDefinitions.Entry::handler)
                     .toList();
             for (String name : beanFactory.getBeanNamesForType(AgentHandler.class)) {
-                if (name.equals("hostedDefaultAgentHandler")) {
+                if ("hostedDefaultAgentHandler".equals(name)) {
                     continue;
                 }
                 AgentHandler handler = beanFactory.getBean(name, AgentHandler.class);

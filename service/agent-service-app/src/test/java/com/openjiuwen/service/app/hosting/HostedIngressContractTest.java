@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.hosting;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,6 +42,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @SpringBootTest(classes = HostedIngressContractTest.Application.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"spring.application.name=hosted-ingress-test", "openjiuwen.service.query.webflux.enabled=true"})
+/**
+ * Verifies REST and A2A routing, validation and response compatibility.
+ *
+ * @since 0.1.2
+ */
 @AutoConfigureTestRestTemplate
 class HostedIngressContractTest {
     @Autowired
@@ -52,7 +58,7 @@ class HostedIngressContractTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void standardRestRoutesBodyOnlyAndPreservesResponseShapeAcrossAllQueryEntries() throws Exception {
+    void restRoutesBodyOnlyAndPreservesAllQueryResponseShapes() throws Exception {
         for (String path : List.of("/v1/query", "/query", "/v1/query/reactive")) {
             var body = restBody("a", false);
             var selected = post(path + "?agentId=b", body);
@@ -80,8 +86,10 @@ class HostedIngressContractTest {
             String conversation = UUID.randomUUID().toString();
             assertThat(post(path, Map.of("agent_id", "a", "conversation_id", conversation))
                     .getStatusCode().value()).isEqualTo(200);
-            assertThat(((EchoHandler) catalog.resolve("a").handler()).cleared).contains(conversation);
-            assertThat(((EchoHandler) catalog.resolve("b").handler()).cleared).doesNotContain(conversation);
+            assertThat(assertInstanceOf(EchoHandler.class, catalog.resolve("a").handler()).cleared)
+                    .contains(conversation);
+            assertThat(assertInstanceOf(EchoHandler.class, catalog.resolve("b").handler()).cleared)
+                    .doesNotContain(conversation);
         }
     }
 
@@ -124,7 +132,7 @@ class HostedIngressContractTest {
             assertThat(taskId).isNotEmpty();
             assertThat(post("/a2a/agents/" + id, rpc("GetTask", taskId, null)).getBody()).contains(taskId);
             assertThat(post("/a2a/agents/" + id, rpc("SubscribeToTask", taskId, null)).getBody()).contains(taskId);
-            String other = id.equals("a") ? "b" : "a";
+            String other = "a".equals(id) ? "b" : "a";
             assertThat(mapper.readTree(post("/a2a/agents/" + other, rpc("GetTask", taskId, null)).getBody())
                     .has("error")).isTrue();
             assertThat(post("/a2a/agents/" + id, rpc("SendStreamingMessage", null, UUID.randomUUID().toString()))
@@ -163,18 +171,18 @@ class HostedIngressContractTest {
         }
     }
 
-    private static Map<String, Object> restBody(String agentId, boolean stream) {
+    private static Map<String, Object> restBody(String agentId, boolean isStream) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("agent_id", agentId);
         body.put("conversation_id", UUID.randomUUID().toString());
         body.put("message", "hello");
-        body.put("stream", stream);
+        body.put("stream", isStream);
         return body;
     }
 
     private static Map<String, Object> rpc(String method, String taskId, String context) {
         Map<String, Object> params = new LinkedHashMap<>();
-        if (method.equals("GetTask") || method.equals("SubscribeToTask")) {
+        if ("GetTask".equals(method) || "SubscribeToTask".equals(method)) {
             params.put("id", taskId);
         } else {
             Map<String, Object> message = new LinkedHashMap<>();

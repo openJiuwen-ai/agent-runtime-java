@@ -14,6 +14,11 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.junit.jupiter.api.Test;
 
+/**
+ * Verifies registration validation and default-target selection.
+ *
+ * @since 0.1.2
+ */
 class HostedAgentDefinitionsTest {
     @Test
     void preservesOrderIdentityAndExplicitDefaultWithoutStartingHandlers() {

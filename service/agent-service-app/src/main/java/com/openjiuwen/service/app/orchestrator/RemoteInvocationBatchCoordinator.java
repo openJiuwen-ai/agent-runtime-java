@@ -19,8 +19,8 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.server.tasks.TaskStore;
-import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Artifact;
+import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
@@ -387,7 +387,6 @@ final class RemoteInvocationBatchCoordinator {
             invocation.owner().start(invocation);
             return;
         }
-        Member member = invocation.member();
         RemoteInvocationBatch batch = invocation.batch();
         if (!state.prepareStart(invocation)) {
             startNextQueuedAfterReleasedSlot();
@@ -399,6 +398,7 @@ final class RemoteInvocationBatchCoordinator {
         if (userId != null && !userId.isBlank() && !metadata.containsKey("userId")) {
             metadata.put("userId", userId);
         }
+        Member member = invocation.member();
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
                 optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
                 batch.request.isStream(), member.parts);

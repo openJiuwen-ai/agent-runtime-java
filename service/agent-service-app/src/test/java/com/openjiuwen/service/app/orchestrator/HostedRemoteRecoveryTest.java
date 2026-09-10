@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.orchestrator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.Mockito.mock;
 
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
@@ -30,11 +31,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * Verifies instance-local recovery and unchanged remote task correlation.
+ *
+ * @since 0.1.2
+ */
 class HostedRemoteRecoveryTest {
     private final RemoteInvocationDispatcher dispatcher = new RemoteInvocationDispatcher(2, 4, Duration.ofSeconds(30));
 
     @Test
-    void identicalRemoteTasksResumeOnlyTheirOwnParentAndKeepIndependentClaims() {
+    void sameRemoteTaskResumesOnlyItsParentWithIndependentClaims() {
         Target a = target("a", new InMemoryTaskStore());
         Target b = target("b", new InMemoryTaskStore());
         waitForInput(a);
@@ -51,7 +57,7 @@ class HostedRemoteRecoveryTest {
 
         assertThat(a.coordinator.recoverCallback(completedTask("result-a"))).isTrue();
         assertReady(a, "result-a");
-        String claimId = (String) snapshot(a).get("batchId");
+        String claimId = assertInstanceOf(String.class, snapshot(a).get("batchId"));
         assertThat(a.coordinator.claimCoreResume(request(), claimId)).isTrue();
         assertThat(b.coordinator.claimCoreResume(request(), claimId)).isTrue();
         assertThat(a.coordinator.claimCoreResume(request(), claimId)).isFalse();
@@ -104,7 +110,7 @@ class HostedRemoteRecoveryTest {
     }
 
     @Test
-    void toolInputResumesOriginalRemoteTaskAndContextWithoutAddingRegistrationId() {
+    void toolInputPreservesRemoteTaskContextAndRegistrationBoundary() {
         Target a = target("a", new InMemoryTaskStore());
         Target b = target("b", new InMemoryTaskStore());
         waitForInput(a);

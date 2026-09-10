@@ -5,8 +5,8 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Registry for the outbound A2A propagation-header provider. Consumers (for example an
@@ -89,7 +89,13 @@ public final class A2APropagationHeaderRegistry {
         return headers != null ? headers : Map.of();
     }
 
-    /** Captures before scheduling; restores the worker's prior binding even on failure or interruption. */
+    /**
+     * Captures before scheduling; restores the worker's prior binding even on failure or interruption.
+     *
+     * @param <T> action result type
+     * @param action invocation to execute with the captured provider
+     * @return invocation with worker binding restoration
+     */
     static <T> Callable<T> captureInvocation(Callable<T> action) {
         A2APropagationHeaderProvider provider = INVOCATION.get();
         if (provider == null) {

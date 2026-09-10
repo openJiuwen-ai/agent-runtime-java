@@ -18,6 +18,11 @@ import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 
 import org.junit.jupiter.api.Test;
 
+/**
+ * Verifies shared Runner ownership and registration lifecycle validation.
+ *
+ * @since 0.1.2
+ */
 class CoreRunnerLifecycleCoordinatorTest {
     @Test
     void sharedRunnerStartsAndStopsOnceWithoutHandlerOwnership() {
@@ -46,7 +51,7 @@ class CoreRunnerLifecycleCoordinatorTest {
     }
 
     @Test
-    void rejectsDuplicateUnderlyingAgentAndCustomRegistrarBeforeChangingRunner() {
+    void rejectsDuplicateAgentAndRegistrarBeforeRunnerChanges() {
         Object agent = new Object();
         var first = new JiuwenCoreAgentHandler(agent);
         var second = new JiuwenCoreAgentHandler(agent);
@@ -55,7 +60,8 @@ class CoreRunnerLifecycleCoordinatorTest {
         assertThatThrownBy(() -> coordinator.prepare("app", definitions))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("more than once");
         var custom = new JiuwenCoreAgentHandler(new Object(), mock(MiddlewareAdapterRegistrar.class));
-        assertThatThrownBy(() -> coordinator.prepare("app", HostedAgentDefinitions.builder().add("custom", custom).build()))
+        assertThatThrownBy(() -> coordinator.prepare("app",
+                HostedAgentDefinitions.builder().add("custom", custom).build()))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("different middleware registrar");
     }
 

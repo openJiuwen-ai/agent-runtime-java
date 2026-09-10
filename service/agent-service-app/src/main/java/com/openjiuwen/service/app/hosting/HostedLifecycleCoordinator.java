@@ -50,7 +50,7 @@ public final class HostedLifecycleCoordinator implements AgentLifecycleManager {
 
     private boolean isStopped;
 
-    private boolean hooksStarted;
+    private boolean hasStartedHooks;
 
     public HostedLifecycleCoordinator(Configuration configuration, HostedRuntimeAssembler assembler,
             HostedRuntimeCatalog catalog) {
@@ -80,7 +80,7 @@ public final class HostedLifecycleCoordinator implements AgentLifecycleManager {
                 lifecycle.start();
             }
             AgentLifecycleContext context = new AgentLifecycleContext(applicationName);
-            hooksStarted = true;
+            hasStartedHooks = true;
             for (var hook : configuration.hooks().initHooks()) {
                 hook.onInit(context);
             }
@@ -136,7 +136,7 @@ public final class HostedLifecycleCoordinator implements AgentLifecycleManager {
                         instance.streams().activeCount());
             }
         }
-        if (hooksStarted) {
+        if (hasStartedHooks) {
             runShutdownHooks();
         }
         for (int i = started.size() - 1; i >= 0; i--) {
@@ -180,10 +180,12 @@ public final class HostedLifecycleCoordinator implements AgentLifecycleManager {
     }
 
     private static void stopHandler(HostedAgentRuntime instance, boolean isRollback) {
-        log.info("Hosted agent agentId={} operation=stop result=begin rollback={}", instance.agentId(), isRollback);
+        log.info("Hosted agent agentId={} operation=stop result=begin rollback={}",
+                instance.agentId(), isRollback);
         try {
             instance.handler().stop();
-            log.info("Hosted agent agentId={} operation=stop result=success rollback={}", instance.agentId(), isRollback);
+            log.info("Hosted agent agentId={} operation=stop result=success rollback={}",
+                    instance.agentId(), isRollback);
         } catch (RuntimeException failure) {
             log.error("Hosted agent agentId={} operation=stop result=failure rollback={} type={}", instance.agentId(),
                     isRollback, failure.getClass().getSimpleName());
@@ -195,7 +197,9 @@ public final class HostedLifecycleCoordinator implements AgentLifecycleManager {
         configuration.interruptor().interrupt(conversationId);
     }
 
-    /** Existing hooks and policies plus explicitly owned shared resources. */
+    /**
+     * Existing hooks and policies plus explicitly owned shared resources.
+     */
     public record Configuration(HostedAgentDefinitions definitions, AgentServiceIdentity identity,
             AgentLifecycleHooks hooks, DefaultAgentReadiness readiness, LifecycleProperties properties,
             List<HostedSharedLifecycle> shared, HostedResources resources, ActiveStreamInterruptor interruptor) {

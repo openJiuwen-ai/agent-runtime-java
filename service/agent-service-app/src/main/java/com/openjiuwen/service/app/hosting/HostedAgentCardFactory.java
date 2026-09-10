@@ -55,7 +55,8 @@ public final class HostedAgentCardFactory {
         }
         for (String configured : properties.getAgents().keySet()) {
             if (!built.containsKey(configured)) {
-                throw new IllegalArgumentException("Card configuration references an unregistered agent: " + configured);
+                throw new IllegalArgumentException(
+                        "Card configuration references an unregistered agent: " + configured);
             }
         }
         cards = Map.copyOf(built);
@@ -106,7 +107,8 @@ public final class HostedAgentCardFactory {
         }
         var skills = overrides.getSkills().stream().map(HostedAgentCardFactory::skill).toList();
         return new AgentCard(name, value(overrides.getAgentDescription(), ""),
-                new AgentProvider(value(overrides.getProviderOrganization(), value(global.getProviderOrganization(), "")),
+                new AgentProvider(value(overrides.getProviderOrganization(),
+                        value(global.getProviderOrganization(), "")),
                         value(overrides.getProviderUrl(), value(global.getProviderUrl(), ""))),
                 value(overrides.getVersion(), serviceVersion),
                 value(overrides.getDocumentationUrl(), global.getDocumentationUrl()),
@@ -122,7 +124,8 @@ public final class HostedAgentCardFactory {
 
     private static AgentSkill skill(A2AProperties.SkillProperties value) {
         return new AgentSkill(value.getId(), value.getName(), value.getDescription(), List.copyOf(value.getTags()),
-                List.copyOf(value.getExamples()), List.copyOf(value.getInputModes()), List.copyOf(value.getOutputModes()),
+                List.copyOf(value.getExamples()), List.copyOf(value.getInputModes()),
+                List.copyOf(value.getOutputModes()),
                 List.of());
     }
 

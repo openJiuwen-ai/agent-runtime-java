@@ -28,11 +28,11 @@ import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.EventKind;
 import org.a2aproject.sdk.spec.InternalError;
 import org.a2aproject.sdk.spec.InvalidParamsError;
-import org.a2aproject.sdk.spec.TaskNotFoundError;
 import org.a2aproject.sdk.spec.MethodNotFoundError;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskIdParams;
+import org.a2aproject.sdk.spec.TaskNotFoundError;
 import org.a2aproject.sdk.spec.TaskQueryParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -155,6 +155,7 @@ public class A2aJsonRpcController {
      * @param request the parsed JSON-RPC request
      * @param id the JSON-RPC request id
      * @param ctx the server call context
+     * @param servletRequest HTTP request carrying the route selection
      * @return the JSON-RPC response entity
      * @throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException when the
      *         response payload cannot be serialized
@@ -167,8 +168,8 @@ public class A2aJsonRpcController {
             ctx.getState().put("_a2a_stream", false);
             var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
             validateInlinePushNotificationConfig(params);
-            HostedAgentRuntime target = selectTarget(servletRequest, request.payload());
-            validateHostedTask(target, params.message());
+            Optional<HostedAgentRuntime> target = selectTarget(servletRequest, request.payload());
+            target.ifPresent(runtime -> validateHostedTask(runtime, params.message()));
             if (isAdmissionRejected(ctx, params.message().contextId())) {
                 yield admissionRejectedResponse(id);
             }
@@ -179,8 +180,8 @@ public class A2aJsonRpcController {
             ctx.getState().put("_a2a_stream", true);
             var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
             validateInlinePushNotificationConfig(params);
-            HostedAgentRuntime target = selectTarget(servletRequest, request.payload());
-            validateHostedTask(target, params.message());
+            Optional<HostedAgentRuntime> target = selectTarget(servletRequest, request.payload());
+            target.ifPresent(runtime -> validateHostedTask(runtime, params.message()));
             if (isAdmissionRejected(ctx, params.message().contextId())) {
                 yield admissionRejectedResponse(id);
             }
@@ -350,14 +351,20 @@ public class A2aJsonRpcController {
         return streamToSse(publisher, id);
     }
 
-    private HostedAgentRuntime selectTarget(jakarta.servlet.http.HttpServletRequest request, JsonObject payload) {
-        Object variables = request.getAttribute(org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
-        String agentId = variables instanceof Map<?, ?> paths ? (String) paths.get("agentId") : null;
+    private Optional<HostedAgentRuntime> selectTarget(jakarta.servlet.http.HttpServletRequest request,
+            JsonObject payload) {
+        Object variables = request.getAttribute(
+                org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
+        Object routeId = variables instanceof Map<?, ?> paths ? paths.get("agentId") : null;
+        if (routeId != null && !(routeId instanceof String)) {
+            throw new IllegalStateException("Agent route variable must be a string");
+        }
+        String agentId = routeId instanceof String id ? id : null;
         if (hostedResolver == null) {
             if (agentId != null) {
                 throw new HostedIngressResolver.SelectionException(404, "NOT_FOUND", "Not found");
             }
-            return null;
+            return Optional.empty();
         }
         JsonElement tenant = payload.getAsJsonObject("params").get("tenant");
         if (tenant != null && !tenant.isJsonNull()
@@ -367,15 +374,15 @@ public class A2aJsonRpcController {
         }
         HostedAgentRuntime target = hostedResolver.resolveOrDefault(agentId);
         HostedIngressResolver.selected(request, target);
-        return target;
+        return Optional.of(target);
     }
 
-    private RequestHandler selectedHandler(HostedAgentRuntime target) {
-        return target == null ? requestHandler : target.requestHandler();
+    private RequestHandler selectedHandler(Optional<HostedAgentRuntime> target) {
+        return target.map(HostedAgentRuntime::requestHandler).orElse(requestHandler);
     }
 
     private static void validateHostedTask(HostedAgentRuntime target, org.a2aproject.sdk.spec.Message message) {
-        if (target == null || message.taskId() == null || message.taskId().isEmpty()) {
+        if (message.taskId() == null || message.taskId().isEmpty()) {
             return;
         }
         Task task = target.taskStore().get(message.taskId());

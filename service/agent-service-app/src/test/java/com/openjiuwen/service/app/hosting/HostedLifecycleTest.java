@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.hosting;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -14,10 +15,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration.HostedResources;
 import com.openjiuwen.service.app.autoconfigure.HostedRuntimeAutoConfiguration;
@@ -35,6 +32,11 @@ import com.openjiuwen.service.spec.hosting.HostedSharedLifecycle;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+
 import org.a2aproject.sdk.server.events.MainEventBusProcessor;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -50,39 +52,24 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Verifies startup rollback and ordered shutdown within a shared time budget.
+ *
+ * @since 0.1.2
+ */
 class HostedLifecycleTest {
     @Test
-    void allTargetsAreCancelledBeforeWaitingAndWaitingUsesOneRemainingBudget() {
+    void cancelsAllTargetsBeforeWaitingWithOneBudget() {
         var builder = HostedAgentDefinitions.builder();
         List<HostedAgentRuntime> targets = new ArrayList<>();
         List<Long> waits = new ArrayList<>();
         List<String> actions = new ArrayList<>();
-        for (String id : List.of("a", "b", "c", "d")) {
-            AgentHandler handler = mock(AgentHandler.class);
-            builder.add(id, handler);
-            var streams = mock(ActiveStreamRegistry.class);
-            doAnswer(invocation -> { actions.add("cancel:" + id); return null; }).when(streams).cancelAll();
-            when(streams.awaitDrain(anyLong())).thenAnswer(invocation -> {
-                assertThat(actions).contains("cancel:a", "cancel:b", "cancel:c", "cancel:d");
-                long remaining = invocation.getArgument(0);
-                waits.add(remaining);
-                if (waits.size() == 1) {
-                    // Consume the actual remaining budget once. Later instances must receive zero.
-                    TimeUnit.MILLISECONDS.sleep(remaining + 10);
-                }
-                return false;
-            });
-            var execution = new HostedAgentRuntime.Execution(mock(A2AEnabledServeOrchestrator.class), null,
-                    null, streams, null, mock(A2ATaskContinuation.class), null,
-                    mock(MainEventBusProcessor.class), null, null, null, null);
-            targets.add(new HostedAgentRuntime(id, handler, execution, Map.of(),
-                    List.of(() -> actions.add("cleanup:" + id))));
-        }
-        var definitions = builder.build();
+        addTargets(builder, targets, waits, actions);
         var assembler = mock(HostedRuntimeAssembler.class);
         when(assembler.assemble(anyString(), any())).thenAnswer(invocation -> {
             HostedAgentDefinitions.Entry entry = invocation.getArgument(1);
-            return targets.stream().filter(target -> target.agentId().equals(entry.agentId())).findFirst().orElseThrow();
+            return targets.stream().filter(target -> target.agentId().equals(entry.agentId()))
+                    .findFirst().orElseThrow();
         });
         var resources = mock(HostedResources.class);
         when(resources.startProcessor(any())).thenAnswer(invocation -> new CompletableFuture<>());
@@ -95,6 +82,7 @@ class HostedLifecycleTest {
         when(identity.getAppName()).thenReturn("lifecycle-test");
         var properties = new LifecycleProperties();
         properties.setShutdownTimeoutMs(200);
+        var definitions = builder.build();
         var catalog = new HostedRuntimeCatalog(definitions);
         var configuration = new HostedLifecycleCoordinator.Configuration(definitions, identity,
                 new AgentLifecycleHooks(List.of(), List.of(), List.of()), new DefaultAgentReadiness(), properties,
@@ -112,9 +100,37 @@ class HostedLifecycleTest {
         assertThatThrownBy(catalog::instances).isInstanceOf(HostedIngressResolver.SelectionException.class);
     }
 
+    private static void addTargets(HostedAgentDefinitions.Builder builder, List<HostedAgentRuntime> targets,
+            List<Long> waits, List<String> actions) {
+        for (String id : List.of("a", "b", "c", "d")) {
+            AgentHandler handler = mock(AgentHandler.class);
+            builder.add(id, handler);
+            var streams = mock(ActiveStreamRegistry.class);
+            doAnswer(invocation -> {
+                actions.add("cancel:" + id);
+                return null;
+            }).when(streams).cancelAll();
+            when(streams.awaitDrain(anyLong())).thenAnswer(invocation -> {
+                assertThat(actions).contains("cancel:a", "cancel:b", "cancel:c", "cancel:d");
+                long remaining = invocation.getArgument(0);
+                waits.add(remaining);
+                if (waits.size() == 1) {
+                    // Consume the actual remaining budget once. Later instances must receive zero.
+                    TimeUnit.MILLISECONDS.sleep(remaining + 10);
+                }
+                return false;
+            });
+            var execution = new HostedAgentRuntime.Execution(mock(A2AEnabledServeOrchestrator.class), null,
+                    null, streams, null, mock(A2ATaskContinuation.class), null,
+                    mock(MainEventBusProcessor.class), null, null, null, null);
+            targets.add(new HostedAgentRuntime(id, handler, execution, Map.of(),
+                    List.of(() -> actions.add("cleanup:" + id))));
+        }
+    }
+
     @Test
-    void rollbackLogsEachActualStartAndStopIncludingFailureWithoutSkippingOtherCleanup() {
-        Logger logger = (Logger) LoggerFactory.getLogger(HostedLifecycleCoordinator.class);
+    void rollbackLogsFailuresAndContinuesOtherCleanup() {
+        Logger logger = assertInstanceOf(Logger.class, LoggerFactory.getLogger(HostedLifecycleCoordinator.class));
         Level originalLevel = logger.getLevel();
         logger.setLevel(Level.INFO);
         var appender = new ListAppender<ILoggingEvent>();
@@ -124,8 +140,8 @@ class HostedLifecycleTest {
             runner().run(context -> {
                 var first = context.getBean("first", HostedAssemblyTest.CountingHandler.class);
                 var second = context.getBean("second", HostedAssemblyTest.CountingHandler.class);
-                first.failStop = true;
-                second.failStart = true;
+                first.shouldFailStop = true;
+                second.shouldFailStart = true;
                 var lifecycle = context.getBean(HostedLifecycleCoordinator.class);
                 assertThatThrownBy(lifecycle::runInitPhase).hasRootCauseMessage("start failed");
                 lifecycle.runShutdownPhase();
@@ -139,7 +155,8 @@ class HostedLifecycleTest {
                         "Hosted agent agentId=b operation=stop result=begin rollback=true",
                         "Hosted agent agentId=b operation=stop result=success rollback=true",
                         "Hosted agent agentId=a operation=stop result=begin rollback=true",
-                        "Hosted agent agentId=a operation=stop result=failure rollback=true type=IllegalStateException");
+                        "Hosted agent agentId=a operation=stop result=failure rollback=true"
+                                + " type=IllegalStateException");
                 assertThat(first.stops).isEqualTo(1);
                 assertThat(second.stops).isEqualTo(1);
             });
@@ -151,7 +168,7 @@ class HostedLifecycleTest {
     }
 
     @Test
-    void springCloseStopsAllHandlersAndSharedResourcesBeforeBorrowedBeansAreDestroyed() {
+    void springStopsHostedResourcesBeforeBorrowedBeans() {
         runner().withUserConfiguration(CloseConfiguration.class).run(context -> {
             var lifecycle = context.getBean(HostedLifecycleCoordinator.class);
             lifecycle.runInitPhase();
@@ -160,7 +177,7 @@ class HostedLifecycleTest {
             var first = context.getBean("first", HostedAssemblyTest.CountingHandler.class);
             var second = context.getBean("second", HostedAssemblyTest.CountingHandler.class);
             context.close();
-            assertThat(probe.destroyed).isTrue();
+            assertThat(probe.isDestroyed).isTrue();
             assertThat(first.stops).isEqualTo(1);
             assertThat(second.stops).isEqualTo(1);
             assertThat(resources.retryScheduler().isShutdown()).isTrue();
@@ -169,7 +186,8 @@ class HostedLifecycleTest {
 
     private static ApplicationContextRunner runner() {
         return new ApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(A2AAutoConfiguration.class, HostedRuntimeAutoConfiguration.class))
+                .withConfiguration(AutoConfigurations.of(A2AAutoConfiguration.class,
+                        HostedRuntimeAutoConfiguration.class))
                 .withUserConfiguration(HostedAssemblyTest.Handlers.class)
                 .withPropertyValues("spring.application.name=hosted-lifecycle");
     }
@@ -190,7 +208,7 @@ class HostedLifecycleTest {
     static final class DestructionProbe implements DisposableBean {
         private final HostedResources resources;
         private final HostedRuntimeCatalog catalog;
-        private boolean destroyed;
+        private boolean isDestroyed;
 
         DestructionProbe(HostedResources resources, HostedRuntimeCatalog catalog) {
             this.resources = resources;
@@ -201,7 +219,7 @@ class HostedLifecycleTest {
         public void destroy() {
             assertThat(resources.retryScheduler().isShutdown()).isTrue();
             assertThatThrownBy(catalog::instances).isInstanceOf(HostedIngressResolver.SelectionException.class);
-            destroyed = true;
+            isDestroyed = true;
         }
     }
 }

@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.hosting;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.JedisPooledRuntimeRedisClient;
@@ -13,6 +14,8 @@ import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
 import com.openjiuwen.service.spec.hosting.ScopedRuntimeRedisClient;
+
+import redis.clients.jedis.JedisPooled;
 
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
@@ -24,18 +27,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
-import redis.clients.jedis.JedisPooled;
-
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-/** Real Redis process integration; opt in with -Dfeat037.redis.executable=/path/to/redis-server. */
+/**
+ * Real Redis process integration; opt in with -Dfeat037.redis.executable=/path/to/redis-server.
+ */
 @EnabledIfSystemProperty(named = "feat037.redis.executable", matches = ".+")
 class HostedRedisIsolationTest {
     private Path directory;
@@ -87,6 +91,8 @@ class HostedRedisIsolationTest {
             shared.close();
         } else if (jedis != null) {
             jedis.close();
+        } else {
+            // Startup may fail before either client is created; only the process needs cleanup.
         }
         stopServer();
     }
@@ -107,13 +113,13 @@ class HostedRedisIsolationTest {
     }
 
     @Test
-    void allSpiKeyOperationsUseRealIndependentNamespacesAndPreserveTtlAndBinaryValues() {
+    void redisKeyOperationsPreserveNamespacesTtlAndBinaryValues() {
         byte[] key = {(byte) 0xff, 0, 1};
         byte[] value = {0, (byte) 0xfe, 2};
         assertThat(a.set("same", "A")).isEqualTo("OK");
         assertThat(b.set("same", "B")).isEqualTo("OK");
-        assertThat(text(a.get("same"))).isEqualTo("A");
-        assertThat(text(b.get("same"))).isEqualTo("B");
+        assertThat(text(a.get("same"))).contains("A");
+        assertThat(text(b.get("same"))).contains("B");
         assertThat(a.set("text-binary", value)).isEqualTo("OK");
         assertThat(a.get("text-binary".getBytes(StandardCharsets.UTF_8))).containsExactly(value);
         assertThat(a.set(key, value)).isEqualTo("OK");
@@ -128,7 +134,7 @@ class HostedRedisIsolationTest {
         assertThat(a.expire("same", 30)).isEqualTo(1);
         assertThat(a.expire(key, 30)).isEqualTo(1);
         assertThat(a.mget("new", "missing", "same").stream().map(HostedRedisIsolationTest::text).toList())
-                .containsExactly("first", null, "A");
+                .containsExactly(Optional.of("first"), Optional.empty(), Optional.of("A"));
         assertThat(a.setex("ttl", 1, "expire")).isEqualTo("OK");
         assertThat(b.setex("ttl", 60, "keep")).isEqualTo("OK");
         byte[] ttlKey = "ttl-binary".getBytes(StandardCharsets.UTF_8);
@@ -138,23 +144,23 @@ class HostedRedisIsolationTest {
             assertThat(a.exists("ttl")).isFalse();
             assertThat(a.exists(ttlKey)).isFalse();
         });
-        assertThat(text(b.get("ttl"))).isEqualTo("keep");
+        assertThat(text(b.get("ttl"))).contains("keep");
         assertThat(b.get(ttlKey)).containsExactly(value);
         assertThat(jedis.ttl(ScopedRuntimeRedisClient.namespace("hosted-test", "b") + "ttl"))
                 .isBetween(1L, 60L);
         assertThat(a.scanIter("n*")).containsExactly("new");
-        assertThat(text(a.get(a.scanIter("n*").get(0)))).isEqualTo("first");
+        assertThat(text(a.get(a.scanIter("n*").get(0)))).contains("first");
         assertThat(a.del("same", "new")).isEqualTo(2);
         assertThat(a.del(key)).isEqualTo(1);
-        assertThat(text(b.get("same"))).isEqualTo("B");
+        assertThat(text(b.get("same"))).contains("B");
         assertThat(b.get(key)).containsExactly(value);
         a.close();
-        assertThat(text(b.get("same"))).isEqualTo("B");
+        assertThat(text(b.get("same"))).contains("B");
         assertThat(jedis.ping()).isEqualTo("PONG");
     }
 
     @Test
-    void taskCachesIndexesAndSerializedShadowsStayLocalAfterClientAndRedisRestart() throws Exception {
+    void taskStateAndShadowsStayLocalAfterRedisRestart() throws Exception {
         TaskStore storeA = cached(a);
         TaskStore storeB = cached(b);
         storeA.save(task("same-task", "A"), true);
@@ -192,7 +198,7 @@ class HostedRedisIsolationTest {
     }
 
     @Test
-    void taskExpiryIsLocalAndDoesNotExtendOrRemoveAnotherInstancesSameTask() {
+    void taskExpiryDoesNotChangeAnotherInstancesTask() {
         var storeA = new RedisTaskStore(a, 1);
         var storeB = new RedisTaskStore(b, 60);
         storeA.save(task("same-task", "A"), true);
@@ -211,8 +217,9 @@ class HostedRedisIsolationTest {
         return A2AAutoConfiguration.createTaskStore(middleware, client, new A2AProperties());
     }
 
-    private static String text(Object value) {
-        return value == null ? null : new String((byte[]) value, StandardCharsets.UTF_8);
+    private static Optional<String> text(Object value) {
+        return Optional.ofNullable(value)
+                .map(bytes -> new String(assertInstanceOf(byte[].class, bytes), StandardCharsets.UTF_8));
     }
 
     private static void assertContext(TaskStore store, String owner) {

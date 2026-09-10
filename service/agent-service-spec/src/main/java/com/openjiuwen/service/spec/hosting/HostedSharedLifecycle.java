@@ -19,10 +19,14 @@ public interface HostedSharedLifecycle {
      */
     void prepare(String applicationName, HostedAgentDefinitions definitions);
 
-    /** Starts the shared resource once, before any hosted handler starts. */
+    /**
+     * Starts the shared resource once, before any hosted handler starts.
+     */
     void start();
 
-    /** Stops the owned resource once, after all hosted handlers are processed. */
+    /**
+     * Stops the owned resource once, after all hosted handlers are processed.
+     */
     void stop();
 
     /**

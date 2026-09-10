@@ -18,6 +18,11 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Verifies hosted Card overrides, defaults and endpoint construction.
+ *
+ * @since 0.1.2
+ */
 class HostedAgentCardFactoryTest {
     private final HostedAgentDefinitions definitions = HostedAgentDefinitions.builder()
             .add("a", mock(AgentHandler.class)).add("b", mock(AgentHandler.class)).defaultAgent("b").build();

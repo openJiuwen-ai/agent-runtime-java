@@ -22,8 +22,8 @@ import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Optional;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -47,7 +47,9 @@ import java.util.concurrent.locks.LockSupport;
  * @since 0.1.0
  */
 public class A2ATaskContinuation {
-    /** Base delay for the exponential backoff; package-private for tests. */
+    /**
+     * Base delay for the exponential backoff; package-private for tests.
+     */
     static final long DEFAULT_RETRY_BASE_DELAY_MS = 1000L;
 
     private static final Logger log = LoggerFactory.getLogger(A2ATaskContinuation.class);
@@ -79,7 +81,7 @@ public class A2ATaskContinuation {
      */
     private final ScheduledExecutorService retryScheduler;
 
-    private final boolean ownsRetryScheduler;
+    private final boolean isRetrySchedulerOwned;
 
     private final Object lifecycleLock = new Object();
 
@@ -87,7 +89,9 @@ public class A2ATaskContinuation {
 
     private volatile boolean isStopped;
 
-    /** Continuation markers with the number of admission retries used so far. */
+    /**
+     * Continuation markers with the number of admission retries used so far.
+     */
     private final ConcurrentHashMap<String, AtomicInteger> activeContinuations = new ConcurrentHashMap<>();
 
     /**
@@ -101,6 +105,22 @@ public class A2ATaskContinuation {
     public A2ATaskContinuation(TaskStore taskStore, QueueManager queueManager,
             ObjectProvider<A2AAgentExecutor> agentExecutorProvider, Executor executor) {
         this(taskStore, queueManager, agentExecutorProvider, executor, DEFAULT_RETRY_BASE_DELAY_MS);
+    }
+
+    /**
+     * Creates a target-local continuation that borrows a process retry scheduler.
+     *
+     * @param taskStore final target store
+     * @param queueManager target queues
+     * @param agentExecutorProvider fixed local provider, bound before startup
+     * @param executor shared execution pool
+     * @param retryScheduler process-owned retry scheduler
+     */
+    public A2ATaskContinuation(TaskStore taskStore, QueueManager queueManager,
+            ObjectProvider<A2AAgentExecutor> agentExecutorProvider, Executor executor,
+            ScheduledExecutorService retryScheduler) {
+        this(taskStore, queueManager, agentExecutorProvider, executor, DEFAULT_RETRY_BASE_DELAY_MS,
+                retryScheduler, false);
     }
 
     /**
@@ -118,31 +138,16 @@ public class A2ATaskContinuation {
                 new ScheduledThreadPoolExecutor(1, new RetryThreadFactory()), true);
     }
 
-    /**
-     * Creates a target-local continuation that borrows a process retry scheduler.
-     *
-     * @param taskStore final target store
-     * @param queueManager target queues
-     * @param agentExecutorProvider fixed local provider, bound before startup
-     * @param executor shared execution pool
-     * @param retryScheduler process-owned retry scheduler
-     */
-    public A2ATaskContinuation(TaskStore taskStore, QueueManager queueManager,
-            ObjectProvider<A2AAgentExecutor> agentExecutorProvider, Executor executor,
-            ScheduledExecutorService retryScheduler) {
-        this(taskStore, queueManager, agentExecutorProvider, executor, DEFAULT_RETRY_BASE_DELAY_MS, retryScheduler, false);
-    }
-
     private A2ATaskContinuation(TaskStore taskStore, QueueManager queueManager,
             ObjectProvider<A2AAgentExecutor> agentExecutorProvider, Executor executor, long retryBaseDelayMs,
-            ScheduledExecutorService retryScheduler, boolean ownsRetryScheduler) {
+            ScheduledExecutorService retryScheduler, boolean isRetrySchedulerOwned) {
         this.taskStore = taskStore;
         this.queueManager = queueManager;
         this.agentExecutorProvider = agentExecutorProvider;
         this.executor = executor;
         this.retryBaseDelayMs = retryBaseDelayMs;
         this.retryScheduler = retryScheduler;
-        this.ownsRetryScheduler = ownsRetryScheduler;
+        this.isRetrySchedulerOwned = isRetrySchedulerOwned;
     }
 
     /**
@@ -180,7 +185,7 @@ public class A2ATaskContinuation {
             pendingRetries.forEach(future -> future.cancel(false));
             pendingRetries.clear();
             activeContinuations.clear();
-            if (ownsRetryScheduler) {
+            if (isRetrySchedulerOwned) {
                 retryScheduler.shutdownNow();
             }
         }

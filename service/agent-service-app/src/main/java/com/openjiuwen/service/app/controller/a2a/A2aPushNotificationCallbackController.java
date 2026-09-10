@@ -7,8 +7,8 @@ package com.openjiuwen.service.app.controller.a2a;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.app.hosting.HostedIngressResolver;
+import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
@@ -106,8 +106,13 @@ public class A2aPushNotificationCallbackController {
         }
         A2aPushNotificationCallbackStore selectedStore = callbackStore;
         A2aPushNotificationCallbackHandler selectedHandler = callbackHandler;
-        Object variables = request.getAttribute(org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
-        String agentId = variables instanceof Map<?, ?> paths ? (String) paths.get("agentId") : null;
+        Object variables = request.getAttribute(
+                org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
+        Object routeId = variables instanceof Map<?, ?> paths ? paths.get("agentId") : null;
+        if (routeId != null && !(routeId instanceof String)) {
+            throw new IllegalStateException("Agent route variable must be a string");
+        }
+        String agentId = routeId instanceof String id ? id : null;
         if (hostedResolver == null && agentId != null) {
             return status(HttpStatus.NOT_FOUND, "not found", notificationId);
         }

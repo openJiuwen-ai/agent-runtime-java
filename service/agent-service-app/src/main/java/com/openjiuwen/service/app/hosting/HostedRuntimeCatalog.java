@@ -22,7 +22,7 @@ public final class HostedRuntimeCatalog {
 
     private volatile Map<String, HostedAgentRuntime> published;
 
-    private boolean wasPublished;
+    private boolean hasPublished;
 
     private boolean isClosed;
 
@@ -31,7 +31,7 @@ public final class HostedRuntimeCatalog {
     }
 
     synchronized void publish(List<HostedAgentRuntime> instances) {
-        if (wasPublished || isClosed) {
+        if (hasPublished || isClosed) {
             throw new IllegalStateException("Hosted runtime catalog cannot be republished");
         }
         if (instances.size() != definitions.entries().size()) {
@@ -46,7 +46,7 @@ public final class HostedRuntimeCatalog {
             }
             snapshot.put(instance.agentId(), instance);
         }
-        wasPublished = true;
+        hasPublished = true;
         published = Collections.unmodifiableMap(snapshot);
     }
 
@@ -55,6 +55,13 @@ public final class HostedRuntimeCatalog {
         published = null;
     }
 
+    /**
+     * Resolves a published target, using the default registration when the ID is absent.
+     *
+     * @param agentId registration ID, or null for the default
+     * @return selected runtime
+     * @throws HostedIngressResolver.SelectionException if unavailable or unknown
+     */
     public HostedAgentRuntime resolve(String agentId) {
         Map<String, HostedAgentRuntime> snapshot = snapshot();
         HostedAgentRuntime target = snapshot.get(agentId == null ? definitions.defaultAgentId() : agentId);
@@ -64,14 +71,29 @@ public final class HostedRuntimeCatalog {
         return target;
     }
 
+    /**
+     * Returns the published default target.
+     *
+     * @return default runtime
+     */
     public HostedAgentRuntime defaultRuntime() {
         return resolve(null);
     }
 
+    /**
+     * Returns the immutable published targets in registration order.
+     *
+     * @return registered runtimes
+     */
     public List<HostedAgentRuntime> instances() {
         return List.copyOf(snapshot().values());
     }
 
+    /**
+     * Returns the default registration ID after readiness validation.
+     *
+     * @return default registration ID
+     */
     public String defaultAgentId() {
         snapshot();
         return definitions.defaultAgentId();

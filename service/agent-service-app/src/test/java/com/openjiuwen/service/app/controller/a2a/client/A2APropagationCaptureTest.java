@@ -7,51 +7,38 @@ package com.openjiuwen.service.app.controller.a2a.client;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.sun.net.httpserver.HttpServer;
+
+import org.a2aproject.sdk.spec.AgentCapabilities;
+import org.a2aproject.sdk.spec.AgentCard;
+import org.a2aproject.sdk.spec.AgentInterface;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
-import com.sun.net.httpserver.HttpServer;
-import org.a2aproject.sdk.spec.AgentCard;
-import org.a2aproject.sdk.spec.AgentCapabilities;
-import org.a2aproject.sdk.spec.AgentInterface;
+
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-
 import java.util.Map;
-import java.util.concurrent.Executors;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Verifies invocation header capture across asynchronous handoff and retries.
+ *
+ * @since 0.1.2
+ */
 class A2APropagationCaptureTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void realRemoteIoAndRetryUseCapturedHeadersForIdenticalContextIds(boolean retry) throws Exception {
+    void realRemoteIoAndRetryUseCapturedHeadersForIdenticalContextIds(boolean shouldRetry) throws Exception {
         var observed = new CopyOnWriteArrayList<String>();
-        var failedOnce = new AtomicBoolean();
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/a2a", exchange -> {
-            exchange.getRequestBody().readAllBytes();
-            String trace = exchange.getRequestHeaders().getFirst("traceparent");
-            observed.add(trace);
-            if (retry && "first-trace".equals(trace) && failedOnce.compareAndSet(false, true)) {
-                exchange.sendResponseHeaders(503, -1);
-                exchange.close();
-                return;
-            }
-            byte[] reply = """
-                    {"jsonrpc":"2.0","id":"request","result":{"task":{"id":"remote-task",
-                    "contextId":"same","status":{"state":"TASK_STATE_COMPLETED"},
-                    "artifacts":[{"artifactId":"answer","parts":[{"text":"done"}]}]}}}
-                    """.getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, reply.length);
-            exchange.getResponseBody().write(reply);
-            exchange.close();
-        });
+        HttpServer server = remoteServer(observed, shouldRetry);
         server.start();
         String endpoint = "http://127.0.0.1:" + server.getAddress().getPort() + "/a2a";
         var registry = new A2ARemoteAgentCardRegistry();
@@ -82,13 +69,39 @@ class A2APropagationCaptureTest {
             var second = client.callOutcome(call, null);
             first.get(10, TimeUnit.SECONDS);
             second.get(10, TimeUnit.SECONDS);
-            assertThat(observed).containsExactlyInAnyOrderElementsOf(retry
+            assertThat(observed).containsExactlyInAnyOrderElementsOf(shouldRetry
                     ? List.of("first-trace", "first-trace", "second-trace")
                     : List.of("first-trace", "second-trace"));
         } finally {
             client.shutdown();
             server.stop(0);
         }
+    }
+
+    private static HttpServer remoteServer(List<String> observed, boolean shouldRetry)
+            throws java.io.IOException {
+        var failedOnce = new AtomicBoolean();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/a2a", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            String trace = exchange.getRequestHeaders().getFirst("traceparent");
+            observed.add(trace);
+            if (shouldRetry && "first-trace".equals(trace) && failedOnce.compareAndSet(false, true)) {
+                exchange.sendResponseHeaders(503, -1);
+                exchange.close();
+                return;
+            }
+            byte[] reply = """
+                    {"jsonrpc":"2.0","id":"request","result":{"task":{"id":"remote-task",
+                    "contextId":"same","status":{"state":"TASK_STATE_COMPLETED"},
+                    "artifacts":[{"artifactId":"answer","parts":[{"text":"done"}]}]}}}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, reply.length);
+            exchange.getResponseBody().write(reply);
+            exchange.close();
+        });
+        return server;
     }
 
     @Test
@@ -106,7 +119,8 @@ class A2APropagationCaptureTest {
                 return request -> Map.of("traceparent", captured);
             }
         };
-        var executor = Executors.newSingleThreadExecutor();
+        var executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(8));
         try (var registration = A2APropagationHeaderRegistry.registerProvider(provider)) {
             var first = A2APropagationHeaderRegistry.captureInvocation(
                     () -> A2APropagationHeaderRegistry.provide(null));
