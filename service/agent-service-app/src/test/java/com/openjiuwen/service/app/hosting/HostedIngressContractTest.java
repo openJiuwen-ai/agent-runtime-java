@@ -39,14 +39,14 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-@SpringBootTest(classes = HostedIngressContractTest.Application.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"spring.application.name=hosted-ingress-test", "openjiuwen.service.query.webflux.enabled=true"})
 /**
  * Verifies REST and A2A routing, validation and response compatibility.
  *
  * @since 0.1.2
  */
+@SpringBootTest(classes = HostedIngressContractTest.Application.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {"spring.application.name=hosted-ingress-test", "openjiuwen.service.query.webflux.enabled=true"})
 @AutoConfigureTestRestTemplate
 class HostedIngressContractTest {
     @Autowired

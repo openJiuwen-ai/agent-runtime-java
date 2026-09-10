@@ -162,7 +162,6 @@ class A2ATaskContinuationTest {
     void stoppingBorrowerKeepsOtherRetriesAndSharedScheduler() throws Exception {
         var scheduler = new ScheduledThreadPoolExecutor(1);
         scheduler.setRemoveOnCancelPolicy(true);
-        var release = new CountDownLatch(1);
         var firstExecutor = mock(A2AAgentExecutor.class);
         var secondExecutor = mock(A2AAgentExecutor.class);
         var firstCalls = new AtomicInteger();
@@ -181,6 +180,7 @@ class A2ATaskContinuationTest {
         }).when(secondExecutor).continueTask(any(), any(), any());
         var first = borrower(firstExecutor, scheduler);
         var second = borrower(secondExecutor, scheduler);
+        var release = new CountDownLatch(1);
         try {
             var blocker = blockScheduler(scheduler, release);
             first.submit(request());

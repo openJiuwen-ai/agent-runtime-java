@@ -48,16 +48,16 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-@SpringBootTest(classes = HostedCallbackContractTest.Application.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-                "spring.application.name=hosted-callback-test", "openjiuwen.service.a2a.push-notifications=true",
-                "openjiuwen.service.a2a.agents.a.push-notifications=false",
-                "openjiuwen.service.security.enabled=true", "openjiuwen.service.security.auth.enabled=true"})
 /**
  * Verifies per-target callback authorization, deduplication and selection.
  *
  * @since 0.1.2
  */
+@SpringBootTest(classes = HostedCallbackContractTest.Application.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+                "spring.application.name=hosted-callback-test", "openjiuwen.service.a2a.push-notifications=true",
+                "openjiuwen.service.a2a.agents.a.push-notifications=false",
+                "openjiuwen.service.security.enabled=true", "openjiuwen.service.security.auth.enabled=true"})
 @AutoConfigureTestRestTemplate
 class HostedCallbackContractTest {
     private static final String CALLBACK = "/a2a/push-notifications/callback";

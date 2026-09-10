@@ -135,9 +135,13 @@ class HostedDeepAgentIntegrationTest {
         var handlers = startHosted(storage, first, second, !mode.isTaskLoop);
         String same = "same-" + UUID.randomUUID();
         run(handlers.get(0), same, mode);
+        awaitCheckpoint(first, same, "first", 1);
         run(handlers.get(1), same, mode);
+        awaitCheckpoint(second, same, "second", 1);
         run(handlers.get(1), same, mode);
+        awaitCheckpoint(second, same, "second", 2);
         run(handlers.get(0), same, mode);
+        awaitCheckpoint(first, same, "first", 2);
         assertThat(firstProbe.observed).containsExactly(same + ":first:1", same + ":first:2");
         assertThat(secondProbe.observed).containsExactly(same + ":second:1", same + ":second:2");
         assertThat(readState(first, same)).isEqualTo(Map.of("owner", "first", "count", 2));
@@ -150,14 +154,32 @@ class HostedDeepAgentIntegrationTest {
         String firstSession = same + "-a";
         String secondSession = same + "-b";
         run(handlers.get(0), firstSession, mode);
+        awaitCheckpoint(first, firstSession, "first", 1);
         run(handlers.get(1), secondSession, mode);
+        awaitCheckpoint(second, secondSession, "second", 1);
         handlers.get(0).clearSession(firstSession);
         assertThat(readState(first, firstSession)).isNull();
         assertThat(readState(second, secondSession)).isEqualTo(Map.of("owner", "second", "count", 1));
         // A local Handler stop must leave the shared Runner usable by another hosted Handler.
         handlers.get(0).stop();
         run(handlers.get(1), secondSession, mode);
+        awaitCheckpoint(second, secondSession, "second", 2);
         assertThat(readState(second, secondSession)).isEqualTo(Map.of("owner", "second", "count", 2));
+    }
+
+    private static void awaitCheckpoint(DeepAgent agent, String conversation, String owner, int count)
+            throws InterruptedException {
+        // Core closes the stream before saving its checkpoint. Restore the exact agent/session
+        // state before another turn or session release; stream completion alone is not a save barrier.
+        Map<String, Object> expected = Map.of("owner", owner, "count", count);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        Object actual = readState(agent, conversation);
+        while (!expected.equals(actual) && System.nanoTime() < deadline) {
+            TimeUnit.MILLISECONDS.sleep(10);
+            actual = readState(agent, conversation);
+        }
+        assertThat(actual).as("Checkpoint agentId=%s conversationId=%s", agent.getCard().getId(), conversation)
+                .isEqualTo(expected);
     }
 
     @ParameterizedTest

@@ -39,7 +39,9 @@ class HostedRemoteInvocationDispatcherTest {
             targets.add(target(id, dispatcher, started));
         }
         var a = execute(targets.get(0));
+        assertThat(a).isNotDone();
         var b = execute(targets.get(1));
+        assertThat(b).isNotDone();
         var c = execute(targets.get(2));
         assertThat(c).isNotDone();
         var d = execute(targets.get(3));

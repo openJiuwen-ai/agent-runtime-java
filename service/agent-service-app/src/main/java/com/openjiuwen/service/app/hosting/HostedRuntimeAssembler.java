@@ -96,8 +96,6 @@ public final class HostedRuntimeAssembler {
         TaskStateProvider provider = store instanceof TaskStateProvider stateProvider
                 ? stateProvider : assembly.taskStateProvider;
         var queues = new InMemoryQueueManager(provider, bus);
-        var pushConfigs = new InMemoryPushNotificationConfigStore();
-        var sender = new HttpPushNotificationSender(pushConfigs, dependencies.httpClient());
         AtomicReference<A2AAgentExecutor> localExecutor = new AtomicReference<>();
         ObjectProvider<A2AAgentExecutor> executorProvider = new ObjectProvider<>() {
             @Override
@@ -120,6 +118,8 @@ public final class HostedRuntimeAssembler {
         var executor = new A2AAgentExecutor(orchestrator, dependencies.protocol(),
                 dependencies.admissionGate(), listener);
         localExecutor.set(executor);
+        var pushConfigs = new InMemoryPushNotificationConfigStore();
+        var sender = new HttpPushNotificationSender(pushConfigs, dependencies.httpClient());
         var processor = A2AAutoConfiguration.createEventProcessor(bus, store, sender, queues);
         var sdkHandler = new DefaultRequestHandler(executor, store, queues, pushConfigs, processor,
                 dependencies.resources().agentExecutor(), dependencies.resources().eventConsumerExecutor());

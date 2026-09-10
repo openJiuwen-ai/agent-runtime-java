@@ -89,10 +89,9 @@ class HostedRedisIsolationTest {
     void stop() throws Exception {
         if (shared != null) {
             shared.close();
-        } else if (jedis != null) {
+        }
+        if (shared == null && jedis != null) {
             jedis.close();
-        } else {
-            // Startup may fail before either client is created; only the process needs cleanup.
         }
         stopServer();
     }

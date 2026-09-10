@@ -104,8 +104,11 @@ public class A2aPushNotificationCallbackController {
         } catch (IllegalArgumentException e) {
             return badRequest("callback result.task is required");
         }
-        A2aPushNotificationCallbackStore selectedStore = callbackStore;
-        A2aPushNotificationCallbackHandler selectedHandler = callbackHandler;
+        return dispatchCallback(request, notificationId, body, task);
+    }
+
+    private ResponseEntity<String> dispatchCallback(jakarta.servlet.http.HttpServletRequest request,
+            String notificationId, JsonObject body, Task task) {
         Object variables = request.getAttribute(
                 org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
         Object routeId = variables instanceof Map<?, ?> paths ? paths.get("agentId") : null;
@@ -116,6 +119,8 @@ public class A2aPushNotificationCallbackController {
         if (hostedResolver == null && agentId != null) {
             return status(HttpStatus.NOT_FOUND, "not found", notificationId);
         }
+        A2aPushNotificationCallbackStore selectedStore = callbackStore;
+        A2aPushNotificationCallbackHandler selectedHandler = callbackHandler;
         if (hostedResolver != null) {
             try {
                 var target = hostedResolver.resolveOrDefault(agentId);
