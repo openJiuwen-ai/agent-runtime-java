@@ -173,7 +173,7 @@ public class A2AAutoConfiguration {
      * @param pushConfigStore the push notification config store
      * @param properties the A2A configuration properties
      * @return the HTTP push notification sender
-    */
+     */
     @Bean
     @ConditionalOnMissingBean({PushNotificationSender.class, HostedAgentDefinitions.class})
     public PushNotificationSender a2aPushNotificationSender(PushNotificationConfigStore pushConfigStore,
