@@ -399,7 +399,8 @@ public class A2aJsonRpcController {
                 || params.configuration().taskPushNotificationConfig() == null) {
             return;
         }
-        A2aPushNotificationCallbackUrlPolicy.validateCallbackUrl(params.configuration().taskPushNotificationConfig());
+        A2aPushNotificationCallbackUrlPolicy.validateCallbackUrl(params.configuration().taskPushNotificationConfig(),
+                a2aProperties == null ? java.util.List.of() : a2aProperties.getCallbackAllowedHosts());
     }
 
     /**

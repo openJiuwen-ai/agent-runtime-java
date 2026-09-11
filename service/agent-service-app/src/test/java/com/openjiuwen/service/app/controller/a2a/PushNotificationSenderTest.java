@@ -37,6 +37,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -58,6 +59,8 @@ class PushNotificationSenderTest {
     @Test
     void defaultHttpClientHasConnectTimeout() {
         assertThat(HttpPushNotificationSender.newDefaultHttpClient().connectTimeout()).contains(Duration.ofSeconds(30));
+        assertThat(HttpPushNotificationSender.newDefaultHttpClient().followRedirects())
+                .isEqualTo(HttpClient.Redirect.NEVER);
     }
 
     @Test
@@ -68,7 +71,7 @@ class PushNotificationSenderTest {
         when(response.statusCode()).thenReturn(200);
         when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
         HttpPushNotificationSender sender = new HttpPushNotificationSender(
-                configStore("https://callback.example/a2a/push-notifications/callback", null), httpClient);
+                configStore("https://8.8.8.8/a2a/push-notifications/callback", null), httpClient);
 
         sender.sendNotification(completedEvent("task-1"), completedTask("task-1"));
 
@@ -93,7 +96,7 @@ class PushNotificationSenderTest {
         });
         server.start();
         InMemoryPushNotificationConfigStore store = configStore(callbackUrl(), "secret-token");
-        HttpPushNotificationSender sender = new HttpPushNotificationSender(store);
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(store, List.of("127.0.0.1"));
         Task task = completedTask("task-1");
         TaskStatusUpdateEvent event = completedEvent("task-1");
         String expectedNotificationId = sender.notificationIdFor(task, store
@@ -125,7 +128,8 @@ class PushNotificationSenderTest {
             respond(exchange, 200, "{}");
         });
         server.start();
-        HttpPushNotificationSender sender = new HttpPushNotificationSender(configStore(callbackUrl(), null));
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(configStore(callbackUrl(), null),
+                List.of("127.0.0.1"));
 
         sender.sendNotification(statusEvent("task-1", state), task("task-1", state));
 
@@ -142,7 +146,8 @@ class PushNotificationSenderTest {
             respond(exchange, 200, "{}");
         });
         server.start();
-        HttpPushNotificationSender sender = new HttpPushNotificationSender(configStore(callbackUrl(), null));
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(configStore(callbackUrl(), null),
+                List.of("127.0.0.1"));
         Task terminalTask = task("task-1", state);
         TaskStatusUpdateEvent terminalEvent = statusEvent("task-1", state);
 
@@ -165,7 +170,7 @@ class PushNotificationSenderTest {
         server.start();
         InMemoryPushNotificationConfigStore store = new InMemoryPushNotificationConfigStore();
         HttpPushNotificationSender sender = new HttpPushNotificationSender(store,
-                HttpPushNotificationSender.newDefaultHttpClient(), Duration.ofMillis(100));
+                HttpPushNotificationSender.newDefaultHttpClient(), Duration.ofMillis(100), List.of("127.0.0.1"));
         Task task = task("task-late-config", TaskState.TASK_STATE_FAILED);
         TaskStatusUpdateEvent event = statusEvent("task-late-config", TaskState.TASK_STATE_FAILED);
 
@@ -244,7 +249,7 @@ class PushNotificationSenderTest {
         });
         server.start();
         InMemoryPushNotificationConfigStore store = configStore(callbackUrl(), null);
-        HttpPushNotificationSender sender = new HttpPushNotificationSender(store);
+        HttpPushNotificationSender sender = new HttpPushNotificationSender(store, List.of("127.0.0.1"));
         Task task = completedTask("task-1");
         TaskStatusUpdateEvent event = completedEvent("task-1");
 

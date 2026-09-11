@@ -44,6 +44,13 @@ public class A2AProperties {
 
     private boolean isPushNotifications = false;
 
+    /**
+     * Exact trusted callback hosts allowed to bypass the default non-public address rejection.
+     * Empty by default; no wildcards or URLs. Configure only deployment-controlled hosts
+     * (for example, {@code callback.internal} or {@code 10.0.0.8}); ports are not restricted.
+     */
+    private List<String> callbackAllowedHosts = List.of();
+
     private boolean isExtendedAgentCard = false;
 
     private List<String> defaultInputModes = List.of("text", "text/plain");
