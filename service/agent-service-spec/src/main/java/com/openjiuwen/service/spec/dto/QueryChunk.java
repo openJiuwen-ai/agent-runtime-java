@@ -22,6 +22,17 @@ public class QueryChunk {
     /** Remote agent business output carrying source provenance. */
     public static final String TYPE_REMOTE_AGENT_OUTPUT = "remote_agent_output";
 
+    /**
+     * Cancel chunk type: the execution side asks for this task to end in the canceled state.
+     *
+     * <p>Symmetric to {@link #TYPE_INTERRUPT}: the sender declares an intent and the runtime
+     * performs the state transition, so there is still exactly one lifecycle writer. It does not
+     * mean "abandon this piece of work" in a business sense — a framework adapter with such a
+     * notion should express it through its own mechanism. The payload may carry an optional reason
+     * for logs and audit; the runtime does not parse its structure.</p>
+     */
+    public static final String TYPE_CANCEL = "cancel";
+
     /** Error chunk type. */
     public static final String TYPE_ERROR = "error";
 
