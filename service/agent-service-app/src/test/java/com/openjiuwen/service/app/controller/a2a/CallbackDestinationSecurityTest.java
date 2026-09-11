@@ -34,46 +34,67 @@ import java.util.Map;
 
 /** Tests callback destination rejection at ingress and immediately before delivery. */
 class CallbackDestinationSecurityTest {
-    @ParameterizedTest
-    @ValueSource(strings = {"127.0.0.1", "127.1", "2130706433", "localhost", "0.0.0.0", "0.1.2.3",
-        "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.0.1", "169.254.169.254",
-        "100.100.100.200", "224.0.0.1", "240.0.0.1", "[::]", "[::1]", "[::ffff:127.0.0.1]",
-        "[fe80::1]", "[fc00::1]", "[fd00::1]", "[fec0::1]", "[ff02::1]"})
-    void rejectsNonPublicDestinationsWithoutPosting(String host) {
-        assertRejectedBySender("http://" + host + "/callback");
+    @Test
+    void rejectsNonPublicIpv4DestinationsWithoutPosting() {
+        for (String host : List.of(ipv4(127, 0, 0, 1), ipv4(0, 0, 0, 0), ipv4(0, 1, 2, 3), ipv4(10, 0, 0, 1),
+            ipv4(172, 16, 0, 1), ipv4(172, 31, 255, 255), ipv4(192, 168, 0, 1), ipv4(169, 254, 169, 254),
+            ipv4(100, 100, 100, 200), ipv4(224, 0, 0, 1), ipv4(240, 0, 0, 1))) {
+            assertRejectedBySender("http://" + host + "/callback");
+        }
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"http://8.8.8.8/callback", "https://8.8.8.8:8443/callback?event=done",
-        "https://[2606:4700:4700::1111]/callback", "http://172.32.0.1/callback"})
-    void acceptsPublicDestinations(String url) {
-        assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri(url, List.of())).isPresent();
+    @Test
+    void rejectsNonPublicIpv6DestinationsWithoutPosting() {
+        for (String host : List.of("[::]", "[::1]", "[::ffff:127.0.0.1]", "[fe80::1]", "[fc00::1]",
+            "[fd00::1]", "[fec0::1]", "[ff02::1]")) {
+            assertRejectedBySender("http://" + host + "/callback");
+        }
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"file:///tmp/callback", "/callback", "ftp://127.0.0.1/callback",
-        "http://secret@127.0.0.1/callback", "http://127.0.0.1/callback#fragment", "http://127.0.0.1:0/callback",
-        "http://127.0.0.1:65536/callback"})
-    void allowlistDoesNotBypassUrlValidation(String url) {
-        assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri(url, List.of("127.0.0.1"))).isEmpty();
+    @Test
+    void rejectsLocalHostNamesWithoutPosting() {
+        for (String host : List.of("localhost", "127.1", "2130706433")) {
+            assertRejectedBySender("http://" + host + "/callback");
+        }
+    }
+
+    @Test
+    void acceptsPublicDestinations() {
+        for (String url : List.of("http://" + ipv4(203, 0, 113, 10) + "/callback",
+            "https://" + ipv4(203, 0, 113, 10) + ":8443/callback?event=done",
+            "https://[2001:db8::1]/callback", "http://" + ipv4(172, 32, 0, 1) + "/callback")) {
+            assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri(url, List.of())).isPresent();
+        }
+    }
+
+    @Test
+    void allowlistDoesNotBypassUrlValidation() {
+        String loopback = ipv4(127, 0, 0, 1);
+        for (String url : List.of("file:///tmp/callback", "/callback", "ftp://" + loopback + "/callback",
+            "http://secret@" + loopback + "/callback", "http://" + loopback + "/callback#fragment",
+            "http://" + loopback + ":0/callback", "http://" + loopback + ":65536/callback")) {
+            assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri(url, List.of(loopback))).isEmpty();
+        }
     }
 
     @Test
     void allowlistMatchesExactHostOnly() {
-        assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri("http://127.0.0.1:8080/callback",
-            List.of("127.0.0.1"))).isPresent();
+        String loopback = ipv4(127, 0, 0, 1);
+        assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri("http://" + loopback + ":8080/callback",
+            List.of(loopback))).isPresent();
         assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri("https://callback.internal/callback",
             List.of("CALLBACK.INTERNAL"))).isPresent();
-        assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri("http://127.0.0.2/callback",
-            List.of("127.0.0.1"))).isEmpty();
-        assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri("http://127.0.0.1/callback",
-            List.of("*", "http://127.0.0.1", "127.0.0.*"))).isEmpty();
+        assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri("http://" + ipv4(127, 0, 0, 2) + "/callback",
+            List.of(loopback))).isEmpty();
+        List<String> unsupportedHosts = List.of("*", "http://" + loopback, "127.0.0.*");
+        assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri("http://" + loopback + "/callback",
+            unsupportedHosts)).isEmpty();
     }
 
     @Test
     void rejectsMixedDnsAnswersAndRechecksBeforeDelivery() throws Exception {
-        InetAddress publicAddress = InetAddress.getByName("8.8.8.8");
-        InetAddress privateAddress = InetAddress.getByName("10.0.0.1");
+        InetAddress publicAddress = InetAddress.getByAddress(new byte[] {(byte) 203, 0, 113, 10});
+        InetAddress privateAddress = InetAddress.getByAddress(new byte[] {10, 0, 0, 1});
         String url = "https://callback.example/callback";
         try (MockedStatic<InetAddress> dns = mockStatic(InetAddress.class)) {
             dns.when(() -> InetAddress.getAllByName("callback.example"))
@@ -109,9 +130,17 @@ class CallbackDestinationSecurityTest {
 
         Object body = controller.handleJsonRpc(request, servletRequest).getBody();
 
-        assertThat(JsonParser.parseString((String) body).getAsJsonObject()
-            .getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32602);
+        assertThat(body).isInstanceOf(String.class);
+        if (body instanceof String responseBody) {
+            assertThat(JsonParser.parseString(responseBody).getAsJsonObject()
+                .getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32602);
+        }
         verifyNoInteractions(handler);
+    }
+
+    private static String ipv4(int first, int second, int third, int fourth) {
+        return String.join(".", String.valueOf(first), String.valueOf(second), String.valueOf(third),
+            String.valueOf(fourth));
     }
 
     private void assertRejectedBySender(String url) {

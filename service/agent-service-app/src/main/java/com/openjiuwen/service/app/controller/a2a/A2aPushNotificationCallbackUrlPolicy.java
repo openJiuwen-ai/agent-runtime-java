@@ -37,10 +37,7 @@ final class A2aPushNotificationCallbackUrlPolicy {
         try {
             URI uri = new URI(callbackUrl);
             String scheme = uri.getScheme();
-            if (!uri.isAbsolute() || scheme == null || uri.getHost() == null || uri.getHost().isBlank()
-                    || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))
-                    || uri.getRawUserInfo() != null || uri.getRawFragment() != null
-                    || uri.getPort() == 0 || uri.getPort() > 65535) {
+            if (!hasValidScheme(uri, scheme) || !hasValidHost(uri) || !hasValidComponents(uri)) {
                 return Optional.empty();
             }
             if (allowedHosts.stream().anyMatch(uri.getHost()::equalsIgnoreCase)) {
@@ -61,6 +58,20 @@ final class A2aPushNotificationCallbackUrlPolicy {
         } catch (URISyntaxException | UnknownHostException e) {
             return Optional.empty();
         }
+    }
+
+    private static boolean hasValidScheme(URI uri, String scheme) {
+        return uri.isAbsolute() && scheme != null
+                && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme));
+    }
+
+    private static boolean hasValidHost(URI uri) {
+        return uri.getHost() != null && !uri.getHost().isBlank();
+    }
+
+    private static boolean hasValidComponents(URI uri) {
+        return uri.getRawUserInfo() == null && uri.getRawFragment() == null
+                && uri.getPort() != 0 && uri.getPort() <= 65535;
     }
 
     private static boolean isPublicAddress(InetAddress address) {
