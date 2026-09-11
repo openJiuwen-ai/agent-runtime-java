@@ -79,7 +79,7 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         this(configStore, newDefaultHttpClient(), CONFIG_RECHECK_DELAY);
     }
 
-    HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient) {
+    public HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient) {
         this(configStore, httpClient, CONFIG_RECHECK_DELAY);
     }
 

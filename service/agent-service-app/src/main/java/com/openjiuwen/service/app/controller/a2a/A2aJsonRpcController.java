@@ -11,6 +11,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
 import com.openjiuwen.service.app.config.A2AProperties;
+import com.openjiuwen.service.app.hosting.HostedAgentRuntime;
+import com.openjiuwen.service.app.hosting.HostedIngressResolver;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
@@ -25,10 +27,12 @@ import org.a2aproject.sdk.spec.A2AError;
 import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.EventKind;
 import org.a2aproject.sdk.spec.InternalError;
+import org.a2aproject.sdk.spec.InvalidParamsError;
 import org.a2aproject.sdk.spec.MethodNotFoundError;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskIdParams;
+import org.a2aproject.sdk.spec.TaskNotFoundError;
 import org.a2aproject.sdk.spec.TaskQueryParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +79,9 @@ public class A2aJsonRpcController {
 
     private A2AProperties a2aProperties;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private HostedIngressResolver hostedResolver;
+
     /**
      * Constructs the JSON-RPC controller.
      *
@@ -101,7 +108,8 @@ public class A2aJsonRpcController {
      * @param servletRequest the HTTP servlet request
      * @return the JSON-RPC response entity
      */
-    @PostMapping({A2AServicePaths.A2A_JSONRPC, A2AServicePaths.A2A_JSONRPC_NO_SLASH})
+    @PostMapping({A2AServicePaths.A2A_JSONRPC, A2AServicePaths.A2A_JSONRPC_NO_SLASH,
+            A2AServicePaths.HOSTED_AGENT_RPC})
     @AuthorizedResource(resource = "a2a", action = "rpc")
     public ResponseEntity<?> handleJsonRpc(@RequestBody(required = false) String rawBody,
             jakarta.servlet.http.HttpServletRequest servletRequest) {
@@ -123,7 +131,12 @@ public class A2aJsonRpcController {
         Object id = request.id();
         ServerCallContext ctx = buildCallContext(servletRequest);
         try {
-            return dispatch(method, request, id, ctx);
+            return dispatch(method, request, id, ctx, servletRequest);
+        } catch (HostedIngressResolver.SelectionException error) {
+            if (error.status() == 503 || hostedResolver == null) {
+                return ResponseEntity.status(error.status()).body(Map.of("type", "error", "error", error.getMessage()));
+            }
+            return A2aJsonRpcProtocol.errorResponse(id, new InvalidParamsError(error.getMessage()));
         } catch (A2AError e) {
             releasePreAcquiredAdmission(ctx);
             log.info("A2A protocol error: method={}, code={}, message={}", method, e.getCode(), e.getMessage());
@@ -142,35 +155,41 @@ public class A2aJsonRpcController {
      * @param request the parsed JSON-RPC request
      * @param id the JSON-RPC request id
      * @param ctx the server call context
+     * @param servletRequest HTTP request carrying the route selection
      * @return the JSON-RPC response entity
      * @throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException when the
      *         response payload cannot be serialized
      */
     private ResponseEntity<?> dispatch(String method, A2aJsonRpcProtocol.Request request, Object id,
-            ServerCallContext ctx) throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException {
+            ServerCallContext ctx, jakarta.servlet.http.HttpServletRequest servletRequest)
+            throws org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException {
         return switch (method) {
         case A2AMethods.SEND_MESSAGE_METHOD -> {
             ctx.getState().put("_a2a_stream", false);
             var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
             validateInlinePushNotificationConfig(params);
+            Optional<HostedAgentRuntime> target = selectTarget(servletRequest, request.payload());
+            target.ifPresent(runtime -> validateHostedTask(runtime, params.message()));
             if (isAdmissionRejected(ctx, params.message().contextId())) {
                 yield admissionRejectedResponse(id);
             }
-            EventKind result = requestHandler.onMessageSend(params, ctx);
+            EventKind result = selectedHandler(target).onMessageSend(params, ctx);
             yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
         }
         case A2AMethods.SEND_STREAMING_MESSAGE_METHOD -> {
             ctx.getState().put("_a2a_stream", true);
             var params = A2aJsonRpcParamsParser.parseMessageSendParams(request.payload());
             validateInlinePushNotificationConfig(params);
+            Optional<HostedAgentRuntime> target = selectTarget(servletRequest, request.payload());
+            target.ifPresent(runtime -> validateHostedTask(runtime, params.message()));
             if (isAdmissionRejected(ctx, params.message().contextId())) {
                 yield admissionRejectedResponse(id);
             }
-            Flow.Publisher<StreamingEventKind> pub = requestHandler.onMessageSendStream(params, ctx);
+            Flow.Publisher<StreamingEventKind> pub = selectedHandler(target).onMessageSendStream(params, ctx);
             yield streamToSse(pub, id);
         }
-        case A2AMethods.GET_TASK_METHOD -> handleGetTask(request.payload(), id, ctx);
-        case A2AMethods.SUBSCRIBE_TO_TASK_METHOD -> handleSubscribeToTask(request.payload(), id, ctx);
+        case A2AMethods.GET_TASK_METHOD -> handleGetTask(request.payload(), id, ctx, servletRequest);
+        case A2AMethods.SUBSCRIBE_TO_TASK_METHOD -> handleSubscribeToTask(request.payload(), id, ctx, servletRequest);
         default -> A2aJsonRpcProtocol.errorResponse(id,
                 new MethodNotFoundError(null, "Method not found: " + method, null));
         };
@@ -317,16 +336,62 @@ public class A2aJsonRpcController {
         return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(emitter);
     }
 
-    private ResponseEntity<?> handleGetTask(JsonObject request, Object id, ServerCallContext ctx) {
+    private ResponseEntity<?> handleGetTask(JsonObject request, Object id, ServerCallContext ctx,
+            jakarta.servlet.http.HttpServletRequest servletRequest) {
         TaskQueryParams tqp = A2aJsonRpcParamsParser.parseTaskQueryParams(request);
-        Task task = requestHandler.onGetTask(tqp, ctx);
+        Task task = selectedHandler(selectTarget(servletRequest, request)).onGetTask(tqp, ctx);
         return jsonRpcResponse(id, task);
     }
 
-    private ResponseEntity<SseEmitter> handleSubscribeToTask(JsonObject request, Object id, ServerCallContext ctx) {
+    private ResponseEntity<SseEmitter> handleSubscribeToTask(JsonObject request, Object id, ServerCallContext ctx,
+            jakarta.servlet.http.HttpServletRequest servletRequest) {
         TaskIdParams params = A2aJsonRpcParamsParser.parseTaskIdParams(request);
-        Flow.Publisher<StreamingEventKind> publisher = requestHandler.onSubscribeToTask(params, ctx);
+        Flow.Publisher<StreamingEventKind> publisher = selectedHandler(selectTarget(servletRequest, request))
+                .onSubscribeToTask(params, ctx);
         return streamToSse(publisher, id);
+    }
+
+    private Optional<HostedAgentRuntime> selectTarget(jakarta.servlet.http.HttpServletRequest request,
+            JsonObject payload) {
+        Object variables = request.getAttribute(
+                org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
+        Object routeId = variables instanceof Map<?, ?> paths ? paths.get("agentId") : null;
+        if (routeId != null && !(routeId instanceof String)) {
+            throw new IllegalStateException("Agent route variable must be a string");
+        }
+        String agentId = routeId instanceof String id ? id : null;
+        if (hostedResolver == null) {
+            if (agentId != null) {
+                throw new HostedIngressResolver.SelectionException(404, "NOT_FOUND", "Not found");
+            }
+            return Optional.empty();
+        }
+        JsonElement tenant = payload.getAsJsonObject("params").get("tenant");
+        if (tenant != null && !tenant.isJsonNull()
+                && (!tenant.isJsonPrimitive() || !tenant.getAsJsonPrimitive().isString()
+                        || !tenant.getAsString().isEmpty())) {
+            throw new InvalidParamsError("Hosted runtime does not support tenant selection");
+        }
+        HostedAgentRuntime target = hostedResolver.resolveOrDefault(agentId);
+        HostedIngressResolver.selected(request, target);
+        return Optional.of(target);
+    }
+
+    private RequestHandler selectedHandler(Optional<HostedAgentRuntime> target) {
+        return target.map(HostedAgentRuntime::requestHandler).orElse(requestHandler);
+    }
+
+    private static void validateHostedTask(HostedAgentRuntime target, org.a2aproject.sdk.spec.Message message) {
+        if (message.taskId() == null || message.taskId().isEmpty()) {
+            return;
+        }
+        Task task = target.taskStore().get(message.taskId());
+        if (task == null) {
+            throw new TaskNotFoundError();
+        }
+        if (message.contextId() != null && !message.contextId().equals(task.contextId())) {
+            throw new InvalidParamsError("Task context does not match message context");
+        }
     }
 
     private void validateInlinePushNotificationConfig(org.a2aproject.sdk.spec.MessageSendParams params) {

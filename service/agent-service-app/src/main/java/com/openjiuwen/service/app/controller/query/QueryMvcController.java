@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.query;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.hosting.HostedIngressResolver;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -60,6 +61,9 @@ public class QueryMvcController {
 
     private final ObjectMapper objectMapper;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private HostedIngressResolver hostedResolver;
+
     public QueryMvcController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
             ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
         this.orchestratorProvider = orchestratorProvider;
@@ -97,7 +101,7 @@ public class QueryMvcController {
      */
     SseEmitter handleQuery(String rawBody, HttpHeaders headers, jakarta.servlet.http.HttpServletRequest servletRequest,
             jakarta.servlet.http.HttpServletResponse response) throws IOException {
-        QueryRequest request = objectMapper.readValue(rawBody, QueryRequest.class);
+        QueryRequest request = parseQueryRequest(rawBody, servletRequest);
         QueryIngressSupport.ValidationResult validation = QueryIngressSupport.validateAndBuild(request, headers);
         if (!validation.isValid()) {
             writeJson(response, validation.errorStatus(), validation.errorBody());
@@ -110,7 +114,20 @@ public class QueryMvcController {
             writeJson(response, HttpStatus.SERVICE_UNAVAILABLE.value(), QueryIngressSupport.agentNotReady());
             return null;
         }
-        ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
+        ServeOrchestrator orchestrator;
+        try {
+            if (hostedResolver == null) {
+                orchestrator = orchestratorProvider.getIfAvailable();
+            } else {
+                var target = hostedResolver.resolveOrDefault(request.getAgentId());
+                HostedIngressResolver.selected(servletRequest, target);
+                orchestrator = target.orchestrator();
+            }
+        } catch (HostedIngressResolver.SelectionException error) {
+            writeJson(response, error.status(), Map.of("type", "error", "error", error.getMessage(),
+                    "reason", error.reason()));
+            return null;
+        }
         if (orchestrator == null) {
             writeJson(response, HttpStatus.SERVICE_UNAVAILABLE.value(), QueryIngressSupport.serviceUnavailable());
             return null;
@@ -121,6 +138,22 @@ public class QueryMvcController {
         QueryResponse queryResponse = orchestrator.query(validation.serveRequest());
         writeJson(response, HttpStatus.OK.value(), queryResponse);
         return null;
+    }
+
+    private QueryRequest parseQueryRequest(String rawBody, jakarta.servlet.http.HttpServletRequest request)
+            throws IOException {
+        try {
+            return objectMapper.readValue(rawBody, QueryRequest.class);
+        } catch (com.fasterxml.jackson.databind.JsonMappingException failure) {
+            boolean isAgentField = failure.getPath().stream()
+                    .anyMatch(reference -> "agent_id".equals(reference.getFieldName()));
+            if (isAgentField) {
+                throw new org.springframework.http.converter.HttpMessageNotReadableException(
+                        "agent_id must be a string or null", failure,
+                        new org.springframework.http.server.ServletServerHttpRequest(request));
+            }
+            throw failure;
+        }
     }
 
     private SseEmitter streamResponse(ServeOrchestrator orchestrator,

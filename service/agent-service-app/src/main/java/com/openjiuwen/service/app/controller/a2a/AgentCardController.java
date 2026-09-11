@@ -6,6 +6,9 @@ package com.openjiuwen.service.app.controller.a2a;
 
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.ServiceProperties;
+import com.openjiuwen.service.app.hosting.HostedAgentCardFactory;
+import com.openjiuwen.service.app.hosting.HostedIngressResolver;
+import com.openjiuwen.service.app.hosting.HostedRuntimeCatalog;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
@@ -17,7 +20,10 @@ import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.AgentInterface;
 import org.a2aproject.sdk.spec.AgentProvider;
 import org.a2aproject.sdk.spec.AgentSkill;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -38,6 +44,15 @@ public class AgentCardController {
     private final ServiceProperties serviceProperties;
 
     private final A2aPushNotificationCapabilityGate pushNotificationCapabilityGate;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private HostedIngressResolver hostedResolver;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private HostedRuntimeCatalog hostedCatalog;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private HostedAgentCardFactory hostedCards;
 
     /**
      * Constructs the agent card controller.
@@ -80,6 +95,9 @@ public class AgentCardController {
     }
 
     private AgentCard buildCard(HttpServletRequest request) {
+        if (hostedResolver != null) {
+            return hostedCard(null, request, true);
+        }
         String baseUrl = (a2aProperties.getPublicUrl() != null && !a2aProperties.getPublicUrl().isBlank())
             ? a2aProperties.getPublicUrl()
             : request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
@@ -106,5 +124,67 @@ public class AgentCardController {
             a2aProperties.getDefaultOutputModes(), skills, Map.of(), List.of(), a2aProperties.getIconUrl(),
             List.of(new AgentInterface("JSONRPC", jsonRpcUrl, null, "1.0")), List.of(), jsonRpcUrl, "JSONRPC",
             List.of());
+    }
+
+    /**
+     * Returns the Card for an explicitly selected hosted registration.
+     *
+     * @param agentId registration ID from the URL
+     * @param request HTTP request used to resolve the public base URL
+     * @return selected target's Card
+     */
+    @GetMapping(A2AServicePaths.HOSTED_AGENT_CARD)
+    @AuthorizedResource(resource = "agent-card", action = "read")
+    public AgentCard getHostedCard(@PathVariable String agentId, HttpServletRequest request) {
+        requireHostedMode();
+        return hostedCard(agentId, request, false);
+    }
+
+    /**
+     * Lists published registration IDs and the default registration.
+     *
+     * @return public discovery response
+     */
+    @GetMapping(A2AServicePaths.HOSTED_AGENTS)
+    @AuthorizedResource(resource = "agent-card", action = "read")
+    public HostedAgentsResponse getHostedAgents() {
+        requireHostedMode();
+        var instances = hostedCatalog.instances();
+        return new HostedAgentsResponse(instances.stream().map(target -> target.agentId()).toList(),
+                hostedCatalog.defaultAgentId());
+    }
+
+    /**
+     * Projects hosted selection failures into the Card endpoint error format.
+     *
+     * @param error selection failure
+     * @return HTTP status and error body
+     */
+    @ExceptionHandler(HostedIngressResolver.SelectionException.class)
+    public ResponseEntity<?> hostedSelectionError(HostedIngressResolver.SelectionException error) {
+        return ResponseEntity.status(error.status()).body(Map.of("type", "error", "error", error.getMessage(),
+                "reason", error.reason()));
+    }
+
+    private AgentCard hostedCard(String agentId, HttpServletRequest request, boolean isDefaultEntry) {
+        var target = hostedResolver.resolveOrDefault(agentId);
+        String base = request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort()
+                + request.getContextPath();
+        return hostedCards.card(target.agentId(), base, isDefaultEntry);
+    }
+
+    private void requireHostedMode() {
+        if (hostedCatalog == null) {
+            throw new HostedIngressResolver.SelectionException(404, "NOT_FOUND", "Not found");
+        }
+    }
+
+    /**
+     * Read-only discovery data; no configuration or execution objects are exposed.
+     */
+    public record HostedAgentsResponse(List<String> agents, String defaultAgent) {
+        public HostedAgentsResponse {
+            agents = List.copyOf(agents);
+        }
     }
 }

@@ -6,6 +6,7 @@ package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 
 import com.openjiuwen.core.foundation.tool.mcp.McpClientProvider;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientProvider;
+import com.openjiuwen.service.adapters.agentcore.agentfw.CoreRunnerLifecycleCoordinator;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalProperties;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreMcpClientDecoratorFactory;
@@ -19,20 +20,22 @@ import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreSandbo
 import com.openjiuwen.service.adapters.agentcore.external.DefaultExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
-import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.adapters.common.autoconfigure.ExternalSecurityAutoConfiguration;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
+import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.context.annotation.Import;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 
 /**
  * Auto-configuration for agent-core external service adapters.
@@ -136,12 +139,28 @@ public class AgentCoreAdaptersAutoConfiguration {
      * @return agent-core-backed service handler bean
      */
     @Bean
-    @ConditionalOnMissingBean(AgentHandler.class)
+    @ConditionalOnMissingBean({AgentHandler.class, HostedAgentDefinitions.class})
     @ConditionalOnExpression(
         "'${openjiuwen.service.agent-id:}' != '' " + "&& '${openjiuwen.service.handler:agentcore}' == 'agentcore'")
     public AgentHandler coreAgentHandler(@Value("${openjiuwen.service.agent-id}") String agentId,
         @Autowired(required = false) MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
         ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         return new JiuwenCoreAgentHandler(agentId, middlewareAdapterRegistrar, externalSvcAdapterRegistrar);
+    }
+
+    /**
+     * Creates the shared Core Runner lifecycle for hosted handlers.
+     *
+     * @param middleware optional middleware registrar
+     * @param external external service adapter registrar
+     * @return shared Runner lifecycle coordinator
+     */
+    @Bean
+    @ConditionalOnBean(HostedAgentDefinitions.class)
+    @ConditionalOnMissingBean(CoreRunnerLifecycleCoordinator.class)
+    public CoreRunnerLifecycleCoordinator hostedCoreRunnerLifecycle(
+            ObjectProvider<MiddlewareAdapterRegistrar> middleware,
+            ExternalSvcAdapterRegistrar external) {
+        return new CoreRunnerLifecycleCoordinator(middleware.getIfAvailable(), external);
     }
 }

@@ -498,7 +498,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             BiConsumer<ClientEvent, AgentCard> eventConsumer, CompletableFuture<RemoteCallOutcome> result) {
         boolean isStreaming = setup.entry.isStreaming() && call.isCallerStreaming();
         try {
-            AtomicReference<Future<?>> invocationTask = new AtomicReference<>(ioExecutor.submit(() -> {
+            AtomicReference<Future<?>> invocationTask = new AtomicReference<>(ioExecutor.submit(
+                    A2APropagationHeaderRegistry.captureInvocation(() -> {
                 // Only failures classified as transient transport failures by
                 // isRetryableTransportFailure (connection failures, remote 5xx) are
                 // replayed with exponential backoff, capped at MAX_RETRY_ATTEMPTS;
@@ -532,7 +533,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                         }
                     }
                 }
-            }));
+            })));
             if (result.isDone()) {
                 invocationTask.get().cancel(true);
             }
