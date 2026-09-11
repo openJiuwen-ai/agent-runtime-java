@@ -68,6 +68,16 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static final String INPUT_MESSAGES = "messages";
 
+    /**
+     * Existing core passthrough key (copied into callback-extra by ReActAgent): carries the
+     * original non-text request parts so delegation rails can resolve raw attachment refs
+     * without core changes.
+     */
+    private static final String INPUT_RUN_CONTEXT = "run_context";
+
+    /** Key inside run_context holding the original non-text parts. */
+    private static final String RUN_CONTEXT_REQUEST_PARTS = "request_parts";
+
     private static final String INPUT_USER_ID = "user_id";
 
     private static final String INPUT_SPACE_ID = "space_id";
@@ -462,10 +472,30 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return inputs;
         }
         String query = request.lastUserQuery();
+        List<Map<String, Object>> requestParts = nonTextParts(request.lastUserParts());
+        if (!requestParts.isEmpty()) {
+            inputs.put(INPUT_RUN_CONTEXT, Map.of(RUN_CONTEXT_REQUEST_PARTS, requestParts));
+        }
         if (query != null && !query.isBlank()) {
             inputs.put(INPUT_QUERY, query);
         }
         return inputs;
+    }
+
+    /**
+     * Filters out text parts; only url/raw/data parts are attachment candidates.
+     *
+     * @param parts normalized message parts
+     * @return non-text parts, or an empty list when none
+     */
+    private static List<Map<String, Object>> nonTextParts(List<Map<String, Object>> parts) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> part : parts) {
+            if (part != null && !"text".equals(part.get("kind"))) {
+                result.add(part);
+            }
+        }
+        return result;
     }
 
     private static Map<String, Object> normalizeInterrupts(List<Map<String, Object>> interrupts) {
