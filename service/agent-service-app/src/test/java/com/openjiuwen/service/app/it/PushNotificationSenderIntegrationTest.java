@@ -35,7 +35,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * Integration journey for runtime-to-runtime push notification delivery.
  */
 @SpringBootTest(classes = TestServiceApplication.class, properties = {
-    "openjiuwen.service.a2a.push-notifications=true"
+    "openjiuwen.service.a2a.push-notifications=true",
+    "openjiuwen.service.a2a.callback-allowed-hosts=127.0.0.1"
 })
 class PushNotificationSenderIntegrationTest {
     @Autowired
@@ -82,23 +83,28 @@ class PushNotificationSenderIntegrationTest {
     }
 
     @Test
-    void springConfiguredSenderPostsCallbackWithoutDeploymentHostTrust() throws Exception {
+    void springConfiguredSenderDoesNotFollowRedirectToUntrustedHost() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/a2a/push-notifications/callback", exchange -> {
             requests.incrementAndGet();
-            respond(exchange, 202, "{\"status\":\"accepted\"}");
+            exchange.getResponseHeaders().add("Location",
+                "http://localhost:" + server.getAddress().getPort() + "/redirected");
+            respond(exchange, 302, "{}");
+        });
+        server.createContext("/redirected", exchange -> {
+            requests.incrementAndGet();
+            respond(exchange, 200, "{}");
         });
         server.start();
         pushConfigStore.setInfo(TaskPushNotificationConfig.builder()
-            .id("push-no-host-trust-runtime")
-            .taskId("task-no-host-trust-runtime")
+            .id("push-redirect-runtime")
+            .taskId("task-redirect-runtime")
             .url(callbackUrl())
             .token("runtime-token")
             .build());
 
-        sender.sendNotification(completedEvent("task-no-host-trust-runtime"),
-            completedTask("task-no-host-trust-runtime"));
+        sender.sendNotification(completedEvent("task-redirect-runtime"), completedTask("task-redirect-runtime"));
 
         assertThat(requests.get()).isEqualTo(1);
     }

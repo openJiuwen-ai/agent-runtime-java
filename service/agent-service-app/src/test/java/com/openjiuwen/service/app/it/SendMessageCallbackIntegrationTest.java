@@ -30,7 +30,8 @@ import java.util.Map;
  */
 @SpringBootTest(classes = TestServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
-        "openjiuwen.service.a2a.push-notifications=true"
+        "openjiuwen.service.a2a.push-notifications=true",
+        "openjiuwen.service.a2a.callback-allowed-hosts=127.0.0.1"
     })
 @AutoConfigureTestRestTemplate
 class SendMessageCallbackIntegrationTest {

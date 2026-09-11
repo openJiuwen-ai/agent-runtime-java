@@ -67,6 +67,8 @@ public class HttpPushNotificationSender implements PushNotificationSender {
 
     private final HttpClient httpClient;
 
+    private final List<String> allowedHosts;
+
     private final ConcurrentMap<String, DeliveryRecord> deliveryRecords = new ConcurrentHashMap<>();
 
     private final ConcurrentMap<String, Object> deliveryLocks = new ConcurrentHashMap<>();
@@ -76,7 +78,11 @@ public class HttpPushNotificationSender implements PushNotificationSender {
     private final Duration configRecheckDelay;
 
     public HttpPushNotificationSender(PushNotificationConfigStore configStore) {
-        this(configStore, newDefaultHttpClient(), CONFIG_RECHECK_DELAY);
+        this(configStore, List.of());
+    }
+
+    public HttpPushNotificationSender(PushNotificationConfigStore configStore, List<String> allowedHosts) {
+        this(configStore, newDefaultHttpClient(), CONFIG_RECHECK_DELAY, allowedHosts);
     }
 
     HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient) {
@@ -85,13 +91,20 @@ public class HttpPushNotificationSender implements PushNotificationSender {
 
     HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient,
             Duration configRecheckDelay) {
+        this(configStore, httpClient, configRecheckDelay, List.of());
+    }
+
+    HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient,
+            Duration configRecheckDelay, List<String> allowedHosts) {
         this.configStore = configStore;
         this.httpClient = httpClient;
         this.configRecheckDelay = configRecheckDelay;
+        this.allowedHosts = List.copyOf(allowedHosts);
     }
 
     static HttpClient newDefaultHttpClient() {
-        return HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+        return HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NEVER).build();
     }
 
     @Override
@@ -113,7 +126,6 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         if (config.get().url() == null || config.get().url().isBlank()) {
             return;
         }
-        Optional<URI> callbackUri = A2aPushNotificationCallbackUrlPolicy.callbackUri(config.get().url());
         String notificationId = notificationId(task.id(), config.get().id());
         sweepExpiredRecords();
         Object deliveryLock = deliveryLocks.computeIfAbsent(notificationId, key -> new Object());
@@ -122,6 +134,8 @@ public class HttpPushNotificationSender implements PushNotificationSender {
             if (record != null && record.isSuccess()) {
                 return;
             }
+            Optional<URI> callbackUri = A2aPushNotificationCallbackUrlPolicy.callbackUri(
+                    config.get().url(), allowedHosts);
             deliver(task, config.get(), callbackUri, notificationId);
         }
     }
@@ -153,7 +167,7 @@ public class HttpPushNotificationSender implements PushNotificationSender {
             String notificationId) {
         if (callbackUri.isEmpty()) {
             record(notificationId, task.id(), config.id(), false, "invalid callback URL");
-            log.warn("Rejected A2A push notification for invalid callback URL {}", config.url());
+            log.warn("Rejected A2A push notification for invalid callback URL, task {}", task.id());
             return;
         }
         HttpRequest request = request(callbackUri.get(), notificationId, config, callbackBody(notificationId, task));
