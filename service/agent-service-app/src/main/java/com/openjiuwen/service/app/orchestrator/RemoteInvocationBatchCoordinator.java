@@ -19,8 +19,8 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.server.tasks.TaskStore;
-import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Artifact;
+import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
@@ -105,6 +105,8 @@ final class RemoteInvocationBatchCoordinator {
 
     private final Consumer<ServeRequest> continuation;
 
+    private final RemoteInvocationDispatcher dispatcher;
+
     /**
      * Creates a coordinator with a global bounded dispatcher.
      *
@@ -123,6 +125,23 @@ final class RemoteInvocationBatchCoordinator {
 
     RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId, int maxConcurrency,
             int maxQueueSize, long queueTimeoutSeconds, Consumer<ServeRequest> continuation) {
+        this(taskStore, client, agentId == null || agentId.isBlank() ? "agent" : agentId,
+                createDispatcher(maxConcurrency, maxQueueSize, queueTimeoutSeconds), continuation);
+    }
+
+    RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId,
+            RemoteInvocationDispatcher dispatcher, Consumer<ServeRequest> continuation) {
+        this.taskStore = taskStore;
+        this.client = client;
+        this.agentId = agentId;
+        this.queueTimeout = dispatcher.queueTimeout();
+        this.dispatcher = dispatcher;
+        this.state = new RemoteInvocationCoordinatorState(dispatcher);
+        this.continuation = continuation;
+    }
+
+    private static RemoteInvocationDispatcher createDispatcher(int maxConcurrency, int maxQueueSize,
+            long queueTimeoutSeconds) {
         if (maxConcurrency <= 0) {
             throw new IllegalArgumentException("maxConcurrency must be greater than zero");
         }
@@ -132,12 +151,11 @@ final class RemoteInvocationBatchCoordinator {
         if (queueTimeoutSeconds <= 0) {
             throw new IllegalArgumentException("queueTimeoutSeconds must be greater than zero");
         }
-        this.taskStore = taskStore;
-        this.client = client;
-        this.agentId = agentId == null || agentId.isBlank() ? "agent" : agentId;
-        this.queueTimeout = Duration.ofSeconds(queueTimeoutSeconds);
-        this.state = new RemoteInvocationCoordinatorState(maxConcurrency, maxQueueSize, queueTimeout);
-        this.continuation = continuation;
+        return new RemoteInvocationDispatcher(maxConcurrency, maxQueueSize, Duration.ofSeconds(queueTimeoutSeconds));
+    }
+
+    void stopDispatching() {
+        logExpiredInvocations(dispatcher.stopOwner(this));
     }
 
     /**
@@ -162,7 +180,7 @@ final class RemoteInvocationBatchCoordinator {
             return conflict.get();
         }
         for (Member member : batch.members) {
-            submit(new PendingInvocation(batch, member));
+            submit(new PendingInvocation(batch, member, this));
         }
         return batch.completion;
     }
@@ -327,7 +345,7 @@ final class RemoteInvocationBatchCoordinator {
             return Optional.of(CompletableFuture
                     .failedFuture(new IllegalStateException("REMOTE_BATCH_ALREADY_ACTIVE: " + parentTaskId)));
         }
-        selected.forEach(member -> submit(new PendingInvocation(batch, member)));
+        selected.forEach(member -> submit(new PendingInvocation(batch, member, this)));
         return Optional.of(batch.completion);
     }
 
@@ -365,10 +383,14 @@ final class RemoteInvocationBatchCoordinator {
     }
 
     private void start(PendingInvocation invocation) {
-        Member member = invocation.member();
+        if (invocation.owner() != this) {
+            invocation.owner().start(invocation);
+            return;
+        }
         RemoteInvocationBatch batch = invocation.batch();
         if (!state.prepareStart(invocation)) {
             startNextQueuedAfterReleasedSlot();
+            finishBatchIfSettled(batch);
             return;
         }
         Map<String, Object> metadata = outboundMetadata(batch.request.getMetadata());
@@ -376,6 +398,7 @@ final class RemoteInvocationBatchCoordinator {
         if (userId != null && !userId.isBlank() && !metadata.containsKey("userId")) {
             metadata.put("userId", userId);
         }
+        Member member = invocation.member();
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
                 optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
                 batch.request.isStream(), member.parts);
@@ -413,6 +436,10 @@ final class RemoteInvocationBatchCoordinator {
 
     private void logExpiredInvocations(List<PendingInvocation> expired) {
         for (PendingInvocation candidate : expired) {
+            if (candidate.owner() != this) {
+                candidate.owner().logExpiredInvocations(List.of(candidate));
+                continue;
+            }
             if (state.isResolved(candidate.batch())) {
                 continue;
             }
@@ -655,10 +682,7 @@ final class RemoteInvocationBatchCoordinator {
 
     private void startNextQueuedAfterReleasedSlot() {
         Dispatch dispatch = state.dispatchAfterSlotRelease();
-        for (PendingInvocation candidate : dispatch.expired()) {
-            logMemberState(candidate.batch(), candidate.member());
-            finishBatchIfSettled(candidate.batch());
-        }
+        logExpiredInvocations(dispatch.expired());
         PendingInvocation next = dispatch.next();
         if (next != null) {
             logMemberState(next.batch(), next.member());

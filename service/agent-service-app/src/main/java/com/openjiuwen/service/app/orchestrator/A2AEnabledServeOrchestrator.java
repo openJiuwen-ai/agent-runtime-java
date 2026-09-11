@@ -128,6 +128,34 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
             continuation == null ? request -> { } : continuation::submit);
     }
 
+    /**
+     * Creates a target-local orchestrator with a process-owned dispatch budget.
+     *
+     * @param agentHandler original registered handler
+     * @param taskStore target's final task store
+     * @param remoteAgentCaller target-bound wrapper over the shared remote client
+     * @param streamRegistry target-local cancellation registry
+     * @param agentId stable registration identifier
+     * @param dispatcher process-wide running and queue budget
+     * @param continuation target-local continuation
+     */
+    public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
+            RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
+            RemoteInvocationDispatcher dispatcher, A2ATaskContinuation continuation) {
+        this.agentHandler = agentHandler;
+        this.taskStore = taskStore;
+        this.streamRegistry = streamRegistry;
+        this.batchCoordinator = new RemoteInvocationBatchCoordinator(taskStore, remoteAgentCaller, agentId,
+                dispatcher, continuation::submit);
+    }
+
+    /**
+     * Stops this instance's pending dispatches without releasing other targets' resources.
+     */
+    public void stopDispatching() {
+        batchCoordinator.stopDispatching();
+    }
+
     @Override
     public QueryResponse query(ServeRequest request) {
         log.info("Orchestrator query START conversationId={}", request.getConversationId());

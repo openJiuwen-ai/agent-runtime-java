@@ -7,11 +7,16 @@ package com.openjiuwen.service.app.config;
 import com.openjiuwen.service.adapters.common.security.ExternalTlsConfig;
 import com.openjiuwen.service.spec.part.A2aPartLimits;
 
+import lombok.AccessLevel;
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Binds {@code openjiuwen.service.a2a.*} for AgentCard content, remote agents,
@@ -60,6 +65,9 @@ public class A2AProperties {
 
     private List<RemoteAgentProperties> remoteAgents = List.of();
 
+    /** Card-only overrides keyed by identifiers declared in HostedAgentDefinitions. */
+    private Map<String, HostedCardProperties> agents = new LinkedHashMap<>();
+
     private String jsonRpcPath = "/a2a";
 
     private int taskCompletionTimeoutSeconds = 300;
@@ -105,6 +113,74 @@ public class A2AProperties {
         private int maxQueueSize = 256;
 
         private long queueTimeoutSeconds = 30L;
+    }
+
+    /** Optional per-target Card fields; no execution or infrastructure overrides. */
+    @Data
+    public static class HostedCardProperties {
+        private String agentName;
+
+        private String agentDescription;
+
+        private String version;
+
+        private String providerOrganization;
+
+        private String providerUrl;
+
+        private String documentationUrl;
+
+        private String iconUrl;
+
+        private List<String> defaultInputModes;
+
+        private List<String> defaultOutputModes;
+
+        private List<SkillProperties> skills = List.of();
+
+        @Getter(AccessLevel.NONE)
+        @Setter(AccessLevel.NONE)
+        private Boolean isStreaming;
+
+        @Getter(AccessLevel.NONE)
+        @Setter(AccessLevel.NONE)
+        private Boolean isPushNotifications;
+
+        /**
+         * Returns the instance's streaming capability override.
+         *
+         * @return override, or null to inherit the global setting
+         */
+        public Boolean getStreaming() {
+            return isStreaming;
+        }
+
+        /**
+         * Sets the instance's streaming capability override.
+         *
+         * @param isStreaming override, or null to inherit the global setting
+         */
+        public void setStreaming(Boolean isStreaming) {
+            this.isStreaming = isStreaming;
+        }
+
+        /**
+         * Returns the instance's push notification capability override.
+         *
+         * @return override, or null to inherit the global setting
+         */
+        public Boolean getPushNotifications() {
+            return isPushNotifications;
+        }
+
+        /**
+         * Sets the instance's push notification capability override.
+         *
+         * @param isPushNotifications override, or null to inherit the global setting
+         */
+        public void setPushNotifications(Boolean isPushNotifications) {
+            this.isPushNotifications = isPushNotifications;
+        }
     }
 
     /**

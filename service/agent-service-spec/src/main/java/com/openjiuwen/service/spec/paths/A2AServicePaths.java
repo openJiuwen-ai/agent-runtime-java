@@ -28,6 +28,18 @@ public final class A2AServicePaths {
     /** Fixed A2A push notification callback receiver path */
     public static final String A2A_PUSH_NOTIFICATION_CALLBACK = "/a2a/push-notifications/callback";
 
+    /** Hosted agent discovery list. */
+    public static final String HOSTED_AGENTS = "/a2a/agents";
+
+    /** Hosted JSON-RPC entry; ID syntax is checked after protocol authorization. */
+    public static final String HOSTED_AGENT_RPC = HOSTED_AGENTS + "/{agentId}";
+
+    /** Card for one registered agent. */
+    public static final String HOSTED_AGENT_CARD = HOSTED_AGENT_RPC + WELL_KNOWN_AGENT_CARD;
+
+    /** Callback bound to the local agent that initiated a remote invocation. */
+    public static final String HOSTED_AGENT_CALLBACK = A2A_PUSH_NOTIFICATION_CALLBACK + "/{agentId}";
+
     private A2AServicePaths() {
     }
 }
