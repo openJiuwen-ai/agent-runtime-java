@@ -12,10 +12,10 @@ import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.hosting.HostedSharedLifecycle;
 
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -48,7 +48,7 @@ public final class CoreRunnerLifecycleCoordinator implements HostedSharedLifecyc
             throw new IllegalStateException("Shared Core Runner has already been prepared or stopped");
         }
         List<JiuwenCoreAgentHandler> handlers = new ArrayList<>();
-        Map<Object, String> agents = new IdentityHashMap<>();
+        Set<Object> seenAgents = Collections.newSetFromMap(new IdentityHashMap<>());
         Set<String> references = new HashSet<>();
         for (var entry : definitions.entries()) {
             if (entry.handler() instanceof JiuwenCoreAgentHandler handler) {
@@ -58,7 +58,7 @@ public final class CoreRunnerLifecycleCoordinator implements HostedSharedLifecyc
                     throw new IllegalStateException("Hosted Core handler has no agent: " + entry.agentId());
                 }
                 boolean isDuplicate = agent instanceof String reference ? !references.add(reference)
-                        : agents.put(agent, entry.agentId()) != null;
+                        : !seenAgents.add(agent);
                 if (isDuplicate) {
                     throw new IllegalStateException("Core agent object is hosted more than once: " + entry.agentId());
                 }
