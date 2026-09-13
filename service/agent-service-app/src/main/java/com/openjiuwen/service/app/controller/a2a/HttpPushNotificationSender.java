@@ -89,6 +89,11 @@ public class HttpPushNotificationSender implements PushNotificationSender {
         this(configStore, httpClient, CONFIG_RECHECK_DELAY);
     }
 
+    public HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient,
+            List<String> allowedHosts) {
+        this(configStore, httpClient, CONFIG_RECHECK_DELAY, allowedHosts);
+    }
+
     HttpPushNotificationSender(PushNotificationConfigStore configStore, HttpClient httpClient,
             Duration configRecheckDelay) {
         this(configStore, httpClient, configRecheckDelay, List.of());

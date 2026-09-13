@@ -18,6 +18,7 @@ import com.openjiuwen.service.spec.security.AuthorizationResult;
 import com.openjiuwen.service.spec.security.FineGrainedAuthorizer;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+import com.sun.net.httpserver.HttpServer;
 
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.server.tasks.InMemoryPushNotificationConfigStore;
@@ -44,11 +45,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Verifies per-target callback authorization, deduplication and selection.
@@ -58,6 +64,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @SpringBootTest(classes = HostedCallbackContractTest.Application.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
                 "spring.application.name=hosted-callback-test", "openjiuwen.service.a2a.push-notifications=true",
+                "openjiuwen.service.a2a.callback-allowed-hosts=127.0.0.1",
                 "openjiuwen.service.a2a.agents.a.push-notifications=false",
                 "openjiuwen.service.security.enabled=true", "openjiuwen.service.security.auth.enabled=true"})
 @AutoConfigureTestRestTemplate
@@ -90,7 +97,8 @@ class HostedCallbackContractTest {
             remoteConfigs.setInfo(TaskPushNotificationConfig.builder()
                     .id(id).taskId("remote-" + id).url("http://127.0.0.1:" + port + path).token(TEST_TOKEN).build());
             Task task = remoteTask(id, "result-" + target.agentId());
-            new HttpPushNotificationSender(remoteConfigs).sendNotification(TaskStatusUpdateEvent.builder()
+            new HttpPushNotificationSender(remoteConfigs, List.of("127.0.0.1"))
+                    .sendNotification(TaskStatusUpdateEvent.builder()
                     .taskId(task.id()).contextId(task.contextId()).status(task.status()).build(), task);
             await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
                 Task parent = target.taskStore().get(id);
@@ -106,6 +114,41 @@ class HostedCallbackContractTest {
         // The default Card disables push, but this must not gate the other target's callback.
         assertThat(rest.getForObject("/.well-known/agent-card.json", String.class))
                 .contains("\"pushNotifications\":false");
+    }
+
+    @Test
+    void hostedSenderUsesConfiguredCallbackAllowlist() throws Exception {
+        HttpServer receiver = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        CountDownLatch received = new CountDownLatch(1);
+        AtomicReference<String> authorization = new AtomicReference<>();
+        AtomicReference<String> callbackBody = new AtomicReference<>();
+        receiver.createContext("/callback", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            callbackBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+            received.countDown();
+        });
+        receiver.start();
+        try {
+            String id = UUID.randomUUID().toString();
+            String url = "http://127.0.0.1:" + receiver.getAddress().getPort() + "/callback";
+            var request = Map.of("jsonrpc", "2.0", "id", id, "method", "SendMessage", "params",
+                    Map.of("message", Map.of("role", "ROLE_USER", "messageId", id, "contextId", id,
+                            "parts", List.of(Map.of("text", "hello"))), "pushNotificationConfig",
+                            Map.of("id", id, "callbackUrl", url, "token", TEST_TOKEN)));
+            var response = post("/a2a/agents/b", request, true);
+            assertThat(response.getStatusCode().value()).isEqualTo(200);
+            var body = mapper.readTree(response.getBody());
+            assertThat(body.has("error")).as(response.getBody()).isFalse();
+            assertThat(received.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(authorization.get()).isEqualTo("Bearer " + TEST_TOKEN);
+            var delivered = mapper.readTree(callbackBody.get()).path("result").path("task");
+            assertThat(delivered.path("id").asText()).isEqualTo(body.path("result").path("task").path("id").asText());
+            assertThat(delivered.path("status").path("state").asText()).isEqualTo("TASK_STATE_COMPLETED");
+        } finally {
+            receiver.stop(0);
+        }
     }
 
     @Test
