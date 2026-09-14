@@ -71,7 +71,8 @@ class HostedPushJourneyTest {
                 var callee = new SpringApplicationBuilder(CalleeApplication.class).web(WebApplicationType.SERVLET)
                         .registerShutdownHook(false).properties("server.port=0",
                                 "spring.application.name=hosted-push-callee", "logging.level.root=WARN",
-                                "openjiuwen.service.a2a.push-notifications=true").run()) {
+                                "openjiuwen.service.a2a.push-notifications=true",
+                                "openjiuwen.service.a2a.callback-allowed-hosts=127.0.0.1").run()) {
             var remote = callee.getBean(RemoteHandler.class);
             try {
                 verifyJourney(caller, callee, port, remote);

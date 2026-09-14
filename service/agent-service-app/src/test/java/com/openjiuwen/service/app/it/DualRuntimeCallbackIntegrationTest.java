@@ -86,7 +86,8 @@ class DualRuntimeCallbackIntegrationTest {
     @BeforeEach
     void startCallee() {
         callee = new SpringApplicationBuilder(CalleeRuntimeApplication.class).properties("server.port=0",
-                "spring.application.name=callee-it", "openjiuwen.service.a2a.push-notifications=true").run();
+                "spring.application.name=callee-it", "openjiuwen.service.a2a.push-notifications=true",
+                "openjiuwen.service.a2a.callback-allowed-hosts=127.0.0.1").run();
         registry.register("callee", card(calleePort()), 5, false);
     }
 

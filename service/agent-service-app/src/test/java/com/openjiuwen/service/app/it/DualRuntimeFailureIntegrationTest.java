@@ -87,7 +87,8 @@ class DualRuntimeFailureIntegrationTest {
     @BeforeEach
     void startCallee() {
         callee = new SpringApplicationBuilder(FailingCalleeRuntimeApplication.class).properties("server.port=0",
-                "spring.application.name=callee-failure-it", "openjiuwen.service.a2a.push-notifications=true").run();
+                "spring.application.name=callee-failure-it", "openjiuwen.service.a2a.push-notifications=true",
+                "openjiuwen.service.a2a.callback-allowed-hosts=127.0.0.1").run();
         failingCallee = callee.getBean(FailingCalleeHandler.class);
         registry.register("failing-callee", card(calleePort()), 5, false);
     }

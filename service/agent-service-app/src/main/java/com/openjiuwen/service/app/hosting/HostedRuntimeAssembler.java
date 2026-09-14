@@ -118,7 +118,8 @@ public final class HostedRuntimeAssembler {
                 dependencies.admissionGate(), listener);
         localExecutor.set(executor);
         var pushConfigs = new InMemoryPushNotificationConfigStore();
-        var sender = new HttpPushNotificationSender(pushConfigs, dependencies.httpClient());
+        var sender = new HttpPushNotificationSender(pushConfigs, dependencies.httpClient(),
+                dependencies.properties().getCallbackAllowedHosts());
         var processor = A2AAutoConfiguration.createEventProcessor(bus, store, sender, queues);
         var sdkHandler = new DefaultRequestHandler(executor, store, queues, pushConfigs, processor,
                 dependencies.resources().agentExecutor(), dependencies.resources().eventConsumerExecutor());
