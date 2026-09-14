@@ -70,8 +70,7 @@ final class A2aPushNotificationCallbackUrlPolicy {
     }
 
     private static boolean hasValidComponents(URI uri) {
-        return uri.getRawUserInfo() == null && uri.getRawFragment() == null
-                && uri.getPort() != 0 && uri.getPort() <= 65535;
+        return uri.getRawUserInfo() == null && uri.getPort() != 0 && uri.getPort() <= 65535;
     }
 
     private static boolean isPublicAddress(InetAddress address) {

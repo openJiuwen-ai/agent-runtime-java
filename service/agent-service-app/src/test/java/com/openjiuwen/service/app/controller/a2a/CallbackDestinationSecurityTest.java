@@ -61,7 +61,7 @@ class CallbackDestinationSecurityTest {
     @Test
     void acceptsPublicDestinations() {
         for (String url : List.of("http://" + ipv4(203, 0, 113, 10) + "/callback",
-            "https://" + ipv4(203, 0, 113, 10) + ":8443/callback?event=done",
+            "https://" + ipv4(203, 0, 113, 10) + ":8443/callback?event=done#fragment",
             "https://[2001:db8::1]/callback", "http://" + ipv4(172, 32, 0, 1) + "/callback")) {
             assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri(url, List.of())).isPresent();
         }
@@ -71,7 +71,7 @@ class CallbackDestinationSecurityTest {
     void allowlistDoesNotBypassUrlValidation() {
         String loopback = ipv4(127, 0, 0, 1);
         for (String url : List.of("file:///tmp/callback", "/callback", "ftp://" + loopback + "/callback",
-            "http://secret@" + loopback + "/callback", "http://" + loopback + "/callback#fragment",
+            "http://secret@" + loopback + "/callback",
             "http://" + loopback + ":0/callback", "http://" + loopback + ":65536/callback")) {
             assertThat(A2aPushNotificationCallbackUrlPolicy.callbackUri(url, List.of(loopback))).isEmpty();
         }

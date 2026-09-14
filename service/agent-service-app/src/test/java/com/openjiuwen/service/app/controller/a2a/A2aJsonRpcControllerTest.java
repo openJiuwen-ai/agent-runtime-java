@@ -314,7 +314,7 @@ class A2aJsonRpcControllerTest {
                   },
                   "pushNotificationConfig": {
                    "id": "push-1",
-                   "callbackUrl": "https://8.8.8.8/a2a/push-notifications/callback"
+                   "callbackUrl": "https://192.0.2.1/a2a/push-notifications/callback"
                   }
                  }
                 }

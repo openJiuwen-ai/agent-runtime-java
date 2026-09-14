@@ -71,7 +71,7 @@ class PushNotificationSenderTest {
         when(response.statusCode()).thenReturn(200);
         when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
         HttpPushNotificationSender sender = new HttpPushNotificationSender(
-                configStore("https://8.8.8.8/a2a/push-notifications/callback", null), httpClient);
+                configStore("https://192.0.2.1/a2a/push-notifications/callback", null), httpClient);
 
         sender.sendNotification(completedEvent("task-1"), completedTask("task-1"));
 
