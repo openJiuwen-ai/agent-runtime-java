@@ -12,11 +12,13 @@ import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * REST controller exposing the current active task load snapshot
@@ -44,15 +46,37 @@ public class ActiveTaskController {
     /**
      * Returns the current active task snapshot.
      *
-     * @return 200 with snapshot JSON, or degraded response when no query bean
+     * @return the process snapshot, or a degraded response when no query bean is available
+     */
+    public ResponseEntity<?> getCurrentActTask() {
+        return getCurrentActTask(null);
+    }
+
+    /**
+     * Returns the current active task snapshot, optionally restricted to one agent.
+     *
+     * @param agentId optional hosted registration ID; absent selects the process snapshot
+     * @return 200 with the snapshot, 400 for a blank ID, or 404 when the agent snapshot is unavailable
      */
     @GetMapping(AgentServicePaths.CURRENT_ACTIVE_TASKS)
-    public ResponseEntity<?> getCurrentActTask() {
+    public ResponseEntity<?> getCurrentActTask(
+            @RequestParam(name = "agentId", required = false) String agentId) {
+        if (agentId != null && agentId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "agentId must not be blank"));
+        }
         ActiveTaskQuery query = queryProvider != null ? queryProvider.getIfAvailable() : null;
         if (query == null) {
+            if (agentId != null) {
+                return ResponseEntity.notFound().build();
+            }
             return ResponseEntity.ok(degradedBody());
         }
-        ConcurrencyLoadSnapshot snapshot = query.snapshot();
+        Optional<ConcurrencyLoadSnapshot> selected = agentId == null
+                ? Optional.of(query.snapshot()) : query.snapshot(agentId);
+        if (selected.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        ConcurrencyLoadSnapshot snapshot = selected.get();
         return ResponseEntity.ok(snapshotBody(snapshot));
     }
 
