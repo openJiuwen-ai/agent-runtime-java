@@ -126,7 +126,7 @@ final class MemoryLifecycleAgentHandler implements AgentHandler {
         }
         try {
             initializeProvider(scope);
-            String memoryContext = memoryProvider.prefetch(query, scope);
+            String memoryContext = memoryProvider.prefetch(query, scope).join();
             return memoryContext != null ? memoryContext.trim() : "";
         } catch (ExternalSvcAdapterException | IllegalArgumentException | IllegalStateException
                  | UnsupportedOperationException ex) {

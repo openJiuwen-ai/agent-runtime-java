@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Bridges runtime {@link MemoryStore} into core {@link MemoryProvider} lifecycle hooks.
@@ -27,14 +28,14 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
-public class MemoryStoreMemoryProvider implements MemoryProvider {
+public class MemoryStoreMemoryProvider extends MemoryProvider {
     private static final int DEFAULT_PREFETCH_TOP_K = 5;
 
     private final MemoryStore memoryStore;
 
     private final MiddlewareProperties.Memory memory;
 
-    private boolean hasInitialized;
+    private volatile boolean hasInitialized;
 
     /**
      * Creates a memory provider bridge.
@@ -61,8 +62,9 @@ public class MemoryStoreMemoryProvider implements MemoryProvider {
     }
 
     @Override
-    public void initialize(Map<String, Object> kwargs) {
+    public CompletableFuture<Void> initialize(Map<String, Object> kwargs) {
         hasInitialized = true;
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override
@@ -71,35 +73,37 @@ public class MemoryStoreMemoryProvider implements MemoryProvider {
     }
 
     @Override
-    public String handleToolCall(String toolName, Map<String, Object> args) {
-        return "{\"error\":\"MemoryStoreMemoryProvider does not expose memory tools\"}";
+    public CompletableFuture<String> handleToolCall(String toolName, Map<String, Object> args) {
+        return CompletableFuture.completedFuture(
+            "{\"error\":\"MemoryStoreMemoryProvider does not expose memory tools\"}");
     }
 
     @Override
-    public String prefetch(String query, Map<String, Object> kwargs) {
+    public CompletableFuture<String> prefetch(String query, Map<String, Object> kwargs) {
         if (!isAvailable() || query == null || query.isBlank()) {
-            return "";
+            return CompletableFuture.completedFuture("");
         }
         MemorySearchRequest request = new MemorySearchRequest(resolveScope(kwargs), query, DEFAULT_PREFETCH_TOP_K,
             memory.isRerank(), options("prefetch", kwargs));
         List<MemoryRecord> records = memoryStore.search(request);
-        return formatPrefetch(records);
+        return CompletableFuture.completedFuture(formatPrefetch(records));
     }
 
     @Override
-    public void syncTurn(String userMsg, String assistantMsg, Map<String, Object> kwargs) {
+    public CompletableFuture<Void> syncTurn(String userMsg, String assistantMsg, Map<String, Object> kwargs) {
         if (!isAvailable()) {
-            return;
+            return CompletableFuture.completedFuture(null);
         }
         List<MemoryMessage> messages = new ArrayList<>();
         addMessage(messages, "user", userMsg);
         addMessage(messages, "assistant", assistantMsg);
         if (messages.isEmpty()) {
-            return;
+            return CompletableFuture.completedFuture(null);
         }
         Map<String, Object> options = options("sync_turn", kwargs);
         options.put("infer", true);
         memoryStore.add(new MemoryAddRequest(resolveScope(kwargs), messages, options));
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override

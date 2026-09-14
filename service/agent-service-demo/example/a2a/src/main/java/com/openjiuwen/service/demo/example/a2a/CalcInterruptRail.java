@@ -9,9 +9,7 @@ import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
 import com.openjiuwen.core.foundation.llm.schema.ToolCall;
 import com.openjiuwen.core.foundation.tool.ToolCard;
-import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.rail.AgentCallbackContext;
-import com.openjiuwen.harness.rails.interrupt.BaseInterruptRail;
 import com.openjiuwen.harness.rails.interrupt.InterruptDecision;
 
 import java.lang.reflect.Type;
@@ -29,7 +27,7 @@ import java.util.regex.Pattern;
  *
  * @since 0.1.0
  */
-public class CalcInterruptRail extends BaseInterruptRail {
+public class CalcInterruptRail extends A2aInterruptRail {
     private static final Gson GSON = new Gson();
 
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
@@ -47,15 +45,17 @@ public class CalcInterruptRail extends BaseInterruptRail {
             "stop");
 
     public CalcInterruptRail() {
-        super(List.of(TOOL_NAME));
-        ToolCard card = ToolCard.builder().id(TOOL_NAME).name(TOOL_NAME)
+        super(List.of(TOOL_NAME), List.of(calcCard()));
+    }
+
+    private static ToolCard calcCard() {
+        return ToolCard.builder().id(TOOL_NAME).name(TOOL_NAME)
                 .description("Ask for confirmation, then evaluate a binary arithmetic expression using +, -, *, or /.")
                 .inputParams(Map.of("type", "object", "properties",
                         Map.of("expression",
                                 Map.of("type", "string", "description", "The math expression to evaluate, e.g. '1+1'")),
                         "required", List.of("expression")))
                 .build();
-        getTools().add(card);
     }
 
     @Override
@@ -76,10 +76,9 @@ public class CalcInterruptRail extends BaseInterruptRail {
     }
 
     private InterruptDecision requestConfirmation(String expression) {
-        var request = InterruptRequest.builder().message(
-                "Agent B is ready to calculate " + displayExpression(expression) + ". Continue? Reply yes or no.")
-                .context(Map.of("_interrupt_kind", "ask_user")).build();
-        return interrupt(request);
+        return interrupt(buildInterruptRequest(
+                "Agent B is ready to calculate " + displayExpression(expression) + ". Continue? Reply yes or no.",
+                Map.of("_interrupt_kind", "ask_user")));
     }
 
     private static String calculate(String expression) {

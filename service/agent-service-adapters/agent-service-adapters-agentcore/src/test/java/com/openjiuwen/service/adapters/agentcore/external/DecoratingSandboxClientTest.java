@@ -7,7 +7,11 @@ package com.openjiuwen.service.adapters.agentcore.external;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.openjiuwen.core.sysop.BaseCodeOperation.CodeLanguage;
+import com.openjiuwen.core.sysop.BaseFsOperation.FileMode;
+import com.openjiuwen.core.sysop.BaseShellOperation.ShellType;
 import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
+import com.openjiuwen.core.sysop.protocal.BaseFsProtocal.LineRange;
 import com.openjiuwen.core.sysop.result.ExecuteCmdResult;
 import com.openjiuwen.core.sysop.result.ExecuteCodeResult;
 import com.openjiuwen.core.sysop.result.ReadFileResult;
@@ -22,6 +26,7 @@ import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterExcepti
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -39,8 +44,8 @@ class DecoratingSandboxClientTest {
 
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
-        assertThat(client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of())).isInstanceOf(
-            ReadFileResult.class);
+        assertThat(client.fs().readFile("/tmp/a.txt", FileMode.TEXT, null, null, null, "UTF-8", 0, Map.of()).join())
+            .isInstanceOf(ReadFileResult.class);
         assertThat(delegate.fs.readFileAttempts).isEqualTo(2);
     }
 
@@ -55,7 +60,8 @@ class DecoratingSandboxClientTest {
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
         long startNanos = System.nanoTime();
-        ReadFileResult result = client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of());
+        ReadFileResult result = client.fs()
+            .readFile("/tmp/a.txt", FileMode.TEXT, null, null, null, "UTF-8", 0, Map.of()).join();
         long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
 
         assertThat(result.getCode()).isZero();
@@ -73,7 +79,8 @@ class DecoratingSandboxClientTest {
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
         assertThatThrownBy(() -> client.fs()
-            .writeFile("/tmp/a.txt", "content", "text", false, false, true, null, "UTF-8", Map.of())).isInstanceOf(
+            .writeFile("/tmp/a.txt", "content", FileMode.TEXT, false, false, true, false, "644", "UTF-8", Map.of()))
+            .isInstanceOf(
                 ExternalSvcAdapterException.class)
             .extracting("errorCode")
             .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
@@ -131,12 +138,14 @@ class DecoratingSandboxClientTest {
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
         assertThatThrownBy(
-            () -> client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of())).isInstanceOf(
+            () -> client.fs().readFile("/tmp/a.txt", FileMode.TEXT, null, null, null, "UTF-8", 0, Map.of())
+                .join()).isInstanceOf(
                 ExternalSvcAdapterException.class)
             .extracting("errorCode")
             .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_OUTBOUND_CALL_FAILED);
         assertThatThrownBy(
-            () -> client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of())).isInstanceOf(
+            () -> client.fs().readFile("/tmp/a.txt", FileMode.TEXT, null, null, null, "UTF-8", 0, Map.of())
+                .join()).isInstanceOf(
                 ExternalSvcAdapterException.class)
             .extracting("errorCode")
             .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_CIRCUIT_OPEN);
@@ -153,7 +162,8 @@ class DecoratingSandboxClientTest {
         SandboxClient client = new DecoratingSandboxClient("sandbox-1", delegate, policy);
 
         assertThatThrownBy(
-            () -> client.fs().readFile("/tmp/a.txt", "text", null, null, null, "UTF-8", 0, Map.of())).isInstanceOf(
+            () -> client.fs().readFile("/tmp/a.txt", FileMode.TEXT, null, null, null, "UTF-8", 0, Map.of())
+                .join()).isInstanceOf(
                 ExternalSvcAdapterException.class)
             .extracting("errorCode")
             .isEqualTo(ExternalSvcAdapterErrorCode.SANDBOX_TIMEOUT);
@@ -211,25 +221,32 @@ class DecoratingSandboxClientTest {
         }
 
         @Override
-        public ReadFileResult readFile(String path, String mode, Integer head, Integer tail, int[] lineRange,
-            String encoding, int chunkSize, Map<String, Object> options) {
+        public CompletableFuture<ReadFileResult> readFile(String path, FileMode mode, Integer head, Integer tail,
+            LineRange lineRange, String encoding, int chunkSize, Map<String, Object> options) {
             readFileAttempts++;
             sleep(readFileSleepMs);
             if (readFileAttempts <= failReadFileAttempts) {
                 throw new IllegalStateException("read boom");
             }
-            return new ReadFileResult(0, "ok", null);
+            ReadFileResult result = new ReadFileResult();
+            result.setCode(0);
+            result.setMessage("ok");
+            return CompletableFuture.completedFuture(result);
         }
 
         @Override
-        public WriteFileResult writeFile(String path, Object content, String mode, boolean shouldPrependNewline,
-            boolean shouldAppendNewline, boolean shouldCreate, String permissions, String encoding,
+        public CompletableFuture<WriteFileResult> writeFile(String path, String content, FileMode mode,
+            boolean shouldPrependNewline, boolean shouldAppendNewline, boolean shouldAppend,
+            boolean shouldCreateIfMissing, String permissions, String encoding,
             Map<String, Object> options) {
             writeFileAttempts++;
             if (writeFileAttempts <= failWriteFileAttempts) {
                 throw new IllegalStateException("write boom");
             }
-            return new WriteFileResult(0, "ok", null);
+            WriteFileResult result = new WriteFileResult();
+            result.setCode(0);
+            result.setMessage("ok");
+            return CompletableFuture.completedFuture(result);
         }
 
         private void sleep(long millis) {
@@ -259,14 +276,17 @@ class DecoratingSandboxClientTest {
         }
 
         @Override
-        public ExecuteCmdResult executeCmd(String command, String cwd, int timeout, Map<String, String> environment,
-            Map<String, Object> options) {
+        public CompletableFuture<ExecuteCmdResult> executeCmd(String command, String cwd, Integer timeout,
+            Map<String, String> environment, Map<String, Object> options, ShellType shellType) {
             executeCmdAttempts++;
             lastExecuteCmdTimeout = timeout;
             if (executeCmdAttempts <= failExecuteCmdAttempts) {
                 throw new IllegalStateException("shell boom");
             }
-            return new ExecuteCmdResult(0, "ok", null);
+            ExecuteCmdResult result = new ExecuteCmdResult();
+            result.setCode(0);
+            result.setMessage("ok");
+            return CompletableFuture.completedFuture(result);
         }
     }
 
@@ -282,14 +302,17 @@ class DecoratingSandboxClientTest {
         }
 
         @Override
-        public ExecuteCodeResult executeCode(String code, String language, int timeout, Map<String, String> environment,
-            Map<String, Object> options) {
+        public CompletableFuture<ExecuteCodeResult> executeCode(String code, CodeLanguage language, int timeout,
+            Map<String, String> environment, String cwd, Map<String, Object> options) {
             executeCodeAttempts++;
             lastExecuteCodeTimeout = timeout;
             if (executeCodeAttempts <= failExecuteCodeAttempts) {
                 throw new IllegalStateException("code boom");
             }
-            return new ExecuteCodeResult(0, "ok", null);
+            ExecuteCodeResult result = new ExecuteCodeResult();
+            result.setCode(0);
+            result.setMessage("ok");
+            return CompletableFuture.completedFuture(result);
         }
     }
 }

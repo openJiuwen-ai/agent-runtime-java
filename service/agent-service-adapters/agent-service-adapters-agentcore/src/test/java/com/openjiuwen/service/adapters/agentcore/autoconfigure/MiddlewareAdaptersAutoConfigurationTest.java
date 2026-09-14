@@ -7,6 +7,7 @@ package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
@@ -35,8 +36,8 @@ class MiddlewareAdaptersAutoConfigurationTest {
     void registersMiddlewareAdapterRegistrarAndAppliesRunnerConfig() {
         contextRunner.run(context -> {
             assertThat(context).hasSingleBean(MiddlewareAdapterRegistrar.class);
-            Map<String, Object> checkpointerConfig = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
-            assertThat(checkpointerConfig.get("type")).isEqualTo("in_memory");
+            CheckpointerConfig checkpointerConfig = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
+            assertThat(checkpointerConfig.getType()).isEqualTo("in_memory");
         });
     }
 
@@ -47,9 +48,8 @@ class MiddlewareAdaptersAutoConfigurationTest {
                 "openjiuwen.service.middleware.redis.default.port=6380",
                 "openjiuwen.service.middleware.redis.default.database=0",
                 "openjiuwen.service.middleware.redis.default.encrypted-password=").run(context -> {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> conf = (Map<String, Object>) RunnerConfig.getRunnerConfig()
-                            .getCheckpointerConfig().get("conf");
+                    Map<String, Object> conf = RunnerConfig.getRunnerConfig()
+                            .getCheckpointerConfig().getConf();
                     @SuppressWarnings("unchecked")
                     Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
                     assertThat(connection.get("url")).asString().contains("redis.local:6380");

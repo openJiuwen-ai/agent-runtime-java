@@ -7,6 +7,7 @@ package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
 import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
@@ -59,10 +60,10 @@ class RedisClusterMiddlewareSpringIT {
                     assertThat(context.getBean(RuntimeRedisClient.class))
                             .isInstanceOf(JedisClusterRuntimeRedisClient.class);
 
-                    Map<String, Object> checkpointerConfig = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
-                    assertThat(checkpointerConfig.get("type")).isEqualTo("redis");
+                    CheckpointerConfig checkpointerConfig = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
+                    assertThat(checkpointerConfig.getType()).isEqualTo("redis");
 
-                    Map<String, Object> conf = (Map<String, Object>) checkpointerConfig.get("conf");
+                    Map<String, Object> conf = checkpointerConfig.getConf();
                     Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
                     assertThat(connection.get("redis_client")).isSameAs(context.getBean(RuntimeRedisClient.class));
                     assertThat(context).hasSingleBean(RedisDatasourceDiagnostics.class);

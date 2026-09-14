@@ -16,7 +16,6 @@ import com.openjiuwen.harness.workspace.Workspace;
 import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Builds a {@link DeepAgent} from reusable service LLM configuration.
@@ -100,7 +99,7 @@ public final class ExampleDeepAgentFactory {
             .addGeneralPurposeAgent(false)
             .build();
         AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
-        Workspace workspace = Workspace.builder().rootPath(workspacePath).language(LANGUAGE).links(Map.of()).build();
+        Workspace workspace = Workspace.builder().rootPath(workspacePath).language(LANGUAGE).build();
         return HarnessFactory.createDeepAgent(card, agentConfig, workspace);
     }
 

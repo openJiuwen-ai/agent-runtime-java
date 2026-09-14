@@ -4,7 +4,9 @@
 
 package com.openjiuwen.service.demo.it.support;
 
-import com.openjiuwen.core.session.Session;
+import com.openjiuwen.core.session.AgentSessionApi;
+import com.openjiuwen.core.singleagent.BaseAgent;
+import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 
@@ -19,7 +21,16 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
-public class SessionEchoAgent {
+public class SessionEchoAgent extends BaseAgent {
+    public SessionEchoAgent() {
+        super(new AgentCard("echo-agent", "echo-agent", "test"));
+    }
+
+    @Override
+    public BaseAgent configure(Object config) {
+        return this;
+    }
+
     /**
      * Streams a reply while persisting conversation history in session state.
      *
@@ -29,7 +40,7 @@ public class SessionEchoAgent {
      * @return the output iterator
      */
     @SuppressWarnings("unchecked")
-    public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+    public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
         Map<String, Object> inputMap = (Map<String, Object>) inputs;
         String query = String.valueOf(inputMap.get("query"));
         Object priorState = session.getState("history");

@@ -10,6 +10,7 @@ import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.core.session.AgentSession;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.interaction.InteractiveInput;
@@ -261,11 +262,15 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         log.info("Releasing AgentCore session for conversation_id={}", conversationId);
         Runner.release(conversationId);
-        contextEngine(resolveAgent()).ifPresent(engine -> engine.clearContextBySession(conversationId));
+        contextEngine(resolveAgent()).ifPresent(engine -> engine.clearContext(null, conversationId));
     }
 
     private Object resolveAgent() {
-        return agent instanceof String agentId ? Runner.resourceMgr().getAgent(agentId) : agent;
+        if (!(agent instanceof String agentId)) {
+            return agent;
+        }
+        Object resolved = Runner.resourceMgr().getAgent(agentId).toCompletableFuture().join();
+        return resolved != null ? resolved : agentId;
     }
 
     private static Optional<ContextEngine> contextEngine(Object resolvedAgent) {
@@ -276,9 +281,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return Optional.ofNullable(controllerAgent.getContextEngine());
         }
         if (resolvedAgent instanceof DeepAgent deepAgent) {
-            return contextEngine(deepAgent.getAgent());
+            Object reactAgent = deepAgent.reactAgent();
+            if (reactAgent instanceof ReActAgent inner) {
+                return contextEngine(inner);
+            }
+            return Optional.empty();
         }
-        if (resolvedAgent instanceof com.openjiuwen.core.singleagent.legacy.BaseAgent legacyAgent) {
+        if (resolvedAgent instanceof com.openjiuwen.core.singleagent.legacy.agent.BaseAgent legacyAgent) {
             return Optional.ofNullable(legacyAgent.getContextEngine());
         }
         return Optional.empty();
@@ -472,9 +481,15 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return false;
         }
         for (Method method : agent.getClass().getMethods()) {
-            if ("invoke".equals(method.getName()) && method.getDeclaringClass() != Object.class) {
-                return true;
+            if (!"invoke".equals(method.getName()) || method.getDeclaringClass() == Object.class) {
+                continue;
             }
+            // BaseAgent ships default invoke hooks that throw UnsupportedOperationException;
+            // only a genuine subclass override counts as a synchronous agent.
+            if (method.getDeclaringClass() == com.openjiuwen.core.singleagent.BaseAgent.class) {
+                continue;
+            }
+            return true;
         }
         return false;
     }
@@ -548,7 +563,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return sessionId;
         }
         Object card = resolveSessionCard();
-        return AgentSessionApi.create(sessionId, sessionEnvs(request), card, List.of(StreamMode.OUTPUT));
+        AgentSessionApi session = AgentSession.createAgentSession(sessionId, sessionEnvs(request), card);
+        session.preRun(Map.of("inputs", Map.of()));
+        session.markPreRunDone();
+        return session;
     }
 
     /**
@@ -578,16 +596,15 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private Object resolveSessionCard() {
-        Optional<Object> card = readAgentCard(agent);
-        if (card.isPresent()) {
-            return card.get();
+        Optional<Object> existingCard = readAgentCard(agent);
+        if (existingCard.isPresent()) {
+            return existingCard.get();
         }
         String agentId = agent instanceof String stringAgentId
                 ? stringAgentId
                 : SYNTHETIC_AGENT_ID_PREFIX + syntheticAgentClassName();
         String agentName = agent instanceof String stringAgentId ? stringAgentId : syntheticAgentDisplayName();
-        return BaseCard.builder().id(agentId).name(agentName).description("Synthetic card for AgentCore session")
-                .build();
+        return new BaseCard(agentId, agentName, "Synthetic card for AgentCore session");
     }
 
     /**
@@ -771,11 +788,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return;
         }
         if (value instanceof InterruptRequest req) {
+            Map<String, Object> context = req.getExtraFields();
             if (req.getMessage() != null) {
                 data.put("message", req.getMessage());
             }
-            if (req.getContext() != null) {
-                data.put("context", req.getContext());
+            if (context != null && !context.isEmpty()) {
+                data.put("context", context);
             }
             if (value instanceof ToolCallInterruptRequest tcr) {
                 extractToolCallData(tcr, data);
