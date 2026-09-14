@@ -61,6 +61,15 @@ class ActiveTaskQueryDegradedIntegrationTest {
         assertThat((List<Map<String, Object>>) body.get("tasks")).isEmpty();
     }
 
+    @Test
+    void endpoint_doesNotReturnProcessFallbackForAgentQuery() {
+        assertThat(rest.getForEntity("http://localhost:" + port
+                + "/v1/current_active_tasks?agentId=data-assistant", String.class).getStatusCode().value())
+                .isEqualTo(404);
+        assertThat(rest.getForEntity("http://localhost:" + port
+                + "/v1/current_active_tasks?agentId=", String.class).getStatusCode().value()).isEqualTo(400);
+    }
+
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class DegradedTestApp {

@@ -83,4 +83,30 @@ class ActiveTaskControllerTest {
         assertThat(task).containsEntry("status", "WORKING");
         assertThat(task).containsEntry("startedAt", "2026-08-20T12:00:00Z");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void returnsNotFound_whenAgentSnapshotIsUnavailable() {
+        ActiveTaskQuery query = () -> new ConcurrencyLoadSnapshot(3, 0, List.of());
+        ObjectProvider<ActiveTaskQuery> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(query);
+        ActiveTaskController controller = new ActiveTaskController(provider);
+
+        ResponseEntity<?> response = controller.getCurrentActTask("data-assistant");
+
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void returnsBadRequest_whenAgentIdIsBlank() {
+        ActiveTaskQuery query = mock(ActiveTaskQuery.class);
+        ObjectProvider<ActiveTaskQuery> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(query);
+        ActiveTaskController controller = new ActiveTaskController(provider);
+
+        ResponseEntity<?> response = controller.getCurrentActTask(" ");
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+    }
 }
