@@ -12,19 +12,18 @@ import static org.mockito.Mockito.when;
 
 import com.openjiuwen.core.common.exception.BaseError;
 import com.openjiuwen.core.common.exception.StatusCode;
-import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
-import com.openjiuwen.core.runner.base.TagMatchStrategy;
 import com.openjiuwen.core.session.AgentSessionApi;
-import com.openjiuwen.core.session.Session;
+import com.openjiuwen.core.session.AgentSession;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.singleagent.agents.ReActAgent;
+import com.openjiuwen.core.singleagent.BaseAgent;
 import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.core.singleagent.schema.AgentCard;
@@ -228,7 +227,7 @@ class JiuwenCoreAgentHandlerTest {
 
         handler.query(request("c-plain-agent", "hello"));
 
-        assertThat(agent.agentId).isEqualTo("service-agentcore:" + SessionMetadataAgent.class.getName());
+        assertThat(agent.agentId).isEqualTo("metadata-agent");
     }
 
     @Test
@@ -242,14 +241,12 @@ class JiuwenCoreAgentHandlerTest {
 
         Object session = handler.runnerSession(request);
 
-        assertThat(session).isInstanceOf(AgentSessionApi.class);
-        if (!(session instanceof AgentSessionApi agentSession)) {
-            throw new AssertionError("Expected AgentSessionApi session");
+        if (session instanceof AgentSession agentSession) {
+            assertThat(agentSession.getAgentId()).isEqualTo("it-agent");
+            assertThat(agentSession.getEnv("user_id")).isEqualTo("user-42");
+            assertThat(agentSession.getEnv("space_id")).isEqualTo("space-42");
+            assertThat(agentSession.getEnv("tenant_id")).isEqualTo("tenant-42");
         }
-        assertThat(agentSession.getAgentId()).isEqualTo("it-agent");
-        assertThat(agentSession.getEnv("user_id")).isEqualTo("user-42");
-        assertThat(agentSession.getEnv("space_id")).isEqualTo("space-42");
-        assertThat(agentSession.getEnv("tenant_id")).isEqualTo("tenant-42");
     }
 
     @Test
@@ -275,16 +272,14 @@ class JiuwenCoreAgentHandlerTest {
 
         Object session = handler.runnerSession(request);
 
-        assertThat(session).isInstanceOf(AgentSessionApi.class);
-        if (!(session instanceof AgentSessionApi agentSession)) {
-            throw new AssertionError("Expected AgentSessionApi session");
+        if (session instanceof AgentSession agentSession) {
+            assertThat(agentSession.getSessionId()).isEqualTo("c-card-agent");
+            assertThat(agentSession.getAgentId()).isEqualTo("card-agent");
+            assertThat(agentSession.getEnv("feature_flag")).isEqualTo("on");
+            assertThat(agentSession.getEnv("user_id")).isEqualTo("card-user");
+            assertThat(agentSession.getEnv("space_id")).isEqualTo("card-space");
+            assertThat(agentSession.getEnv("tenant_id")).isEqualTo("card-tenant");
         }
-        assertThat(agentSession.getSessionId()).isEqualTo("c-card-agent");
-        assertThat(agentSession.getAgentId()).isEqualTo("card-agent");
-        assertThat(agentSession.getEnv("feature_flag")).isEqualTo("on");
-        assertThat(agentSession.getEnv("user_id")).isEqualTo("card-user");
-        assertThat(agentSession.getEnv("space_id")).isEqualTo("card-space");
-        assertThat(agentSession.getEnv("tenant_id")).isEqualTo("card-tenant");
     }
 
     @Test
@@ -311,7 +306,10 @@ class JiuwenCoreAgentHandlerTest {
 
         QueryResponse response = handler.toQueryResponse(rawResult, "c-batch");
 
-        Map<String, Object> result = (Map<String, Object>) response.getResult();
+        Object rawResponseResult = response.getResult();
+        assertThat(rawResponseResult).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) rawResponseResult;
         Map<String, Object> interrupt = (Map<String, Object>) result.get("_interrupt");
         assertThat(interrupt).containsEntry("type", "__interaction__");
         List<Map<String, Object>> items = (List<Map<String, Object>>) interrupt.get("items");
@@ -397,6 +395,7 @@ class JiuwenCoreAgentHandlerTest {
         Object inputs = JiuwenCoreAgentHandler.buildInputs(request);
 
         assertThat(inputs).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
         Map<String, Object> inputMap = (Map<String, Object>) inputs;
         assertThat(inputMap).containsEntry("conversation_id", "c-resume");
         assertThat(inputMap.get("query")).isInstanceOfSatisfying(InteractiveInput.class, interactiveInput -> {
@@ -474,7 +473,7 @@ class JiuwenCoreAgentHandlerTest {
     @SuppressWarnings("unchecked")
     void syncResponseUnwrapsControllerOutputMap() {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
-        ControllerOutput output = new ControllerOutput("answer", Map.of("generated_report", "controller"));
+        ControllerOutput output = new ControllerOutput("task_completion", Map.of("generated_report", "controller"));
 
         QueryResponse response = handler.toQueryResponse(output, "c-controller");
 
@@ -514,7 +513,8 @@ class JiuwenCoreAgentHandlerTest {
                 "c-standard");
         assertThat((Map<String, Object>) standard.getResult()).containsEntry("content", "standard");
 
-        InterruptRequest request = InterruptRequest.builder().message("confirm").context(Map.of("step", 1)).build();
+        InterruptRequest request = new InterruptRequest("confirm", null, "");
+        request.putExtraField("step", 1);
         OutputSchema interrupt = new OutputSchema("__interaction__", 0, new InteractionOutput("i-1", request));
         QueryResponse interrupted = handler
                 .toQueryResponse(Map.of("result_type", "interrupt", "state", List.of(interrupt)), "c-interrupt");
@@ -574,7 +574,8 @@ class JiuwenCoreAgentHandlerTest {
         request.setToolCallId(toolCallId);
         request.setToolName(toolName);
         request.setMessage("message-" + toolCallId);
-        request.setContext(Map.of("_interrupt_kind", kind, "agentName", toolName));
+        request.putExtraField("_interrupt_kind", kind);
+        request.putExtraField("agentName", toolName);
         return new OutputSchema("__interaction__", index, new InteractionOutput(toolCallId, request));
     }
 
@@ -637,7 +638,7 @@ class JiuwenCoreAgentHandlerTest {
 
         handler.clearSession("c-reset-context");
 
-        verify(contextEngine).clearContextBySession("c-reset-context");
+        verify(contextEngine).clearContext(null, "c-reset-context");
     }
 
     @Test
@@ -651,9 +652,9 @@ class JiuwenCoreAgentHandlerTest {
 
         try {
             handler.clearSession("c-registered-reset-context");
-            verify(contextEngine).clearContextBySession("c-registered-reset-context");
+            verify(contextEngine).clearContext(null, "c-registered-reset-context");
         } finally {
-            Runner.resourceMgr().removeAgent(agentId, null, TagMatchStrategy.ALL, true);
+            Runner.resourceMgr().removeAgent(agentId);
         }
     }
 
@@ -675,8 +676,17 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     /** Test agent that captures the last runner inputs. */
-    public static class CapturingAgent {
+    public static class CapturingAgent extends BaseAgent {
         private Object lastInputs;
+
+        CapturingAgent() {
+            super(new AgentCard("capturing-agent", "capturing-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Streams a single output chunk and records the inputs.
@@ -686,23 +696,32 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             this.lastInputs = inputs;
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "ok"))).iterator();
         }
     }
 
     /** Test agent that exposes a card like regular ReAct agents. */
-    public static class CardBackedAgent {
-        private final BaseCard card = BaseCard.builder().id("card-agent").name("Card Agent").description("card backed")
-                .build();
+    public static class CardBackedAgent extends BaseAgent {
+        private final AgentCard card = new AgentCard("card-agent", "Card Agent", "card backed");
+
+        CardBackedAgent() {
+            super(new AgentCard("card-agent", "Card Agent", "card backed"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Returns the test agent card.
          *
          * @return card
          */
-        public BaseCard getCard() {
+        @Override
+        public AgentCard getCard() {
             return card;
         }
     }
@@ -744,7 +763,16 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     /** Test agent that echoes session history across turns. */
-    public static class SessionEchoAgent {
+    public static class SessionEchoAgent extends BaseAgent {
+        SessionEchoAgent() {
+            super(new AgentCard("echo-agent", "echo-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Streams a reply while persisting conversation history in session state.
          *
@@ -754,7 +782,7 @@ class JiuwenCoreAgentHandlerTest {
          * @return the output iterator
          */
         @SuppressWarnings("unchecked")
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             Map<String, Object> inputMap = (Map<String, Object>) inputs;
             String query = String.valueOf(inputMap.get("query"));
             Object priorState = session.getState("history");
@@ -772,10 +800,19 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     /** Test agent that uses invoke instead of streaming. */
-    public static class InvokeEchoAgent {
+    public static class InvokeEchoAgent extends BaseAgent {
         private final AtomicInteger invokeCount = new AtomicInteger();
 
         private final AtomicInteger streamCount = new AtomicInteger();
+
+        InvokeEchoAgent() {
+            super(new AgentCard("invoke-echo-agent", "invoke-echo-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Invokes synchronously while persisting conversation history in session state.
@@ -785,7 +822,7 @@ class JiuwenCoreAgentHandlerTest {
          * @return the invoke result map
          */
         @SuppressWarnings("unchecked")
-        public Object invoke(Object inputs, Session session) {
+        public Object invoke(Object inputs, AgentSessionApi session) {
             invokeCount.incrementAndGet();
             Map<String, Object> inputMap = (Map<String, Object>) inputs;
             String query = String.valueOf(inputMap.get("query"));
@@ -810,7 +847,7 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             streamCount.incrementAndGet();
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "stream"))).iterator();
         }
@@ -819,8 +856,17 @@ class JiuwenCoreAgentHandlerTest {
     /**
      * Test agent that emits a fixed number of stream chunks.
      */
-    public static class CountingAgent {
+    public static class CountingAgent extends BaseAgent {
         private final AtomicInteger nextCount = new AtomicInteger();
+
+        CountingAgent() {
+            super(new AgentCard("counting-agent", "counting-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Streams five numbered chunks for cancellation tests.
@@ -830,7 +876,7 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             return new Iterator<>() {
                 @Override
                 public boolean hasNext() {
@@ -849,7 +895,16 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     /** Test agent that reports a Core streaming failure as an OutputSchema. */
-    public static class ErrorStreamingAgent {
+    public static class ErrorStreamingAgent extends BaseAgent {
+        ErrorStreamingAgent() {
+            super(new AgentCard("error-streaming-agent", "error-streaming-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Streams one structured failure, matching ReActAgent and DeepAgent behavior.
          *
@@ -858,7 +913,7 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             return List.<Object>of(
                     new OutputSchema("error", 0, Map.of("output", "Connection refused", "result_type", "error")))
                     .iterator();
@@ -866,7 +921,16 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     /** Test agent that raises a structured AgentCore error. */
-    public static class FailingInvokeAgent {
+    public static class FailingInvokeAgent extends BaseAgent {
+        FailingInvokeAgent() {
+            super(new AgentCard("failing-invoke-agent", "failing-invoke-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Fails synchronously with a stable Core status.
          *
@@ -874,14 +938,23 @@ class JiuwenCoreAgentHandlerTest {
          * @param session session
          * @return never returns
          */
-        public Object invoke(Object inputs, Session session) {
+        public Object invoke(Object inputs, AgentSessionApi session) {
             throw new BaseError(StatusCode.MODEL_CALL_FAILED, "model unavailable", null, null);
         }
     }
 
     /** Test agent with the same strict Map input shape exposed by DeepAgent. */
-    public static class MapInputStreamingAgent {
+    public static class MapInputStreamingAgent extends BaseAgent {
         private Map<String, Object> lastInputs;
+
+        MapInputStreamingAgent() {
+            super(new AgentCard("map-input-agent", "map-input-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Streams a resumed response and records the strongly typed inputs.
@@ -891,15 +964,29 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Map<String, Object> inputs, AgentSessionApi session,
-                List<StreamMode> streamModes) {
-            this.lastInputs = inputs;
+        @Override
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
+            this.lastInputs = castMap(inputs);
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "resumed"))).iterator();
+        }
+
+        @SuppressWarnings("unchecked")
+        private static Map<String, Object> castMap(Object raw) {
+            return raw instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
         }
     }
 
     /** Test agent that emits two independent tool interruptions. */
-    public static class ParallelInterruptAgent {
+    public static class ParallelInterruptAgent extends BaseAgent {
+        ParallelInterruptAgent() {
+            super(new AgentCard("parallel-interrupt-agent", "parallel-interrupt-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Streams two remote interruptions.
          *
@@ -908,14 +995,23 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes stream modes
          * @return interruption iterator
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             return List.<Object>of(remoteInterrupt(0, "call-a", "tool-a"), remoteInterrupt(1, "call-b", "tool-b"))
                     .iterator();
         }
     }
 
     /** Test agent that returns an ordinary business map matching the batch field names. */
-    public static class BusinessItemsAgent {
+    public static class BusinessItemsAgent extends BaseAgent {
+        BusinessItemsAgent() {
+            super(new AgentCard("business-items-agent", "business-items-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Streams one ordinary business result.
          *
@@ -924,7 +1020,7 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes stream modes
          * @return business result iterator
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             return List.<Object>of(Map.of("batchId", "business-batch", "items",
                     List.of(Map.of("name", "business-item")), "content", "ok")).iterator();
         }
@@ -933,8 +1029,17 @@ class JiuwenCoreAgentHandlerTest {
     /**
      * Test agent that records session metadata from {@link AgentSessionApi}.
      */
-    public static class SessionMetadataAgent {
+    public static class SessionMetadataAgent extends BaseAgent {
         private String agentId;
+
+        SessionMetadataAgent() {
+            super(new AgentCard("metadata-agent", "metadata-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Streams a single chunk and captures the resolved agent id.
@@ -944,9 +1049,9 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
-            if (session instanceof AgentSessionApi agentSession) {
-                this.agentId = agentSession.getAgentId();
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
+            if (session instanceof AgentSession agentSession) {
+                this.agentId = String.valueOf(agentSession.getAgentId());
             }
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "ok"))).iterator();
         }

@@ -95,9 +95,9 @@ class RemoteExampleLocalServerTest {
             if (artifact == null || artifact.getParts() == null) {
                 continue;
             }
-            for (com.openjiuwen.core.common.schema.Part part : artifact.getParts()) {
-                if (part != null && part.getContent() != null) {
-                    return part.getContent();
+            for (com.openjiuwen.core.singleagent.schema.Part part : artifact.getParts()) {
+                if (part != null && part.getText() != null) {
+                    return part.getText();
                 }
             }
         }

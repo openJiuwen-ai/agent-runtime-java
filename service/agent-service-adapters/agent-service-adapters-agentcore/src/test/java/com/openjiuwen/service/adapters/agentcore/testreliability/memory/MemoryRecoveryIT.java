@@ -90,7 +90,7 @@ class MemoryRecoveryIT {
         GovernedMem0Api api = new GovernedMem0Api(mem0Server.endpoint(), memory);
         memoryStore = new Mem0MemoryStore(API_KEY, memory, api);
         memoryProvider = new MemoryStoreMemoryProvider(memoryStore, memory);
-        memoryProvider.initialize(KWARGS);
+        memoryProvider.initialize(KWARGS).join();
     }
 
     @AfterEach
@@ -130,7 +130,7 @@ class MemoryRecoveryIT {
 
         // ── 步骤 3：发送 3 个 Query，验证 prefetch 成功注入记忆上下文 ──
         for (int i = 1; i <= 3; i++) {
-            String prefetchResult = memoryProvider.prefetch("恢复后查询_" + i, KWARGS);
+            String prefetchResult = memoryProvider.prefetch("恢复后查询_" + i, KWARGS).join();
             assertThat(prefetchResult)
                 .as("mem0 恢复后 prefetch 应成功注入记忆上下文（第 %d 次）", i)
                 .isNotEmpty()
@@ -148,7 +148,7 @@ class MemoryRecoveryIT {
         // ── 步骤 4：发送 3 个 Query，验证 syncTurn 成功写入 mem0 add ──
         for (int i = 1; i <= 3; i++) {
             final int idx = i;
-            memoryProvider.syncTurn("恢复后用户消息_" + idx, "恢复后助手回复_" + idx, KWARGS);
+            memoryProvider.syncTurn("恢复后用户消息_" + idx, "恢复后助手回复_" + idx, KWARGS).join();
         }
 
         assertThat(mem0Server.addRequests())
@@ -168,7 +168,7 @@ class MemoryRecoveryIT {
             .as("恢复后 provider 应仍然已初始化，无需重新调用 initialize")
             .isTrue();
 
-        String finalPrefetch = memoryProvider.prefetch("最终验证查询", KWARGS);
+        String finalPrefetch = memoryProvider.prefetch("最终验证查询", KWARGS).join();
         assertThat(finalPrefetch)
             .as("恢复后功能持续正常，prefetch 返回记忆内容")
             .contains(SEED_MEMORY);
@@ -182,11 +182,11 @@ class MemoryRecoveryIT {
      */
     @Test
     void mem0FailureCausesProviderToThrowExternalSvcAdapterException() {
-        assertThatThrownBy(() -> memoryProvider.prefetch("故障测试", KWARGS))
+        assertThatThrownBy(() -> memoryProvider.prefetch("故障测试", KWARGS).join())
             .as("故障期间 MemoryStoreMemoryProvider.prefetch 应抛出 ExternalSvcAdapterException")
             .isInstanceOf(ExternalSvcAdapterException.class);
 
-        assertThatThrownBy(() -> memoryProvider.syncTurn("故障消息", "故障回复", KWARGS))
+        assertThatThrownBy(() -> memoryProvider.syncTurn("故障消息", "故障回复", KWARGS).join())
             .as("故障期间 MemoryStoreMemoryProvider.syncTurn 应抛出 ExternalSvcAdapterException")
             .isInstanceOf(ExternalSvcAdapterException.class);
 
@@ -199,12 +199,12 @@ class MemoryRecoveryIT {
         // ── 步骤 2：mock mem0 恢复 ──
         mem0Server.recover();
 
-        String prefetchResult = memoryProvider.prefetch("恢复测试", KWARGS);
+        String prefetchResult = memoryProvider.prefetch("恢复测试", KWARGS).join();
         assertThat(prefetchResult)
             .as("mem0 恢复后 prefetch 不再抛出异常，返回记忆上下文")
             .contains(SEED_MEMORY);
 
-        memoryProvider.syncTurn("恢复消息", "恢复回复", KWARGS);
+        memoryProvider.syncTurn("恢复消息", "恢复回复", KWARGS).join();
         assertThat(mem0Server.lastAddBody())
             .containsEntry("user_id", USER_ID);
     }
@@ -213,14 +213,14 @@ class MemoryRecoveryIT {
 
     /**
      * 模拟 handler 层降级行为：捕获 ExternalSvcAdapterException 并返回空字符串，
-     * 与 Demo {@code MemoryLifecycleAgentHandler.prefetch()} 的生产逻辑一致。
+     * 与 Demo {@code MemoryLifecycleAgentHandler.prefetch().join()} 的生产逻辑一致。
      *
      * @param query 用户查询文本
      * @return 记忆上下文字符串；mem0 不可用时返回空字符串
      */
     private String degradedPrefetch(String query) {
         try {
-            String result = memoryProvider.prefetch(query, KWARGS);
+            String result = memoryProvider.prefetch(query, KWARGS).join();
             return result != null ? result.trim() : "";
         } catch (ExternalSvcAdapterException | IllegalStateException ex) {
             // 模拟 MemoryLifecycleAgentHandler.prefetch 的降级行为：返回空字符串
@@ -230,14 +230,14 @@ class MemoryRecoveryIT {
 
     /**
      * 模拟 handler 层降级行为：捕获 ExternalSvcAdapterException 并静默跳过，
-     * 与 Demo {@code MemoryLifecycleAgentHandler.syncTurn()} 的生产逻辑一致。
+     * 与 Demo {@code MemoryLifecycleAgentHandler.syncTurn().join()} 的生产逻辑一致。
      *
      * @param userMsg 用户消息
      * @param assistantMsg 助手消息
      */
     private void degradedSyncTurn(String userMsg, String assistantMsg) {
         try {
-            memoryProvider.syncTurn(userMsg, assistantMsg, KWARGS);
+            memoryProvider.syncTurn(userMsg, assistantMsg, KWARGS).join();
         } catch (ExternalSvcAdapterException | IllegalStateException ex) {
             // 模拟 MemoryLifecycleAgentHandler.syncTurn 的降级行为：静默跳过
         }

@@ -9,9 +9,7 @@ import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
 import com.openjiuwen.core.foundation.llm.schema.ToolCall;
 import com.openjiuwen.core.foundation.tool.ToolCard;
-import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.rail.AgentCallbackContext;
-import com.openjiuwen.harness.rails.interrupt.BaseInterruptRail;
 import com.openjiuwen.harness.rails.interrupt.InterruptDecision;
 
 import java.lang.reflect.Type;
@@ -24,7 +22,7 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
-public class BToDDelegateRail extends BaseInterruptRail {
+public class BToDDelegateRail extends A2aInterruptRail {
     static final String STREAMING_TOOL_NAME = "review_expense_streaming";
 
     static final String NON_STREAMING_TOOL_NAME = "review_expense_nonstreaming";
@@ -39,11 +37,11 @@ public class BToDDelegateRail extends BaseInterruptRail {
     }.getType();
 
     public BToDDelegateRail() {
-        super(List.of(STREAMING_TOOL_NAME, NON_STREAMING_TOOL_NAME));
-        getTools().add(expenseReviewCard(STREAMING_TOOL_NAME,
-                "Review an expense claim through Agent D's configured streaming route"));
-        getTools().add(expenseReviewCard(NON_STREAMING_TOOL_NAME,
-                "Review an expense claim through Agent D's configured non-streaming route"));
+        super(List.of(STREAMING_TOOL_NAME, NON_STREAMING_TOOL_NAME),
+            List.of(expenseReviewCard(STREAMING_TOOL_NAME,
+                    "Review an expense claim through Agent D's configured streaming route"),
+                expenseReviewCard(NON_STREAMING_TOOL_NAME,
+                    "Review an expense claim through Agent D's configured non-streaming route")));
     }
 
     @Override
@@ -55,7 +53,7 @@ public class BToDDelegateRail extends BaseInterruptRail {
                 ? NON_STREAMING_AGENT_NAME
                 : STREAMING_AGENT_NAME;
         Map<String, Object> context = Map.of("agentName", agentName, "_interrupt_kind", "a2a_delegate");
-        return interrupt(InterruptRequest.builder().message(canonicalClaim(toolCall)).context(context).build());
+        return interrupt(buildInterruptRequest(canonicalClaim(toolCall), context));
     }
 
     private static ToolCard expenseReviewCard(String toolName, String description) {

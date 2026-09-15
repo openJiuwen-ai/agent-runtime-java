@@ -23,8 +23,8 @@ class A2aDelegateRailTest {
         Object result = rail.resolve(call("delegate_to_agentb"), null);
 
         assertThat(result).isInstanceOfSatisfying(InterruptResult.class, interrupt -> {
-            assertThat(interrupt.getRequest().getMessage()).isEqualTo("review expense WF-SSE-001");
-            assertThat(interrupt.getRequest().getContext()).containsEntry("agentName", "agentb")
+            assertThat(interrupt.request().getMessage()).isEqualTo("review expense WF-SSE-001");
+            assertThat(interrupt.request().getExtraFields()).containsEntry("agentName", "agentb")
                     .containsEntry("_interrupt_kind", "a2a_delegate").doesNotContainKey("_stream_mode");
         });
     }
@@ -34,7 +34,7 @@ class A2aDelegateRailTest {
         Object result = new TestRail().resolve(ToolCall.builder().build(), "Agent B result");
 
         assertThat(result).isInstanceOfSatisfying(RejectResult.class,
-                reject -> assertThat(reject.getToolResult()).isEqualTo("Agent B result"));
+                reject -> assertThat(reject.toolResult()).isEqualTo("Agent B result"));
     }
 
     private static ToolCall call(String name) {

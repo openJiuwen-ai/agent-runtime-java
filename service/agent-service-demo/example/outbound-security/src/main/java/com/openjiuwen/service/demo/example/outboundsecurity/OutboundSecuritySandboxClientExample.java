@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.demo.example.outboundsecurity;
 
+import com.openjiuwen.core.sysop.BaseFsOperation.FileMode;
 import com.openjiuwen.core.sysop.result.ReadFileResult;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalProperties;
@@ -103,8 +104,9 @@ public final class OutboundSecuritySandboxClientExample {
 
         DefaultAgentCoreSandboxClientFactory factory = new DefaultAgentCoreSandboxClientFactory(properties);
         SandboxClient client = factory.create("demo-secure-sandbox");
-        ReadFileResult result = client.fs().readFile(DEMO_PATH, "text", null, null, null, "UTF-8", 0, Map.of());
-        String content = result.getData().getContentAsString();
+        ReadFileResult result = client.fs().readFile(DEMO_PATH, FileMode.TEXT, null, null, null, "UTF-8", 0, Map.of())
+            .join();
+        String content = String.valueOf(result.getData().getContent());
         log.info("Outbound secure sandbox demo succeeded, content={}", content);
         return content;
     }
