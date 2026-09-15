@@ -56,8 +56,9 @@ class MiddlewareAdaptersAutoConfigurationTest {
                     assertThat(connection.get("url")).asString().contains("redis.local:6380");
                     RuntimeRedisClient redisClient = context.getBean(RuntimeRedisClient.class);
                     assertThat(redisClient).isInstanceOf(UnifiedJedisRuntimeRedisClient.class);
-                    assertThat(connection.get("redis_client"))
-                            .isSameAs(((UnifiedJedisRuntimeRedisClient) redisClient).jedisDelegate());
+                    if (redisClient instanceof UnifiedJedisRuntimeRedisClient unified) {
+                        assertThat(connection.get("redis_client")).isSameAs(unified.jedisDelegate());
+                    }
                 });
     }
 

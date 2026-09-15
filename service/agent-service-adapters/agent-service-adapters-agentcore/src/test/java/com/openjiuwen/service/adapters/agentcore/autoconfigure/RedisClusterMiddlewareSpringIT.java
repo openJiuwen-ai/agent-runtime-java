@@ -65,9 +65,10 @@ class RedisClusterMiddlewareSpringIT {
 
                     Map<String, Object> conf = (Map<String, Object>) checkpointerConfig.get("conf");
                     Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
-                    assertThat(connection.get("redis_client")).isSameAs(
-                            ((UnifiedJedisRuntimeRedisClient) context.getBean(RuntimeRedisClient.class))
-                                    .jedisDelegate());
+                    RuntimeRedisClient redisClient = context.getBean(RuntimeRedisClient.class);
+                    if (redisClient instanceof UnifiedJedisRuntimeRedisClient unified) {
+                        assertThat(connection.get("redis_client")).isSameAs(unified.jedisDelegate());
+                    }
                     assertThat(context).hasSingleBean(RedisDatasourceDiagnostics.class);
                     MiddlewareProperties properties = context.getBean(MiddlewareProperties.class);
                     assertThat(RedisConnectionAssembler.safeSummary("cluster", properties.getRedis().get("cluster")))

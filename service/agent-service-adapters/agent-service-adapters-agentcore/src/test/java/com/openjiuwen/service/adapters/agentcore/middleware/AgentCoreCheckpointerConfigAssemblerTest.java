@@ -11,9 +11,10 @@ import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.JedisPooledRuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
-import org.junit.jupiter.api.Test;
-
 import redis.clients.jedis.JedisPooled;
+import redis.clients.jedis.UnifiedJedis;
+
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
@@ -90,7 +91,7 @@ class AgentCoreCheckpointerConfigAssemblerTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
         assertThat(connection.get("redis_client")).isSameAs(redisClient.jedisDelegate())
-                .isInstanceOf(redis.clients.jedis.UnifiedJedis.class).isNotSameAs(redisClient);
+                .isInstanceOf(UnifiedJedis.class).isNotSameAs(redisClient);
     }
 
     @Test
