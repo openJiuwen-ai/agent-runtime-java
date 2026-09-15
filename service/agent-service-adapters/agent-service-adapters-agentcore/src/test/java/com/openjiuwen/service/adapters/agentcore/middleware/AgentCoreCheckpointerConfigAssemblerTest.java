@@ -8,9 +8,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+import com.openjiuwen.service.adapters.common.middleware.redis.JedisPooledRuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import org.junit.jupiter.api.Test;
+
+import redis.clients.jedis.JedisPooled;
 
 import java.util.List;
 import java.util.Map;
@@ -70,6 +73,27 @@ class AgentCoreCheckpointerConfigAssemblerTest {
     }
 
     @Test
+    void unwrapsJedisBackedRuntimeRedisClientToNativeDelegate() {
+        MiddlewareProperties properties = new MiddlewareProperties();
+        properties.getCheckpointer().setType("redis");
+        MiddlewareProperties.RedisEndpoint endpoint = new MiddlewareProperties.RedisEndpoint();
+        endpoint.setHost("127.0.0.1");
+        endpoint.setPort(6379);
+        properties.getRedis().put("default", endpoint);
+        JedisPooledRuntimeRedisClient redisClient = new JedisPooledRuntimeRedisClient(new JedisPooled("127.0.0.1",
+                6379));
+
+        Map<String, Object> config = AgentCoreCheckpointerConfigAssembler.build(properties, ciphertext -> ciphertext,
+                redisClient);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> conf = (Map<String, Object>) config.get("conf");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
+        assertThat(connection.get("redis_client")).isSameAs(redisClient.jedisDelegate())
+                .isInstanceOf(redis.clients.jedis.UnifiedJedis.class).isNotSameAs(redisClient);
+    }
+
+    @Test
     void redisRequiresEndpointDefinition() {
         MiddlewareProperties properties = new MiddlewareProperties();
         properties.getCheckpointer().setType("redis");
@@ -86,6 +110,24 @@ class AgentCoreCheckpointerConfigAssemblerTest {
 
         assertThatThrownBy(() -> AgentCoreCheckpointerConfigAssembler.build(properties, s -> s, null))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("RuntimeRedisClient");
+    }
+
+    @Test
+    void keepsNonJedisRuntimeRedisClientAsIs() {
+        MiddlewareProperties properties = new MiddlewareProperties();
+        properties.getCheckpointer().setType("redis");
+        MiddlewareProperties.RedisEndpoint endpoint = new MiddlewareProperties.RedisEndpoint();
+        endpoint.setHost("127.0.0.1");
+        properties.getRedis().put("default", endpoint);
+        RuntimeRedisClient redisClient = new NoopRuntimeRedisClient();
+
+        Map<String, Object> config = AgentCoreCheckpointerConfigAssembler.build(properties, value -> value,
+                redisClient);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> conf = (Map<String, Object>) config.get("conf");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
+        assertThat(connection.get("redis_client")).isSameAs(redisClient);
     }
 
     private static final class NoopRuntimeRedisClient implements RuntimeRedisClient {
