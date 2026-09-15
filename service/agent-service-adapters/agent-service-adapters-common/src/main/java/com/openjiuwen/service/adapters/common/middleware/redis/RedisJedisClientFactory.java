@@ -19,6 +19,7 @@ import redis.clients.jedis.JedisSocketFactory;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 
+import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -203,6 +204,8 @@ public final class RedisJedisClientFactory {
         config.setMinIdle(1);
         config.setTestOnBorrow(true);
         config.setTestWhileIdle(true);
+        // 池耗尽时最多等待 5s，之后抛 JedisException 快速失败；commons-pool2 默认 -1 会无限阻塞。
+        config.setMaxWait(Duration.ofSeconds(5));
     }
 
     private static final class LazyConfiguredConnection extends Connection {

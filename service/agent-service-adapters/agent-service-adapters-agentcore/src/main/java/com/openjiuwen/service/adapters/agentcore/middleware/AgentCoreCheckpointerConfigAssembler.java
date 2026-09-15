@@ -9,6 +9,7 @@ import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisConnectionAssembler;
 import com.openjiuwen.service.adapters.common.middleware.redis.ResolvedRedisEndpoint;
+import com.openjiuwen.service.adapters.common.middleware.redis.UnifiedJedisRuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import java.util.HashMap;
@@ -51,6 +52,22 @@ public final class AgentCoreCheckpointerConfigAssembler {
                 + " (supported: in_memory, redis)");
     }
 
+    /**
+     * Unwraps the Jedis client from the runtime wrapper so Core receives the native
+     * Jedis instance. Core-side fast paths (e.g. real pipelining in {@code RedisStore})
+     * type-check against Jedis classes, which the SPI wrapper is not.
+     *
+     * @param redisClient the runtime Redis client
+     * @return the native client when the wrapper is Jedis-backed, otherwise the original object
+     * @since 0.1.2
+     */
+    private static Object unwrapJedis(RuntimeRedisClient redisClient) {
+        if (redisClient instanceof UnifiedJedisRuntimeRedisClient unified) {
+            return unified.jedisDelegate();
+        }
+        return redisClient;
+    }
+
     private static String normalizeType(String type) {
         if (type == null || type.isBlank()) {
             return TYPE_IN_MEMORY;
@@ -68,7 +85,7 @@ public final class AgentCoreCheckpointerConfigAssembler {
         String password = decryptor.decrypt(endpoint.getEncryptedPassword(), CredentialSceneType.REDIS_PASSWORD);
 
         Map<String, Object> connection = new HashMap<>(RedisConnectionAssembler.buildConnectionMap(endpoint, password));
-        connection.put("redis_client", redisClient);
+        connection.put("redis_client", unwrapJedis(redisClient));
 
         Map<String, Object> conf = new HashMap<>();
         conf.put("connection", connection);
