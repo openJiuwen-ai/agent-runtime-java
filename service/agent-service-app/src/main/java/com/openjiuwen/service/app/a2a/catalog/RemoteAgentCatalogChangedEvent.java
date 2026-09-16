@@ -8,7 +8,11 @@ package com.openjiuwen.service.app.a2a.catalog;
  * Event published after the remote A2A agent catalog changes.
  *
  * @param snapshot complete catalog snapshot produced by the registry update
+ * @param agentId hosted registration ID, or null for the global catalog
  * @since 0.1.1
  */
-public record RemoteAgentCatalogChangedEvent(RemoteAgentCatalogSnapshot snapshot) {
+public record RemoteAgentCatalogChangedEvent(RemoteAgentCatalogSnapshot snapshot, String agentId) {
+    public RemoteAgentCatalogChangedEvent(RemoteAgentCatalogSnapshot snapshot) {
+        this(snapshot, null);
+    }
 }
