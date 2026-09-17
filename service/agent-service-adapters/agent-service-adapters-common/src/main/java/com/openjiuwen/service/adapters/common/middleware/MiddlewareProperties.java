@@ -235,6 +235,10 @@ public class MiddlewareProperties {
 
         private String pathStyle = "v3";
 
+        private String scopeOrg = "";
+
+        private String scopeUser = "";
+
         private int timeoutMs = 3000;
 
         private ExternalRetryPolicy retry = new ExternalRetryPolicy();
@@ -305,6 +309,22 @@ public class MiddlewareProperties {
 
         public void setPathStyle(String pathStyle) {
             this.pathStyle = pathStyle != null && !pathStyle.isBlank() ? pathStyle : "v3";
+        }
+
+        public String getScopeOrg() {
+            return scopeOrg;
+        }
+
+        public void setScopeOrg(String scopeOrg) {
+            this.scopeOrg = scopeOrg != null ? scopeOrg.trim() : "";
+        }
+
+        public String getScopeUser() {
+            return scopeUser;
+        }
+
+        public void setScopeUser(String scopeUser) {
+            this.scopeUser = scopeUser != null ? scopeUser.trim() : "";
         }
 
         @Override
