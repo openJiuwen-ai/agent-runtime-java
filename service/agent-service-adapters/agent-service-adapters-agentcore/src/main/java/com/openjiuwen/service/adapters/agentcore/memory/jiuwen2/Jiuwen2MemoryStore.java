@@ -114,11 +114,8 @@ public class Jiuwen2MemoryStore implements MemoryStore {
         if (normalized.memoryId().isBlank()) {
             return Optional.empty();
         }
-        Map<String, Object> unit = api.get(baseUrl, normalized.memoryId(), requestScope(normalized.scope()));
-        if (unit == null) {
-            return Optional.empty();
-        }
-        return Optional.of(toRecord(unit, "id"));
+        return api.get(baseUrl, normalized.memoryId(), requestScope(normalized.scope()))
+            .map(unit -> toRecord(unit, "id"));
     }
 
     @Override
@@ -144,6 +141,9 @@ public class Jiuwen2MemoryStore implements MemoryStore {
      * configuration; the business session id is accepted on the {@code session}
      * dimension; {@code space}/{@code agent} stay empty — a non-empty unregistered
      * space or a foreign agent id is rejected by the server.
+     *
+     * @param requestScope the request scope carrying the business session id
+     * @return the 2.0 request scope map (org/space/user/agent/session)
      */
     private Map<String, Object> requestScope(MemoryScope requestScope) {
         Map<String, Object> scope = new LinkedHashMap<>();
@@ -158,6 +158,9 @@ public class Jiuwen2MemoryStore implements MemoryStore {
     /**
      * Preserves the business scope dimensions that cannot be expressed on the 2.0
      * scope (which is identity-bound) as user metadata on the stored unit.
+     *
+     * @param requestScope the business scope to preserve
+     * @return the user metadata map carrying the business dimensions
      */
     private Map<String, Object> businessMetadata(MemoryScope requestScope) {
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -179,6 +182,9 @@ public class Jiuwen2MemoryStore implements MemoryStore {
     /**
      * Merges the turn's messages into a single content with role markers, matching the
      * turn-level ingestion the 2.0 single-content {@code add} contract expects.
+     *
+     * @param messages the turn's messages, may be null
+     * @return the merged content with role markers, blank when no message carries text
      */
     private String mergeTurnContent(List<MemoryMessage> messages) {
         if (messages == null) {
@@ -209,6 +215,10 @@ public class Jiuwen2MemoryStore implements MemoryStore {
      * Maps raw response entries to records. The id field differs by endpoint:
      * memory units ({@code add}/{@code get}) carry {@code id}, search items carry
      * {@code unit_id}.
+     *
+     * @param raws the raw response entries
+     * @param idField the response field carrying the record id
+     * @return the mapped records, empty when the response carries no entries
      */
     private List<MemoryRecord> toRecords(List<Map<String, Object>> raws, String idField) {
         List<MemoryRecord> records = new ArrayList<>();
@@ -222,7 +232,6 @@ public class Jiuwen2MemoryStore implements MemoryStore {
     }
 
     private MemoryRecord toRecord(Map<String, Object> raw, String idField) {
-        String memoryId = stringValue(raw.get(idField));
         Map<String, Object> metadata = new LinkedHashMap<>();
         Object score = raw.get("score");
         if (score != null) {
@@ -240,6 +249,7 @@ public class Jiuwen2MemoryStore implements MemoryStore {
         if (lifecycle != null) {
             metadata.put("lifecycle", lifecycle);
         }
+        String memoryId = stringValue(raw.get(idField));
         return new MemoryRecord(memoryId, unitContent(raw), metadata, raw);
     }
 
@@ -247,27 +257,14 @@ public class Jiuwen2MemoryStore implements MemoryStore {
      * Resolves the unit text. Search items carry a top-level {@code content}; memory
      * units (add/get) hold the text in {@code segments[].content} and only expose
      * abstract/overview on {@code layers}.
+     *
+     * @param raw the raw response entry
+     * @return the resolved unit text, blank when the entry carries no text
      */
     private static String unitContent(Map<String, Object> raw) {
         String content = stringValue(raw.get("content"));
-        if (!content.isBlank()) {
-            return content;
-        }
-        Object segments = raw.get("segments");
-        if (segments instanceof List<?> list) {
-            StringBuilder joined = new StringBuilder();
-            for (Object item : list) {
-                if (item instanceof Map<?, ?> segment) {
-                    String text = stringValue(segment.get("content"));
-                    if (!text.isBlank()) {
-                        if (joined.length() > 0) {
-                            joined.append('\n');
-                        }
-                        joined.append(text);
-                    }
-                }
-            }
-            content = joined.toString();
+        if (content.isBlank()) {
+            content = joinedSegmentContent(raw.get("segments"));
         }
         if (content.isBlank()) {
             content = stringValue(raw.get("overview"));
@@ -276,6 +273,43 @@ public class Jiuwen2MemoryStore implements MemoryStore {
             content = stringValue(raw.get("abstract"));
         }
         return content;
+    }
+
+    /**
+     * Joins the non-blank {@code segments[].content} values with newlines.
+     *
+     * @param segments the raw segments value of a memory unit
+     * @return the joined segment text, blank when the unit has no segments
+     */
+    private static String joinedSegmentContent(Object segments) {
+        if (!(segments instanceof List<?> list)) {
+            return "";
+        }
+        StringBuilder joined = new StringBuilder();
+        for (Object item : list) {
+            appendSegment(joined, item);
+        }
+        return joined.toString();
+    }
+
+    /**
+     * Appends one segment's text, skipping blank ones and joining with newlines.
+     *
+     * @param joined the builder collecting segment texts
+     * @param item the raw segment entry
+     */
+    private static void appendSegment(StringBuilder joined, Object item) {
+        if (!(item instanceof Map<?, ?> segment)) {
+            return;
+        }
+        String text = stringValue(segment.get("content"));
+        if (text.isBlank()) {
+            return;
+        }
+        if (joined.length() > 0) {
+            joined.append('\n');
+        }
+        joined.append(text);
     }
 
     private static String stringValue(Object value) {

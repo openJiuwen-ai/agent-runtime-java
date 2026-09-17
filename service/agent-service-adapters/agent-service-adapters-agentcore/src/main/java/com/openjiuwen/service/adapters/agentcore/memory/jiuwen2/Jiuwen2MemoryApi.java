@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Governance-decorated HTTP client for the agent-memory 2.0 API surface.
@@ -113,7 +114,7 @@ public class Jiuwen2MemoryApi {
         // an explicit l2, otherwise returned content is empty.
         body.put("disclosure", "l2");
         Map<String, Object> response = executor.execute(OP, "search", shouldRetry,
-            () -> send(baseUrl, "/v1/search", "POST", body, false));
+            () -> send(baseUrl, "/v1/search", "POST", body, false)).orElse(Map.of());
         return extractItems(response, "items");
     }
 
@@ -123,9 +124,9 @@ public class Jiuwen2MemoryApi {
      * @param baseUrl agent-memory 2.0 base URL
      * @param unitId memory unit id
      * @param scope request scope
-     * @return the memory unit, or {@code null} when the id does not exist
+     * @return the memory unit, or empty when the id does not exist
      */
-    public Map<String, Object> get(String baseUrl, String unitId, Map<String, Object> scope) {
+    public Optional<Map<String, Object>> get(String baseUrl, String unitId, Map<String, Object> scope) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("unit_id", unitId);
         body.put("scope", scope);
@@ -148,7 +149,7 @@ public class Jiuwen2MemoryApi {
         selector.put("scope", scope);
         body.put("selector", selector);
         Map<String, Object> response = executor.execute(OP, "delete", shouldRetry,
-            () -> send(baseUrl, "/v1/delete", "POST", body, false));
+            () -> send(baseUrl, "/v1/delete", "POST", body, false)).orElse(Map.of());
         return extractIds(response);
     }
 
@@ -161,7 +162,7 @@ public class Jiuwen2MemoryApi {
     public boolean isHealthy(String baseUrl) {
         try {
             Map<String, Object> response = executor.execute(OP, "health", false,
-                () -> send(baseUrl, "/healthz", "GET", null, false));
+                () -> send(baseUrl, "/healthz", "GET", null, false)).orElse(Map.of());
             return "ok".equalsIgnoreCase(stringValue(response.get("status")));
         } catch (ExternalSvcAdapterException e) {
             return false;
@@ -170,7 +171,7 @@ public class Jiuwen2MemoryApi {
 
     private List<Map<String, Object>> executeAdd(String baseUrl, Map<String, Object> body) {
         Map<String, Object> response = executor.execute(OP, "add", shouldRetry,
-            () -> send(baseUrl, "/v1/add", "POST", body, false));
+            () -> send(baseUrl, "/v1/add", "POST", body, false)).orElse(Map.of());
         return extractItems(response, "units");
     }
 
@@ -203,6 +204,9 @@ public class Jiuwen2MemoryApi {
     /**
      * Extracts the string ids returned by {@code /v1/delete}. The endpoint answers with
      * a bare JSON array of ids, which the dispatcher wraps under {@code results}.
+     *
+     * @param response the delete response body
+     * @return the ids of the deleted memory units, empty when none are returned
      */
     private static List<String> extractIds(Map<String, Object> response) {
         if (response == null) {
@@ -221,8 +225,8 @@ public class Jiuwen2MemoryApi {
         return List.of();
     }
 
-    private Map<String, Object> send(String baseUrl, String path, String method,
-        Map<String, Object> body, boolean allowNotFound) throws Exception {
+    private Optional<Map<String, Object>> send(String baseUrl, String path, String method,
+        Map<String, Object> body, boolean canBeAbsent) throws Exception {
         String normalizedBase = (baseUrl == null || baseUrl.isBlank())
             ? "http://localhost:8137"
             : baseUrl.replaceAll("/+$", "");
@@ -240,23 +244,23 @@ public class Jiuwen2MemoryApi {
         HttpResponse<String> response = httpClient.send(builder.build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            if (allowNotFound && response.statusCode() == 404) {
-                return null;
+            if (canBeAbsent && response.statusCode() == 404) {
+                return Optional.empty();
             }
             throw new IllegalStateException(
                 "Jiuwen2 Memory API request failed with status " + response.statusCode() + ": " + response.body());
         }
         String responseBody = response.body();
         if (responseBody == null || responseBody.isBlank()) {
-            return new LinkedHashMap<>();
+            return Optional.of(new LinkedHashMap<>());
         }
         Object parsed = MAPPER.readValue(responseBody, Object.class);
         if (parsed instanceof Map<?, ?> map) {
-            return castMap(map);
+            return Optional.of(castMap(map));
         }
         Map<String, Object> wrapped = new LinkedHashMap<>();
         wrapped.put("results", parsed);
-        return wrapped;
+        return Optional.of(wrapped);
     }
 
     private static Map<String, Object> castMap(Map<?, ?> source) {
