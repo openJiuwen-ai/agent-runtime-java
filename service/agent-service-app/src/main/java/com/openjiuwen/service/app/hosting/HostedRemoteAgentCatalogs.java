@@ -23,6 +23,8 @@ import java.util.stream.Collectors;
 /**
  * Binds each hosted instance to its effective remote directory. Local names mask
  * global entries before discovery, including while a local endpoint is unavailable.
+ *
+ * @since 0.1.3
  */
 public final class HostedRemoteAgentCatalogs {
     private final Map<String, A2ARemoteAgentCardRegistry> catalogs = new LinkedHashMap<>();
@@ -57,8 +59,9 @@ public final class HostedRemoteAgentCatalogs {
             localNames.put(entry.agentId(), names);
             localConfigurations.put(entry.agentId(), locals);
             var catalog = new A2ARemoteAgentCardRegistry(event -> {
-                var changed = (RemoteAgentCatalogChangedEvent) event;
-                publisher.publishEvent(new RemoteAgentCatalogChangedEvent(changed.snapshot(), entry.agentId()));
+                if (event instanceof RemoteAgentCatalogChangedEvent changed) {
+                    publisher.publishEvent(new RemoteAgentCatalogChangedEvent(changed.snapshot(), entry.agentId()));
+                }
             });
             catalogs.put(entry.agentId(), catalog);
             copyInherited(entry.agentId(), snapshot.entries());

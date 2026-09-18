@@ -40,30 +40,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Exercises bound catalogs through Card discovery and actual HTTP calls. */
 class HostedRemoteAgentDiscoveryTest {
     @Test
-    void localOverrideAndAdditionReachTheirOwnEndpointsWhileLegacyInheritsGlobal() throws Exception {
+    void localOverridesAndAdditionsKeepGlobalEndpointsIsolated() throws Exception {
         var requests = new CopyOnWriteArrayList<String>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
-        server.createContext("/", exchange -> {
-            try (exchange) {
-                String path = exchange.getRequestURI().getPath();
-                if (path.endsWith("/.well-known/agent-card.json")) {
-                    String endpoint = base + path.replace("/.well-known/agent-card.json", "");
-                    byte[] body = new ObjectMapper().writeValueAsBytes(
-                            A2ARemoteAgentClientSecurityTest.card(endpoint, null));
-                    exchange.getResponseHeaders().set("Content-Type", "application/json");
-                    exchange.sendResponseHeaders(200, body.length);
-                    exchange.getResponseBody().write(body);
-                } else {
-                    var body = JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(),
-                            StandardCharsets.UTF_8)).getAsJsonObject();
-                    requests.add(path + ":" + body.get("method").getAsString());
-                    assertThat(body.getAsJsonObject("params").getAsJsonObject("message")
-                            .get("contextId").getAsString()).isEqualTo("ctx");
-                    A2ARemoteAgentClientSecurityTest.writeResponse(exchange, body);
-                }
-            }
-        });
+        configureServer(server, base, requests);
         server.start();
         var values = new MapConfigurationPropertySource(Map.of(
                 "openjiuwen.service.a2a.remote-agents[0].name", "remote",
@@ -97,7 +78,7 @@ class HostedRemoteAgentDiscoveryTest {
     }
 
     @Test
-    void failedLocalDiscoveryNeverFallsBackAndSameNameRetriesStayIndependent() {
+    void failedLocalDiscoveryKeepsRetriesIsolatedWithoutFallback() {
         var properties = new A2AProperties();
         for (String id : List.of("a", "b")) {
             var local = new A2AProperties.HostedCardProperties();
@@ -124,18 +105,21 @@ class HostedRemoteAgentDiscoveryTest {
                     retries.add(invocation.getArgument(0));
                     return mock(ScheduledFuture.class);
                 });
-        ((ScheduledExecutorService) ReflectionTestUtils.getField(discovery, "retryExecutor")).shutdown();
+        assertThat(ReflectionTestUtils.getField(discovery, "retryExecutor"))
+                .isInstanceOfSatisfying(ScheduledExecutorService.class, ScheduledExecutorService::shutdown);
         ReflectionTestUtils.setField(discovery, "retryExecutor", scheduler);
         try {
             discovery.discoverAll();
             assertThat(catalogs.catalog("a").get("remote")).isEmpty();
             assertThat(catalogs.catalog("b").get("remote")).isEmpty();
-            assertThat((Map<?, ?>) ReflectionTestUtils.getField(discovery, "retryFutures")).hasSize(2);
+            assertThat(ReflectionTestUtils.getField(discovery, "retryFutures"))
+                    .isInstanceOfSatisfying(Map.class, futures -> assertThat(futures).hasSize(2));
             isAvailable.set(true);
             retries.forEach(Runnable::run);
             assertThat(catalogs.catalog("a").resolveUrl("remote")).isEqualTo("http://a");
             assertThat(catalogs.catalog("b").resolveUrl("remote")).isEqualTo("http://b");
-            assertThat((Map<?, ?>) ReflectionTestUtils.getField(discovery, "retryFutures")).isEmpty();
+            assertThat(ReflectionTestUtils.getField(discovery, "retryFutures"))
+                    .isInstanceOfSatisfying(Map.class, futures -> assertThat(futures).isEmpty());
         } finally {
             discovery.shutdown();
         }
@@ -150,7 +134,7 @@ class HostedRemoteAgentDiscoveryTest {
         properties.getAgents().put("a", local);
         var global = new A2ARemoteAgentCardRegistry();
         var catalogs = new HostedRemoteAgentCatalogs(definitions(), properties, global,
-                event -> events.add((RemoteAgentCatalogChangedEvent) event));
+                event -> assertThat(event).isInstanceOfSatisfying(RemoteAgentCatalogChangedEvent.class, events::add));
         global.register("inherited", A2ARemoteAgentClientSecurityTest.card("http://global", null));
         global.register("overridden", A2ARemoteAgentClientSecurityTest.card("http://wrong", null));
         catalogs.onGlobalCatalogChanged(new RemoteAgentCatalogChangedEvent(global.snapshot()));
@@ -158,6 +142,29 @@ class HostedRemoteAgentDiscoveryTest {
         assertThat(catalogs.catalog("a").get("overridden")).isEmpty();
         assertThat(events).singleElement().satisfies(event -> assertThat(event.agentId()).isEqualTo("a"));
         assertThatThrownBy(() -> catalogs.catalog("unknown")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static void configureServer(HttpServer server, String base, List<String> requests) {
+        server.createContext("/", exchange -> {
+            try (exchange) {
+                String path = exchange.getRequestURI().getPath();
+                if (path.endsWith("/.well-known/agent-card.json")) {
+                    String endpoint = base + path.replace("/.well-known/agent-card.json", "");
+                    byte[] body = new ObjectMapper().writeValueAsBytes(
+                            A2ARemoteAgentClientSecurityTest.card(endpoint, null));
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(200, body.length);
+                    exchange.getResponseBody().write(body);
+                } else {
+                    var body = JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(),
+                            StandardCharsets.UTF_8)).getAsJsonObject();
+                    requests.add(path + ":" + body.get("method").getAsString());
+                    assertThat(body.getAsJsonObject("params").getAsJsonObject("message")
+                            .get("contextId").getAsString()).isEqualTo("ctx");
+                    A2ARemoteAgentClientSecurityTest.writeResponse(exchange, body);
+                }
+            }
+        });
     }
 
     private static HostedAgentDefinitions definitions() {
