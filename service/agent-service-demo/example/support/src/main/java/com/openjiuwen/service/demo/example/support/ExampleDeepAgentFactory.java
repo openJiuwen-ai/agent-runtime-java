@@ -86,6 +86,12 @@ public final class ExampleDeepAgentFactory {
      */
     public static DeepAgent build(String agentId, String name, String description, ResolvedLlmConfig config,
         List<Object> rails, boolean isTaskLoopEnabled) {
+        return build(agentId, name, description, config, rails, isTaskLoopEnabled, false);
+    }
+
+    /** Builds a DeepAgent with optional Todo tools, without selecting its storage backend. */
+    public static DeepAgent build(String agentId, String name, String description, ResolvedLlmConfig config,
+        List<Object> rails, boolean isTaskLoopEnabled, boolean isTaskPlanningEnabled) {
         String workspacePath = WORKSPACE_ROOT + "/" + agentId;
         DeepAgentConfig agentConfig = DeepAgentConfig.builder()
             .systemPrompt(config.getSystemPrompt())
@@ -96,7 +102,7 @@ public final class ExampleDeepAgentFactory {
             .model(buildModel(config))
             .restrictToWorkDir(true)
             .enableTaskLoop(isTaskLoopEnabled)
-            .enableTaskPlanning(false)
+            .enableTaskPlanning(isTaskPlanningEnabled)
             .addGeneralPurposeAgent(false)
             .build();
         AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
