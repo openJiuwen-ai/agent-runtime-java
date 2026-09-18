@@ -60,7 +60,7 @@ class DeepAgentRedisTodoIT {
                 int httpPort = context.getEnvironment().getRequiredProperty("local.server.port", Integer.class);
                 RedisCheckpointer cp = assertInstanceOf(RedisCheckpointer.class,
                         CheckpointerFactory.getCheckpointer());
-                assertEquals(Duration.ofSeconds(180), cp.getEffectiveTtl());
+                assertEquals(Duration.ofSeconds(180), cp.getEffectiveTtl().orElseThrow());
                 HttpClient http = HttpClient.newHttpClient();
                 // The demo passes an Agent instance without a middleware registrar or Todo storage settings.
                 String response = query(http, httpPort, session,
