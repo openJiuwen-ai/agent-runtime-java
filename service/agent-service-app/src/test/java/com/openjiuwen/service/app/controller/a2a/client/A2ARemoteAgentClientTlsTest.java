@@ -95,6 +95,21 @@ class A2ARemoteAgentClientTlsTest {
     }
 
     @Test
+    void sameNameAndEndpointInDifferentCatalogsDoNotShareTlsClients() throws Exception {
+        String endpoint = startServer(false);
+        var global = new A2ARemoteAgentCardRegistry();
+        var local = new A2ARemoteAgentCardRegistry();
+        global.register("remote", A2ARemoteAgentClientSecurityTest.card(endpoint, null), 5, false, tls(false));
+        local.register("remote", A2ARemoteAgentClientSecurityTest.card(endpoint, null), 5, false);
+        client = newClient(global);
+
+        A2ARemoteAgentClientSecurityTest.invoke(client, "remote", false);
+        assertThatThrownBy(() -> A2ARemoteAgentClientSecurityTest.invoke(client.bindCatalog(local), "remote", false))
+                .hasStackTraceContaining("SSLHandshakeException");
+        assertThat(requests).hasValue(1);
+    }
+
+    @Test
     void missingClientCertificateFailsBeforeHttp() throws Exception {
         String endpoint = startServer(true);
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();

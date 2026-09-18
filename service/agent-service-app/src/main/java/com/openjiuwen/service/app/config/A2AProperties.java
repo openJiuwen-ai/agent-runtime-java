@@ -65,7 +65,7 @@ public class A2AProperties {
 
     private List<RemoteAgentProperties> remoteAgents = List.of();
 
-    /** Card-only overrides keyed by identifiers declared in HostedAgentDefinitions. */
+    /** Instance Card and remote-agent configuration keyed by HostedAgentDefinitions identifiers. */
     private Map<String, HostedCardProperties> agents = new LinkedHashMap<>();
 
     private String jsonRpcPath = "/a2a";
@@ -115,9 +115,12 @@ public class A2AProperties {
         private long queueTimeoutSeconds = 30L;
     }
 
-    /** Optional per-target Card fields; no execution or infrastructure overrides. */
+    /** Per-target Card fields and remote agents; shared infrastructure remains process-wide. */
     @Data
     public static class HostedCardProperties {
+        /** Local entries replace global entries with the same name in their entirety. */
+        private List<RemoteAgentProperties> remoteAgents = List.of();
+
         private String agentName;
 
         private String agentDescription;
