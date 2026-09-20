@@ -49,6 +49,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * @since 2026-07-03
  */
+@ConditionalOnProperty(
+        prefix = "openjiuwen.service.http", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
@@ -256,6 +258,8 @@ public class QueryMvcController {
     }
 }
 
+@ConditionalOnProperty(
+        prefix = "openjiuwen.service.http", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
@@ -291,6 +295,8 @@ class QueryLegacyMvcController {
     }
 }
 
+@ConditionalOnProperty(
+        prefix = "openjiuwen.service.http", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RestControllerAdvice(assignableTypes = {QueryMvcController.class, QueryLegacyMvcController.class})
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @Order(Ordered.LOWEST_PRECEDENCE)

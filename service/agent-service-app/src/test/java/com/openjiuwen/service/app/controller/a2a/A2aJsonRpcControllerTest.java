@@ -55,10 +55,10 @@ class A2aJsonRpcControllerTest {
     @Test
     void oversizedContentLengthIsRejectedWith413BeforeJsonParsing() {
         RequestHandler requestHandler = mock(RequestHandler.class);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         A2AProperties properties = new A2AProperties();
         properties.setMaxMessageBytes(1024);
-        controller.setA2aProperties(properties);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> requestHandler, null, properties, null), properties);
         jakarta.servlet.http.HttpServletRequest servletRequest = mock(
                 jakarta.servlet.http.HttpServletRequest.class);
         when(servletRequest.getContentLengthLong()).thenReturn(2048L);
@@ -75,10 +75,10 @@ class A2aJsonRpcControllerTest {
     @Test
     void missingContentLengthIsRejectedWith413BeforeJsonParsing() {
         RequestHandler requestHandler = mock(RequestHandler.class);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         A2AProperties properties = new A2AProperties();
         properties.setMaxMessageBytes(1024);
-        controller.setA2aProperties(properties);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> requestHandler, null, properties, null), properties);
         jakarta.servlet.http.HttpServletRequest servletRequest = mock(
                 jakarta.servlet.http.HttpServletRequest.class);
         when(servletRequest.getContentLengthLong()).thenReturn(-1L);
@@ -96,10 +96,10 @@ class A2aJsonRpcControllerTest {
         RequestHandler requestHandler = mock(RequestHandler.class);
         when(requestHandler.onMessageSend(org.mockito.ArgumentMatchers.any(MessageSendParams.class),
                 org.mockito.ArgumentMatchers.any(ServerCallContext.class))).thenReturn(completedTask());
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         A2AProperties properties = new A2AProperties();
         properties.setMaxMessageBytes(-1);
-        controller.setA2aProperties(properties);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> requestHandler, null, properties, null), properties);
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
 
         ResponseEntity<?> response = controller.handleJsonRpc("""
@@ -176,7 +176,8 @@ class A2aJsonRpcControllerTest {
                     }
                 });
         when(requestHandler.onSubscribeToTask(any(TaskIdParams.class), any())).thenReturn(publisher);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> requestHandler, null, new A2AProperties(), null), new A2AProperties());
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
         String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\""
                 + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
@@ -202,7 +203,8 @@ class A2aJsonRpcControllerTest {
             throw rejection;
         };
         when(requestHandler.onSubscribeToTask(any(TaskIdParams.class), any())).thenReturn(publisher);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> requestHandler, null, new A2AProperties(), null), new A2AProperties());
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
         String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\""
                 + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
@@ -241,14 +243,14 @@ class A2aJsonRpcControllerTest {
 
     @Test
     void serializesTextWithoutHtmlSafeUnicodeEscapes() throws Exception {
-        String json = A2aJsonRpcController.serializeA2aJson(new TextPart("claim=WF-001; decision=approved"));
+        String json = A2aJsonRpcDispatcher.serializeA2aJson(new TextPart("claim=WF-001; decision=approved"));
 
         assertThat(json).contains("claim=WF-001; decision=approved").doesNotContain("\\u003d");
     }
 
     @Test
     void serializesStructuredChunksAsJsonDataInsteadOfEscapedText() throws Exception {
-        String json = A2aJsonRpcController.serializeA2aJson(
+        String json = A2aJsonRpcDispatcher.serializeA2aJson(
                 new DataPart(Map.of("type", "llm_output", "payload", Map.of("content", "working"))));
         JsonObject part = JsonParser.parseString(json).getAsJsonObject();
 
@@ -260,7 +262,7 @@ class A2aJsonRpcControllerTest {
 
     @Test
     void structuredPartRoundTripsThroughStandardA2aSdkJsonMapper() throws Exception {
-        String json = A2aJsonRpcController.serializeA2aJson(
+        String json = A2aJsonRpcDispatcher.serializeA2aJson(
                 new DataPart(Map.of("type", "llm_output", "payload", Map.of("content", "working"))));
 
         Part<?> decoded = JsonUtil.fromJson(json, Part.class);
@@ -274,7 +276,8 @@ class A2aJsonRpcControllerTest {
     @Test
     void unsupportedPushCrudMethodsReturnMethodNotFound() {
         RequestHandler requestHandler = mock(RequestHandler.class);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> requestHandler, null, new A2AProperties(), null), new A2AProperties());
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
 
         for (String method : UNSUPPORTED_PUSH_CRUD_METHODS) {
@@ -296,7 +299,8 @@ class A2aJsonRpcControllerTest {
         RequestHandler requestHandler = mock(RequestHandler.class);
         when(requestHandler.onMessageSend(org.mockito.ArgumentMatchers.any(MessageSendParams.class),
                 org.mockito.ArgumentMatchers.any(ServerCallContext.class))).thenReturn(completedTask());
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> requestHandler, null, new A2AProperties(), null), new A2AProperties());
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
         servletRequest.setContent(new byte[] {'{', '}'});
 
@@ -327,7 +331,8 @@ class A2aJsonRpcControllerTest {
     @Test
     void nonHttpInlinePushConfigIsRejectedBeforeCallingSdkHandler() {
         RequestHandler requestHandler = mock(RequestHandler.class);
-        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> requestHandler, null, new A2AProperties(), null), new A2AProperties());
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
         servletRequest.setContent(new byte[] {'{', '}'});
 

@@ -10,6 +10,8 @@ import com.openjiuwen.service.spec.concurrency.ConcurrencyLoadSnapshot;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -30,6 +32,9 @@ import java.util.Optional;
  *
  * @since 0.1.2
  */
+@ConditionalOnWebApplication
+@ConditionalOnProperty(
+        prefix = "openjiuwen.service.http", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RestController
 public class ActiveTaskController {
     private final ObjectProvider<ActiveTaskQuery> queryProvider;

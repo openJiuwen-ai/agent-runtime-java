@@ -20,6 +20,8 @@ See [Scope & roadmap](#scope--roadmap) and [Logical Architecture](documents/zh/2
 
 - **Clear module boundaries**: `spec` (contracts & SPI) → `adapters` (execution engine, middleware, external egress) → `app` (Ingress + Orchestrator) — one-way dependencies for custom images.
 
+Customer Spring applications can inject `A2aRuntimeInvoker` and set `openjiuwen.service.http.enabled=false` to disable Runtime-owned endpoints while retaining A2A Tasks and their own HTTP server. See [embedded method invocation](documents/zh/2.开发指南/A2A/嵌入式方法调用.md).
+
 ## Quick Start
 
 ### Requirements

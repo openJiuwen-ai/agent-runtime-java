@@ -117,10 +117,10 @@ class CallbackDestinationSecurityTest {
     @ValueSource(strings = {"SendMessage", "SendStreamingMessage"})
     void rejectsInlineMetadataEndpointBeforeHandler(String method) {
         RequestHandler handler = mock(RequestHandler.class);
-        A2aJsonRpcController controller = new A2aJsonRpcController(handler);
         A2AProperties properties = new A2AProperties();
         properties.setCallbackAllowedHosts(List.of("127.0.0.1"));
-        controller.setA2aProperties(properties);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> handler, null, properties, null), properties);
         String request = new Gson().toJson(Map.of("jsonrpc", "2.0", "id", "request-1", "method", method,
             "params", Map.of("message", Map.of("role", "ROLE_USER", "messageId", "message-1",
                 "parts", List.of(Map.of("kind", "text", "text", "hello"))), "pushNotificationConfig",

@@ -18,6 +18,7 @@ import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -38,6 +39,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * @since 0.1.0
  */
+@ConditionalOnWebApplication
+@ConditionalOnProperty(
+        prefix = "openjiuwen.service.http", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RestController
 @ConditionalOnClass(name = "reactor.core.publisher.Flux")
 @ConditionalOnProperty(name = QueryIngressSupport.WEBFLUX_ENABLED_PROPERTY, havingValue = "true")

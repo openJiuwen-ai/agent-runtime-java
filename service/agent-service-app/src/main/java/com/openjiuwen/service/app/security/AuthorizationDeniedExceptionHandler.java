@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.security;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -19,6 +20,8 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
+@ConditionalOnProperty(
+        prefix = "openjiuwen.service.http", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class AuthorizationDeniedExceptionHandler {

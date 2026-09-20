@@ -89,7 +89,8 @@ public class A2AProperties {
      * Max JSON-RPC request body size for {@code /a2a} in bytes. The Content-Length
      * pre-check rejects requests that are missing Content-Length or exceed this limit
      * with HTTP 413 before JSON parsing. {@code -1} disables
-     * the pre-check as an emergency switch.
+     * the pre-check as an emergency switch. Method invocation checks the same
+     * limit against the UTF-8 request body and returns a JSON-RPC invalid-request error.
      */
     private long maxMessageBytes = A2aPartLimits.DEFAULT_MAX_REQUEST_BODY_BYTES;
 

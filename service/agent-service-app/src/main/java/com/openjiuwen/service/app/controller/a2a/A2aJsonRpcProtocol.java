@@ -20,8 +20,6 @@ import org.a2aproject.sdk.spec.InvalidRequestError;
 import org.a2aproject.sdk.spec.JSONParseError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 
 /**
  * Adapts the A2A SDK JSON-RPC model to the HTTP binding used by the service.
@@ -58,18 +56,17 @@ final class A2aJsonRpcProtocol {
         return new Request(payload, payload.get("method").getAsString(), id);
     }
 
-    static ResponseEntity<String> errorResponse(Object id, A2AError error) {
+    static EncodedError errorResponse(Object id, A2AError error) {
         try {
             JsonObject response = JsonParser.parseString(JsonUtil.toJson(new A2AErrorResponse(id, error)))
                     .getAsJsonObject();
             if (!response.has("id")) {
                 response.add("id", JsonNull.INSTANCE);
             }
-            return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(response.toString());
+            return new EncodedError(response.toString(), 200);
         } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
             log.error("Failed to serialize A2A JSON-RPC error response", e);
-            return ResponseEntity.internalServerError().contentType(MediaType.APPLICATION_JSON)
-                    .body(internalErrorResponse());
+            return new EncodedError(internalErrorResponse(), 500);
         }
     }
 
@@ -110,6 +107,8 @@ final class A2aJsonRpcProtocol {
         response.add("error", error);
         return response.toString();
     }
+
+    record EncodedError(String json, int status) { }
 
     record Request(JsonObject payload, String method, Object id) {
     }

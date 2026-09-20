@@ -32,7 +32,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.core.env.Environment;
 
 import java.util.List;
@@ -45,7 +44,6 @@ import java.util.List;
  */
 @AutoConfiguration
 @EnableConfigurationProperties({ServiceProperties.class, QueryProperties.class, LifecycleProperties.class})
-@ComponentScan(basePackages = "com.openjiuwen.service.app.controller")
 public class AgentServiceAutoConfiguration {
     /**
      * Creates the placeholder agent handler holder when no custom handler is configured.
