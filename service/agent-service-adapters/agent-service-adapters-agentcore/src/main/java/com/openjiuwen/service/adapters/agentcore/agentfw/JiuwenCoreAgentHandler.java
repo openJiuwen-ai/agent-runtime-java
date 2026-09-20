@@ -224,6 +224,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * Applies Runtime's Redis default before a DeepAgent initializes its Todo tools.
      * Subclasses executing per-task instances must call this on the actual instance.
      * Existing initialized agents and explicit storage choices remain untouched.
+     *
+     * @param executionAgent the actual agent instance or identifier to execute
      */
     protected final void prepareAgentForExecution(Object executionAgent) {
         if (!(executionAgent instanceof DeepAgent deepAgent) || deepAgent.isInitialized()) {

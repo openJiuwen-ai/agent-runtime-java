@@ -1,12 +1,19 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
+
 package com.openjiuwen.service.demo.example.deepagent;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.openjiuwen.core.common.security.JsonUtils;
 import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.extensions.checkpointer.redis.RedisCheckpointer;
 import com.openjiuwen.harness.tools.KvTodoStorage;
+
+import redis.clients.jedis.Jedis;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -15,7 +22,6 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.MapPropertySource;
-import redis.clients.jedis.Jedis;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -26,9 +32,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
-
-/** Opt-in HTTP E2E: the real model must call Todo tools; Redis is independently observed. */
+/**
+ * Opt-in HTTP E2E: the real model must call Todo tools; Redis is independently observed.
+ *
+ * @since 0.1.3
+ */
 @Tag("system-test")
 @EnabledIfEnvironmentVariable(named = "OPENJIUWEN_TODO_REDIS_E2E", matches = "true")
 class DeepAgentRedisTodoIT {
@@ -86,10 +94,10 @@ class DeepAgentRedisTodoIT {
         }
     }
 
-    private static String query(HttpClient client, int port, String session, String message, boolean stream)
+    private static String query(HttpClient client, int port, String session, String message, boolean isStreaming)
             throws Exception {
         String body = JsonUtils.safeJsonDumps(Map.of("conversation_id", session,
-                "message", message, "stream", stream), "{}");
+                "message", message, "stream", isStreaming), "{}");
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/v1/query"))
                 .timeout(Duration.ofSeconds(120)).header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body)).build();

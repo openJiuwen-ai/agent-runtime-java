@@ -57,17 +57,18 @@ public class DeepAgentDemoApplication {
      *
      * @param llmConfigResolver LLM configuration resolver
      * @param externalSvcAdapterRegistrarProvider optional external service adapters
+     * @param isTodoEnabled whether to register Todo tools on the demo agent
      * @return configured agent handler
      */
     @Bean
     AgentHandler agentHandler(LlmConfigResolver llmConfigResolver,
             ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
-            @Value("${demo.deepagent.todo-enabled:false}") boolean todoEnabled) {
+            @Value("${demo.deepagent.todo-enabled:false}") boolean isTodoEnabled) {
         ResolvedLlmConfig llmConfig = llmConfigResolver.resolveRequired();
-        log.info("Starting minimal DeepAgent demo (taskLoop=true, todo={})", todoEnabled);
+        log.info("Starting minimal DeepAgent demo (taskLoop=true, todo={})", isTodoEnabled);
         DeepAgent agent = ExampleDeepAgentFactory.build(AGENT_ID, "DeepAgent Demo",
                 "Minimal DeepAgent for multi-turn context validation via /v1/query",
-                llmConfig, List.of(), true, todoEnabled);
+                llmConfig, List.of(), true, isTodoEnabled);
         return new JiuwenCoreAgentHandler(agent,
                 externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
     }
