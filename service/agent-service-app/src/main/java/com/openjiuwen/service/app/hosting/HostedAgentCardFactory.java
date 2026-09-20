@@ -37,7 +37,7 @@ public final class HostedAgentCardFactory {
      * Validates Card associations and freezes their effective content.
      *
      * @param definitions registered execution targets
-     * @param properties existing global policy plus Card-only overrides
+     * @param properties global policy and instance configuration (only Card fields are used here)
      * @param serviceProperties existing service version
      */
     public HostedAgentCardFactory(HostedAgentDefinitions definitions, A2AProperties properties,
@@ -56,7 +56,7 @@ public final class HostedAgentCardFactory {
         for (String configured : properties.getAgents().keySet()) {
             if (!built.containsKey(configured)) {
                 throw new IllegalArgumentException(
-                        "Card configuration references an unregistered agent: " + configured);
+                        "Instance configuration references an unregistered agent: " + configured);
             }
         }
         cards = Map.copyOf(built);

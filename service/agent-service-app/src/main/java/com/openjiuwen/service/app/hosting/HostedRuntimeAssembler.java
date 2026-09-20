@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.hosting;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration.HostedResources;
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
@@ -59,9 +60,17 @@ public final class HostedRuntimeAssembler {
 
     private final List<Extension> extensions;
 
+    private final HostedRemoteAgentCatalogs remoteCatalogs;
+
     public HostedRuntimeAssembler(Dependencies dependencies, List<Extension> extensions) {
+        this(dependencies, extensions, null);
+    }
+
+    public HostedRuntimeAssembler(Dependencies dependencies, List<Extension> extensions,
+            HostedRemoteAgentCatalogs remoteCatalogs) {
         this.dependencies = dependencies;
         this.extensions = List.copyOf(extensions);
+        this.remoteCatalogs = remoteCatalogs;
     }
 
     HostedAgentRuntime assemble(String applicationName, HostedAgentDefinitions.Entry entry) {
@@ -69,6 +78,9 @@ public final class HostedRuntimeAssembler {
                 : new ScopedRuntimeRedisClient(dependencies.redisClient(),
                         ScopedRuntimeRedisClient.namespace(applicationName, entry.agentId()));
         Assembly assembly = new Assembly(entry, scoped);
+        if (remoteCatalogs != null) {
+            assembly.bind(A2ARemoteAgentCardRegistry.class, remoteCatalogs.catalog(entry.agentId()));
+        }
         try {
             TaskStore store = A2AAutoConfiguration.createTaskStore(dependencies.middleware(), scoped,
                     dependencies.properties());
@@ -137,16 +149,19 @@ public final class HostedRuntimeAssembler {
     }
 
     private RemoteAgentCaller boundCaller(String agentId) {
+        RemoteAgentCaller caller = remoteCatalogs != null && remoteCatalogs.hasLocalConfiguration(agentId)
+                ? dependencies.remoteCaller().bindCatalog(remoteCatalogs.catalog(agentId))
+                : dependencies.remoteCaller();
         return (call, observer) -> {
             Object selectedPush = call.metadata().get("runtime.a2a.callbackUrl");
             if (!(selectedPush instanceof String url) || url.isBlank()) {
-                return dependencies.remoteCaller().callOutcome(call, observer);
+                return caller.callOutcome(call, observer);
             }
             Map<String, Object> metadata = new LinkedHashMap<>(call.metadata());
             metadata.put("runtime.a2a.callbackUrl", dependencies.cards().callbackUrl(agentId));
             var bound = new RemoteCall(call.agentName(), call.message(), call.contextId(), call.taskId(), metadata,
                     call.messageMetadata(), call.isCallerStreaming(), call.parts());
-            return dependencies.remoteCaller().callOutcome(bound, observer);
+            return caller.callOutcome(bound, observer);
         };
     }
 

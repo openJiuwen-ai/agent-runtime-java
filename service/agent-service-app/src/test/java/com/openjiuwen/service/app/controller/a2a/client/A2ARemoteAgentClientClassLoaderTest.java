@@ -384,11 +384,16 @@ class A2ARemoteAgentClientClassLoaderTest {
         try {
             A2ARemoteAgentClient client = new A2ARemoteAgentClient(new A2ARemoteAgentCardRegistry());
             RemoteAgentEntry entry = new RemoteAgentEntry("remote", testCard(), 30, true);
-            Method createClient = A2ARemoteAgentClient.class.getDeclaredMethod("createClient", RemoteAgentEntry.class,
-                    boolean.class);
+            Method createClient = A2ARemoteAgentClient.class.getDeclaredMethod("createClient",
+                    A2ARemoteAgentCardRegistry.class, RemoteAgentEntry.class, boolean.class);
             createClient.setAccessible(true);
 
-            assertThatCode(() -> createClient.invoke(client, entry, true)).doesNotThrowAnyException();
+            try {
+                assertThatCode(() -> createClient.invoke(client, new A2ARemoteAgentCardRegistry(), entry, true))
+                        .doesNotThrowAnyException();
+            } finally {
+                client.shutdown();
+            }
         } finally {
             Thread.currentThread().setContextClassLoader(original);
         }
