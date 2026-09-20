@@ -51,6 +51,61 @@ class InMemoryRuntimeRedisClientTest {
     }
 
     @Test
+    void keepsBinaryKeysDistinctAndLossless() {
+        InMemoryRuntimeRedisClient client = new InMemoryRuntimeRedisClient();
+        byte[] first = {(byte) 0x80};
+        byte[] second = {(byte) 0x81};
+        assertThat(client.set(first, new byte[] {1})).isEqualTo("OK");
+        assertThat(client.set(second, new byte[] {2})).isEqualTo("OK");
+        assertThat(client.get(first)).isEqualTo(new byte[] {1});
+        assertThat(client.get(second)).isEqualTo(new byte[] {2});
+        assertThat(client.set("text", new byte[] {0x61})).isEqualTo("OK");
+        assertThat(client.get("text")).isEqualTo("a");
+    }
+
+    @Test
+    void keepsUnifiedKeyspaceAcrossTypes() {
+        InMemoryRuntimeRedisClient client = new InMemoryRuntimeRedisClient();
+        assertThat(client.hset("same", "f", "old")).isEqualTo(1L);
+        assertThat(client.setnx("same", "new")).isZero();
+        assertThat(client.set("same", "replacement")).isEqualTo("OK");
+        assertThat(client.get("same")).isEqualTo("replacement");
+        assertThatThrownBy(() -> client.hget("same", "f"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("WRONGTYPE");
+        assertThatThrownBy(() -> client.hgetAll("same"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("WRONGTYPE");
+        assertThat(client.set("str", "v")).isEqualTo("OK");
+        assertThat(client.setnx("str", "other")).isZero();
+        assertThatThrownBy(() -> client.hset("str", "f", "v"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("WRONGTYPE");
+        assertThatThrownBy(() -> client.sadd("str", "m"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("WRONGTYPE");
+        assertThat(client.sadd("members", "m1")).isEqualTo(1L);
+        assertThat(client.setnx("members", "v")).isZero();
+        assertThatThrownBy(() -> client.sismember("str", "m"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("WRONGTYPE");
+    }
+
+    @Test
+    void hincrByRejectsOverflowAndNonIntegerValues() {
+        InMemoryRuntimeRedisClient client = new InMemoryRuntimeRedisClient();
+        client.hset("h", "max", String.valueOf(Long.MAX_VALUE));
+        assertThatThrownBy(() -> client.hincrBy("h", "max", 1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("increment or decrement would overflow");
+        assertThat(client.hget("h", "max")).isEqualTo(String.valueOf(Long.MAX_VALUE));
+        client.hset("h", "text", "abc");
+        assertThatThrownBy(() -> client.hincrBy("h", "text", 1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("hash value is not an integer");
+    }
+
+    @Test
     void expireDeletesImmediatelyForNonPositiveTtl() {
         InMemoryRuntimeRedisClient client = new InMemoryRuntimeRedisClient();
         client.set("gone", "value");
@@ -60,7 +115,7 @@ class InMemoryRuntimeRedisClientTest {
     }
 
     @Test
-    void deletesKeysAcrossNamespacesAndCountsRemovals() {
+    void deletesKeysAcrossTypesAndCountsRemovals() {
         InMemoryRuntimeRedisClient client = new InMemoryRuntimeRedisClient();
         client.set("str", "v");
         client.hset("hash", "f", "v");
@@ -121,7 +176,7 @@ class InMemoryRuntimeRedisClientTest {
     }
 
     @Test
-    void scansKeysByGlobPatternAcrossNamespaces() {
+    void scansKeysByGlobPatternAcrossTypes() {
         InMemoryRuntimeRedisClient client = new InMemoryRuntimeRedisClient();
         client.set("task:1", "a");
         client.set("task:2", "b");

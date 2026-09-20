@@ -60,8 +60,13 @@ mvn -pl agent-service-demo/example/redis -am spring-boot:run \
 
 | 能力             | 行为                                                                        |
 |-----------------|-----------------------------------------------------------------------------|
+| 统一键空间        | string/hash/set 同名键互斥（单一键空间），错型操作报 WRONGTYPE；`setnx` 检查全键空间，
+                   `SET` 整体替换任意类型的既有值——与 Redis 语义一致                                  |
+| 键编码           | 键以字节为规范形无损存储：文本键即其 UTF-8 字节（文本键与对应 UTF-8 字节键同址），
+                   非法 UTF-8 序列不坍缩；`scanIter` 列举时按 UTF-8 解码，非 UTF-8 键的列举文本可能失真 |
 | 冻结 17 命令     | 语义对齐 Redis（单键操作、返回值口径一致；`get(String)` 对非 UTF-8 载荷按替代字符解码）      |
-| 8 条结构化命令    | hash/set 语义对齐；`hincrBy` 经 `ConcurrentHashMap.compute` 保证并发原子                       |
+| 8 条结构化命令    | hash/set 语义对齐；`hincrBy` 经 `ConcurrentHashMap.compute` 保证并发原子，非整数值与
+                   溢出显式报错（对齐 Redis 拒绝语义）                                              |
 | TTL             | 记录到期时间戳、读时惰性判定；`expire(key, 0)` 立即删除；`SET` 覆盖旧值时清除 TTL              |
 | `scanIter`      | 内存 glob 近似实现（支持 `*` 与 `?`，不支持 `[...]` 字符类）                                  |
 | `eval`          | **显式抛出 `UnsupportedOperationException`**：内存插件无法近似 Lua 原子语义，按 FRS

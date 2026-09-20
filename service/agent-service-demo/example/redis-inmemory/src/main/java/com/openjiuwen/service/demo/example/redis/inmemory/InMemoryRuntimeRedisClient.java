@@ -9,7 +9,6 @@ import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -20,90 +19,93 @@ import java.util.regex.Pattern;
 /**
  * In-memory {@link RuntimeRedisClient} plugin example.
  *
- * <p>Stores strings, hashes and sets in process-local concurrent maps with lazily evaluated
- * expiry timestamps, so an application can run the full SPI command surface without a Redis
- * server. State is process-bound: nothing survives a restart, and eval is not approximated
- * because atomic Lua semantics cannot be emulated in memory.
+ * <p>Emulates Redis in a single process-local keyspace. Keys are canonically stored as bytes:
+ * a text key is its UTF-8 encoding, so text and binary views address the same data, and
+ * byte sequences that are not valid UTF-8 stay distinct instead of collapsing into the same
+ * text. Every key holds exactly one typed value (string, hash or set), so string, hash and
+ * set commands share Redis unified-keyspace semantics: setnx probes the whole keyspace, SET
+ * replaces the value of any type, and commands targeting a mismatched type fail with a
+ * WRONGTYPE error. hincrBy rejects non-integer values and overflow like the Redis server.
+ * Expiry timestamps are evaluated lazily on access. State is process-bound: nothing survives
+ * a restart, and eval is not approximated because atomic Lua semantics cannot be emulated in
+ * memory.
  *
  * @since 0.1.3
  */
 public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
     private static final String REGEX_META = "\\.^$|()[]{}+";
+    private static final String WRONG_TYPE_MESSAGE =
+            "WRONGTYPE Operation against a key holding the wrong kind of value";
 
-    private final Map<String, byte[]> strings = new ConcurrentHashMap<>();
+    private final Map<RedisKey, Value> keyspace = new ConcurrentHashMap<>();
 
-    private final Map<String, Map<String, String>> hashes = new ConcurrentHashMap<>();
-
-    private final Map<String, Set<String>> sets = new ConcurrentHashMap<>();
-
-    private final Map<String, Long> expiryMillis = new ConcurrentHashMap<>();
+    private final Map<RedisKey, Long> expiryMillis = new ConcurrentHashMap<>();
 
     @Override
     public Object get(String key) {
-        purgeIfExpired(key);
-        byte[] value = strings.get(key);
-        return value == null ? null : new String(value, StandardCharsets.UTF_8);
+        Value value = valueAt(key(key));
+        return value == null ? null : new String(value.asString(), StandardCharsets.UTF_8);
     }
 
     @Override
     public byte[] get(byte[] key) {
-        String textKey = keyOf(key);
-        purgeIfExpired(textKey);
-        byte[] value = strings.get(textKey);
-        return value == null ? null : Arrays.copyOf(value, value.length);
+        Value value = valueAt(key(key));
+        if (value == null) {
+            return null;
+        }
+        byte[] data = value.asString();
+        return Arrays.copyOf(data, data.length);
     }
 
     @Override
     public String set(String key, String value) {
         Objects.requireNonNull(value, "Redis value is required");
-        store(key, value.getBytes(StandardCharsets.UTF_8));
-        return "OK";
+        return storeString(key(key), value.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
     public String set(String key, byte[] value) {
-        store(key, copyOf(value));
-        return "OK";
+        return storeString(key(key), copyOf(value));
     }
 
     @Override
     public String set(byte[] key, byte[] value) {
-        store(keyOf(key), copyOf(value));
-        return "OK";
+        return storeString(key(key), copyOf(value));
     }
 
     @Override
     public String setex(String key, long seconds, String value) {
         Objects.requireNonNull(value, "Redis value is required");
-        store(key, value.getBytes(StandardCharsets.UTF_8));
-        expiryMillis.put(key, deadline(seconds));
+        RedisKey redisKey = key(key);
+        keyspace.put(redisKey, Value.ofString(value.getBytes(StandardCharsets.UTF_8)));
+        expiryMillis.put(redisKey, deadline(seconds));
         return "OK";
     }
 
     @Override
     public String setex(byte[] key, long seconds, byte[] value) {
-        String textKey = keyOf(key);
-        store(textKey, copyOf(value));
-        expiryMillis.put(textKey, deadline(seconds));
+        RedisKey redisKey = key(key);
+        keyspace.put(redisKey, Value.ofString(copyOf(value)));
+        expiryMillis.put(redisKey, deadline(seconds));
         return "OK";
     }
 
     @Override
     public long setnx(String key, String value) {
         Objects.requireNonNull(value, "Redis value is required");
-        return setnxInternal(key, value.getBytes(StandardCharsets.UTF_8));
+        return setIfAbsent(key(key), value.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
     public long setnx(byte[] key, byte[] value) {
-        return setnxInternal(keyOf(key), copyOf(value));
+        return setIfAbsent(key(key), copyOf(value));
     }
 
     @Override
     public long del(String... keys) {
         long deleted = 0L;
         for (String key : keys) {
-            if (removeKey(key)) {
+            if (removeKey(key(key))) {
                 deleted++;
             }
         }
@@ -114,7 +116,7 @@ public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
     public long del(byte[]... keys) {
         long deleted = 0L;
         for (byte[] key : keys) {
-            if (removeKey(keyOf(key))) {
+            if (removeKey(key(key))) {
                 deleted++;
             }
         }
@@ -123,29 +125,22 @@ public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
 
     @Override
     public boolean exists(String key) {
-        purgeIfExpired(key);
-        return existsInAnyNamespace(key);
+        return valueAt(key(key)) != null;
     }
 
     @Override
     public boolean exists(byte[] key) {
-        return exists(keyOf(key));
+        return valueAt(key(key)) != null;
     }
 
     @Override
     public long expire(String key, long seconds) {
-        purgeIfExpired(key);
-        if (!existsInAnyNamespace(key)) {
-            return 0L;
-        }
-        expiryMillis.put(key, deadline(seconds));
-        purgeIfExpired(key);
-        return 1L;
+        return expireKey(key(key), seconds);
     }
 
     @Override
     public long expire(byte[] key, long seconds) {
-        return expire(keyOf(key), seconds);
+        return expireKey(key(key), seconds);
     }
 
     @Override
@@ -161,9 +156,14 @@ public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
     public List<String> scanIter(String pattern) {
         Pattern regex = compileGlob(Objects.requireNonNull(pattern, "Redis pattern is required"));
         List<String> matches = new ArrayList<>();
-        for (String key : liveKeys()) {
-            if (regex.matcher(key).matches()) {
-                matches.add(key);
+        for (RedisKey key : new ArrayList<>(keyspace.keySet())) {
+            purgeIfExpired(key);
+            if (!keyspace.containsKey(key)) {
+                continue;
+            }
+            String textKey = new String(key.bytes(), StandardCharsets.UTF_8);
+            if (regex.matcher(textKey).matches()) {
+                matches.add(textKey);
             }
         }
         return matches;
@@ -173,47 +173,43 @@ public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
     public long hset(String key, String field, String value) {
         Objects.requireNonNull(field, "Redis field is required");
         Objects.requireNonNull(value, "Redis value is required");
-        purgeIfExpired(key);
-        Map<String, String> hash = hashes.computeIfAbsent(key, ignored -> new ConcurrentHashMap<>());
+        Map<String, String> hash = hashAt(key(key));
         return hash.put(field, value) == null ? 1L : 0L;
     }
 
     @Override
     public String hget(String key, String field) {
         Objects.requireNonNull(field, "Redis field is required");
-        purgeIfExpired(key);
-        Map<String, String> hash = hashes.get(key);
-        return hash == null ? null : hash.get(field);
+        Value value = valueAt(key(key));
+        return value == null ? null : value.asHash().get(field);
     }
 
     @Override
     public long hdel(String key, String... fields) {
-        purgeIfExpired(key);
-        Map<String, String> hash = hashes.get(key);
-        if (hash == null) {
+        Value value = valueAt(key(key));
+        if (value == null) {
             return 0L;
         }
+        Map<String, String> hash = value.asHash();
         long removed = 0L;
         for (String field : fields) {
             if (hash.remove(field) != null) {
                 removed++;
             }
         }
-        dropKeyWhenEmpty(key);
+        dropKeyWhenEmpty(key(key));
         return removed;
     }
 
     @Override
     public Map<String, String> hgetAll(String key) {
-        purgeIfExpired(key);
-        Map<String, String> hash = hashes.get(key);
-        return hash == null ? Map.of() : Map.copyOf(hash);
+        Value value = valueAt(key(key));
+        return value == null ? Map.of() : Map.copyOf(value.asHash());
     }
 
     @Override
     public long sadd(String key, String... members) {
-        purgeIfExpired(key);
-        Set<String> bucket = sets.computeIfAbsent(key, ignored -> ConcurrentHashMap.newKeySet());
+        Set<String> bucket = setAt(key(key));
         long added = 0L;
         for (String member : members) {
             if (bucket.add(member)) {
@@ -225,35 +221,32 @@ public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
 
     @Override
     public boolean sismember(String key, String member) {
-        purgeIfExpired(key);
-        Set<String> bucket = sets.get(key);
-        return bucket != null && bucket.contains(member);
+        Value value = valueAt(key(key));
+        return value != null && value.asSet().contains(member);
     }
 
     @Override
     public long srem(String key, String... members) {
-        purgeIfExpired(key);
-        Set<String> bucket = sets.get(key);
-        if (bucket == null) {
+        Value value = valueAt(key(key));
+        if (value == null) {
             return 0L;
         }
+        Set<String> bucket = value.asSet();
         long removed = 0L;
         for (String member : members) {
             if (bucket.remove(member)) {
                 removed++;
             }
         }
-        dropKeyWhenEmpty(key);
+        dropKeyWhenEmpty(key(key));
         return removed;
     }
 
     @Override
     public long hincrBy(String key, String field, long delta) {
         Objects.requireNonNull(field, "Redis field is required");
-        purgeIfExpired(key);
-        Map<String, String> hash = hashes.computeIfAbsent(key, ignored -> new ConcurrentHashMap<>());
-        String updated = hash.compute(field,
-                (ignored, current) -> String.valueOf(current == null ? delta : Long.parseLong(current) + delta));
+        Map<String, String> hash = hashAt(key(key));
+        String updated = hash.compute(field, (ignored, current) -> incremented(current, delta));
         return Long.parseLong(updated);
     }
 
@@ -266,59 +259,77 @@ public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
 
     @Override
     public void close() {
-        strings.clear();
-        hashes.clear();
-        sets.clear();
+        keyspace.clear();
         expiryMillis.clear();
     }
 
-    private void store(String key, byte[] value) {
-        Objects.requireNonNull(key, "Redis key is required");
-        strings.put(key, value);
+    private String storeString(RedisKey key, byte[] value) {
+        keyspace.put(key, Value.ofString(value));
         expiryMillis.remove(key);
+        return "OK";
     }
 
-    private long setnxInternal(String key, byte[] value) {
-        Objects.requireNonNull(key, "Redis key is required");
+    private long setIfAbsent(RedisKey key, byte[] value) {
         purgeIfExpired(key);
-        return strings.putIfAbsent(key, value) == null ? 1L : 0L;
+        return keyspace.putIfAbsent(key, Value.ofString(value)) == null ? 1L : 0L;
     }
 
-    private boolean removeKey(String key) {
-        Objects.requireNonNull(key, "Redis key is required");
+    private boolean removeKey(RedisKey key) {
         purgeIfExpired(key);
-        boolean hasEntry = existsInAnyNamespace(key);
-        strings.remove(key);
-        hashes.remove(key);
-        sets.remove(key);
-        expiryMillis.remove(key);
-        return hasEntry;
-    }
-
-    private boolean existsInAnyNamespace(String key) {
-        return strings.containsKey(key) || hashes.containsKey(key) || sets.containsKey(key);
-    }
-
-    private void dropKeyWhenEmpty(String key) {
-        Map<String, String> hash = hashes.get(key);
-        if (hash != null && hash.isEmpty()) {
-            hashes.remove(key, hash);
+        boolean removed = keyspace.remove(key) != null;
+        if (removed) {
             expiryMillis.remove(key);
         }
-        Set<String> bucket = sets.get(key);
-        if (bucket != null && bucket.isEmpty()) {
-            sets.remove(key, bucket);
+        return removed;
+    }
+
+    private long expireKey(RedisKey key, long seconds) {
+        purgeIfExpired(key);
+        if (!keyspace.containsKey(key)) {
+            return 0L;
+        }
+        expiryMillis.put(key, deadline(seconds));
+        purgeIfExpired(key);
+        return 1L;
+    }
+
+    private Value valueAt(RedisKey key) {
+        purgeIfExpired(key);
+        return keyspace.get(key);
+    }
+
+    private Map<String, String> hashAt(RedisKey key) {
+        Value value = valueAt(key);
+        if (value == null) {
+            Value created = Value.ofHash();
+            Value previous = keyspace.putIfAbsent(key, created);
+            value = previous == null ? created : previous;
+        }
+        return value.asHash();
+    }
+
+    private Set<String> setAt(RedisKey key) {
+        Value value = valueAt(key);
+        if (value == null) {
+            Value created = Value.ofSet();
+            Value previous = keyspace.putIfAbsent(key, created);
+            value = previous == null ? created : previous;
+        }
+        return value.asSet();
+    }
+
+    private void dropKeyWhenEmpty(RedisKey key) {
+        Value value = keyspace.get(key);
+        if (value != null && value.isEmpty()) {
+            keyspace.remove(key, value);
             expiryMillis.remove(key);
         }
     }
 
-    private void purgeIfExpired(String key) {
-        Objects.requireNonNull(key, "Redis key is required");
+    private void purgeIfExpired(RedisKey key) {
         Long deadline = expiryMillis.get(key);
         if (deadline != null && System.currentTimeMillis() >= deadline) {
-            strings.remove(key);
-            hashes.remove(key);
-            sets.remove(key);
+            keyspace.remove(key);
             expiryMillis.remove(key, deadline);
         }
     }
@@ -327,26 +338,29 @@ public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
         return System.currentTimeMillis() + seconds * 1000L;
     }
 
-    private Set<String> liveKeys() {
-        Set<String> keys = new LinkedHashSet<>();
-        collectLiveKeys(strings.keySet(), keys);
-        collectLiveKeys(hashes.keySet(), keys);
-        collectLiveKeys(sets.keySet(), keys);
-        return keys;
-    }
-
-    private void collectLiveKeys(Set<String> candidates, Set<String> target) {
-        for (String key : candidates) {
-            purgeIfExpired(key);
-            if (existsInAnyNamespace(key)) {
-                target.add(key);
+    private static String incremented(String current, long delta) {
+        long base = 0L;
+        if (current != null) {
+            try {
+                base = Long.parseLong(current);
+            } catch (NumberFormatException e) {
+                throw new IllegalStateException("ERR hash value is not an integer");
             }
+        }
+        try {
+            return Long.toString(Math.addExact(base, delta));
+        } catch (ArithmeticException e) {
+            throw new IllegalStateException("ERR increment or decrement would overflow");
         }
     }
 
-    private static String keyOf(byte[] key) {
-        Objects.requireNonNull(key, "Redis key is required");
-        return new String(key, StandardCharsets.UTF_8);
+    private static RedisKey key(String key) {
+        return new RedisKey(Objects.requireNonNull(key, "Redis key is required")
+                .getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static RedisKey key(byte[] key) {
+        return new RedisKey(copyOf(key));
     }
 
     private static byte[] copyOf(byte[] value) {
@@ -370,5 +384,83 @@ public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
             }
         }
         return Pattern.compile(regex.toString());
+    }
+
+    private record RedisKey(byte[] bytes) {
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof RedisKey other && Arrays.equals(bytes, other.bytes);
+        }
+
+        @Override
+        public int hashCode() {
+            return Arrays.hashCode(bytes);
+        }
+    }
+
+    private enum ValueType {
+        STRING,
+        HASH,
+        SET
+    }
+
+    private static final class Value {
+        private final ValueType type;
+
+        private final byte[] string;
+
+        private final Map<String, String> hash;
+
+        private final Set<String> set;
+
+        private Value(ValueType type, byte[] string, Map<String, String> hash, Set<String> set) {
+            this.type = type;
+            this.string = string;
+            this.hash = hash;
+            this.set = set;
+        }
+
+        static Value ofString(byte[] data) {
+            return new Value(ValueType.STRING, data, null, null);
+        }
+
+        static Value ofHash() {
+            return new Value(ValueType.HASH, null, new ConcurrentHashMap<>(), null);
+        }
+
+        static Value ofSet() {
+            return new Value(ValueType.SET, null, null, ConcurrentHashMap.newKeySet());
+        }
+
+        byte[] asString() {
+            requireType(ValueType.STRING);
+            return string;
+        }
+
+        Map<String, String> asHash() {
+            requireType(ValueType.HASH);
+            return hash;
+        }
+
+        Set<String> asSet() {
+            requireType(ValueType.SET);
+            return set;
+        }
+
+        boolean isEmpty() {
+            if (type == ValueType.HASH) {
+                return hash.isEmpty();
+            }
+            if (type == ValueType.SET) {
+                return set.isEmpty();
+            }
+            return false;
+        }
+
+        private void requireType(ValueType expected) {
+            if (type != expected) {
+                throw new IllegalStateException(WRONG_TYPE_MESSAGE);
+            }
+        }
     }
 }
