@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -157,6 +158,55 @@ public final class ScopedRuntimeRedisClient implements RuntimeRedisClient {
             logicalKeys.add(key.substring(prefix.length()));
         }
         return logicalKeys;
+    }
+
+    @Override
+    public long hset(String key, String field, String value) {
+        return delegate.hset(physical(key), field, value);
+    }
+
+    @Override
+    public String hget(String key, String field) {
+        return delegate.hget(physical(key), field);
+    }
+
+    @Override
+    public long hdel(String key, String... fields) {
+        return delegate.hdel(physical(key), fields);
+    }
+
+    @Override
+    public Map<String, String> hgetAll(String key) {
+        return delegate.hgetAll(physical(key));
+    }
+
+    @Override
+    public long sadd(String key, String... members) {
+        return delegate.sadd(physical(key), members);
+    }
+
+    @Override
+    public boolean sismember(String key, String member) {
+        return delegate.sismember(physical(key), member);
+    }
+
+    @Override
+    public long srem(String key, String... members) {
+        return delegate.srem(physical(key), members);
+    }
+
+    @Override
+    public long hincrBy(String key, String field, long delta) {
+        return delegate.hincrBy(physical(key), field, delta);
+    }
+
+    @Override
+    public Object eval(String script, List<String> keys, String... args) {
+        List<String> mappedKeys = new ArrayList<>(keys.size());
+        for (String key : keys) {
+            mappedKeys.add(physical(key));
+        }
+        return delegate.eval(script, mappedKeys, args);
     }
 
     @Override

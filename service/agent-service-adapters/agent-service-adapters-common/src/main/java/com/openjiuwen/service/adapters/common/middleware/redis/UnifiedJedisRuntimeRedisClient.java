@@ -12,6 +12,7 @@ import redis.clients.jedis.params.ScanParams;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -136,6 +137,51 @@ public class UnifiedJedisRuntimeRedisClient implements RuntimeRedisClient {
             cursor = result.getCursor();
         } while (!ScanParams.SCAN_POINTER_START.equals(cursor));
         return keys;
+    }
+
+    @Override
+    public long hset(String key, String field, String value) {
+        return delegate.hset(key, field, value);
+    }
+
+    @Override
+    public String hget(String key, String field) {
+        return delegate.hget(key, field);
+    }
+
+    @Override
+    public long hdel(String key, String... fields) {
+        return delegate.hdel(key, fields);
+    }
+
+    @Override
+    public Map<String, String> hgetAll(String key) {
+        return delegate.hgetAll(key);
+    }
+
+    @Override
+    public long sadd(String key, String... members) {
+        return delegate.sadd(key, members);
+    }
+
+    @Override
+    public boolean sismember(String key, String member) {
+        return delegate.sismember(key, member);
+    }
+
+    @Override
+    public long srem(String key, String... members) {
+        return delegate.srem(key, members);
+    }
+
+    @Override
+    public long hincrBy(String key, String field, long delta) {
+        return delegate.hincrBy(key, field, delta);
+    }
+
+    @Override
+    public Object eval(String script, List<String> keys, String... args) {
+        return delegate.eval(script, keys, List.of(args));
     }
 
     @Override

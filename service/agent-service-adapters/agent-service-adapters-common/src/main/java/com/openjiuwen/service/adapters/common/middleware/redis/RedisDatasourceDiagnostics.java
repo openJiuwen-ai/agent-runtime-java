@@ -55,7 +55,7 @@ public class RedisDatasourceDiagnostics implements SmartInitializingSingleton {
         String redisRef = properties.getCheckpointer().getRedisRef();
         ResolvedRedisEndpoint endpoint = RedisConnectionAssembler.resolve(properties, redisRef);
         return "Runtime Redis datasource selected: redis-ref=" + normalizedRef(redisRef) + ", endpoint-type="
-                + endpoint.getType() + ", RuntimeRedisClient=" + redisClient.getClass().getSimpleName()
+                + endpoint.getType() + ", RuntimeRedisClient=" + redisClient.getClass().getName()
                 + ", ttl-seconds=" + properties.getCheckpointer().getTtlSeconds() + ", "
                 + RedisConnectionAssembler.safeSummary(endpoint);
     }
