@@ -276,11 +276,11 @@ public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
 
     private boolean removeKey(RedisKey key) {
         purgeIfExpired(key);
-        boolean removed = keyspace.remove(key) != null;
-        if (removed) {
+        boolean isRemoved = keyspace.remove(key) != null;
+        if (isRemoved) {
             expiryMillis.remove(key);
         }
-        return removed;
+        return isRemoved;
     }
 
     private long expireKey(RedisKey key, long seconds) {
