@@ -9,6 +9,7 @@ import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
 import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
@@ -395,12 +396,14 @@ public class A2AAutoConfiguration {
      *
      * @param props the A2A properties
      * @param registry the remote agent card registry
+     * @param hostedCatalogs optional hosted remote directories
      * @return the agent card discovery
      */
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCardResolver.class)
-    public A2AAgentCardDiscovery a2aAgentCardDiscovery(A2AProperties props, A2ARemoteAgentCardRegistry registry) {
-        return new A2AAgentCardDiscovery(props, registry);
+    public A2AAgentCardDiscovery a2aAgentCardDiscovery(A2AProperties props, A2ARemoteAgentCardRegistry registry,
+            ObjectProvider<HostedRemoteAgentCatalogs> hostedCatalogs) {
+        return new A2AAgentCardDiscovery(props, registry, hostedCatalogs.getIfAvailable());
     }
 
     /**

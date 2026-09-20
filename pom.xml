@@ -25,7 +25,7 @@
     </modules>
 
     <properties>
-        <revision>0.1.2</revision>
+        <revision>0.1.3</revision>
         <java.version>17</java.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
@@ -33,8 +33,8 @@
 
         <a2a-sdk.version>1.0.0.Final</a2a-sdk.version>
         <!-- Agent Core：Maven 版本与本地源码分支，文档仅引用此处，勿在多处写死版本号 -->
-        <agent-core.version>0.1.15</agent-core.version>
-        <agent-core.git.branch>830</agent-core.git.branch>
+        <agent-core.version>0.1.16</agent-core.version>
+        <agent-core.git.branch>930</agent-core.git.branch>
         <agent-core.repo.url>https://gitcode.com/openJiuwen/agent-core-java</agent-core.repo.url>
 
         <!--
@@ -116,7 +116,7 @@
             <dependency>
                 <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-core-java</artifactId>
-                <version>0.1.15</version>
+                <version>0.1.16</version>
             </dependency>
 
             <!-- ② Service leaf modules（${revision} 是 CI-friendly，flatten 会展开为字面值） -->
