@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.controller.a2a.client;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
+import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 
 import jakarta.annotation.PreDestroy;
@@ -20,6 +21,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -59,11 +61,13 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
 
     private final A2ARemoteAgentCardRegistry registry;
 
+    private final HostedRemoteAgentCatalogs hostedCatalogs;
+
     private final RestClient restClient;
 
     private final ScheduledExecutorService retryExecutor;
 
-    private final Map<String, ScheduledFuture<?>> retryFutures = new ConcurrentHashMap<>();
+    private final Map<DiscoveryKey, ScheduledFuture<?>> retryFutures = new ConcurrentHashMap<>();
 
     /**
      * Constructs the agent card discovery service.
@@ -72,8 +76,21 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
      * @param registry the remote agent card registry
      */
     public A2AAgentCardDiscovery(A2AProperties properties, A2ARemoteAgentCardRegistry registry) {
+        this(properties, registry, null);
+    }
+
+    /**
+     * Creates discovery with optional instance-local directories and one shared retry scheduler.
+     *
+     * @param properties global configuration
+     * @param registry global directory
+     * @param hostedCatalogs hosted directories, or null for legacy mode
+     */
+    public A2AAgentCardDiscovery(A2AProperties properties, A2ARemoteAgentCardRegistry registry,
+            HostedRemoteAgentCatalogs hostedCatalogs) {
         this.properties = properties;
         this.registry = registry;
+        this.hostedCatalogs = hostedCatalogs;
         this.restClient = RestClient.create();
         ThreadFactory defaultThreadFactory = Executors.defaultThreadFactory();
         this.retryExecutor = new ScheduledThreadPoolExecutor(1, runnable -> {
@@ -91,20 +108,25 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
      */
     @EventListener(ApplicationReadyEvent.class)
     public void discoverAll() {
-        if (properties.getRemoteAgents().isEmpty()) {
-            return;
+        validateRemoteAgents(properties.getRemoteAgents(), REMOTE_AGENTS_PROPERTY);
+        if (hostedCatalogs != null) {
+            hostedCatalogs.localConfigurations().forEach((agentId, remotes) -> validateRemoteAgents(remotes,
+                    "openjiuwen.service.a2a.agents." + agentId + ".remote-agents"));
         }
-        validateRemoteAgents();
         log.info("Discovering {} remote A2A agent(s)", properties.getRemoteAgents().size());
         for (var remote : properties.getRemoteAgents()) {
-            tryDiscover(remote);
+            tryDiscover(remote, registry, null);
+        }
+        if (hostedCatalogs != null) {
+            hostedCatalogs.localConfigurations().forEach((agentId, remotes) -> remotes.forEach(remote ->
+                    tryDiscover(remote, hostedCatalogs.catalog(agentId), agentId)));
         }
     }
 
-    private void validateRemoteAgents() {
-        for (int index = 0; index < properties.getRemoteAgents().size(); index++) {
-            RemoteAgentProperties remote = properties.getRemoteAgents().get(index);
-            String propertyPrefix = REMOTE_AGENTS_PROPERTY + "[" + index + "]";
+    private static void validateRemoteAgents(List<RemoteAgentProperties> remotes, String prefix) {
+        for (int index = 0; index < remotes.size(); index++) {
+            RemoteAgentProperties remote = remotes.get(index);
+            String propertyPrefix = prefix + "[" + index + "]";
             validateRequiredProperty(remote.getName(), propertyPrefix + ".name");
             validateRequiredProperty(remote.getUrl(), propertyPrefix + ".url");
         }
@@ -117,36 +139,37 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
         }
     }
 
-    private void tryDiscover(RemoteAgentProperties remote) {
+    private void tryDiscover(RemoteAgentProperties remote, A2ARemoteAgentCardRegistry target, String agentId) {
+        var key = new DiscoveryKey(agentId, remote.getName());
         try {
-            discoverAndRegister(remote);
+            discoverAndRegister(remote, target);
         } catch (org.springframework.web.client.RestClientException e) {
             log.warn("Failed to discover {}, retry every {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
                     e.getMessage());
             ScheduledFuture<?> future = retryExecutor.scheduleWithFixedDelay(() -> {
                 try {
-                    discoverAndRegister(remote);
+                    discoverAndRegister(remote, target);
                     log.info("Retry successful, discovered remote agent '{}'", remote.getName());
-                    cancelRetry(remote.getName());
+                    cancelRetry(key);
                 } catch (org.springframework.web.client.RestClientException ex) {
                     log.warn("Retry {} failed, will retry in {}s: {}", remote.getName(), RETRY_INTERVAL_SECONDS,
                             ex.getMessage());
                 }
             }, RETRY_INTERVAL_SECONDS, RETRY_INTERVAL_SECONDS, TimeUnit.SECONDS);
-            retryFutures.put(remote.getName(), future);
+            retryFutures.put(key, future);
         }
     }
 
-    private void cancelRetry(String agentName) {
-        ScheduledFuture<?> future = retryFutures.remove(agentName);
+    private void cancelRetry(DiscoveryKey key) {
+        ScheduledFuture<?> future = retryFutures.remove(key);
         if (future != null) {
             future.cancel(false);
         }
     }
 
-    private void discoverAndRegister(RemoteAgentProperties remote) {
+    private void discoverAndRegister(RemoteAgentProperties remote, A2ARemoteAgentCardRegistry target) {
         AgentCard card = fetchCardInternal(remote.getUrl());
-        registry.register(remote.getName(), card, remote.getTimeoutSeconds(), remote.isStreaming(), remote.getTls());
+        target.register(remote.getName(), card, remote.getTimeoutSeconds(), remote.isStreaming(), remote.getTls());
         log.info("Discovered remote agent '{}'", remote.getName());
     }
 
@@ -156,6 +179,9 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
         }
         String cardUrl = baseUrl.replaceAll("/$", "") + "/.well-known/agent-card.json";
         return restClient.get().uri(cardUrl).accept(MediaType.APPLICATION_JSON).retrieve().body(AgentCard.class);
+    }
+
+    private record DiscoveryKey(String agentId, String remoteName) {
     }
 
     @Override

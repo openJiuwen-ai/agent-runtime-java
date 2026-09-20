@@ -180,11 +180,10 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * Resolves the remote agent entry and builds the SDK message.
      *
      * @param call remote call coordinates
+     * @param entry target already resolved from the bound directory
      * @return the prepared call setup
      */
-    private RemoteCallSetup prepareCall(RemoteCall call) {
-        var entry = registry.get(call.agentName())
-                .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
+    private RemoteCallSetup prepareCall(RemoteCall call, RemoteAgentEntry entry) {
         var contextId = call.contextId() != null ? call.contextId() : java.util.UUID.randomUUID().toString();
         return new RemoteCallSetup(entry, buildSendParams(call, contextId), contextId);
     }
@@ -341,14 +340,15 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * streaming mode.
      * Authentication headers are prepared on cache creation, not on every request.
      *
+     * @param catalog directory owning the transport configuration and cache entry
      * @param entry the registered remote agent entry
      * @param isStreaming
      *            whether the client should be in streaming mode
      * @return the SDK client
      */
-    private Client createClient(RemoteAgentEntry entry, boolean isStreaming) {
+    private Client createClient(A2ARemoteAgentCardRegistry catalog, RemoteAgentEntry entry, boolean isStreaming) {
         AgentCard card = entry.card();
-        ClientCacheKey key = new ClientCacheKey(entry.name(), endpoint(card), isStreaming);
+        ClientCacheKey key = new ClientCacheKey(catalog, entry.name(), endpoint(card), isStreaming);
         return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
                 ignored -> Client.builder(card)
                         .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
@@ -429,9 +429,20 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     @Override
     public CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
             RemoteAgentCaller.EventObserver eventObserver) {
+        return callOutcome(registry, call, eventObserver);
+    }
+
+    @Override
+    public RemoteAgentCaller bindCatalog(A2ARemoteAgentCardRegistry catalog) {
+        java.util.Objects.requireNonNull(catalog, "catalog");
+        return (call, observer) -> callOutcome(catalog, call, observer);
+    }
+
+    private CompletableFuture<RemoteCallOutcome> callOutcome(A2ARemoteAgentCardRegistry catalog, RemoteCall call,
+            RemoteAgentCaller.EventObserver eventObserver) {
         RemoteAgentEntry entry;
         try {
-            entry = registry.get(call.agentName())
+            entry = catalog.get(call.agentName())
                     .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
         } catch (RuntimeException ex) {
             log.error("A2A remote call preparation failed agent={} streaming={} taskId={} contextId={}",
@@ -442,15 +453,15 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             logRemoteError("call preparation", call, call.isCallerStreaming(), call.contextId(), error);
             throw error;
         }
-        boolean isStreaming = entry.isStreaming() && call.isCallerStreaming();
-        return callOutcome(call, eventObserver, isStreaming);
+        return callOutcome(catalog, call, eventObserver, entry);
     }
 
-    private CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call,
-            RemoteAgentCaller.EventObserver eventObserver, boolean isStreaming) {
+    private CompletableFuture<RemoteCallOutcome> callOutcome(A2ARemoteAgentCardRegistry catalog, RemoteCall call,
+            RemoteAgentCaller.EventObserver eventObserver, RemoteAgentEntry entry) {
+        boolean isStreaming = entry.isStreaming() && call.isCallerStreaming();
         RemoteCallSetup setup;
         try {
-            setup = prepareCall(call);
+            setup = prepareCall(call, entry);
         } catch (RuntimeException ex) {
             log.error("A2A remote call preparation failed agent={} streaming={} taskId={} contextId={}",
                     call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new", call.contextId(), ex);
@@ -466,7 +477,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
         Client client;
         try {
-            client = createClient(setup.entry, isStreaming);
+            client = createClient(catalog, setup.entry, isStreaming);
         } catch (RuntimeException ex) {
             log.error("A2A remote client creation failed agent={} streaming={} taskId={} contextId={}",
                     call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new", setup.contextId, ex);
@@ -748,7 +759,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         });
     }
 
-    private record ClientCacheKey(String agentName, String endpoint, boolean isStreaming) {
+    private record ClientCacheKey(A2ARemoteAgentCardRegistry catalog, String agentName, String endpoint,
+            boolean isStreaming) {
     }
 
     static String resultCategory(TaskState state) {

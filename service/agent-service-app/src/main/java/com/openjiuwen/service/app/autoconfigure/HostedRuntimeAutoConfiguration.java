@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.autoconfigure;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration.HostedResources;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.LifecycleProperties;
@@ -20,6 +21,7 @@ import com.openjiuwen.service.app.hosting.HostedAgentCardFactory;
 import com.openjiuwen.service.app.hosting.HostedAgentRuntime;
 import com.openjiuwen.service.app.hosting.HostedIngressResolver;
 import com.openjiuwen.service.app.hosting.HostedLifecycleCoordinator;
+import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
 import com.openjiuwen.service.app.hosting.HostedRuntimeAssembler;
 import com.openjiuwen.service.app.hosting.HostedRuntimeCatalog;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamInterruptor;
@@ -53,6 +55,7 @@ import org.springframework.boot.context.properties.bind.BindHandler;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.bind.handler.NoUnboundElementsBindHandler;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
@@ -166,6 +169,21 @@ public class HostedRuntimeAutoConfiguration {
     }
 
     /**
+     * Creates effective remote directories for hosted instances.
+     *
+     * @param definitions registered handlers
+     * @param properties global and instance configuration
+     * @param global shared remote directory
+     * @param publisher catalog update publisher
+     * @return live hosted remote directories
+     */
+    @Bean
+    public HostedRemoteAgentCatalogs hostedRemoteAgentCatalogs(HostedAgentDefinitions definitions,
+            A2AProperties properties, A2ARemoteAgentCardRegistry global, ApplicationEventPublisher publisher) {
+        return new HostedRemoteAgentCatalogs(definitions, properties, global, publisher);
+    }
+
+    /**
      * Creates the assembler using shared inputs and ordered framework extensions.
      *
      * @param properties process-level A2A configuration
@@ -182,7 +200,8 @@ public class HostedRuntimeAutoConfiguration {
                 redisClient.getIfAvailable(), remoteCaller, beanFactory.getBean(A2AProtocolAdapter.class),
                 admissionGate.getIfAvailable(), resources, dispatcher, cards, beanFactory,
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build());
-        return new HostedRuntimeAssembler(dependencies, extensions.orderedStream().toList());
+        return new HostedRuntimeAssembler(dependencies, extensions.orderedStream().toList(),
+                beanFactory.getBean(HostedRemoteAgentCatalogs.class));
     }
 
     /**
