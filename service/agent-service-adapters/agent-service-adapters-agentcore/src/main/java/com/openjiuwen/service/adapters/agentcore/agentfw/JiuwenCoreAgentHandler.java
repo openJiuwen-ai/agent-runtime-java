@@ -271,7 +271,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return;
         }
         log.info("Releasing AgentCore session for conversation_id={}", conversationId);
-        Runner.release(conversationId);
+        Runner.release(conversationId).toCompletableFuture().join();
         contextEngine(resolveAgent()).ifPresent(engine -> engine.clearContext(null, conversationId));
     }
 
