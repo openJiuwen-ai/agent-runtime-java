@@ -22,8 +22,8 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
  */
 class InMemoryRedisStorageAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
-            AutoConfigurations.of(InMemoryRedisStorageAutoConfiguration.class, CredentialDecryptorAutoConfiguration.class,
-                    RedisMiddlewareAutoConfiguration.class));
+            AutoConfigurations.of(InMemoryRedisStorageAutoConfiguration.class,
+                    CredentialDecryptorAutoConfiguration.class, RedisMiddlewareAutoConfiguration.class));
 
     private final ApplicationContextRunner contextRunnerWithoutPlugin = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class,

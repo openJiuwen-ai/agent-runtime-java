@@ -165,7 +165,8 @@ class InMemoryRuntimeRedisClientTest {
         try {
             latch.await();
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            // G.CON.10：不恢复中断标志；测试辅助等待被中断时直接判定失败并保留原因
+            throw new AssertionError("interrupted while awaiting latch", e);
         }
     }
 }

@@ -287,12 +287,12 @@ public final class InMemoryRuntimeRedisClient implements RuntimeRedisClient {
     private boolean removeKey(String key) {
         Objects.requireNonNull(key, "Redis key is required");
         purgeIfExpired(key);
-        boolean existed = existsInAnyNamespace(key);
+        boolean hasEntry = existsInAnyNamespace(key);
         strings.remove(key);
         hashes.remove(key);
         sets.remove(key);
         expiryMillis.remove(key);
-        return existed;
+        return hasEntry;
     }
 
     private boolean existsInAnyNamespace(String key) {

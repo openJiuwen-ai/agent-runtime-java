@@ -112,7 +112,7 @@ class ScopedRuntimeRedisClientTest {
     }
 
     @Test
-    void mapsVarargsStructuredAndEvalKeysWhilePassingThroughFieldsMembersAndArgs() {
+    void mapsVarargsKeysAndPassesThroughFieldsMembersAndArgs() {
         List<Call> calls = new ArrayList<>();
         var scoped = new ScopedRuntimeRedisClient(recordingClient(calls), "scope:");
         scoped.hdel("key", "f1", "f2");
