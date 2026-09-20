@@ -22,6 +22,7 @@ import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.core.workflow.WorkflowOutput;
 import com.openjiuwen.harness.deep_agent.DeepAgent;
+import com.openjiuwen.harness.tools.CheckpointerRedisTodoStorageProvider;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
@@ -200,6 +201,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      */
     protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
             List<StreamMode> streamModes) {
+        prepareAgentForExecution(agent);
         return Runner.runAgentStreaming(agent, inputs, session, null, streamModes);
     }
 
@@ -214,7 +216,32 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @return the raw agent result
      */
     protected Object executeAgent(Map<String, Object> inputs, Object session) {
+        prepareAgentForExecution(agent);
         return Runner.runAgent(agent, inputs, session, null);
+    }
+
+    /**
+     * Applies Runtime's Redis default before a DeepAgent initializes its Todo tools.
+     * Subclasses executing per-task instances must call this on the actual instance.
+     * Existing initialized agents and explicit storage choices remain untouched.
+     *
+     * @param executionAgent the actual agent instance or identifier to execute
+     */
+    protected final void prepareAgentForExecution(Object executionAgent) {
+        if (!(executionAgent instanceof DeepAgent deepAgent) || deepAgent.isInitialized()) {
+            return;
+        }
+        var config = deepAgent.getConfig();
+        if (config.isTodoStorageTypeExplicit() || deepAgent.getKvStore() != null
+                || config.getKvStoreConfig() != null && !config.getKvStoreConfig().isEmpty()) {
+            return;
+        }
+        // Both the auto-configuration and an explicitly supplied registrar publish here.
+        Map<String, Object> checkpointer = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
+        if (checkpointer != null && ("redis".equals(checkpointer.get("type"))
+                || "redis_checkpointer_cluster".equals(checkpointer.get("type")))) {
+            config.setTodoStorageType(CheckpointerRedisTodoStorageProvider.TYPE);
+        }
     }
 
     @Override
