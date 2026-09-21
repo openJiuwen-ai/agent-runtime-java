@@ -11,6 +11,7 @@
   - [对话接口输入与输出](2.开发指南/对话接口输入与输出.md)
   - [开发与扩展](2.开发指南/开发与扩展/README.md)
     - [开发 Agent Service](2.开发指南/开发Agent%20Service.md)
+    - [多 Agent 实例托管](2.开发指南/多Agent实例托管.md)
     - [Adapters 与 Handler](2.开发指南/Adapters与Handler.md)
     - [生命周期与探针](2.开发指南/生命周期与探针.md)
     - [外部服务](2.开发指南/开发与扩展/外部服务.md)
