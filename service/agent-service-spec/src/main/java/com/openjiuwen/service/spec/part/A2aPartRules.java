@@ -146,41 +146,108 @@ public final class A2aPartRules {
     }
 
     /**
-     * Estimates the serialized JSON size of a normalized payload value without
-     * pulling a JSON library into the spec contract package (no-Spring, minimal
-     * dependencies). The estimate is conservative: exact for plain strings and
-     * close enough for the hygiene size limits.
+     * Computes the exact serialized size of a normalized payload value in
+     * compact JSON form (no whitespace, UTF-8 encoding), without pulling a
+     * JSON library into the spec contract package. Containers count braces,
+     * brackets, one colon per pair, and one comma between adjacent members;
+     * string literals count enclosing quotes and per-character escape
+     * expansions, so payloads at exactly the limit pass and escaped payloads
+     * cannot slip under the limit.
      *
      * @param value the payload value (string, number, boolean, map, list, null)
-     * @return the estimated serialized size in bytes
+     * @return the serialized size in bytes
      */
     private static long jsonSize(Object value) {
         if (value == null) {
-            return 4;
+            return 4L;
         }
         if (value instanceof Boolean isTrue) {
-            return isTrue ? 4 : 5;
+            return isTrue ? 4L : 5L;
         }
-        if (value instanceof String string) {
-            return utf8Length(string) + 2;
+        if (value instanceof String stringValue) {
+            return jsonStringLength(stringValue);
         }
-        if (value instanceof Number number) {
-            return String.valueOf(number).length();
+        if (value instanceof Number numberValue) {
+            return String.valueOf(numberValue).length();
         }
-        if (value instanceof Map<?, ?> map) {
+        if (value instanceof Map<?, ?> mapValue) {
             long total = 2L;
-            for (Map.Entry<?, ?> entry : map.entrySet()) {
-                total += jsonSize(entry.getKey()) + 1 + 1 + jsonSize(entry.getValue()) + 1;
+            boolean isFirst = true;
+            for (Map.Entry<?, ?> entry : mapValue.entrySet()) {
+                if (!isFirst) {
+                    total += 1L;
+                }
+                isFirst = false;
+                total += jsonSize(entry.getKey()) + 1L + jsonSize(entry.getValue());
             }
             return total;
         }
-        if (value instanceof List<?> list) {
-            long total = 2L + list.size();
-            for (Object item : list) {
+        if (value instanceof List<?> listValue) {
+            long total = 2L;
+            boolean isFirst = true;
+            for (Object item : listValue) {
+                if (!isFirst) {
+                    total += 1L;
+                }
+                isFirst = false;
                 total += jsonSize(item);
             }
             return total;
         }
         return String.valueOf(value).length();
+    }
+
+    /**
+     * Computes the serialized size of a JSON string literal: two enclosing
+     * quotes plus per-character escape expansion. Quotes and backslashes
+     * double; the short-escaped control characters take 2 bytes; other control
+     * characters expand to a 6-byte unicode escape; non-ASCII characters count
+     * as their UTF-8 encoding width.
+     *
+     * @param value the string to measure
+     * @return the serialized size in bytes
+     */
+    private static long jsonStringLength(String value) {
+        long total = 2L;
+        int index = 0;
+        while (index < value.length()) {
+            int codePoint = value.codePointAt(index);
+            total += jsonCharWidth(codePoint);
+            index += Character.charCount(codePoint);
+        }
+        return total;
+    }
+
+    /**
+     * Returns the serialized width of a single code point inside a JSON string
+     * literal: the short-escaped control characters take 2 bytes, other
+     * control characters expand to a 6-byte unicode escape, and remaining
+     * characters keep their UTF-8 encoding width.
+     *
+     * @param codePoint the code point to measure
+     * @return the serialized width in bytes
+     */
+    private static long jsonCharWidth(int codePoint) {
+        switch (codePoint) {
+            case '"':
+            case '\\':
+            case '\b':
+            case '\f':
+            case '\n':
+            case '\r':
+            case '\t':
+                return 2L;
+            default:
+                if (codePoint < 0x20) {
+                    return 6L;
+                }
+                if (codePoint < 0x80) {
+                    return 1L;
+                }
+                if (codePoint < 0x800) {
+                    return 2L;
+                }
+                return codePoint < 0x10000 ? 3L : 4L;
+        }
     }
 }
