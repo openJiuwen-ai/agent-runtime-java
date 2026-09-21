@@ -157,6 +157,63 @@ class A2aPartRulesTest {
     }
 
     @Test
+    void acceptsDataMapAtExactSerializedLimit() {
+        // {"k":"xxxxxxxx"} serializes to exactly 16 compact bytes: 1 + 3 + 1 + 10 + 1.
+        Map<String, Object> data = part("data", null);
+        data.put("data", Map.of("k", "x".repeat(8)));
+        assertThat(A2aPartRules.validate(List.of(data), RAW_LIMIT, TEXT_DATA_LIMIT, PARTS_LIMIT)).isEmpty();
+    }
+
+    @Test
+    void acceptsDataListAtExactSerializedLimit() {
+        // ["ab","ab","ab"] serializes to exactly 16 compact bytes: 2 + 3*4 + 2.
+        Map<String, Object> data = part("data", null);
+        data.put("data", List.of("ab", "ab", "ab"));
+        assertThat(A2aPartRules.validate(List.of(data), RAW_LIMIT, TEXT_DATA_LIMIT, PARTS_LIMIT)).isEmpty();
+    }
+
+    @Test
+    void rejectsDataStringWithEscapesExceedingLimit() {
+        // A 14-char string of double quotes estimates to 16 bytes by naive
+        // per-char counting, but escaping doubles every quote: 2 + 14*2 = 30.
+        Map<String, Object> data = part("data", null);
+        data.put("data", "\"".repeat(14));
+        Optional<String> violation = A2aPartRules.validate(List.of(data), RAW_LIMIT, TEXT_DATA_LIMIT, PARTS_LIMIT);
+        assertThat(violation).isPresent();
+        assertThat(violation.get()).contains("exceeds max-text-data-bytes " + TEXT_DATA_LIMIT);
+    }
+
+    @Test
+    void rejectsControlCharsDataExceedingLimit() {
+        // Three NUL chars occupy 3 bytes raw, but each expands to a 6-byte
+        // unicode escape: 2 + 3*6 = 20.
+        Map<String, Object> data = part("data", null);
+        data.put("data", "\u0000".repeat(3));
+        Optional<String> violation = A2aPartRules.validate(List.of(data), RAW_LIMIT, TEXT_DATA_LIMIT, PARTS_LIMIT);
+        assertThat(violation).isPresent();
+        assertThat(violation.get()).contains("exceeds max-text-data-bytes " + TEXT_DATA_LIMIT);
+    }
+
+    @Test
+    void acceptsEmptyDataContainers() {
+        // {} and [] each serialize to 2 bytes.
+        Map<String, Object> emptyMapData = part("data", null);
+        emptyMapData.put("data", Map.of());
+        Map<String, Object> emptyListData = part("data", null);
+        emptyListData.put("data", List.of());
+        assertThat(A2aPartRules.validate(List.of(emptyMapData, emptyListData), RAW_LIMIT, TEXT_DATA_LIMIT,
+                PARTS_LIMIT)).isEmpty();
+    }
+
+    @Test
+    void acceptsMultiKeyDataMapWithCommaSeparatedEntries() {
+        // {"a":1,"b":2} counts one comma between members: 2 + 3+1+1 + 1 + 3+1+1 = 13.
+        Map<String, Object> data = part("data", null);
+        data.put("data", Map.of("a", 1, "b", 2));
+        assertThat(A2aPartRules.validate(List.of(data), RAW_LIMIT, TEXT_DATA_LIMIT, PARTS_LIMIT)).isEmpty();
+    }
+
+    @Test
     void rejectsBlankUrl() {
         for (String blank : new String[] {"", "   "}) {
             Map<String, Object> url = part("url", null);
@@ -201,6 +258,14 @@ class A2aPartRulesTest {
         Optional<String> violation = A2aPartRules.validate(List.of(text), RAW_LIMIT, TEXT_DATA_LIMIT, PARTS_LIMIT);
         assertThat(violation).isPresent();
         assertThat(violation.get()).contains("metadata");
+    }
+
+    @Test
+    void acceptsMetadataAtExactSerializedLimit() {
+        // {"k":"m"*16376} serializes to exactly 16384 compact bytes: 1 + 3 + 1 + 16378 + 1.
+        Map<String, Object> text = part("text", "hello");
+        text.put("metadata", Map.of("k", "m".repeat(16 * 1024 - 8)));
+        assertThat(A2aPartRules.validate(List.of(text), RAW_LIMIT, TEXT_DATA_LIMIT, PARTS_LIMIT)).isEmpty();
     }
 
     @Test
