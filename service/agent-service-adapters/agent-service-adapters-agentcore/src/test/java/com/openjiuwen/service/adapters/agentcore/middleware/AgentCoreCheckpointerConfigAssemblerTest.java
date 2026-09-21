@@ -216,5 +216,50 @@ class AgentCoreCheckpointerConfigAssemblerTest {
         public List<String> scanIter(String pattern) {
             return List.of();
         }
+
+        @Override
+        public long hset(String key, String field, String value) {
+            return 0;
+        }
+
+        @Override
+        public String hget(String key, String field) {
+            return null;
+        }
+
+        @Override
+        public long hdel(String key, String... fields) {
+            return 0;
+        }
+
+        @Override
+        public Map<String, String> hgetAll(String key) {
+            return Map.of();
+        }
+
+        @Override
+        public long sadd(String key, String... members) {
+            return 0;
+        }
+
+        @Override
+        public boolean sismember(String key, String member) {
+            return false;
+        }
+
+        @Override
+        public long srem(String key, String... members) {
+            return 0;
+        }
+
+        @Override
+        public long hincrBy(String key, String field, long delta) {
+            return 0;
+        }
+
+        @Override
+        public Object eval(String script, List<String> keys, String... args) {
+            return null;
+        }
     }
 }

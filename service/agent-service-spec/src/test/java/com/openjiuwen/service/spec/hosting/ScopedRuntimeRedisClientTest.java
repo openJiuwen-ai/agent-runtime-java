@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Verifies Redis key scoping without changing values, TTLs or resource ownership.
@@ -59,7 +60,7 @@ class ScopedRuntimeRedisClientTest {
                 assertThat(call.arguments().get(i)).isEqualTo(arguments.get(i));
             }
         }
-        assertThat(calls).hasSize(13);
+        assertThat(calls).hasSize(18);
         assertThat(binaryKey).containsExactly((byte) 0xff, (byte) 0, (byte) 45);
     }
 
@@ -110,6 +111,28 @@ class ScopedRuntimeRedisClientTest {
         }
     }
 
+    @Test
+    void mapsVarargsKeysAndPassesThroughFieldsMembersAndArgs() {
+        List<Call> calls = new ArrayList<>();
+        var scoped = new ScopedRuntimeRedisClient(recordingClient(calls), "scope:");
+        scoped.hdel("key", "f1", "f2");
+        assertThat(calls.get(0).name()).isEqualTo("hdel");
+        assertThat(calls.get(0).arguments().get(0)).isEqualTo("scope:key");
+        assertThat(assertInstanceOf(String[].class, calls.get(0).arguments().get(1))).containsExactly("f1", "f2");
+        scoped.sadd("key", "m1", "m2");
+        assertThat(calls.get(1).arguments().get(0)).isEqualTo("scope:key");
+        assertThat(assertInstanceOf(String[].class, calls.get(1).arguments().get(1))).containsExactly("m1", "m2");
+        scoped.srem("key", "m1");
+        assertThat(calls.get(2).arguments().get(0)).isEqualTo("scope:key");
+        assertThat(assertInstanceOf(String[].class, calls.get(2).arguments().get(1))).containsExactly("m1");
+        scoped.eval("return 1", List.of("key", "key2"), "a1", "a2");
+        assertThat(calls.get(3).name()).isEqualTo("eval");
+        assertThat(calls.get(3).arguments().get(0)).isEqualTo("return 1");
+        assertThat(assertInstanceOf(List.class, calls.get(3).arguments().get(1)))
+                .containsExactly("scope:key", "scope:key2");
+        assertThat(assertInstanceOf(String[].class, calls.get(3).arguments().get(2))).containsExactly("a1", "a2");
+    }
+
     private RuntimeRedisClient recordingClient(List<Call> calls) {
         return assertInstanceOf(RuntimeRedisClient.class, Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[] {RuntimeRedisClient.class}, (proxy, method, arguments) -> {
@@ -118,10 +141,12 @@ class ScopedRuntimeRedisClientTest {
                         case "get" -> method.getReturnType() == byte[].class
                                 ? "value".getBytes(StandardCharsets.UTF_8) : "value";
                         case "set", "setex" -> "OK";
-                        case "setnx", "del", "expire" -> 1L;
-                        case "exists" -> true;
+                        case "setnx", "del", "expire", "hset", "hdel", "sadd", "srem", "hincrBy" -> 1L;
+                        case "exists", "sismember" -> true;
                         case "mget" -> Arrays.asList("second", null, "first");
                         case "scanIter" -> List.of("scope:key");
+                        case "hgetAll" -> Map.of();
+                        case "eval" -> 1L;
                         default -> null;
                     };
                 }));
