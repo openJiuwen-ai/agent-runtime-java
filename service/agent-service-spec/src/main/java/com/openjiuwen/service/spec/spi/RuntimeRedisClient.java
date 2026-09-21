@@ -20,6 +20,12 @@ import java.util.Map;
  * atomic semantics that no single command expresses. No ping command is exposed because pool
  * borrow-time validation and broken-connection eviction already make recovery transparent.
  *
+ * <p>The structured batch and eval are {@code default} methods that fail loudly by throwing
+ * {@link UnsupportedOperationException}: implementations may adopt them incrementally, and
+ * implementations written against the frozen seventeen stay source- and binary-compatible as
+ * this interface evolves. A default invocation means the caller asked for a command the
+ * implementation cannot serve, so throwing beats any silent non-atomic substitute.
+ *
  * @since 0.1.0
  */
 public interface RuntimeRedisClient extends AutoCloseable {
@@ -173,91 +179,135 @@ public interface RuntimeRedisClient extends AutoCloseable {
     /**
      * Sets a hash field value.
      *
+     * <p>The default implementation throws {@link UnsupportedOperationException}; implementations
+     * that support hash commands override it.
+     *
      * @param key redis key
      * @param field hash field
      * @param value field value
      * @return 1 when a new field was created, otherwise 0
      */
-    long hset(String key, String field, String value);
+    default long hset(String key, String field, String value) {
+        throw new UnsupportedOperationException("hset not supported by this RuntimeRedisClient implementation");
+    }
 
     /**
      * Gets a hash field value.
+     *
+     * <p>The default implementation throws {@link UnsupportedOperationException}; implementations
+     * that support hash commands override it.
      *
      * @param key redis key
      * @param field hash field
      * @return the field value, or {@code null} when absent
      */
-    String hget(String key, String field);
+    default String hget(String key, String field) {
+        throw new UnsupportedOperationException("hget not supported by this RuntimeRedisClient implementation");
+    }
 
     /**
      * Deletes hash fields.
+     *
+     * <p>The default implementation throws {@link UnsupportedOperationException}; implementations
+     * that support hash commands override it.
      *
      * @param key redis key
      * @param fields hash fields
      * @return deleted field count
      */
-    long hdel(String key, String... fields);
+    default long hdel(String key, String... fields) {
+        throw new UnsupportedOperationException("hdel not supported by this RuntimeRedisClient implementation");
+    }
 
     /**
      * Gets all fields of a hash.
      *
+     * <p>The default implementation throws {@link UnsupportedOperationException}; implementations
+     * that support hash commands override it.
+     *
      * @param key redis key
      * @return field to value map, empty when the key is absent
      */
-    Map<String, String> hgetAll(String key);
+    default Map<String, String> hgetAll(String key) {
+        throw new UnsupportedOperationException("hgetAll not supported by this RuntimeRedisClient implementation");
+    }
 
     /**
      * Adds set members.
+     *
+     * <p>The default implementation throws {@link UnsupportedOperationException}; implementations
+     * that support set commands override it.
      *
      * @param key redis key
      * @param members set members
      * @return newly added member count
      */
-    long sadd(String key, String... members);
+    default long sadd(String key, String... members) {
+        throw new UnsupportedOperationException("sadd not supported by this RuntimeRedisClient implementation");
+    }
 
     /**
      * Checks set membership.
+     *
+     * <p>The default implementation throws {@link UnsupportedOperationException}; implementations
+     * that support set commands override it.
      *
      * @param key redis key
      * @param member set member
      * @return true when the member is present
      */
-    boolean sismember(String key, String member);
+    default boolean sismember(String key, String member) {
+        throw new UnsupportedOperationException("sismember not supported by this RuntimeRedisClient implementation");
+    }
 
     /**
      * Removes set members.
+     *
+     * <p>The default implementation throws {@link UnsupportedOperationException}; implementations
+     * that support set commands override it.
      *
      * @param key redis key
      * @param members set members
      * @return removed member count
      */
-    long srem(String key, String... members);
+    default long srem(String key, String... members) {
+        throw new UnsupportedOperationException("srem not supported by this RuntimeRedisClient implementation");
+    }
 
     /**
      * Increments a hash field atomically; concurrent increments from any instance must all be reflected.
+     *
+     * <p>The default implementation throws {@link UnsupportedOperationException} because no
+     * non-atomic substitute may stand in; implementations that support hash commands override it.
      *
      * @param key redis key
      * @param field hash field
      * @param delta increment delta
      * @return the field value after the increment
      */
-    long hincrBy(String key, String field, long delta);
+    default long hincrBy(String key, String field, long delta) {
+        throw new UnsupportedOperationException("hincrBy not supported by this RuntimeRedisClient implementation");
+    }
 
     /**
      * Evaluates a Lua script for compare-and-set style atomic semantics that single commands
      * cannot express, such as conditional hash writes with a multi-state outcome.
      *
      * <p>Scripts must reference exactly one key so cluster deployments route by slot; callers
-     * coerce the returned object themselves (commonly {@link Number}). Implementations that
-     * cannot execute scripts must fail loudly instead of degrading to a non-atomic equivalent.
-     * EVALSHA is deliberately not modelled to avoid the script-not-loaded failure mode.
+     * coerce the returned object themselves (commonly {@link Number}). The default implementation
+     * fails loudly by throwing {@link UnsupportedOperationException} instead of degrading to a
+     * non-atomic equivalent; server-backed implementations override it. EVALSHA is deliberately
+     * not modelled to avoid the script-not-loaded failure mode.
      *
      * @param script Lua script text
      * @param keys keys referenced by the script
      * @param args additional script arguments
      * @return the script result, whose type depends on the script
      */
-    Object eval(String script, List<String> keys, String... args);
+    default Object eval(String script, List<String> keys, String... args) {
+        throw new UnsupportedOperationException("eval not supported by this RuntimeRedisClient implementation;"
+                + " deploy a server-backed implementation when atomic script semantics are required");
+    }
 
     @Override
     default void close() {
