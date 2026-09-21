@@ -19,13 +19,24 @@ import java.util.Objects;
  *
  * @since 0.1.0
  */
-class UnifiedJedisRuntimeRedisClient implements RuntimeRedisClient {
+public class UnifiedJedisRuntimeRedisClient implements RuntimeRedisClient {
     static final int SCAN_COUNT = 100;
 
     private final UnifiedJedis delegate;
 
     UnifiedJedisRuntimeRedisClient(UnifiedJedis delegate) {
         this.delegate = Objects.requireNonNull(delegate, "delegate must not be null");
+    }
+
+    /**
+     * Exposes the underlying Jedis client for consumers that need Jedis-native
+     * capabilities (e.g. pipelining) beyond the SPI command surface.
+     *
+     * @return the wrapped Jedis client
+     * @since 0.1.2
+     */
+    public UnifiedJedis jedisDelegate() {
+        return delegate;
     }
 
     @Override

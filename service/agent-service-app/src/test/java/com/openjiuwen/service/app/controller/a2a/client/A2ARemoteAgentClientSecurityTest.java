@@ -238,7 +238,7 @@ class A2ARemoteAgentClientSecurityTest {
         exchange.getResponseBody().write(bytes);
     }
 
-    static void invoke(A2ARemoteAgentClient client, String name, boolean isStreaming) throws Exception {
+    static void invoke(RemoteAgentCaller client, String name, boolean isStreaming) throws Exception {
         RemoteCall call = new RemoteCall(name, "hello", "ctx", null, Map.of(), Map.of(), isStreaming);
         RemoteCallOutcome outcome = client.callOutcome(call, mock(RemoteAgentCaller.EventObserver.class))
                 .get(10, TimeUnit.SECONDS);

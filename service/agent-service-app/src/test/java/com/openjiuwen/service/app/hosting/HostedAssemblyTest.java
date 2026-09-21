@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.autoconfigure.HostedRuntimeAutoConfiguration;
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
@@ -83,6 +84,44 @@ class HostedAssemblyTest {
                 MainEventBus.class, MainEventBusProcessor.class, QueueManager.class, A2AAgentExecutor.class,
                 A2ATaskContinuation.class, A2aPushNotificationCallbackStore.class,
                 A2aPushNotificationCallbackHandler.class);
+    }
+
+    @Test
+    void bindsEffectiveRemoteCatalogAndPropagatesGlobalDiscoveryEvents() {
+        runner.withPropertyValues("openjiuwen.service.a2a.agents.a.remote-agents[0].name=local",
+                "openjiuwen.service.a2a.agents.a.remote-agents[0].url=http://local")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    var lifecycle = context.getBean(HostedLifecycleCoordinator.class);
+                    lifecycle.runInitPhase();
+                    try {
+                        var global = context.getBean(A2ARemoteAgentCardRegistry.class);
+                        var catalogs = context.getBean(HostedRemoteAgentCatalogs.class);
+                        var instances = context.getBean(HostedRuntimeCatalog.class);
+                        assertThat(instances.resolve("a").extension(A2ARemoteAgentCardRegistry.class).orElseThrow())
+                                .isSameAs(catalogs.catalog("a"));
+                        assertThat(instances.resolve("b").extension(A2ARemoteAgentCardRegistry.class).orElseThrow())
+                                .isSameAs(global);
+                        var card = context.getBean(HostedAgentCardFactory.class).card("b", "http://localhost", false);
+                        global.register("inherited", card);
+                        assertThat(catalogs.catalog("a").get("inherited")).isPresent();
+                        catalogs.catalog("a").register("local", card);
+                        assertThat(global.get("local")).isEmpty();
+                    } finally {
+                        lifecycle.runShutdownPhase();
+                    }
+                });
+    }
+
+    @Test
+    void customCallerCannotSilentlyIgnoreLocalRemoteConfiguration() {
+        RemoteAgentCaller caller = (call, observer) -> CompletableFuture.completedFuture(null);
+        runner.withBean(RemoteAgentCaller.class, () -> caller)
+                .withPropertyValues("openjiuwen.service.a2a.agents.a.remote-agents[0].name=local",
+                        "openjiuwen.service.a2a.agents.a.remote-agents[0].url=http://local")
+                .run(context -> assertThatThrownBy(() ->
+                        context.getBean(HostedLifecycleCoordinator.class).runInitPhase())
+                        .hasStackTraceContaining("does not support instance remote-agent configuration"));
     }
 
     @Test

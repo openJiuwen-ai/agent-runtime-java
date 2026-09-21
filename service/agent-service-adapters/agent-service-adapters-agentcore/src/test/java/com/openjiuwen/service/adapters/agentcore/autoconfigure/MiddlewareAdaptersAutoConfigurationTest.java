@@ -12,6 +12,7 @@ import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterReg
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
+import com.openjiuwen.service.adapters.common.middleware.redis.UnifiedJedisRuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,11 @@ class MiddlewareAdaptersAutoConfigurationTest {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
                     assertThat(connection.get("url")).asString().contains("redis.local:6380");
-                    assertThat(connection.get("redis_client")).isSameAs(context.getBean(RuntimeRedisClient.class));
+                    RuntimeRedisClient redisClient = context.getBean(RuntimeRedisClient.class);
+                    assertThat(redisClient).isInstanceOf(UnifiedJedisRuntimeRedisClient.class);
+                    if (redisClient instanceof UnifiedJedisRuntimeRedisClient unified) {
+                        assertThat(connection.get("redis_client")).isSameAs(unified.jedisDelegate());
+                    }
                 });
     }
 
