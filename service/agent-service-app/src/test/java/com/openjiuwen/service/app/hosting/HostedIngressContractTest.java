@@ -19,6 +19,7 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -106,6 +107,7 @@ class HostedIngressContractTest {
     }
 
     @Test
+    @Tag("smoke")
     void cardDiscoveryAndListMatchDefaultAndNamedExecution() throws Exception {
         JsonNode listing = mapper.readTree(rest.getForObject("/a2a/agents", String.class));
         assertThat(listing.get("agents").toString()).isEqualTo("[\"a\",\"b\"]");
@@ -122,6 +124,7 @@ class HostedIngressContractTest {
     }
 
     @Test
+    @Tag("smoke")
     void a2aFourMethodsUseTheSelectedStoreAndSdkErrorFormat() throws Exception {
         for (String id : List.of("a", "b")) {
             String context = UUID.randomUUID().toString();
