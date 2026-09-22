@@ -764,6 +764,47 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     @Test
+    void directRemoteResumeUsesCurrentMetadataButCompletionRestoresParentMetadata() {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
+                "test-agent", 1, 10, 30);
+        CompletableFuture<RemoteCallOutcome> first = new CompletableFuture<>();
+        when(client.callOutcome(any(), any())).thenReturn(first);
+
+        ServeRequest initialRequest = request("parent-metadata-lifecycle", Map.of(
+                "headers", Map.of("x-request", "one"), "body", Map.of("step", 1)));
+        coordinator.execute(batch("batch-metadata-lifecycle", "call-a"), initialRequest,
+                mock(QueryStreamObserver.class));
+        first.complete(inputRequired("remote-a", "need-input"));
+
+        ArgumentCaptor<RemoteCall> firstCall = ArgumentCaptor.forClass(RemoteCall.class);
+        verify(client).callOutcome(firstCall.capture(), any());
+        assertThat(firstCall.getValue().metadata()).containsEntry("headers", Map.of("x-request", "one"));
+
+        CompletableFuture<RemoteCallOutcome> second = new CompletableFuture<>();
+        org.mockito.Mockito.reset(client);
+        when(client.callOutcome(any(), any())).thenReturn(second);
+        ServeRequest directResume = request("parent-metadata-lifecycle", Map.of(
+                "headers", Map.of("x-request", "two"), "body", Map.of("step", 2),
+                "runtime.remoteToolInputs", Map.of("call-a", "answer")));
+        Optional<CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> resumed =
+                coordinator.resume(directResume, mock(QueryStreamObserver.class));
+        ArgumentCaptor<RemoteCall> secondCall = ArgumentCaptor.forClass(RemoteCall.class);
+        verify(client).callOutcome(secondCall.capture(), any());
+        assertThat(secondCall.getValue().metadata()).containsEntry("headers", Map.of("x-request", "two"));
+
+        second.complete(completed("remote-a", "done"));
+        assertThat(resumed.orElseThrow().join().parentParamsMetadata())
+                .containsEntry("headers", Map.of("x-request", "one"))
+                .containsEntry("body", Map.of("step", 1));
+        Map<?, ?> snapshot = (Map<?, ?>) store.get("shadow:test-agent:parent-metadata-lifecycle")
+                .metadata().get("_remote_batch");
+        Map<?, ?> savedMetadata = (Map<?, ?>) ((Map<?, ?>) snapshot.get("request")).get("metadata");
+        assertThat(savedMetadata.get("headers")).isEqualTo(Map.of("x-request", "one"));
+    }
+
+    @Test
     void shadowStoreFailurePreventsCoreResume() {
         TaskStore store = mock(TaskStore.class);
         when(store.get(any())).thenReturn(null);

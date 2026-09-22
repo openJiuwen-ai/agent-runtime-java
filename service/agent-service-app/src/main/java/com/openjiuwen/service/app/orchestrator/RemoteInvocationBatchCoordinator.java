@@ -756,8 +756,9 @@ final class RemoteInvocationBatchCoordinator {
      *                          as tool results ({@code true}, tool-call path) or whether the remote
      *                          answer is this layer's terminal output ({@code false}, intent-workflow
      *                          path). Defaults to {@code true} when the interrupt payload omits it.
+     * @param parentParamsMetadata business metadata to restore when re-entering the local agent
      */
     record BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
-            Map<String, Object> interrupt, boolean shouldResume) {
+            Map<String, Object> interrupt, boolean shouldResume, Map<String, Object> parentParamsMetadata) {
     }
 }
