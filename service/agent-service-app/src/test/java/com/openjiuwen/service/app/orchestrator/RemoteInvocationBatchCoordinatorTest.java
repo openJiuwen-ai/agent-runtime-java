@@ -801,7 +801,7 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     @Test
-    void directRemoteResumeUsesCurrentMetadataButCompletionRestoresParentMetadata() {
+    void directResumeUsesCurrentMetadataAndRestoresParent() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
