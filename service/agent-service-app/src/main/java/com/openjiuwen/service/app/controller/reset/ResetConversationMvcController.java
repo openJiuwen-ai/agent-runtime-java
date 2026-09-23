@@ -5,8 +5,8 @@
 package com.openjiuwen.service.app.controller.reset;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.openjiuwen.service.app.hosting.HostedIngressResolver;
 import com.openjiuwen.service.app.controller.query.QueryIngressSupport;
+import com.openjiuwen.service.app.hosting.HostedIngressResolver;
 import com.openjiuwen.service.spec.dto.ResetConversationRequest;
 import com.openjiuwen.service.spec.dto.ResetConversationResponse;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
@@ -34,6 +34,8 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
+@ConditionalOnProperty(
+        prefix = "openjiuwen.service.http", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
@@ -117,6 +119,8 @@ public class ResetConversationMvcController {
     }
 }
 
+@ConditionalOnProperty(
+        prefix = "openjiuwen.service.http", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RestController
 @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)

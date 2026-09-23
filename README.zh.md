@@ -20,6 +20,8 @@
 
 - **清晰模块边界**：`spec`（契约与 SPI）→ `adapters`（执行引擎、中间件、外部服务 egress）→ `app`（Ingress + Orchestrator），依赖单向，便于定制镜像。
 
+客户已有 Spring 服务时，可注入 `A2aRuntimeInvoker` 并设置 `openjiuwen.service.http.enabled=false`，关闭 Runtime 自带入口，保留 A2A Task 和客户 HTTP 服务。见[嵌入式方法调用](documents/zh/2.开发指南/A2A/嵌入式方法调用.md)。
+
 ## 快速开始
 
 ### 环境要求

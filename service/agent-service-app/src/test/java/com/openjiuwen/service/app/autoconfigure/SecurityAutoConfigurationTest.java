@@ -16,7 +16,7 @@ import com.openjiuwen.service.spec.security.FineGrainedAuthorizer;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 
 /**
  * Auto-configuration tests for ingress security via
@@ -25,8 +25,10 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
  * @since 0.1.0
  */
 class SecurityAutoConfigurationTest {
-    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
-            AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class, SecurityAutoConfiguration.class));
+    private final WebApplicationContextRunner contextRunner = new WebApplicationContextRunner().withConfiguration(
+            AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class, SecurityAutoConfiguration.class))
+            .withInitializer(context -> context.getBeanFactory().registerSingleton(
+                    "agentHttpAutoConfiguration", new AgentHttpAutoConfiguration()));
 
     @Test
     void securityDisabledDoesNotRegisterAuthBeans() {

@@ -26,6 +26,8 @@ import org.springframework.core.io.ResourceLoader;
  *
  * @since 0.1.0
  */
+@ConditionalOnProperty(
+        prefix = "openjiuwen.service.http", name = "enabled", havingValue = "true", matchIfMissing = true)
 @AutoConfiguration
 @EnableConfigurationProperties(SecurityProperties.class)
 @ConditionalOnProperty(prefix = "openjiuwen.service.security", name = "enabled", havingValue = "true")

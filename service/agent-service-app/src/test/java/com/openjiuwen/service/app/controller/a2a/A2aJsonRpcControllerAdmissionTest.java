@@ -16,9 +16,9 @@ import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 
 import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
-import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.A2AError;
 import org.a2aproject.sdk.spec.A2AErrorCodes;
+import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
@@ -193,8 +193,9 @@ class A2aJsonRpcControllerAdmissionTest {
         when(handler.onMessageSend(any(MessageSendParams.class), any())).thenReturn(completedTask());
         ObjectProvider<TaskAdmissionGate> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(null);
-        A2aJsonRpcController controller = new A2aJsonRpcController(handler);
-        controller.setAdmissionGateProvider(provider);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> handler, provider, null, null),
+                new com.openjiuwen.service.app.config.A2AProperties());
 
         ResponseEntity<?> response = controller.handleJsonRpc(sendMessageJson(), servletRequest());
 
@@ -212,8 +213,9 @@ class A2aJsonRpcControllerAdmissionTest {
     private static A2aJsonRpcController newController(RequestHandler handler, TaskAdmissionGate gate) {
         ObjectProvider<TaskAdmissionGate> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(gate);
-        A2aJsonRpcController controller = new A2aJsonRpcController(handler);
-        controller.setAdmissionGateProvider(provider);
+        A2aJsonRpcController controller = new A2aJsonRpcController(
+                new A2aJsonRpcDispatcher(() -> handler, provider, null, null),
+                new com.openjiuwen.service.app.config.A2AProperties());
         return controller;
     }
 

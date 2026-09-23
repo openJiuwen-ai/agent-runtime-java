@@ -9,12 +9,12 @@ import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
 import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
-import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
 import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
+import com.openjiuwen.service.app.controller.a2a.A2aJsonRpcDispatcher;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCapabilityGate;
@@ -28,11 +28,16 @@ import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
+import com.openjiuwen.service.app.hosting.HostedIngressResolver;
+import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
+import com.openjiuwen.service.app.invocation.A2aRuntimeInvoker;
+import com.openjiuwen.service.app.invocation.DefaultA2aRuntimeInvoker;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
+import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -102,6 +107,28 @@ public class A2AAutoConfiguration {
      */
     @Autowired
     private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
+
+    /** Shares protocol dispatch between the HTTP and method bindings. */
+    @Bean
+    @ConditionalOnMissingBean(A2aJsonRpcDispatcher.class)
+    public A2aJsonRpcDispatcher a2aJsonRpcDispatcher(
+            ObjectProvider<RequestHandler> handlers, ObjectProvider<TaskAdmissionGate> gates,
+            A2AProperties properties,
+            ObjectProvider<HostedIngressResolver> hosted) {
+        return new A2aJsonRpcDispatcher(
+                handlers::getObject, gates, properties, hosted.getIfAvailable());
+    }
+
+    /** Method ingress remains available when Runtime HTTP is disabled. */
+    @Bean
+    @ConditionalOnMissingBean(A2aRuntimeInvoker.class)
+    public DefaultA2aRuntimeInvoker a2aRuntimeInvoker(
+            A2aJsonRpcDispatcher dispatcher, A2AProperties properties,
+            ObjectProvider<AgentReadiness> readiness,
+            ObjectProvider<HostedIngressResolver> hosted) {
+        return new DefaultA2aRuntimeInvoker(
+                dispatcher, properties, readiness, hosted);
+    }
 
     /**
      * Creates the SDK main event bus bean.

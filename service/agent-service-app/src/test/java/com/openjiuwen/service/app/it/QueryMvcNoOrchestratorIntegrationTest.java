@@ -61,7 +61,8 @@ class QueryMvcNoOrchestratorIntegrationTest {
     }
 
     @SpringBootConfiguration
-    @EnableAutoConfiguration(exclude = {AgentServiceAutoConfiguration.class, A2AAutoConfiguration.class})
+    @EnableAutoConfiguration(exclude = {AgentServiceAutoConfiguration.class,
+        com.openjiuwen.service.app.autoconfigure.AgentHttpAutoConfiguration.class, A2AAutoConfiguration.class})
     @Import(QueryMvcController.class)
     static class QueryOnlyApplication {}
 }

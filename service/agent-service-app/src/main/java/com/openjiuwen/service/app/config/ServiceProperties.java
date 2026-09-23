@@ -22,6 +22,15 @@ public class ServiceProperties {
      */
     private String agentId;
 
+    /** Controls only Runtime-owned HTTP ingress; never the host Web server. */
+    private Http http = new Http();
+
+    /** Startup-time HTTP ingress configuration. */
+    @Data
+    public static class Http {
+        private boolean enabled = true;
+    }
+
     /**
      * Version reported by the Agent Service health probe.
      */

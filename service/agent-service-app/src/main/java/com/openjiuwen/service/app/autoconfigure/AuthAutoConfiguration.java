@@ -20,6 +20,8 @@ import org.springframework.context.annotation.EnableAspectJAutoProxy;
  *
  * @since 0.1.0
  */
+@ConditionalOnProperty(
+        prefix = "openjiuwen.service.http", name = "enabled", havingValue = "true", matchIfMissing = true)
 @AutoConfiguration
 @EnableAspectJAutoProxy
 @ConditionalOnProperty(prefix = "openjiuwen.service.security", name = "enabled", havingValue = "true")
