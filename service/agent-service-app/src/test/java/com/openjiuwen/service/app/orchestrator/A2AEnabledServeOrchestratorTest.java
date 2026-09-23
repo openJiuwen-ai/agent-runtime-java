@@ -32,6 +32,7 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
+import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Task;
@@ -39,6 +40,8 @@ import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 import java.util.Map;
@@ -833,6 +836,134 @@ class A2AEnabledServeOrchestratorTest {
 
         // The token returned by prepareTask must round-trip to completeTask
         verify(agentHandler).completeTask(Optional.of(TASK_TOKEN));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void parentMetadataSurvivesRepeatedDirectResumeAndNextDelegation(boolean isStreaming) {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        Map<String, Object> parentMetadata = Map.of("header", Map.of("trace", "parent"),
+                "body", Map.of("query", "original"), "parentOnly", List.of("one", "two"));
+        java.util.List<RemoteCall> calls = new java.util.ArrayList<>();
+        stubMetadataRemote(calls);
+        java.util.List<ServeRequest> localRequests = new java.util.ArrayList<>();
+        stubMetadataAgent(localRequests);
+
+        ServeRequest initial = metadataRequest(parentMetadata, !isStreaming, "initial");
+        runMetadataRequest(initial, isStreaming);
+        ServeRequest second = metadataRequest(Map.of("header", Map.of("trace", "second"),
+                "secondOnly", true), isStreaming, "answer-2");
+        runMetadataRequest(second, isStreaming);
+        assertThat(localRequests).hasSize(1);
+        restoreMetadataShadow(parentMetadata);
+        ServeRequest third = metadataRequest(Map.of("body", Map.of("answer", "third"),
+                "thirdOnly", true), isStreaming, "answer-3");
+        third.getMetadata().put("runtime.remoteToolInputs", Map.of("call-a", "answer-3"));
+        third.getMetadata().put("_interrupt", Map.of("message", "current interrupt"));
+        runMetadataRequest(third, isStreaming);
+
+        assertMetadataRoundTrip(calls, localRequests, parentMetadata, third, isStreaming);
+
+        ServeRequest fresh = metadataRequest(Map.of("fresh", true), isStreaming, "new-local-input");
+        runMetadataRequest(fresh, isStreaming);
+        assertThat(localRequests.get(3).getMetadata()).containsEntry("fresh", true).doesNotContainKey("parentOnly");
+    }
+
+    private void stubMetadataRemote(List<RemoteCall> calls) {
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
+            calls.add(invocation.getArgument(0));
+            boolean isWaiting = calls.size() < 3;
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-a",
+                    isWaiting ? TaskState.TASK_STATE_INPUT_REQUIRED : TaskState.TASK_STATE_COMPLETED,
+                    isWaiting ? "INPUT_REQUIRED" : "COMPLETED", isWaiting ? null : "result", "answer?"));
+        });
+    }
+
+    private void stubMetadataAgent(List<ServeRequest> localRequests) {
+        java.util.function.Function<ServeRequest, QueryResponse> local = request -> {
+            localRequests.add(request);
+            if (localRequests.size() < 3) {
+                return new QueryResponse(Map.of("_interrupt", Map.of("type", "__interaction__",
+                        "toolCallId", "call-a", "message", "delegate", "context",
+                        Map.of("_interrupt_kind", "a2a_delegate", "agentName", "remote"))), "metadata-context");
+            }
+            return new QueryResponse(Map.of("content", "done"), "metadata-context");
+        };
+        when(agentHandler.query(any())).thenAnswer(invocation -> local.apply(invocation.getArgument(0)));
+        doAnswer(invocation -> {
+            QueryResponse response = local.apply(invocation.getArgument(0));
+            Map<?, ?> result = (Map<?, ?>) response.getResult();
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(result.containsKey("_interrupt") ? QueryChunk.TYPE_INTERRUPT
+                    : QueryChunk.TYPE_CHUNK, result.containsKey("_interrupt") ? result.get("_interrupt") : "done"));
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+    }
+
+    private void restoreMetadataShadow(Map<String, Object> parentMetadata) {
+        // Recreate the orchestrator and serialize the shadow, so recovery cannot rely on live batch references.
+        Task shadow = taskStore.get("shadow:test-agent:metadata-parent");
+        Map<?, ?> batch = (Map<?, ?>) shadow.metadata().get("_remote_batch");
+        assertThat(((Map<?, ?>) batch.get("request")).get("metadata")).isEqualTo(parentMetadata);
+        Task restored = JsonUtil.OBJECT_MAPPER.fromJson(
+                JsonUtil.OBJECT_MAPPER.toJson(shadow), Task.class);
+        taskStore.save(restored, true);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+    }
+
+    private void assertMetadataRoundTrip(List<RemoteCall> calls, List<ServeRequest> localRequests,
+            Map<String, Object> parentMetadata, ServeRequest third, boolean isStreaming) {
+        assertThat(calls).hasSize(4);
+        assertThat(calls.get(0).metadata()).containsAllEntriesOf(parentMetadata);
+        assertThat(calls.get(1).metadata()).containsEntry("secondOnly", true).doesNotContainKey("parentOnly");
+        assertThat(calls.get(2).metadata()).containsEntry("thirdOnly", true).doesNotContainKey("header");
+        assertThat(calls.get(3).metadata()).containsAllEntriesOf(parentMetadata)
+                .doesNotContainKeys("secondOnly", "thirdOnly", "runtime.remoteToolResults", "_interrupt");
+        assertThat(calls.get(3).messageMetadata()).isEqualTo(Map.of("messageScope", "answer-3"));
+        assertThat(calls.get(3).isCallerStreaming()).isEqualTo(isStreaming);
+        assertThat(localRequests).hasSize(3);
+        ServeRequest resumed = localRequests.get(1);
+        assertThat(resumed.getMetadata()).containsAllEntriesOf(parentMetadata)
+                .containsEntry("runtime.parentTaskId", "metadata-parent")
+                .containsEntry("runtime.remoteToolResults", Map.of("call-a", "result"))
+                .containsEntry("_interrupt", third.getMetadata().get("_interrupt"))
+                .containsKey("runtime.remoteBatchId")
+                .doesNotContainKeys("runtime.remoteToolInputs", "thirdOnly", "secondOnly");
+        assertThat(resumed.getMessages()).isEqualTo(third.getMessages());
+        assertThat(resumed.isStream()).isEqualTo(isStreaming);
+        assertThat(resumed.getUserId()).isEqualTo(third.getUserId());
+        assertThat(resumed.getSpaceId()).isEqualTo(third.getSpaceId());
+        assertThat(resumed.getTenantId()).isEqualTo(third.getTenantId());
+        assertThat(taskStore.get("shadow:test-agent:metadata-parent")).isNull();
+        assertThat(third.getMetadata()).containsKey("thirdOnly").doesNotContainKey("parentOnly");
+    }
+
+    private void runMetadataRequest(ServeRequest request, boolean isStreaming) {
+        if (isStreaming) {
+            QueryStreamObserver observer = mock(QueryStreamObserver.class);
+            orchestrator.streamQuery(request, observer);
+            verify(observer, never()).onError(any());
+            verify(observer).onComplete();
+        } else {
+            orchestrator.query(request);
+        }
+    }
+
+    private static ServeRequest metadataRequest(Map<String, Object> metadata, boolean isStreaming, String text) {
+        ServeRequest request = req("metadata-context");
+        request.setStream(isStreaming);
+        request.setUserId("user-" + text);
+        request.setSpaceId("space-" + text);
+        request.setTenantId("tenant-" + text);
+        request.setMessages(List.of(Map.of("role", "user", "content", text,
+                "metadata", Map.of("messageScope", text))));
+        request.setMetadata(new java.util.LinkedHashMap<>(metadata));
+        request.getMetadata().put("runtime.parentTaskId", "metadata-parent");
+        return request;
     }
 
     private static ServeRequest req(String convId) {

@@ -570,12 +570,21 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         resume.setUserId(original.getUserId());
         resume.setSpaceId(original.getSpaceId());
         resume.setTenantId(original.getTenantId());
-        Map<String, Object> metadata = new LinkedHashMap<>(original.getMetadata());
-        metadata.remove("runtime.remoteToolInputs");
+        // Direct remote replies use the latest ingress metadata; local continuation restores its own metadata.
+        Map<String, Object> metadata = RemoteInvocationBatchMapper.cleanRequestMetadata(
+                resolution.parentParamsMetadata());
+        copyRuntimeMetadata(original, metadata, "runtime.parentTaskId");
+        copyRuntimeMetadata(original, metadata, "_interrupt");
         metadata.put("runtime.remoteToolResults", new LinkedHashMap<>(resolution.results()));
         metadata.put("runtime.remoteBatchId", resolution.batchId());
         resume.setMetadata(metadata);
         return resume;
+    }
+
+    private static void copyRuntimeMetadata(ServeRequest source, Map<String, Object> target, String key) {
+        if (source.getMetadata().containsKey(key)) {
+            target.put(key, source.getMetadata().get(key));
+        }
     }
 
     @SuppressWarnings("unchecked")

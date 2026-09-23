@@ -120,7 +120,12 @@ final class RemoteInvocationBatchMapper {
         members.sort(Comparator.comparingInt(member -> member.index));
         String batchId = stringValue(rawBatch.get("batchId"));
         boolean shouldResume = !(rawBatch.get("resume") instanceof Boolean isResumeFlag) || isResumeFlag;
-        return new RemoteInvocationBatch(batchId, parentTaskId, request, observer, members, shouldResume);
+        Map<String, Object> parentMetadata = rawBatch.get("request") instanceof Map<?, ?> rawRequest
+                && rawRequest.get("metadata") instanceof Map<?, ?> metadata
+                        ? cleanRequestMetadata(metadata)
+                        : cleanRequestMetadata(request.getMetadata());
+        return new RemoteInvocationBatch(batchId, parentTaskId, request, parentMetadata, observer, members,
+                shouldResume);
     }
 
     void applyOutcome(Member member, RemoteCallOutcome outcome, Throwable error) {
@@ -188,7 +193,7 @@ final class RemoteInvocationBatchMapper {
         snapshot.put("parentTaskId", batch.parentTaskId);
         snapshot.put("resume", batch.shouldResume);
         snapshot.put("state", state);
-        snapshot.put("request", requestSnapshot(batch.request));
+        snapshot.put("request", requestSnapshot(batch.request, batch.parentParamsMetadata));
         List<Map<String, Object>> members = new ArrayList<>();
         for (Member member : batch.members) {
             Map<String, Object> value = new LinkedHashMap<>();
@@ -250,12 +255,12 @@ final class RemoteInvocationBatchMapper {
                 .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
         if (hasWaitingMember) {
             return new RemoteInvocationBatchCoordinator.BatchResolution(batch.batchId, false, Map.of(),
-                    publicInterrupt(batch), batch.shouldResume);
+                    publicInterrupt(batch), batch.shouldResume, batch.parentParamsMetadata);
         }
         Map<String, Object> results = new LinkedHashMap<>();
         batch.members.forEach(member -> results.put(member.toolCallId, toolResult(member)));
         return new RemoteInvocationBatchCoordinator.BatchResolution(batch.batchId, true, results, Map.of(),
-                batch.shouldResume);
+                batch.shouldResume, batch.parentParamsMetadata);
     }
 
     private static void restoreFailure(Member member) {
@@ -326,7 +331,7 @@ final class RemoteInvocationBatchMapper {
         return error;
     }
 
-    private static Map<String, Object> requestSnapshot(ServeRequest request) {
+    private static Map<String, Object> requestSnapshot(ServeRequest request, Map<String, Object> parentMetadata) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("conversationId", request.getConversationId());
         snapshot.put("stream", request.isStream());
@@ -338,20 +343,34 @@ final class RemoteInvocationBatchMapper {
             request.getMessages().forEach(message -> messages.add(new LinkedHashMap<>(message)));
         }
         snapshot.put("messages", messages);
-        snapshot.put("metadata", cleanRequestMetadata(request.getMetadata()));
+        snapshot.put("metadata", cleanRequestMetadata(parentMetadata));
         return snapshot;
     }
 
-    private static Map<String, Object> cleanRequestMetadata(Map<?, ?> source) {
+    static Map<String, Object> cleanRequestMetadata(Map<?, ?> source) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         if (source != null) {
             source.forEach((key, value) -> {
                 if (!RESERVED_RESUME_METADATA.contains(String.valueOf(key))) {
-                    metadata.put(String.valueOf(key), value);
+                    metadata.put(String.valueOf(key), copyMetadataValue(value));
                 }
             });
         }
         return metadata;
+    }
+
+    private static Object copyMetadataValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            map.forEach((key, nested) -> copy.put(String.valueOf(key), copyMetadataValue(nested)));
+            return copy;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> copy = new ArrayList<>();
+            list.forEach(item -> copy.add(copyMetadataValue(item)));
+            return copy;
+        }
+        return value;
     }
 
     private static String resultCategory(TaskState state) {
