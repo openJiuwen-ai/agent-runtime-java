@@ -237,6 +237,25 @@ class A2aIntegrationTest {
     }
 
     @Test
+    void streamingSseDataCarriesJsonRpcEnvelope() throws Exception {
+        var resp = postA2a(rpc("SendStreamingMessage", "req-sse-21", msgParams("sse-envelope", "c-sse-env")));
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<String> dataLines = resp.getBody().lines()
+                .map(String::trim)
+                .filter(line -> line.startsWith("data:"))
+                .map(line -> line.substring("data:".length()).trim())
+                .toList();
+        assertThat(dataLines).isNotEmpty();
+        for (String data : dataLines) {
+            Map<String, Object> envelope = json(data);
+            assertThat(envelope.get("jsonrpc")).isEqualTo("2.0");
+            assertThat(envelope.get("id")).isEqualTo("req-sse-21");
+            assertThat(envelope.get("result")).isInstanceOf(Map.class);
+        }
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void getTaskRetrievesCreatedTask() throws Exception {
         var createResp = postA2a(rpc("SendMessage", 5, msgParams("gt", "c-get")));
