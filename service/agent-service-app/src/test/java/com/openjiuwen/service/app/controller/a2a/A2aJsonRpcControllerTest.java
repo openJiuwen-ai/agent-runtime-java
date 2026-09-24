@@ -411,6 +411,27 @@ class A2aJsonRpcControllerTest {
                 .isInstanceOf(InvalidParamsError.class);
     }
 
+    @Test
+    void getTaskWithoutRequestIdReturnsResultEnvelopeWithNullId() {
+        RequestHandler requestHandler = mock(RequestHandler.class);
+        when(requestHandler.onGetTask(any(), any())).thenReturn(completedTask());
+        A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
+        String request = "{\"jsonrpc\":\"2.0\",\"method\":\"" + A2AMethods.GET_TASK_METHOD
+                + "\",\"params\":{\"id\":\"task-1\",\"tenant\":\"tenant-1\"}}";
+        servletRequest.setContent(request.getBytes(StandardCharsets.UTF_8));
+
+        ResponseEntity<?> response = controller.handleJsonRpc(request, servletRequest);
+
+        JsonObject body = jsonBody(response);
+        assertThat(body.get("jsonrpc").getAsString()).isEqualTo("2.0");
+        // JSON-RPC 2.0: the id member is always present, null when the request carried none.
+        assertThat(body.has("id")).isTrue();
+        assertThat(body.get("id").isJsonNull()).isTrue();
+        // The StreamingEventKind discriminator is unwrapped: result carries the Task fields directly.
+        assertThat(body.getAsJsonObject("result").get("id").getAsString()).isEqualTo("task-1");
+    }
+
     private static JsonObject requestWithMetadata(String paramsMetadata, String messageMetadata) {
         String json = "{\"params\":{\"metadata\":" + paramsMetadata + ",\"message\":{"
                 + "\"role\":\"ROLE_USER\",\"messageId\":\"msg-1\",\"contextId\":\"ctx-1\","
