@@ -18,7 +18,6 @@ import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
-import org.a2aproject.sdk.jsonrpc.common.wrappers.A2AMessage;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.SendMessageResponse;
 import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.auth.UnauthenticatedUser;
@@ -37,6 +36,7 @@ import org.a2aproject.sdk.spec.TaskQueryParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -119,7 +119,7 @@ public class A2aJsonRpcController {
                 : com.openjiuwen.service.spec.part.A2aPartLimits.DEFAULT_MAX_REQUEST_BODY_BYTES;
         long contentLength = servletRequest.getContentLengthLong();
         if (maxMessageBytes >= 0 && (contentLength < 0 || contentLength > maxMessageBytes)) {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE).build();
+            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).build();
         }
         A2aJsonRpcProtocol.Request request;
         try {
@@ -267,11 +267,11 @@ public class A2aJsonRpcController {
     }
 
     private static ResponseEntity<String> admissionRejectedResponse(Object id) {
-        return ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON).body(admissionErrorBody(id));
+        return A2aJsonRpcProtocol.errorResponse(id,
+                new InternalError(A2AAgentExecutor.ADMISSION_REJECTED_MESSAGE), HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     private ResponseEntity<SseEmitter> streamToSse(Flow.Publisher<StreamingEventKind> publisher, Object requestId) {
-        String idJson = GSON.toJson(requestId);
         SseEmitter emitter = new SseEmitter(0L);
         CompletableFuture.runAsync(() -> publisher.subscribe(new Flow.Subscriber<>() {
             private Flow.Subscription sub;
@@ -293,9 +293,7 @@ public class A2aJsonRpcController {
              */
             public void onNext(StreamingEventKind e) {
                 try {
-                    String eventJson = serializeA2aJson(e);
-                    String data = "{\"jsonrpc\":\"" + A2AMessage.JSONRPC_VERSION + "\",\"id\":" + idJson
-                            + ",\"result\":" + eventJson + "}";
+                    String data = A2aJsonRpcProtocol.resultEnvelope(requestId, serializeA2aJson(e));
                     emitter.send(SseEmitter.event().name("jsonrpc").data(data));
                     sub.request(1);
                 } catch (org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException | java.io.IOException
@@ -423,10 +421,7 @@ public class A2aJsonRpcController {
                     resultElement = obj.get(key);
                 }
             }
-            String resultJson = GSON.toJson(resultElement);
-            String idPart = id != null ? ",\"id\":" + GSON.toJson(id) : "";
-            String response = "{\"jsonrpc\":\"2.0\"" + idPart + ",\"result\":" + resultJson + "}";
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(A2aJsonRpcProtocol.resultEnvelope(id, resultElement));
         } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
             log.error("Failed to serialize JSON-RPC response", e);
             return A2aJsonRpcProtocol.errorResponse(id, new InternalError("Internal error"));
@@ -446,12 +441,6 @@ public class A2aJsonRpcController {
             ctx.getState().put(A2AMessageContext.INGRESS_HEADERS_STATE_KEY, ingressHeaders);
         }
         return ctx;
-    }
-
-    private static String admissionErrorBody(Object id) {
-        String idJson = id != null ? GSON.toJson(id) : "null";
-        return "{\"jsonrpc\":\"2.0\",\"id\":" + idJson
-                + ",\"error\":{\"code\":-32603,\"message\":\"Service Unavailable: concurrent task limit reached\"}}";
     }
 
     /**
