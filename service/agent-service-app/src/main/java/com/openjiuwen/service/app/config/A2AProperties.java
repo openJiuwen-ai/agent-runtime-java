@@ -4,11 +4,19 @@
 
 package com.openjiuwen.service.app.config;
 
+import com.openjiuwen.service.adapters.common.security.ExternalTlsConfig;
+import com.openjiuwen.service.spec.part.A2aPartLimits;
+
+import lombok.AccessLevel;
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Binds {@code openjiuwen.service.a2a.*} for AgentCard content, remote agents,
@@ -36,6 +44,13 @@ public class A2AProperties {
 
     private boolean isPushNotifications = false;
 
+    /**
+     * Exact trusted callback hosts allowed to bypass the default non-public address rejection.
+     * Empty by default; no wildcards or URLs. Configure only deployment-controlled hosts
+     * (for example, {@code callback.internal} or {@code 10.0.0.8}); ports are not restricted.
+     */
+    private List<String> callbackAllowedHosts = List.of();
+
     private boolean isExtendedAgentCard = false;
 
     private List<String> defaultInputModes = List.of("text", "text/plain");
@@ -49,6 +64,9 @@ public class A2AProperties {
     private List<SkillProperties> skills = List.of();
 
     private List<RemoteAgentProperties> remoteAgents = List.of();
+
+    /** Instance Card and remote-agent configuration keyed by HostedAgentDefinitions identifiers. */
+    private Map<String, HostedCardProperties> agents = new LinkedHashMap<>();
 
     private String jsonRpcPath = "/a2a";
 
@@ -68,11 +86,20 @@ public class A2AProperties {
     private long taskStoreWriteThrottleMs = 200L;
 
     /**
-     * A2A agent execution pool size. Values <= 0 mean auto-sizing
-     * ({@code max(32, availableProcessors * 8)}), matching the SSE pump
+     * Max JSON-RPC request body size for {@code /a2a} in bytes. The Content-Length
+     * pre-check rejects requests that are missing Content-Length or exceed this limit
+     * with HTTP 413 before JSON parsing. {@code -1} disables
+     * the pre-check as an emergency switch.
+     */
+    private long maxMessageBytes = A2aPartLimits.DEFAULT_MAX_REQUEST_BODY_BYTES;
+
+    /**
+     * A2A platform agent execution pool size. Values <= 0 mean auto-sizing
+     * ({@code max(40, availableProcessors * 8)}), matching the SSE pump
      * executor baseline for I/O-bound agent workloads. The admission
      * guard rejects startup when the task admission limit exceeds this
-     * capacity.
+     * capacity. On runtimes supporting virtual threads, this setting does
+     * not limit the per-task executor; task admission remains independent.
      */
     private int agentThreads = 0;
 
@@ -86,6 +113,77 @@ public class A2AProperties {
         private int maxQueueSize = 256;
 
         private long queueTimeoutSeconds = 30L;
+    }
+
+    /** Per-target Card fields and remote agents; shared infrastructure remains process-wide. */
+    @Data
+    public static class HostedCardProperties {
+        /** Local entries replace global entries with the same name in their entirety. */
+        private List<RemoteAgentProperties> remoteAgents = List.of();
+
+        private String agentName;
+
+        private String agentDescription;
+
+        private String version;
+
+        private String providerOrganization;
+
+        private String providerUrl;
+
+        private String documentationUrl;
+
+        private String iconUrl;
+
+        private List<String> defaultInputModes;
+
+        private List<String> defaultOutputModes;
+
+        private List<SkillProperties> skills = List.of();
+
+        @Getter(AccessLevel.NONE)
+        @Setter(AccessLevel.NONE)
+        private Boolean isStreaming;
+
+        @Getter(AccessLevel.NONE)
+        @Setter(AccessLevel.NONE)
+        private Boolean isPushNotifications;
+
+        /**
+         * Returns the instance's streaming capability override.
+         *
+         * @return override, or null to inherit the global setting
+         */
+        public Boolean getStreaming() {
+            return isStreaming;
+        }
+
+        /**
+         * Sets the instance's streaming capability override.
+         *
+         * @param isStreaming override, or null to inherit the global setting
+         */
+        public void setStreaming(Boolean isStreaming) {
+            this.isStreaming = isStreaming;
+        }
+
+        /**
+         * Returns the instance's push notification capability override.
+         *
+         * @return override, or null to inherit the global setting
+         */
+        public Boolean getPushNotifications() {
+            return isPushNotifications;
+        }
+
+        /**
+         * Sets the instance's push notification capability override.
+         *
+         * @param isPushNotifications override, or null to inherit the global setting
+         */
+        public void setPushNotifications(Boolean isPushNotifications) {
+            this.isPushNotifications = isPushNotifications;
+        }
     }
 
     /**
@@ -120,5 +218,8 @@ public class A2AProperties {
         private int timeoutSeconds = 300;
 
         private boolean isStreaming = false;
+
+        /** Optional reuse of the common outbound TLS configuration. */
+        private ExternalTlsConfig tls;
     }
 }

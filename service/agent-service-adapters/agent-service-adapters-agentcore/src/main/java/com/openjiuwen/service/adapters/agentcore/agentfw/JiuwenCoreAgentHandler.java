@@ -22,6 +22,7 @@ import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.core.workflow.WorkflowOutput;
 import com.openjiuwen.harness.deep_agent.DeepAgent;
+import com.openjiuwen.harness.tools.CheckpointerRedisTodoStorageProvider;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
@@ -68,6 +69,16 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static final String INPUT_MESSAGES = "messages";
 
+    /**
+     * Existing core passthrough key (copied into callback-extra by ReActAgent): carries the
+     * original non-text request parts so delegation rails can resolve raw attachment refs
+     * without core changes.
+     */
+    private static final String INPUT_RUN_CONTEXT = "run_context";
+
+    /** Key inside run_context holding the original non-text parts. */
+    private static final String RUN_CONTEXT_REQUEST_PARTS = "request_parts";
+
     private static final String INPUT_USER_ID = "user_id";
 
     private static final String INPUT_SPACE_ID = "space_id";
@@ -92,13 +103,17 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private final ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar;
 
+    private volatile boolean isHostedRuntime;
+
+    private boolean hasStarted;
+
     /**
      * Creates a handler with the given agent and default middleware/external registrars.
      *
      * @param agent the agent instance or agent-id string
      */
     public JiuwenCoreAgentHandler(Object agent) {
-        this(agent, null, ExternalSvcAdapterRegistrar.noop());
+        this(agent, null, null);
     }
 
     /**
@@ -108,7 +123,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @param middlewareAdapterRegistrar the middleware adapter registrar
      */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar) {
-        this(agent, middlewareAdapterRegistrar, ExternalSvcAdapterRegistrar.noop());
+        this(agent, middlewareAdapterRegistrar, null);
     }
 
     /**
@@ -132,9 +147,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
-        this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar != null
-                ? externalSvcAdapterRegistrar
-                : ExternalSvcAdapterRegistrar.noop();
+        this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar;
     }
 
     /**
@@ -144,6 +157,35 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      */
     protected Object getAgent() {
         return agent;
+    }
+
+    /**
+     * Indicates that process resources are managed externally by hosted lifecycle.
+     * Subclasses still own their local enhancement installation and removal.
+     *
+     * @return whether this handler is bound to hosted runtime ownership
+     */
+    protected final boolean isHostedRuntime() {
+        return isHostedRuntime;
+    }
+
+    synchronized void validateHostedRunner(MiddlewareAdapterRegistrar sharedMiddleware,
+            ExternalSvcAdapterRegistrar sharedExternal) {
+        if (hasStarted || isHostedRuntime) {
+            throw new IllegalStateException("Core handler already started or bound to a hosted runtime");
+        }
+        if (middlewareAdapterRegistrar != null && middlewareAdapterRegistrar != sharedMiddleware) {
+            throw new IllegalStateException("Hosted Core handler has a different middleware registrar");
+        }
+        if (externalSvcAdapterRegistrar != null && externalSvcAdapterRegistrar != sharedExternal) {
+            throw new IllegalStateException("Hosted Core handler has a different external registrar");
+        }
+    }
+
+    synchronized void bindHostedRunner(MiddlewareAdapterRegistrar sharedMiddleware,
+            ExternalSvcAdapterRegistrar sharedExternal) {
+        validateHostedRunner(sharedMiddleware, sharedExternal);
+        isHostedRuntime = true;
     }
 
     /**
@@ -159,6 +201,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      */
     protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
             List<StreamMode> streamModes) {
+        prepareAgentForExecution(agent);
         return Runner.runAgentStreaming(agent, inputs, session, null, streamModes);
     }
 
@@ -173,11 +216,40 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * @return the raw agent result
      */
     protected Object executeAgent(Map<String, Object> inputs, Object session) {
+        prepareAgentForExecution(agent);
         return Runner.runAgent(agent, inputs, session, null);
     }
 
+    /**
+     * Applies Runtime's Redis default before a DeepAgent initializes its Todo tools.
+     * Subclasses executing per-task instances must call this on the actual instance.
+     * Existing initialized agents and explicit storage choices remain untouched.
+     *
+     * @param executionAgent the actual agent instance or identifier to execute
+     */
+    protected final void prepareAgentForExecution(Object executionAgent) {
+        if (!(executionAgent instanceof DeepAgent deepAgent) || deepAgent.isInitialized()) {
+            return;
+        }
+        var config = deepAgent.getConfig();
+        if (config.isTodoStorageTypeExplicit() || deepAgent.getKvStore() != null
+                || config.getKvStoreConfig() != null && !config.getKvStoreConfig().isEmpty()) {
+            return;
+        }
+        // Both the auto-configuration and an explicitly supplied registrar publish here.
+        Map<String, Object> checkpointer = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
+        if (checkpointer != null && ("redis".equals(checkpointer.get("type"))
+                || "redis_checkpointer_cluster".equals(checkpointer.get("type")))) {
+            config.setTodoStorageType(CheckpointerRedisTodoStorageProvider.TYPE);
+        }
+    }
+
     @Override
-    public void start() {
+    public synchronized void start() {
+        hasStarted = true;
+        if (isHostedRuntime) {
+            return;
+        }
         if (!RUNNER_STARTED.compareAndSet(false, true)) {
             return;
         }
@@ -186,7 +258,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         log.info("Starting AgentCore Runner");
         try {
-            externalSvcAdapterRegistrar.registerToRunner();
+            if (externalSvcAdapterRegistrar != null) {
+                externalSvcAdapterRegistrar.registerToRunner();
+            }
             Runner.start();
         } catch (RuntimeException | Error ex) {
             RUNNER_STARTED.set(false);
@@ -196,6 +270,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     @Override
     public void stop() {
+        if (isHostedRuntime) {
+            return;
+        }
         if (!RUNNER_STARTED.get()) {
             return;
         }
@@ -462,10 +539,30 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return inputs;
         }
         String query = request.lastUserQuery();
+        List<Map<String, Object>> requestParts = nonTextParts(request.lastUserParts());
+        if (!requestParts.isEmpty()) {
+            inputs.put(INPUT_RUN_CONTEXT, Map.of(RUN_CONTEXT_REQUEST_PARTS, requestParts));
+        }
         if (query != null && !query.isBlank()) {
             inputs.put(INPUT_QUERY, query);
         }
         return inputs;
+    }
+
+    /**
+     * Filters out text parts; only url/raw/data parts are attachment candidates.
+     *
+     * @param parts normalized message parts
+     * @return non-text parts, or an empty list when none
+     */
+    private static List<Map<String, Object>> nonTextParts(List<Map<String, Object>> parts) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> part : parts) {
+            if (part != null && !"text".equals(part.get("kind"))) {
+                result.add(part);
+            }
+        }
+        return result;
     }
 
     private static Map<String, Object> normalizeInterrupts(List<Map<String, Object>> interrupts) {
@@ -533,7 +630,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private Map<String, Object> sessionEnvs(ServeRequest request) {
         Map<String, Object> envs = new LinkedHashMap<>();
         envs.putAll(readAgentConfigEnvs(agent));
-        envs.putAll(requestEnvs(request));
+        envs.putAll(requestSessionEnvs(request));
         return envs;
     }
 
@@ -550,7 +647,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 .build();
     }
 
-    private static Map<String, Object> requestEnvs(ServeRequest request) {
+    /**
+     * Builds request-scoped envs without mutating the Agent config env map.
+     *
+     * @param request request whose identity fields are copied to the Session envs
+     * @return request-scoped Session envs
+     */
+    protected Map<String, Object> requestSessionEnvs(ServeRequest request) {
         Map<String, Object> envs = new LinkedHashMap<>();
         putIfNotBlank(envs, INPUT_CONVERSATION_ID, request.getConversationId());
         putIfNotBlank(envs, INPUT_USER_ID, request.getUserId());

@@ -1,0 +1,12 @@
+openjiuwen:
+  service:
+    middleware:
+      memory:
+        provider: jiuwen2
+        endpoint: ${JIUWEN2_ENDPOINT:http://localhost:8137}
+        encrypted-api-key: ${JIUWEN2_API_KEY:placeholder}
+        rerank: false
+        # agent-memory 2.0 在请求 scope 上校验 org/user 与调用方身份一致（dev 模式身份
+        # 固定为 local/developer）；业务用户维度经 user_metadata 保留。
+        scope-org: ${JIUWEN2_SCOPE_ORG:local}
+        scope-user: ${JIUWEN2_SCOPE_USER:developer}

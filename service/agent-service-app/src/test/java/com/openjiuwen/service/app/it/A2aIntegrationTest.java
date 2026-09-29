@@ -212,7 +212,7 @@ class A2aIntegrationTest {
         Map<String, Object> body = json(resp.getBody());
         assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.INVALID_PARAMS.code())
                 .containsEntry("message",
-                        "Invalid params: params.message.parts must contain at least one non-blank text part");
+                        "Invalid params: params.message.parts must contain at least one part");
     }
 
     @Test
@@ -234,6 +234,25 @@ class A2aIntegrationTest {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resp.getHeaders().getContentType().toString()).startsWith(MediaType.TEXT_EVENT_STREAM_VALUE);
         assertThat(resp.getBody()).contains("event:jsonrpc");
+    }
+
+    @Test
+    void streamingSseDataCarriesJsonRpcEnvelope() throws Exception {
+        var resp = postA2a(rpc("SendStreamingMessage", "req-sse-21", msgParams("sse-envelope", "c-sse-env")));
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<String> dataLines = resp.getBody().lines()
+                .map(String::trim)
+                .filter(line -> line.startsWith("data:"))
+                .map(line -> line.substring("data:".length()).trim())
+                .toList();
+        assertThat(dataLines).isNotEmpty();
+        for (String data : dataLines) {
+            Map<String, Object> envelope = json(data);
+            assertThat(envelope.get("jsonrpc")).isEqualTo("2.0");
+            assertThat(envelope.get("id")).isEqualTo("req-sse-21");
+            assertThat(envelope.get("result")).isInstanceOf(Map.class);
+        }
     }
 
     @Test

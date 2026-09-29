@@ -78,6 +78,62 @@ class JiuwenCoreAgentHandlerTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void passesNonTextPartsThroughRunContext() {
+        String rawBase64 = "TUFSS0VSLURPLU5PVC1MRUFLLTE5MDM1";
+        Map<String, Object> urlPart = new LinkedHashMap<>();
+        urlPart.put("kind", "url");
+        urlPart.put("url", "https://example.com/spec.md");
+        urlPart.put("filename", "spec.md");
+        urlPart.put("mediaType", "text/markdown");
+        Map<String, Object> rawPart = new LinkedHashMap<>();
+        rawPart.put("kind", "raw");
+        rawPart.put("bytesBase64", rawBase64);
+        rawPart.put("byteSize", 26);
+        rawPart.put("filename", "contract.pdf");
+        rawPart.put("mediaType", "application/pdf");
+        Map<String, Object> dataPart = new LinkedHashMap<>();
+        dataPart.put("kind", "data");
+        dataPart.put("data", Map.of("orderId", "A1024"));
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("role", "user");
+        message.put("content", "please analyze");
+        message.put("parts", List.of(Map.of("kind", "text", "text", "please analyze"), urlPart, rawPart, dataPart));
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-parts");
+        request.setMessages(List.of(message));
+        request.setUserId("anonymous");
+        request.setSpaceId("default");
+
+        CapturingAgent agent = new CapturingAgent();
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
+        handler.query(request);
+
+        Map<String, Object> inputs = (Map<String, Object>) agent.lastInputs;
+        assertThat(inputs).containsEntry("query", "please analyze");
+        Map<String, Object> runContext = (Map<String, Object>) inputs.get("run_context");
+        assertThat(runContext).isNotNull();
+        List<Map<String, Object>> requestParts =
+                (List<Map<String, Object>>) runContext.get("request_parts");
+        assertThat(requestParts).hasSize(3);
+        assertThat(requestParts.get(0)).containsEntry("kind", "url");
+        assertThat(requestParts.get(1)).containsEntry("bytesBase64", rawBase64);
+        assertThat(requestParts.get(2)).containsEntry("kind", "data");
+    }
+
+    @Test
+    void queryWithoutPartsKeepsPlainQuery() {
+        CapturingAgent agent = new CapturingAgent();
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
+
+        handler.query(request("c-plain", "hello"));
+
+        Map<String, Object> inputs = (Map<String, Object>) agent.lastInputs;
+        assertThat(inputs).containsEntry("query", "hello");
+        assertThat(inputs).doesNotContainKey("request_parts");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void realRunnerSessionRetainsContextForSameConversation() {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());
 

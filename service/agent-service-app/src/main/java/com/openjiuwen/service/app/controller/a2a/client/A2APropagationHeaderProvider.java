@@ -24,4 +24,15 @@ public interface A2APropagationHeaderProvider {
      * @return headers to inject (empty when there is nothing to propagate)
      */
     Map<String, String> headersFor(A2AOutboundRequest request);
+
+    /**
+     * Captures caller-side propagation before the remote I/O handoff. The returned
+     * provider is used for this invocation and its transport retries. Existing
+     * providers remain request-time providers by default.
+     *
+     * @return invocation-bound provider
+     */
+    default A2APropagationHeaderProvider capture() {
+        return this;
+    }
 }

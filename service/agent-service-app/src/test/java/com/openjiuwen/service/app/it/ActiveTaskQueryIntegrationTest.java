@@ -25,6 +25,7 @@ import org.springframework.http.ResponseEntity;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Integration tests for the active task query endpoint (DFX-002 S-23~S-24).
@@ -63,6 +64,24 @@ class ActiveTaskQueryIntegrationTest {
         assertThat(tasks.get(0)).containsKey("startedAt");
     }
 
+    @Test
+    void endpoint_filtersByAgentId() {
+        ResponseEntity<Map> response = rest.getForEntity(
+                "http://localhost:" + port + "/v1/current_active_tasks?agentId=data-assistant", Map.class);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).containsEntry("maxConcurrentTasks", 3)
+                .containsEntry("currentActiveTasks", 0).containsEntry("tasks", List.of());
+    }
+
+    @Test
+    void endpoint_rejectsUnknownAndBlankAgentIds() {
+        assertThat(rest.getForEntity("http://localhost:" + port
+                + "/v1/current_active_tasks?agentId=unknown", String.class).getStatusCode().value()).isEqualTo(404);
+        assertThat(rest.getForEntity("http://localhost:" + port
+                + "/v1/current_active_tasks?agentId=", String.class).getStatusCode().value()).isEqualTo(400);
+    }
+
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class TestApp {
@@ -73,9 +92,19 @@ class ActiveTaskQueryIntegrationTest {
 
         @Bean
         ActiveTaskQuery activeTaskQuery() {
-            return () -> new ConcurrencyLoadSnapshot(3, 1, List.of(
-                    new ActiveTaskInfo("task-st-1", "conv-st-1", "WORKING", "2026-08-20T10:00:00Z")
-            ));
+            return new ActiveTaskQuery() {
+                @Override
+                public ConcurrencyLoadSnapshot snapshot() {
+                    return new ConcurrencyLoadSnapshot(3, 1, List.of(
+                            new ActiveTaskInfo("task-st-1", "conv-st-1", "WORKING", "2026-08-20T10:00:00Z")));
+                }
+
+                @Override
+                public Optional<ConcurrencyLoadSnapshot> snapshot(String agentId) {
+                    return "data-assistant".equals(agentId)
+                            ? Optional.of(new ConcurrencyLoadSnapshot(3, 0, List.of())) : Optional.empty();
+                }
+            };
         }
     }
 }

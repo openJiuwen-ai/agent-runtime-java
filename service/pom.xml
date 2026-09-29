@@ -61,6 +61,7 @@
         <module>agent-service-demo</module>
         <module>agent-service-demo/example/support</module>
         <module>agent-service-demo/example/redis</module>
+        <module>agent-service-demo/example/redis-inmemory</module>
         <module>agent-service-demo/example/mcp</module>
         <module>agent-service-demo/example/sandbox</module>
         <module>agent-service-demo/example/memory</module>

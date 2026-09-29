@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 
@@ -46,6 +48,18 @@ public interface RemoteAgentCaller {
      * @return a future completing with the structured remote outcome
      */
     CompletableFuture<RemoteCallOutcome> callOutcome(RemoteCall call, EventObserver eventObserver);
+
+    /**
+     * Binds a hosted instance's remote directory without changing wire messages.
+     * Called only when the instance declares local remote-agent configuration.
+     * Custom callers must implement this method to support such configuration.
+     *
+     * @param catalog effective live remote directory
+     * @return a caller bound to the supplied directory
+     */
+    default RemoteAgentCaller bindCatalog(A2ARemoteAgentCardRegistry catalog) {
+        throw new IllegalStateException("RemoteAgentCaller does not support instance remote-agent configuration");
+    }
 
     /** Receives remote A2A status and Artifact updates produced by a streaming call. */
     interface EventObserver {

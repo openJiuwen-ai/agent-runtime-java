@@ -87,7 +87,8 @@ class DualRuntimeFailureIntegrationTest {
     @BeforeEach
     void startCallee() {
         callee = new SpringApplicationBuilder(FailingCalleeRuntimeApplication.class).properties("server.port=0",
-                "spring.application.name=callee-failure-it", "openjiuwen.service.a2a.push-notifications=true").run();
+                "spring.application.name=callee-failure-it", "openjiuwen.service.a2a.push-notifications=true",
+                "openjiuwen.service.a2a.callback-allowed-hosts=127.0.0.1").run();
         failingCallee = callee.getBean(FailingCalleeHandler.class);
         registry.register("failing-callee", card(calleePort()), 5, false);
     }
@@ -151,7 +152,17 @@ class DualRuntimeFailureIntegrationTest {
     private ResponseEntity<String> postA2a(Map<String, Object> body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        return rest.postForEntity("/a2a/", new HttpEntity<>(body, headers), String.class);
+        // String body so the client sets Content-Length; the /a2a pre-check rejects
+        // chunked (missing Content-Length) requests with 413.
+        return rest.postForEntity("/a2a/", new HttpEntity<>(toJson(body), headers), String.class);
+    }
+
+    private String toJson(Map<String, Object> body) {
+        try {
+            return mapper.writeValueAsString(body);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @SuppressWarnings("unchecked")
