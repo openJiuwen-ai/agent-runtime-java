@@ -41,7 +41,7 @@ class MemoryStoreMemoryProviderTest {
         String block = provider.prefetch("饮品偏好", Map.of(
             "user_id", "request-user",
             "scope_id", "space-1",
-            "session_id", "session-1"));
+            "session_id", "session-1")).join();
 
         assertThat(block)
             .contains("## Long-term Memory")
@@ -64,7 +64,7 @@ class MemoryStoreMemoryProviderTest {
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
         MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, memory);
 
-        provider.syncTurn("请记住我喜欢拿铁", "已记住", Map.of("user_id", "request-user"));
+        provider.syncTurn("请记住我喜欢拿铁", "已记住", Map.of("user_id", "request-user")).join();
 
         assertThat(store.addRequests).singleElement().satisfies(request -> {
             assertThat(request.scope().userId()).isEqualTo("request-user");
@@ -81,7 +81,7 @@ class MemoryStoreMemoryProviderTest {
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
         MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, memory);
 
-        provider.prefetch("饮品偏好", Map.of("user_id", "request-user", "agent_id", "request-agent"));
+        provider.prefetch("饮品偏好", Map.of("user_id", "request-user", "agent_id", "request-agent")).join();
 
         assertThat(store.searchRequests).singleElement().satisfies(request -> {
             assertThat(request.scope().userId()).isEqualTo("request-user");

@@ -25,10 +25,10 @@ class FoodRecommendInterruptRailTest {
         Object result = rail.resolve(call, null);
 
         assertThat(result).isInstanceOfSatisfying(InterruptResult.class, interruptResult -> {
-            assertThat(rail.getTools()).extracting("name").contains("food_recommend");
-            assertThat(interruptResult.getRequest().getMessage()).contains("Agent C").contains("Confirm")
+            assertThat(rail.getTools()).contains("food_recommend");
+            assertThat(interruptResult.request().getMessage()).contains("Agent C").contains("Confirm")
                     .contains("Recommend a team lunch dish");
-            assertThat(interruptResult.getRequest().getContext()).containsEntry("_interrupt_kind", "ask_user");
+            assertThat(interruptResult.request().getExtraFields()).containsEntry("_interrupt_kind", "ask_user");
         });
     }
 
@@ -41,7 +41,7 @@ class FoodRecommendInterruptRailTest {
         Object result = rail.resolve(call, "approved");
 
         assertThat(result).isInstanceOfSatisfying(RejectResult.class,
-                rejectResult -> assertThat(String.valueOf(rejectResult.getToolResult())).contains("Agent C")
+                rejectResult -> assertThat(String.valueOf(rejectResult.toolResult())).contains("Agent C")
                         .contains("approved").contains("Kung Pao chicken")
                         .contains("Recommend dinner for three people"));
     }

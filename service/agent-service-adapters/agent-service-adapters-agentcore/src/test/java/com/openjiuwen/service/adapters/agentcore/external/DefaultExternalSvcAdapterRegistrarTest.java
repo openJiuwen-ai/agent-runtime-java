@@ -160,6 +160,8 @@ class DefaultExternalSvcAdapterRegistrarTest {
                 .id("remote-a2a")
                 .protocol(ProtocolEnum.A2A)
                 .url("http://localhost:18081/a2a")
+                .kwargs(Map.of("card", new com.openjiuwen.core.singleagent.schema.AgentCard("remote-a2a",
+                    "remote-a2a", "test")))
                 .build());
             RemoteClient mqClient = RemoteClientFactory.create(
                 RemoteClientConfig.builder().id("remote-mq").protocol(ProtocolEnum.MQ).topic("agent-topic").build());

@@ -10,7 +10,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
-import com.openjiuwen.core.session.Session;
+import com.openjiuwen.core.session.AgentSessionApi;
+import com.openjiuwen.core.singleagent.BaseAgent;
+import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
@@ -470,7 +472,16 @@ class RedisCheckpointerRecoveryIT {
      * Session echo agent — mirrors {@code JiuwenCoreAgentHandlerTest.SessionEchoAgent}。
      * Tracks history via session state; reply format: turnN:query|prev=prior_queries.
      */
-    public static class SessionEchoAgent {
+    public static class SessionEchoAgent extends BaseAgent {
+        SessionEchoAgent() {
+            super(new AgentCard("echo-agent", "echo-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Echo agent 的 stream 方法，根据输入查询和历史会话状态生成响应。
          *
@@ -480,7 +491,7 @@ class RedisCheckpointerRecoveryIT {
          * @return 输出迭代器
          */
         @SuppressWarnings("unchecked")
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             if (!(inputs instanceof Map<?, ?>)) {
                 return List.<Object>of().iterator();
             }

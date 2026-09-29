@@ -32,7 +32,7 @@ public final class ExpensePolicyTool extends LocalFunction {
             new BigDecimal("300.0"), "transport", new BigDecimal("1000.0"), "other", new BigDecimal("1000.0"));
 
     public ExpensePolicyTool() {
-        super(card(), ExpensePolicyTool::review);
+        super(policyCard(), ExpensePolicyTool::review);
     }
 
     static Map<String, Object> review(Map<String, Object> inputs) {
@@ -65,7 +65,7 @@ public final class ExpensePolicyTool extends LocalFunction {
         return result;
     }
 
-    private static ToolCard card() {
+    private static ToolCard policyCard() {
         return ToolCard.builder().id("check_expense_policy").name("check_expense_policy")
                 .description("Validate a canonical expense claim against deterministic company policy limits")
                 .inputParams(Map.of("type", "object", "properties",

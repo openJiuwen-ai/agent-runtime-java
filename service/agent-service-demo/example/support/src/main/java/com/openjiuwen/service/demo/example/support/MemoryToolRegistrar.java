@@ -8,8 +8,8 @@ import com.openjiuwen.core.foundation.tool.ToolCard;
 import com.openjiuwen.core.foundation.tool.function.LocalFunction;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.base.Result;
+import com.openjiuwen.core.session.AgentSession;
 import com.openjiuwen.core.session.AgentSessionApi;
-import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterException;
 import com.openjiuwen.service.adapters.common.memory.MemoryAddRequest;
@@ -155,11 +155,11 @@ public final class MemoryToolRegistrar {
     }
 
     private static void registerTool(ReActAgent agent, LocalFunction tool) {
-        Result<ToolCard> result = Runner.resourceMgr().addTool(tool, agent.getCard().getId(), true);
+        Result<ToolCard> result = Runner.resourceMgr().addTool(tool, agent.getCard().getId());
         if (result.isError()) {
             throw new IllegalStateException(
-                "Failed to register memory tool " + tool.getCard().getName(),
-                result.getError());
+                "Failed to register memory tool " + tool.getCard().getName()
+                    + ": " + result.getError());
         }
         agent.getAbilityManager().add(tool.getCard());
     }
@@ -231,11 +231,11 @@ public final class MemoryToolRegistrar {
         String sessionId = "";
         String scopeId = "";
         if (rawSession instanceof AgentSessionApi session) {
-            userId = stringValue(session.getEnv("user_id", ""));
-            agentId = stringValue(session.getEnv("agent_id", ""));
-            sessionId = stringValue(session.getSessionId());
-            scopeId = stringValue(session.getEnv("space_id", ""));
-        } else if (rawSession instanceof Session session) {
+            if (session instanceof AgentSession agentSession) {
+                userId = stringValue(agentSession.getEnv("user_id", ""));
+                agentId = stringValue(agentSession.getEnv("agent_id", ""));
+                scopeId = stringValue(agentSession.getEnv("space_id", ""));
+            }
             sessionId = stringValue(session.getSessionId());
         } else {
             sessionId = "";

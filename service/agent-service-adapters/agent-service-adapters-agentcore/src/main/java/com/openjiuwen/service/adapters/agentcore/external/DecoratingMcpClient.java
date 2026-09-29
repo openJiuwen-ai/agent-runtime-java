@@ -69,7 +69,7 @@ public class DecoratingMcpClient implements McpClient {
     }
 
     @Override
-    public List<Object> readResource(String uri, float timeout) throws Exception {
+    public Object readResource(String uri, float timeout) throws Exception {
         return executor.execute("mcp", "resources/read", true, Map.of("uri", uri),
             () -> delegate.readResource(uri, resolveTimeout(timeout)));
     }

@@ -24,10 +24,10 @@ class BToCDelegateRailTest {
         Object result = rail.resolve(call, null);
 
         assertThat(result).isInstanceOfSatisfying(InterruptResult.class, interruptResult -> {
-            assertThat(rail.getTools()).extracting("name").contains(BToCDelegateRail.STREAMING_TOOL_NAME,
+            assertThat(rail.getTools()).contains(BToCDelegateRail.STREAMING_TOOL_NAME,
                     BToCDelegateRail.NON_STREAMING_TOOL_NAME);
-            assertThat(interruptResult.getRequest().getMessage()).isEqualTo("Recommend a team lunch dish");
-            assertThat(interruptResult.getRequest().getContext()).containsEntry("agentName", "agentc-streaming")
+            assertThat(interruptResult.request().getMessage()).isEqualTo("Recommend a team lunch dish");
+            assertThat(interruptResult.request().getExtraFields()).containsEntry("agentName", "agentc-streaming")
                     .containsEntry("_interrupt_kind", "a2a_delegate").doesNotContainKey("_stream_mode");
         });
     }
@@ -37,7 +37,7 @@ class BToCDelegateRailTest {
         Object result = new TestRail().resolve(call(BToCDelegateRail.NON_STREAMING_TOOL_NAME), null);
 
         assertThat(result).isInstanceOfSatisfying(InterruptResult.class,
-                interrupt -> assertThat(interrupt.getRequest().getContext())
+                interrupt -> assertThat(interrupt.request().getExtraFields())
                         .containsEntry("agentName", "agentc-nonstreaming")
                         .containsEntry("_interrupt_kind", "a2a_delegate").doesNotContainKey("_stream_mode"));
     }
@@ -49,7 +49,7 @@ class BToCDelegateRailTest {
         Object result = rail.resolve(ToolCall.builder().build(), "Agent C recommends Kung Pao chicken");
 
         assertThat(result).isInstanceOfSatisfying(RejectResult.class,
-                rejectResult -> assertThat(rejectResult.getToolResult())
+                rejectResult -> assertThat(rejectResult.toolResult())
                         .isEqualTo("Agent C recommends Kung Pao chicken"));
     }
 

@@ -23,10 +23,10 @@ class CalcInterruptRailTest {
         Object result = rail.resolve(toolCall("1+1"), null);
 
         assertThat(result).isInstanceOfSatisfying(InterruptResult.class, interruptResult -> {
-            assertThat(rail.getTools()).extracting("name").contains("calc");
-            assertThat(interruptResult.getRequest().getMessage()).contains("Agent B").contains("1+1")
+            assertThat(rail.getTools()).contains("calc");
+            assertThat(interruptResult.request().getMessage()).contains("Agent B").contains("1+1")
                     .contains("Reply yes or no");
-            assertThat(interruptResult.getRequest().getContext()).containsEntry("_interrupt_kind", "ask_user");
+            assertThat(interruptResult.request().getExtraFields()).containsEntry("_interrupt_kind", "ask_user");
         });
     }
 
@@ -35,7 +35,7 @@ class CalcInterruptRailTest {
         Object result = new TestRail().resolve(toolCall("1 + 1"), "ok");
 
         assertThat(result).isInstanceOfSatisfying(RejectResult.class,
-                rejectResult -> assertThat(String.valueOf(rejectResult.getToolResult()))
+                rejectResult -> assertThat(String.valueOf(rejectResult.toolResult()))
                         .isEqualTo("Calculation completed: 1+1 = 2"));
     }
 
@@ -44,7 +44,7 @@ class CalcInterruptRailTest {
         Object result = new TestRail().resolve(toolCall("15*7"), "no");
 
         assertThat(result).isInstanceOfSatisfying(RejectResult.class,
-                rejectResult -> assertThat(String.valueOf(rejectResult.getToolResult()))
+                rejectResult -> assertThat(String.valueOf(rejectResult.toolResult()))
                         .isEqualTo("Calculation cancelled: 15*7"));
     }
 
@@ -53,7 +53,7 @@ class CalcInterruptRailTest {
         Object result = new TestRail().resolve(toolCall("1+1"), "maybe");
 
         assertThat(result).isInstanceOfSatisfying(InterruptResult.class,
-                interruptResult -> assertThat(interruptResult.getRequest().getMessage()).contains("1+1")
+                interruptResult -> assertThat(interruptResult.request().getMessage()).contains("1+1")
                         .contains("Reply yes or no"));
     }
 
@@ -62,7 +62,7 @@ class CalcInterruptRailTest {
         Object result = new TestRail().resolve(toolCall("1/0"), "yes");
 
         assertThat(result).isInstanceOfSatisfying(RejectResult.class,
-                rejectResult -> assertThat(String.valueOf(rejectResult.getToolResult()))
+                rejectResult -> assertThat(String.valueOf(rejectResult.toolResult()))
                         .isEqualTo("Calculation failed: division by zero."));
     }
 

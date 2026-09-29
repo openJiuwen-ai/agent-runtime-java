@@ -6,7 +6,7 @@ package com.openjiuwen.service.demo.example.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.openjiuwen.core.session.WorkflowSessionApi;
+import com.openjiuwen.core.session.WorkflowSession;
 import com.openjiuwen.core.workflow.Workflow;
 import com.openjiuwen.core.workflow.WorkflowExecutionState;
 import com.openjiuwen.core.workflow.WorkflowOutput;
@@ -42,7 +42,7 @@ class ExpenseReviewWorkflowTest {
     @Test
     void overLimitClaimStopsBeforeRealLlmUntilManualApproval() {
         Workflow workflow = ExpenseReviewWorkflow.build(testLlmConfig());
-        WorkflowSessionApi session = newSession("manual");
+        WorkflowSession session = newSession("manual");
 
         WorkflowOutput first = workflow.invoke(Map.of("query", claim("WF-HIGH", "hotel", 1000, 3, 3000)), session,
                 null);
@@ -51,7 +51,7 @@ class ExpenseReviewWorkflowTest {
         assertThat(first.getResult()).isNotNull();
     }
 
-    private static WorkflowSessionApi newSession(String suffix) {
+    private static WorkflowSession newSession(String suffix) {
         return WorkflowSessions.createWorkflowSession("agent-d-test-" + suffix);
     }
 

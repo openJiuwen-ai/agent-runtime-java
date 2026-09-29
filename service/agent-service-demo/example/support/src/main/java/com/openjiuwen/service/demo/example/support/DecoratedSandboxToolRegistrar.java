@@ -9,6 +9,8 @@ import com.openjiuwen.core.foundation.tool.function.LocalFunction;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.base.Result;
 import com.openjiuwen.core.singleagent.agents.ReActAgent;
+import com.openjiuwen.core.sysop.BaseFsOperation.FileMode;
+import com.openjiuwen.core.sysop.protocal.BaseFsProtocal.LineRange;
 import com.openjiuwen.core.sysop.result.ExecuteCmdResult;
 import com.openjiuwen.core.sysop.result.ExecuteCodeResult;
 import com.openjiuwen.core.sysop.result.ReadFileResult;
@@ -76,11 +78,11 @@ public final class DecoratedSandboxToolRegistrar {
     }
 
     private static void registerTool(ReActAgent agent, LocalFunction tool) {
-        Result<ToolCard> result = Runner.resourceMgr().addTool(tool, agent.getCard().getId(), true);
+        Result<ToolCard> result = Runner.resourceMgr().addTool(tool, agent.getCard().getId());
         if (result.isError()) {
             throw new IllegalStateException(
-                    "Failed to register sandbox tool " + tool.getCard().getName(),
-                    result.getError());
+                    "Failed to register sandbox tool " + tool.getCard().getName()
+                            + ": " + result.getError());
         }
         agent.getAbilityManager().add(tool.getCard());
     }
@@ -93,15 +95,20 @@ public final class DecoratedSandboxToolRegistrar {
             int[] lineRange = intArrayValue(inputs, "lineRange");
             ReadFileResult result = client.fs().readFile(
                     stringValue(inputs, "path", ""),
-                    stringValue(inputs, "mode", "text"),
+                    resolveFileMode(inputs),
                     head.isPresent() ? Integer.valueOf(head.getAsInt()) : null,
                     tail.isPresent() ? Integer.valueOf(tail.getAsInt()) : null,
-                    lineRange.length == 0 ? null : lineRange,
+                    lineRange.length < 2 ? null : new LineRange(lineRange[0], lineRange[1]),
                     stringValue(inputs, "encoding", "UTF-8"),
                     intValue(inputs, "chunkSize", 0),
-                    objectMapValue(inputs, "options"));
+                    objectMapValue(inputs, "options")).join();
             return result;
         });
+    }
+
+    private static FileMode resolveFileMode(Map<String, Object> inputs) {
+        String mode = stringValue(inputs, "mode", "text");
+        return "bytes".equalsIgnoreCase(mode) ? FileMode.BYTES : FileMode.TEXT;
     }
 
     private static LocalFunction executeCmdTool(SandboxClient client, String serverId) {

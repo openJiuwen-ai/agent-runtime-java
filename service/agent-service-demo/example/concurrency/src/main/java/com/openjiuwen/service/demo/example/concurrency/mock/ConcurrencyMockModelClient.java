@@ -61,8 +61,7 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
      */
     @Override
     public AssistantMessage invoke(Object messages, Object tools, Float temperature, Float topP, String model,
-        Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout, Map<String, Object> kwargs)
-        throws Exception {
+        Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout, Map<String, Object> kwargs) {
         sleepForMockLatency();
         List<Map<String, Object>> convertedMessages = new ArrayList<>(convertMessagesToDict(messages));
         return ConcurrencyMockResponsePlanner.plan(convertedMessages);
@@ -87,7 +86,7 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
     @Override
     public Iterator<AssistantMessageChunk> stream(Object messages, Object tools, Float temperature, Float topP,
         String model, Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout,
-        Map<String, Object> kwargs) throws Exception {
+        Map<String, Object> kwargs) {
         sleepForMockLatency();
         List<Map<String, Object>> convertedMessages = new ArrayList<>(convertMessagesToDict(messages));
         AssistantMessage message = ConcurrencyMockResponsePlanner.plan(convertedMessages);
@@ -155,9 +154,14 @@ public final class ConcurrencyMockModelClient extends BaseModelClient {
         throw new UnsupportedOperationException("concurrency mock LLM does not support video generation");
     }
 
-    private void sleepForMockLatency() throws InterruptedException {
+    private void sleepForMockLatency() {
         if (delayMs > 0L) {
-            TimeUnit.MILLISECONDS.sleep(delayMs);
+            try {
+                TimeUnit.MILLISECONDS.sleep(delayMs);
+            } catch (InterruptedException ex) {
+                // Cooperative cancel propagation is handled by callers via a stop flag;
+                // do not re-issue Thread.currentThread().interrupt() here.
+            }
         }
     }
 

@@ -9,7 +9,8 @@ import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientFactory;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientProvider;
-import com.openjiuwen.extensions.a2a.A2ARemoteClient;
+import com.openjiuwen.core.runner.drunner.remoteclient.provider.A2ARemoteClientProvider;
+import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDecryptor;
 import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
@@ -35,6 +36,10 @@ import java.util.Set;
  */
 public class DefaultAgentCoreRemoteClientFactory implements AgentCoreRemoteClientFactory {
     private static final Logger log = LoggerFactory.getLogger(DefaultAgentCoreRemoteClientFactory.class);
+
+    private static final String CARD_KWARG = "card";
+
+    private static final String CLIENT_FACTORY_KWARG = "clientFactory";
 
     private final AgentCoreExternalProperties properties;
 
@@ -91,6 +96,13 @@ public class DefaultAgentCoreRemoteClientFactory implements AgentCoreRemoteClien
         Map<String, Object> kwargs = new LinkedHashMap<>();
         PreparedOutboundSecurity security = prepareRemoteSecurity(client);
         security.injectRemoteKwargs(kwargs);
+        if (toProtocol(client.getProtocol()) == ProtocolEnum.A2A) {
+            // A2ARemoteClient requires an AgentCard and a wire transport factory; provide
+            // defaults so the configured endpoint works out of the box.
+            kwargs.putIfAbsent(CARD_KWARG, new AgentCard(client.getId(), defaultText(client.getName(), client.getId()),
+                "Synthesized from service remote client config"));
+            kwargs.putIfAbsent(CLIENT_FACTORY_KWARG, new JsonRpcA2aTransportFactory());
+        }
         return RemoteClientConfig.builder()
             .id(client.getId())
             .name(defaultText(client.getName(), client.getId()))
@@ -121,7 +133,7 @@ public class DefaultAgentCoreRemoteClientFactory implements AgentCoreRemoteClien
 
             @Override
             public RemoteClient create(RemoteClientConfig config) {
-                RemoteClient delegate = new A2ARemoteClient(config);
+                RemoteClient delegate = new A2ARemoteClientProvider().create(config);
                 return remoteDecoratorFactory.decorate(config, delegate, properties.policyFor(config));
             }
         });

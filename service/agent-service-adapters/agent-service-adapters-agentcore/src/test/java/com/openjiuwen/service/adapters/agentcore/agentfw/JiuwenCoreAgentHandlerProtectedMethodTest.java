@@ -7,7 +7,9 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.core.runner.Runner;
-import com.openjiuwen.core.session.Session;
+import com.openjiuwen.core.session.AgentSessionApi;
+import com.openjiuwen.core.singleagent.BaseAgent;
+import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -125,8 +127,17 @@ class JiuwenCoreAgentHandlerProtectedMethodTest {
     }
 
     /** Test agent that tracks invoke calls for override verification. */
-    public static class TrackingInvokeAgent {
+    public static class TrackingInvokeAgent extends BaseAgent {
         final AtomicInteger invokeCount = new AtomicInteger();
+
+        TrackingInvokeAgent() {
+            super(new AgentCard("tracking-agent", "tracking-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Invokes the agent and tracks the call count.
@@ -136,7 +147,7 @@ class JiuwenCoreAgentHandlerProtectedMethodTest {
          * @return a map containing the reply output
          */
         @SuppressWarnings("unchecked")
-        public Object invoke(Object inputs, Session session) {
+        public Object invoke(Object inputs, AgentSessionApi session) {
             invokeCount.incrementAndGet();
             Map<String, Object> inputMap = (Map<String, Object>) inputs;
             String query = String.valueOf(inputMap.get("query"));
@@ -151,7 +162,7 @@ class JiuwenCoreAgentHandlerProtectedMethodTest {
          * @param streamModes stream modes
          * @return an iterator containing a single fallback output schema
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "fallback"))).iterator();
         }
     }

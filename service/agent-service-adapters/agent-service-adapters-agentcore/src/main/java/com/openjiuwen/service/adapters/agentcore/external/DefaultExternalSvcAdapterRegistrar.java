@@ -8,17 +8,18 @@ import com.openjiuwen.core.foundation.tool.mcp.McpClient;
 import com.openjiuwen.core.foundation.tool.mcp.McpClientFactory;
 import com.openjiuwen.core.foundation.tool.mcp.McpClientProvider;
 import com.openjiuwen.core.foundation.tool.mcp.McpServerConfig;
-import com.openjiuwen.core.foundation.tool.mcp.client.SseClient;
 import com.openjiuwen.core.foundation.tool.mcp.client.StdioClient;
 import com.openjiuwen.core.foundation.tool.mcp.client.StreamableHttpClient;
+import com.openjiuwen.core.foundation.tool.mcp.provider.SseMcpClientProvider;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.runner.base.Result;
+import com.openjiuwen.core.runner.drunner.remoteclient.ProtocolEnum;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientFactory;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientProvider;
-import com.openjiuwen.extensions.a2a.A2ARemoteClient;
+import com.openjiuwen.core.runner.drunner.remoteclient.provider.A2ARemoteClientProvider;
 import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.credential.PassthroughCredentialDecryptor;
 import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
@@ -144,8 +145,8 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
                 server.getExpiryTimeMs());
             for (Result<String> result : results) {
                 if (result.isError()) {
-                    throw new IllegalStateException("Failed to register MCP server " + config.getServerName(),
-                        result.getError());
+                    throw new IllegalStateException("Failed to register MCP server " + config.getServerName()
+                        + ": " + result.getError());
                 }
             }
             log.info("Registered external MCP server, serverId={}, serverName={}", config.getServerId(),
@@ -170,10 +171,36 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
         }
     }
 
+
+    private RemoteClientConfig withA2aDefaults(RemoteClientConfig config) {
+        if (config == null || config.getProtocol() != ProtocolEnum.A2A) {
+            return config;
+        }
+        Map<String, Object> kwargs = new LinkedHashMap<>(config.getKwargs() == null
+            ? Map.of()
+            : config.getKwargs());
+        kwargs.putIfAbsent("card", new com.openjiuwen.core.singleagent.schema.AgentCard(
+            config.getId() == null ? "" : config.getId(),
+            config.getName() == null ? "" : config.getName(),
+            "Synthesized from service external adapter config"));
+        kwargs.putIfAbsent("clientFactory", new JsonRpcA2aTransportFactory());
+        return RemoteClientConfig.builder()
+            .id(config.getId())
+            .version(config.getVersion())
+            .name(config.getName())
+            .description(config.getDescription())
+            .protocol(config.getProtocol())
+            .type(config.getType())
+            .topic(config.getTopic())
+            .url(config.getUrl())
+            .kwargs(kwargs)
+            .build();
+    }
+
     private void registerMcpClientProviders() {
         Set<String> customTypes = registerCustomMcpClientProviders();
         if (!customTypes.contains("sse")) {
-            registerProvider("sse", SseClient::new);
+            registerProvider("sse", new SseMcpClientProvider()::create);
         }
         if (!customTypes.contains("stdio")) {
             registerProvider("stdio", StdioClient::new);
@@ -196,7 +223,7 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
 
             @Override
             public RemoteClient create(RemoteClientConfig config) {
-                RemoteClient delegate = new A2ARemoteClient(config);
+                RemoteClient delegate = new A2ARemoteClientProvider().create(withA2aDefaults(config));
                 return remoteDecoratorFactory.decorate(config, delegate, properties.policyFor(config));
             }
         });

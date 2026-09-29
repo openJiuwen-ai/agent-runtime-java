@@ -9,9 +9,7 @@ import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
 import com.openjiuwen.core.foundation.llm.schema.ToolCall;
 import com.openjiuwen.core.foundation.tool.ToolCard;
-import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.rail.AgentCallbackContext;
-import com.openjiuwen.harness.rails.interrupt.BaseInterruptRail;
 import com.openjiuwen.harness.rails.interrupt.InterruptDecision;
 
 import java.lang.reflect.Type;
@@ -25,7 +23,7 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
-public class BToCDelegateRail extends BaseInterruptRail {
+public class BToCDelegateRail extends A2aInterruptRail {
     static final String STREAMING_TOOL_NAME = "delegate_to_agentc_streaming";
 
     static final String NON_STREAMING_TOOL_NAME = "delegate_to_agentc_nonstreaming";
@@ -40,9 +38,9 @@ public class BToCDelegateRail extends BaseInterruptRail {
     private static final String NON_STREAMING_AGENT_NAME = "agentc-nonstreaming";
 
     public BToCDelegateRail() {
-        super(List.of(STREAMING_TOOL_NAME, NON_STREAMING_TOOL_NAME));
-        getTools().add(delegateCard(STREAMING_TOOL_NAME, "Delegate to Agent C using its streaming route"));
-        getTools().add(delegateCard(NON_STREAMING_TOOL_NAME, "Delegate to Agent C using its non-streaming route"));
+        super(List.of(STREAMING_TOOL_NAME, NON_STREAMING_TOOL_NAME),
+            List.of(delegateCard(STREAMING_TOOL_NAME, "Delegate to Agent C using its streaming route"),
+                delegateCard(NON_STREAMING_TOOL_NAME, "Delegate to Agent C using its non-streaming route")));
     }
 
     @Override
@@ -54,9 +52,8 @@ public class BToCDelegateRail extends BaseInterruptRail {
         String agentName = NON_STREAMING_TOOL_NAME.equals(toolCall.getName())
                 ? NON_STREAMING_AGENT_NAME
                 : STREAMING_AGENT_NAME;
-        var request = InterruptRequest.builder().message(userQuery)
-                .context(Map.of("agentName", agentName, "_interrupt_kind", "a2a_delegate")).build();
-        return interrupt(request);
+        return interrupt(buildInterruptRequest(userQuery,
+                Map.of("agentName", agentName, "_interrupt_kind", "a2a_delegate")));
     }
 
     private static ToolCard delegateCard(String toolName, String description) {
