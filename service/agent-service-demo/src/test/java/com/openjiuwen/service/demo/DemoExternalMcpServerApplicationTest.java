@@ -41,8 +41,8 @@ import java.util.concurrent.TimeUnit;
  *
  * @since 2026-06-24
  */
-@SpringBootTest(properties = {"openjiuwen.service.llm.provider=DemoExternalMcpProvider",
-        "openjiuwen.service.llm.api-key=test-key", "openjiuwen.service.llm.api-base=mirror://demo-external-mcp-server",
+@SpringBootTest(properties = {"openjiuwen.service.llm.provider=OpenAI",
+        "openjiuwen.service.llm.api-key=test-key", "openjiuwen.service.llm.api-base=http://localhost:8999",
         "openjiuwen.service.llm.model-name=test-model", "openjiuwen.service.llm.auto-discover=false"})
 @ActiveProfiles("mcp")
 class DemoExternalMcpServerApplicationTest {

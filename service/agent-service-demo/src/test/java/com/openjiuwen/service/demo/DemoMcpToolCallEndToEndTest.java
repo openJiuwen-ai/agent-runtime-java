@@ -26,7 +26,6 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -116,8 +115,7 @@ class DemoMcpToolCallEndToEndTest {
         registry.add("DEMO_MCP_CIRCUIT_BREAKER_ENABLED", () -> "false");
     }
 
-    @BeforeAll
-    static void registerModelFactory() {
+    static {
         if (FACTORY_REGISTERED.compareAndSet(false, true)) {
             Model.registerFactory(new ToolCallingModelFactory());
         }

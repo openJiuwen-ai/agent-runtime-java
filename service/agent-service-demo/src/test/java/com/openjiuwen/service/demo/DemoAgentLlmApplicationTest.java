@@ -22,7 +22,6 @@ import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,8 +75,7 @@ class DemoAgentLlmApplicationTest {
         registry.add("openjiuwen.service.llm.auto-discover", () -> "false");
     }
 
-    @BeforeAll
-    static void registerModelFactory() {
+    static {
         if (FACTORY_REGISTERED.compareAndSet(false, true)) {
             Model.registerFactory(new MemoryModelFactory());
         }
