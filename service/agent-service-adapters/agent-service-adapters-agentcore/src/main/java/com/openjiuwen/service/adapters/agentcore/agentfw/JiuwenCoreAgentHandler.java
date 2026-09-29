@@ -151,11 +151,14 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     /**
-     * Returns the wrapped agent instance for tests and subclasses.
+     * Returns the wrapped agent instance.
+     *
+     * <p>This is a read-only extension hook for runtime integrations that decorate the default
+     * handler while preserving the application-provided agent instance.
      *
      * @return the agent delegate
      */
-    protected Object getAgent() {
+    public Object getAgent() {
         return agent;
     }
 
