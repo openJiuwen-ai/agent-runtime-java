@@ -5,7 +5,6 @@
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -13,16 +12,15 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.openjiuwen.core.foundation.store.kv.InMemoryKVStore;
 import com.openjiuwen.core.foundation.tool.Tool;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.harness.deep_agent.DeepAgent;
 import com.openjiuwen.harness.factory.HarnessFactory;
 import com.openjiuwen.harness.rails.TaskPlanningRail;
 import com.openjiuwen.harness.schema.config.DeepAgentConfig;
-import com.openjiuwen.harness.tools.ToolOutput;
 import com.openjiuwen.service.adapters.agentcore.autoconfigure.MiddlewareAdaptersAutoConfiguration;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
@@ -47,7 +45,7 @@ import java.util.Map;
  * @since 0.1.3
  */
 class DeepAgentTodoDefaultsTest {
-    private final Map<String, Object> previous = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
+    private final CheckpointerConfig previous = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
 
     @AfterEach
     void restoreConfig() {
@@ -66,7 +64,8 @@ class DeepAgentTodoDefaultsTest {
         DeepAgentConfig config = DeepAgentConfig.builder()
                 .todoStorageConfig(Map.of("ttl", Map.of("default_ttl", 2))).build();
         DeepAgent agent = agent(config);
-        MiddlewareAdapterRegistrar registrar = runner -> runner.setCheckpointerConfig(Map.of("type", "redis"));
+        MiddlewareAdapterRegistrar registrar = runner -> runner.setCheckpointerConfig(
+                CheckpointerConfig.fromMap(Map.of("type", "redis")));
         // Auto-configuration publishes the same effective settings when no registrar is passed.
         registrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
         JiuwenCoreAgentHandler handler = hasRegistrar
@@ -96,7 +95,8 @@ class DeepAgentTodoDefaultsTest {
 
     @Test
     void keepsExplicitStorageChoicesAndIndependentStores() {
-        RunnerConfig.getRunnerConfig().setCheckpointerConfig(Map.of("type", "redis"));
+        RunnerConfig.getRunnerConfig().setCheckpointerConfig(
+                CheckpointerConfig.fromMap(Map.of("type", "redis")));
         for (String type : List.of("file", "kv", "custom", "checkpointer_redis")) {
             DeepAgentConfig config = DeepAgentConfig.builder().todoStorageType(type).build();
             DeepAgent agent = agent(config);
@@ -110,14 +110,15 @@ class DeepAgentTodoDefaultsTest {
         assertThat(independent.isTodoStorageTypeExplicit()).isFalse();
         DeepAgentConfig injected = new DeepAgentConfig();
         DeepAgent injectedAgent = agent(injected);
-        when(injectedAgent.getKvStore()).thenReturn(new InMemoryKVStore());
+        when(injectedAgent.getKvStore()).thenReturn(mock(com.openjiuwen.spi.store.BaseKVStore.class));
         new JiuwenCoreAgentHandler(injectedAgent).prepareAgentForExecution(injectedAgent);
         assertThat(injected.isTodoStorageTypeExplicit()).isFalse();
     }
 
     @Test
     void keepsPreviouslyInitializedDefaultFileWithoutError() {
-        RunnerConfig.getRunnerConfig().setCheckpointerConfig(Map.of("type", "redis"));
+        RunnerConfig.getRunnerConfig().setCheckpointerConfig(
+                CheckpointerConfig.fromMap(Map.of("type", "redis")));
         DeepAgentConfig config = new DeepAgentConfig();
         DeepAgent agent = agent(config);
         when(agent.isInitialized()).thenReturn(true);
@@ -129,26 +130,29 @@ class DeepAgentTodoDefaultsTest {
 
     @Test
     void actualInitializedFileTodoKeepsItsToolsAndData(@TempDir Path workspace) throws Exception {
-        RunnerConfig.getRunnerConfig().setCheckpointerConfig(Map.of("type", "redis"));
+        RunnerConfig.getRunnerConfig().setCheckpointerConfig(
+                CheckpointerConfig.fromMap(Map.of("type", "redis")));
         DeepAgentConfig config = DeepAgentConfig.builder().workspacePath(workspace.toString())
                 .rails(List.of(new TaskPlanningRail())).build();
         try (DeepAgent agent = HarnessFactory.createDeepAgent(config)) {
             agent.ensureInitialized();
             List<Object> tools = List.copyOf(agent.getRegisteredTools());
             Tool create = tools.stream().filter(Tool.class::isInstance).map(Tool.class::cast)
-                    .filter(tool -> "todo_create".equals(tool.getCard().getName())).findFirst().orElseThrow();
-            ToolOutput output = assertInstanceOf(ToolOutput.class, create.invoke(Map.of("session_id", "file-session",
-                    "tasks", List.of("existing file task"))));
-            assertThat(output.isSuccess()).isTrue();
+                    .filter(tool -> "todo_create".equals(tool.getCard().getId())).findFirst().orElseThrow();
+            Object output = create.invoke(Map.of("session_id", "file-session",
+                    "tasks", List.of(Map.of("content", "existing file task", "activeForm",
+                            "working", "description", "existing file task"))));
+            assertThat(output).isInstanceOf(Map.class);
+            assertThat(((Map<?, ?>) output).get("message")).isNotNull();
             new JiuwenCoreAgentHandler(agent).prepareAgentForExecution(agent);
             assertThat(agent.getConfig().getTodoStorageType()).isEqualTo("file");
             assertThat(agent.getConfig().isTodoStorageTypeExplicit()).isFalse();
             assertThat(agent.getRegisteredTools()).containsExactlyElementsOf(tools);
             Tool list = tools.stream().filter(Tool.class::isInstance).map(Tool.class::cast)
-                    .filter(tool -> "todo_list".equals(tool.getCard().getName())).findFirst().orElseThrow();
-            ToolOutput loaded = assertInstanceOf(ToolOutput.class, list.invoke(Map.of("session_id", "file-session")));
-            assertThat(loaded.isSuccess()).isTrue();
-            assertThat(loaded.getData().toString()).contains("existing file task");
+                    .filter(tool -> "todo_list".equals(tool.getCard().getId())).findFirst().orElseThrow();
+            Object loaded = list.invoke(Map.of("session_id", "file-session"));
+            assertThat(loaded).isInstanceOf(Map.class);
+            assertThat(((Map<?, ?>) loaded).get("tasks").toString()).contains("existing file task");
         }
     }
 
@@ -156,7 +160,8 @@ class DeepAgentTodoDefaultsTest {
     void doesNotAdaptOtherAgentsOrNonRedisRuntime() {
         DeepAgentConfig config = new DeepAgentConfig();
         DeepAgent agent = agent(config);
-        RunnerConfig.getRunnerConfig().setCheckpointerConfig(Map.of("type", "in_memory"));
+        RunnerConfig.getRunnerConfig().setCheckpointerConfig(
+                CheckpointerConfig.fromMap(Map.of("type", "in_memory")));
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
         handler.prepareAgentForExecution(agent);
         handler.prepareAgentForExecution("registered-agent");
@@ -167,7 +172,8 @@ class DeepAgentTodoDefaultsTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void adaptsActualInstanceBeforeSyncAndStreamingRunnerCalls(boolean isStreaming) {
-        RunnerConfig.getRunnerConfig().setCheckpointerConfig(Map.of("type", "redis"));
+        RunnerConfig.getRunnerConfig().setCheckpointerConfig(
+                CheckpointerConfig.fromMap(Map.of("type", "redis")));
         DeepAgentConfig config = new DeepAgentConfig();
         DeepAgent agent = agent(config);
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
