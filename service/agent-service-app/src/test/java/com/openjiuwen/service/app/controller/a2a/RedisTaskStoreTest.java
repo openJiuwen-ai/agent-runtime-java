@@ -28,6 +28,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -168,6 +169,8 @@ class RedisTaskStoreTest {
         private final Map<String, byte[]> values = new LinkedHashMap<>();
         private final Map<String, Long> ttlByKey = new LinkedHashMap<>();
         private final List<String> scanPatterns = new ArrayList<>();
+        private final Map<String, Map<String, String>> hashes = new LinkedHashMap<>();
+        private final Map<String, LinkedHashSet<String>> sets = new LinkedHashMap<>();
 
         Map<String, Long> ttlByKey() {
             return ttlByKey;
@@ -237,7 +240,15 @@ class RedisTaskStoreTest {
 
         @Override
         public long del(String... keys) {
-            return Arrays.stream(keys).filter(key -> values.remove(key) != null).count();
+            long deleted = 0L;
+            for (String key : keys) {
+                hashes.remove(key);
+                sets.remove(key);
+                if (values.remove(key) != null) {
+                    deleted++;
+                }
+            }
+            return deleted;
         }
 
         @Override
@@ -277,6 +288,68 @@ class RedisTaskStoreTest {
             scanPatterns.add(pattern);
             String prefix = pattern.endsWith("*") ? pattern.substring(0, pattern.length() - 1) : pattern;
             return values.keySet().stream().filter(key -> key.startsWith(prefix)).toList();
+        }
+
+        @Override
+        public long hset(String key, String field, String value) {
+            Map<String, String> hash = hashes.computeIfAbsent(key, ignored -> new LinkedHashMap<>());
+            return hash.put(field, value) == null ? 1L : 0L;
+        }
+
+        @Override
+        public String hget(String key, String field) {
+            Map<String, String> hash = hashes.get(key);
+            return hash == null ? null : hash.get(field);
+        }
+
+        @Override
+        public long hdel(String key, String... fields) {
+            Map<String, String> hash = hashes.get(key);
+            return hash == null ? 0L : Arrays.stream(fields).filter(field -> hash.remove(field) != null).count();
+        }
+
+        @Override
+        public Map<String, String> hgetAll(String key) {
+            Map<String, String> hash = hashes.get(key);
+            return hash == null ? Map.of() : new LinkedHashMap<>(hash);
+        }
+
+        @Override
+        public long sadd(String key, String... members) {
+            LinkedHashSet<String> bucket = sets.computeIfAbsent(key, ignored -> new LinkedHashSet<>());
+            long added = 0L;
+            for (String member : members) {
+                if (bucket.add(member)) {
+                    added++;
+                }
+            }
+            return added;
+        }
+
+        @Override
+        public boolean sismember(String key, String member) {
+            LinkedHashSet<String> bucket = sets.get(key);
+            return bucket != null && bucket.contains(member);
+        }
+
+        @Override
+        public long srem(String key, String... members) {
+            LinkedHashSet<String> bucket = sets.get(key);
+            return bucket == null ? 0L : Arrays.stream(members).filter(bucket::remove).count();
+        }
+
+        @Override
+        public long hincrBy(String key, String field, long delta) {
+            Map<String, String> hash = hashes.computeIfAbsent(key, ignored -> new LinkedHashMap<>());
+            long current = hash.containsKey(field) ? Long.parseLong(hash.get(field)) : 0L;
+            long updated = current + delta;
+            hash.put(field, String.valueOf(updated));
+            return updated;
+        }
+
+        @Override
+        public Object eval(String script, List<String> keys, String... args) {
+            throw new UnsupportedOperationException("InMemoryRuntimeRedisClient cannot evaluate Lua scripts");
         }
     }
 }

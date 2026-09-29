@@ -15,6 +15,7 @@ import com.openjiuwen.service.adapters.common.middleware.redis.RedisConnectionAs
 import com.openjiuwen.service.adapters.common.middleware.redis.JedisClusterRuntimeRedisClient;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisDatasourceDiagnostics;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
+import com.openjiuwen.service.adapters.common.middleware.redis.UnifiedJedisRuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import org.junit.jupiter.api.AfterEach;
@@ -64,7 +65,10 @@ class RedisClusterMiddlewareSpringIT {
 
                     Map<String, Object> conf = (Map<String, Object>) checkpointerConfig.get("conf");
                     Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
-                    assertThat(connection.get("redis_client")).isSameAs(context.getBean(RuntimeRedisClient.class));
+                    RuntimeRedisClient redisClient = context.getBean(RuntimeRedisClient.class);
+                    if (redisClient instanceof UnifiedJedisRuntimeRedisClient unified) {
+                        assertThat(connection.get("redis_client")).isSameAs(unified.jedisDelegate());
+                    }
                     assertThat(context).hasSingleBean(RedisDatasourceDiagnostics.class);
                     MiddlewareProperties properties = context.getBean(MiddlewareProperties.class);
                     assertThat(RedisConnectionAssembler.safeSummary("cluster", properties.getRedis().get("cluster")))

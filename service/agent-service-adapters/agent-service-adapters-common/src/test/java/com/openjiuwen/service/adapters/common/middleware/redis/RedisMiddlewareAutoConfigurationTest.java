@@ -79,8 +79,9 @@ class RedisMiddlewareAutoConfigurationTest {
                                     com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties.class),
                             context.getBean(RuntimeRedisClient.class)))
                             .contains("redis-ref=cluster", "endpoint-type=cluster",
-                                    "RuntimeRedisClient=JedisClusterRuntimeRedisClient", "ttl-seconds=604800",
-                                    "databaseIgnored=2")
+                                    "RuntimeRedisClient="
+                                            + JedisClusterRuntimeRedisClient.class.getName(),
+                                    "ttl-seconds=604800", "databaseIgnored=2")
                             .doesNotContain("ENC(secret)", "secret");
                 });
     }
@@ -99,7 +100,7 @@ class RedisMiddlewareAutoConfigurationTest {
                             context.getBean(
                                     com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties.class),
                             context.getBean(RuntimeRedisClient.class)))
-                            .contains("RuntimeRedisClient=$Proxy", "endpoint-type=standalone")
+                            .contains("RuntimeRedisClient=", "$Proxy", "endpoint-type=standalone")
                             .doesNotContain("ENC(custom-secret)", "custom-secret");
                 });
     }

@@ -22,11 +22,14 @@ import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -44,7 +47,9 @@ import java.util.concurrent.locks.LockSupport;
  * @since 0.1.0
  */
 public class A2ATaskContinuation {
-    /** Base delay for the exponential backoff; package-private for tests. */
+    /**
+     * Base delay for the exponential backoff; package-private for tests.
+     */
     static final long DEFAULT_RETRY_BASE_DELAY_MS = 1000L;
 
     private static final Logger log = LoggerFactory.getLogger(A2ATaskContinuation.class);
@@ -70,13 +75,23 @@ public class A2ATaskContinuation {
     private final long retryBaseDelayMs;
 
     /**
-     * Dispatches retry attempts after a delay. Single daemon thread: it only
-     * re-submits work to the shared executor and never runs agent logic itself,
-     * so retrying cannot consume shared pool capacity.
+     * Dispatches retry attempts after a delay on a single daemon thread.
+     * Re-submits work to the shared executor; CallerRunsPolicy may run the
+     * continuation on this thread when that executor is saturated.
      */
     private final ScheduledExecutorService retryScheduler;
 
-    /** Continuation markers with the number of admission retries used so far. */
+    private final boolean isRetrySchedulerOwned;
+
+    private final Object lifecycleLock = new Object();
+
+    private final Set<ScheduledFuture<?>> pendingRetries = new HashSet<>();
+
+    private volatile boolean isStopped;
+
+    /**
+     * Continuation markers with the number of admission retries used so far.
+     */
     private final ConcurrentHashMap<String, AtomicInteger> activeContinuations = new ConcurrentHashMap<>();
 
     /**
@@ -93,6 +108,22 @@ public class A2ATaskContinuation {
     }
 
     /**
+     * Creates a target-local continuation that borrows a process retry scheduler.
+     *
+     * @param taskStore final target store
+     * @param queueManager target queues
+     * @param agentExecutorProvider fixed local provider, bound before startup
+     * @param executor shared execution pool
+     * @param retryScheduler process-owned retry scheduler
+     */
+    public A2ATaskContinuation(TaskStore taskStore, QueueManager queueManager,
+            ObjectProvider<A2AAgentExecutor> agentExecutorProvider, Executor executor,
+            ScheduledExecutorService retryScheduler) {
+        this(taskStore, queueManager, agentExecutorProvider, executor, DEFAULT_RETRY_BASE_DELAY_MS,
+                retryScheduler, false);
+    }
+
+    /**
      * Creates the continuation adapter with a configurable retry backoff base delay.
      *
      * @param taskStore the A2A task store
@@ -103,12 +134,20 @@ public class A2ATaskContinuation {
      */
     A2ATaskContinuation(TaskStore taskStore, QueueManager queueManager,
             ObjectProvider<A2AAgentExecutor> agentExecutorProvider, Executor executor, long retryBaseDelayMs) {
+        this(taskStore, queueManager, agentExecutorProvider, executor, retryBaseDelayMs,
+                new ScheduledThreadPoolExecutor(1, new RetryThreadFactory()), true);
+    }
+
+    private A2ATaskContinuation(TaskStore taskStore, QueueManager queueManager,
+            ObjectProvider<A2AAgentExecutor> agentExecutorProvider, Executor executor, long retryBaseDelayMs,
+            ScheduledExecutorService retryScheduler, boolean isRetrySchedulerOwned) {
         this.taskStore = taskStore;
         this.queueManager = queueManager;
         this.agentExecutorProvider = agentExecutorProvider;
         this.executor = executor;
         this.retryBaseDelayMs = retryBaseDelayMs;
-        this.retryScheduler = new ScheduledThreadPoolExecutor(1, new RetryThreadFactory());
+        this.retryScheduler = retryScheduler;
+        this.isRetrySchedulerOwned = isRetrySchedulerOwned;
     }
 
     /**
@@ -117,6 +156,9 @@ public class A2ATaskContinuation {
      * @param request trusted request restored from the remote batch shadow
      */
     public void submit(ServeRequest request) {
+        if (isStopped) {
+            return;
+        }
         Object value = request == null || request.getMetadata() == null
                 ? null
                 : request.getMetadata().get(PARENT_TASK_ID);
@@ -138,10 +180,24 @@ public class A2ATaskContinuation {
      * are already running on the shared executor are not interrupted.
      */
     public void shutdown() {
-        retryScheduler.shutdownNow();
+        synchronized (lifecycleLock) {
+            isStopped = true;
+            pendingRetries.forEach(future -> future.cancel(false));
+            pendingRetries.clear();
+            activeContinuations.clear();
+            if (isRetrySchedulerOwned) {
+                retryScheduler.shutdownNow();
+            }
+        }
     }
 
     private void dispatch(String taskId, String batchId, String continuationId, ServeRequest request) {
+        if (isStopped) {
+            activeContinuations.remove(continuationId);
+            return;
+        }
+        // CallerRunsPolicy may execute the entire continuation here. Never hold
+        // the lifecycle lock across submission; continueTask rechecks shutdown.
         try {
             executor.execute(() -> continueTask(taskId, batchId, continuationId, request));
         } catch (RejectedExecutionException ex) {
@@ -151,6 +207,10 @@ public class A2ATaskContinuation {
     }
 
     private void continueTask(String taskId, String batchId, String continuationId, ServeRequest request) {
+        if (isStopped) {
+            activeContinuations.remove(continuationId);
+            return;
+        }
         boolean isRetryPending = false;
         try {
             Optional<Task> task = awaitInputRequired(taskId);
@@ -218,14 +278,25 @@ public class A2ATaskContinuation {
         long delayMs = retryBaseDelayMs << (attempt - 1);
         log.info("A2A callback continuation deferred by admission control, retry scheduled taskId={} batchId={} "
                 + "attempt={} delayMs={}", taskId, batchId, attempt, delayMs);
-        try {
-            retryScheduler.schedule(() -> dispatch(taskId, batchId, continuationId, request), delayMs,
-                    TimeUnit.MILLISECONDS);
-            return true;
-        } catch (RejectedExecutionException ex) {
-            activeContinuations.remove(continuationId);
-            log.warn("A2A callback continuation retry scheduling failed during shutdown taskId={}", taskId, ex);
-            return false;
+        synchronized (lifecycleLock) {
+            if (isStopped) {
+                return false;
+            }
+            try {
+                ScheduledFuture<?>[] scheduled = new ScheduledFuture<?>[1];
+                scheduled[0] = retryScheduler.schedule(() -> {
+                    synchronized (lifecycleLock) {
+                        pendingRetries.remove(scheduled[0]);
+                    }
+                    dispatch(taskId, batchId, continuationId, request);
+                }, delayMs, TimeUnit.MILLISECONDS);
+                pendingRetries.add(scheduled[0]);
+                return true;
+            } catch (RejectedExecutionException ex) {
+                activeContinuations.remove(continuationId);
+                log.warn("A2A callback continuation retry scheduling failed during shutdown taskId={}", taskId, ex);
+                return false;
+            }
         }
     }
 
@@ -238,7 +309,7 @@ public class A2ATaskContinuation {
 
     private Optional<Task> awaitInputRequired(String taskId) {
         Instant deadline = Instant.now().plus(INPUT_REQUIRED_WAIT);
-        while (Instant.now().isBefore(deadline)) {
+        while (!isStopped && Instant.now().isBefore(deadline)) {
             Task task = taskStore.get(taskId);
             if (task != null && task.status() != null) {
                 if (task.status().state() == TaskState.TASK_STATE_INPUT_REQUIRED) {

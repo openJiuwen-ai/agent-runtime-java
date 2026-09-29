@@ -14,6 +14,9 @@ import okhttp3.OkHttpClient;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.DefaultResourceLoader;
 
 import java.net.http.HttpClient;
@@ -42,6 +45,31 @@ class ExternalHttpClientFactoryTest {
 
         assertThat(client.sslContext()).isNotNull();
         assertThat(client.connectTimeout()).contains(Duration.ofSeconds(5));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"TLSv1.2", "TLSv1.3"})
+    void createJdkClientAppliesEnabledProtocols(String protocol) {
+        ExternalHttpClientFactory factory = new ExternalHttpClientFactory(new DefaultResourceLoader());
+        TlsMaterial material = new TlsMaterial(null, null, "PKCS12", null, null, "PKCS12",
+            List.of(protocol), true);
+
+        HttpClient client = factory.createJdkClient(material, Duration.ofSeconds(5));
+
+        assertThat(client.sslParameters().getProtocols()).containsExactly(protocol);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    void createJdkClientPreservesDefaultProtocolsWhenUnspecified(String[] protocols) {
+        ExternalHttpClientFactory factory = new ExternalHttpClientFactory(new DefaultResourceLoader());
+        TlsMaterial material = new TlsMaterial(null, null, "PKCS12", null, null, "PKCS12",
+            protocols == null ? null : List.of(protocols), true);
+
+        HttpClient client = factory.createJdkClient(material, Duration.ofSeconds(5));
+
+        assertThat(client.sslParameters().getProtocols())
+            .containsExactly(client.sslContext().getDefaultSSLParameters().getProtocols());
     }
 
     @Test

@@ -45,11 +45,14 @@ public class ExternalHttpClientFactory {
         if (tls != null) {
             SSLContext sslContext = SslContextFactory.toSslContext(tls, resourceLoader);
             builder.sslContext(sslContext);
-            if (!tls.verifyHostname()) {
-                SSLParameters sslParameters = new SSLParameters();
-                sslParameters.setEndpointIdentificationAlgorithm(null);
-                builder.sslParameters(sslParameters);
+            SSLParameters sslParameters = sslContext.getDefaultSSLParameters();
+            if (tls.enabledProtocols() != null && !tls.enabledProtocols().isEmpty()) {
+                sslParameters.setProtocols(tls.enabledProtocols().toArray(String[]::new));
             }
+            if (!tls.verifyHostname()) {
+                sslParameters.setEndpointIdentificationAlgorithm(null);
+            }
+            builder.sslParameters(sslParameters);
         }
         return builder.build();
     }

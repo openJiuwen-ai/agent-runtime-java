@@ -5,7 +5,9 @@
 package com.openjiuwen.service.spec.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
 
 import lombok.Data;
 
@@ -22,6 +24,10 @@ import java.util.Map;
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class QueryRequest {
+    @JsonProperty("agent_id")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String agentId;
+
     private List<Map<String, Object>> messages = new ArrayList<>();
 
     @JsonProperty("conversation_id")
@@ -44,6 +50,19 @@ public class QueryRequest {
      */
     @JsonProperty("message")
     private String message;
+
+    /**
+     * Accepts only a JSON string or null without changing global coercion rules.
+     *
+     * @param agentId optional hosted routing identifier
+     */
+    @JsonSetter("agent_id")
+    public void setAgentId(Object agentId) {
+        if (agentId != null && !(agentId instanceof String)) {
+            throw new IllegalArgumentException("agent_id must be a string or null");
+        }
+        this.agentId = (String) agentId;
+    }
 
     /**
      * If {@link #message} is set and {@link #messages} is empty, wrap it as a

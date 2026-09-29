@@ -4,9 +4,12 @@
 
 package com.openjiuwen.service.app.autoconfigure;
 
+import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
+import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
@@ -29,6 +32,7 @@ import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
+import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -51,6 +55,8 @@ import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStateProvider;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Event;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -62,12 +68,14 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -101,7 +109,7 @@ public class A2AAutoConfiguration {
      * @return the main event bus
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean({MainEventBus.class, HostedAgentDefinitions.class})
     public MainEventBus a2aMainEventBus() {
         return new MainEventBus();
     }
@@ -115,12 +123,27 @@ public class A2AAutoConfiguration {
      * @return the task store
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean({TaskStore.class, HostedAgentDefinitions.class})
     public TaskStore a2aTaskStore(ObjectProvider<MiddlewareProperties> middlewareProvider,
             ObjectProvider<RuntimeRedisClient> redisClientProvider, A2AProperties a2aProperties) {
         MiddlewareProperties middlewareProperties = middlewareProvider.getIfAvailable();
+        RuntimeRedisClient redisClient = middlewareProperties != null
+                && "redis".equals(middlewareProperties.getCheckpointer().getType())
+                ? redisClientProvider.getIfAvailable() : null;
+        return createTaskStore(middlewareProperties, redisClient, a2aProperties);
+    }
+
+    /**
+     * Builds the existing store chain for either the legacy root or a fixed scoped client.
+     *
+     * @param middlewareProperties optional middleware and checkpoint configuration
+     * @param redisClient root or scoped Redis client; required for Redis storage
+     * @param a2aProperties task store cache configuration
+     * @return configured task store chain
+     */
+    public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
+            RuntimeRedisClient redisClient, A2AProperties a2aProperties) {
         if (middlewareProperties != null && "redis".equals(middlewareProperties.getCheckpointer().getType())) {
-            RuntimeRedisClient redisClient = redisClientProvider.getIfAvailable();
             if (redisClient == null) {
                 throw new IllegalStateException("RuntimeRedisClient is required for redis A2A task store");
             }
@@ -140,7 +163,7 @@ public class A2AAutoConfiguration {
      * @return the push notification config store
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean({PushNotificationConfigStore.class, HostedAgentDefinitions.class})
     public PushNotificationConfigStore a2aPushNotificationConfigStore() {
         return new InMemoryPushNotificationConfigStore();
     }
@@ -149,12 +172,14 @@ public class A2AAutoConfiguration {
      * Creates the HTTP push notification sender bean.
      *
      * @param pushConfigStore the push notification config store
-     * @return the no-op push notification sender
+     * @param properties the A2A configuration properties
+     * @return the HTTP push notification sender
      */
     @Bean
-    @ConditionalOnMissingBean
-    public PushNotificationSender a2aPushNotificationSender(PushNotificationConfigStore pushConfigStore) {
-        return new HttpPushNotificationSender(pushConfigStore);
+    @ConditionalOnMissingBean({PushNotificationSender.class, HostedAgentDefinitions.class})
+    public PushNotificationSender a2aPushNotificationSender(PushNotificationConfigStore pushConfigStore,
+            A2AProperties properties) {
+        return new HttpPushNotificationSender(pushConfigStore, properties.getCallbackAllowedHosts());
     }
 
     /**
@@ -197,7 +222,7 @@ public class A2AAutoConfiguration {
      * @return the queue manager
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean({QueueManager.class, HostedAgentDefinitions.class})
     public QueueManager a2aQueueManager(TaskStore taskStore, MainEventBus mainEventBus) {
         if (taskStore instanceof TaskStateProvider provider) {
             return new InMemoryQueueManager(provider, mainEventBus);
@@ -217,8 +242,22 @@ public class A2AAutoConfiguration {
      * @return the main event bus processor
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean({MainEventBusProcessor.class, HostedAgentDefinitions.class})
     public MainEventBusProcessor a2aMainEventBusProcessor(MainEventBus mainEventBus, TaskStore taskStore,
+            PushNotificationSender pushSender, QueueManager queueManager) {
+        return createEventProcessor(mainEventBus, taskStore, pushSender, queueManager);
+    }
+
+    /**
+     * Builds the existing event processor with its original finalization callback.
+     *
+     * @param mainEventBus SDK event bus
+     * @param taskStore final task store
+     * @param pushSender push notification sender
+     * @param queueManager SDK event queues
+     * @return processor with task finalization cleanup installed
+     */
+    public static MainEventBusProcessor createEventProcessor(MainEventBus mainEventBus, TaskStore taskStore,
             PushNotificationSender pushSender, QueueManager queueManager) {
         ResilientMainEventBusProcessor processor = new ResilientMainEventBusProcessor(mainEventBus, taskStore,
                 pushSender, queueManager);
@@ -280,7 +319,7 @@ public class A2AAutoConfiguration {
      * @return the A2A agent executor
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean({A2AAgentExecutor.class, HostedAgentDefinitions.class})
     public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
             ObjectProvider<TaskAdmissionGate> admissionGateProvider,
             ObjectProvider<TaskAdmissionListener> admissionListenerProvider) {
@@ -297,7 +336,7 @@ public class A2AAutoConfiguration {
      * @return the A2A execution resources
      */
     @Bean(destroyMethod = "shutdown")
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean({A2AExecutionResources.class, HostedAgentDefinitions.class})
     A2AExecutionResources a2aExecutionResources(MainEventBusProcessor eventBusProcessor, A2AProperties properties) {
         return new A2AExecutionResources(eventBusProcessor, properties.getAgentThreads());
     }
@@ -312,7 +351,7 @@ public class A2AAutoConfiguration {
      * @return the task continuation adapter
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean({A2ATaskContinuation.class, HostedAgentDefinitions.class})
     public A2ATaskContinuation a2aTaskContinuation(TaskStore taskStore, QueueManager queueManager,
             ObjectProvider<A2AAgentExecutor> agentExecutorProvider,
             A2AExecutionResources executionResources) {
@@ -338,12 +377,15 @@ public class A2AAutoConfiguration {
      *
      * @param registry the remote agent card registry
      * @param props A2A runtime properties
+     * @param securitySupportProvider provider for optional outbound security support
      * @return the default remote agent caller
      */
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCaller.class)
-    public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props) {
-        return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency());
+    public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props,
+            ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider) {
+        return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency(),
+                securitySupportProvider.getIfAvailable());
     }
 
     /**
@@ -354,12 +396,14 @@ public class A2AAutoConfiguration {
      *
      * @param props the A2A properties
      * @param registry the remote agent card registry
+     * @param hostedCatalogs optional hosted remote directories
      * @return the agent card discovery
      */
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCardResolver.class)
-    public A2AAgentCardDiscovery a2aAgentCardDiscovery(A2AProperties props, A2ARemoteAgentCardRegistry registry) {
-        return new A2AAgentCardDiscovery(props, registry);
+    public A2AAgentCardDiscovery a2aAgentCardDiscovery(A2AProperties props, A2ARemoteAgentCardRegistry registry,
+            ObjectProvider<HostedRemoteAgentCatalogs> hostedCatalogs) {
+        return new A2AAgentCardDiscovery(props, registry, hostedCatalogs.getIfAvailable());
     }
 
     /**
@@ -375,7 +419,7 @@ public class A2AAutoConfiguration {
      * @return the A2A-enabled serve orchestrator
      */
     @Bean
-    @ConditionalOnMissingBean(ServeOrchestrator.class)
+    @ConditionalOnMissingBean({ServeOrchestrator.class, HostedAgentDefinitions.class})
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
             RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry,
             @Value("${spring.application.name:agent}") String agentId, A2AProperties props,
@@ -407,7 +451,7 @@ public class A2AAutoConfiguration {
      * @return the request handler
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean({RequestHandler.class, HostedAgentDefinitions.class})
     public RequestHandler a2aRequestHandler(A2AAgentExecutor agentExecutor, TaskStore taskStore,
             QueueManager queueManager, PushNotificationConfigStore pushConfigStore,
             A2AExecutionResources executionResources) {
@@ -432,25 +476,111 @@ public class A2AAutoConfiguration {
                     limit, capacity));
         }
     }
+
+    /**
+     * Process-owned pools borrowed by every hosted SDK pipeline.
+     */
+    public static final class HostedResources implements AutoCloseable {
+        private final A2AExecutionResources execution;
+
+        private final ThreadPoolExecutor processors;
+
+        private final ScheduledThreadPoolExecutor retries;
+
+        private boolean isClosed;
+
+        public HostedResources(A2AProperties properties, int instances, TaskAdmissionGate gate) {
+            execution = new A2AExecutionResources(null, properties.getAgentThreads());
+            processors = new ThreadPoolExecutor(instances, instances, 0, TimeUnit.MILLISECONDS,
+                    new LinkedBlockingQueue<>(instances), threadFactory("hosted-a2a-events-"),
+                    new ThreadPoolExecutor.AbortPolicy());
+            retries = new ScheduledThreadPoolExecutor(1, threadFactory("hosted-a2a-retry-"));
+            retries.setRemoveOnCancelPolicy(true);
+            try {
+                validateAdmissionCapacity(gate, execution);
+            } catch (IllegalStateException ex) {
+                close();
+                throw ex;
+            }
+        }
+
+        /**
+         * Returns the process-owned agent execution pool.
+         *
+         * @return shared execution pool
+         */
+        public Executor agentExecutor() {
+            return execution.agentExecutor();
+        }
+
+        /**
+         * Returns the process-owned SDK event consumer pool.
+         *
+         * @return shared event consumer pool
+         */
+        public Executor eventConsumerExecutor() {
+            return execution.eventConsumerExecutor();
+        }
+
+        public ScheduledThreadPoolExecutor retryScheduler() {
+            return retries;
+        }
+
+        /**
+         * Runs an SDK processor through its public Runnable API, with explicit local cancellation ownership.
+         *
+         * @param processor target-local SDK processor
+         * @return task handle used for target-local cancellation
+         */
+        public Future<?> startProcessor(MainEventBusProcessor processor) {
+            return processors.submit(processor);
+        }
+
+        @Override
+        public synchronized void close() {
+            if (isClosed) {
+                return;
+            }
+            isClosed = true;
+            retries.shutdownNow();
+            processors.shutdownNow();
+            execution.shutdown();
+        }
+
+        private static CustomizableThreadFactory threadFactory(String prefix) {
+            var factory = new CustomizableThreadFactory(prefix);
+            factory.setDaemon(true);
+            return factory;
+        }
+    }
 }
 
 final class A2AExecutionResources {
     /**
-     * Auto-sized agent pool floor. I/O-bound agent tasks park on remote LLM or
-     * backend calls, so the baseline mirrors {@code QuerySsePumpExecutor}:
-     * {@code max(32, availableProcessors * 8)} instead of raw CPU cores.
+     * Auto-sized agent pool floor — the lower bound applied when
+     * {@code availableProcessors * AUTO_POOL_MULTIPLIER} falls below this value.
+     * I/O-bound agent tasks park on remote LLM or backend calls, so the baseline
+     * mirrors {@code QuerySsePumpExecutor}. On machines with 8 or fewer cores this
+     * floor dominates, yielding a fixed 40-slot pool.
      */
-    static final int AUTO_POOL_FLOOR = 32;
+    static final int AUTO_POOL_FLOOR = 40;
 
     /**
-     * Auto-sized agent pool multiplier per CPU core.
+     * Auto-sized agent pool multiplier per CPU core. Combined with
+     * {@link #AUTO_POOL_FLOOR} via {@code max(floor, cores * multiplier)}.
      */
     static final int AUTO_POOL_MULTIPLIER = 8;
 
-    /** Capacity of the agent task submission queue. */
+    private static final Logger log = LoggerFactory.getLogger(A2AExecutionResources.class);
+
+    /**
+     * Capacity of the agent task submission queue.
+     */
     private static final int AGENT_QUEUE_CAPACITY = 256;
 
-    /** Idle timeout of event consumer threads before reclamation. */
+    /**
+     * Idle timeout of event consumer threads before reclamation.
+     */
     private static final long EVENT_CONSUMER_KEEP_ALIVE_SECONDS = 60L;
 
     /**
@@ -465,32 +595,56 @@ final class A2AExecutionResources {
 
     private final MainEventBusProcessor eventBusProcessor;
 
-    private final ThreadPoolExecutor agentExecutor;
+    private final ExecutorService agentExecutor;
 
     /**
      * Event consumer executor delivering streamed events to SSE subscribers.
      *
-     * <p>Mirrors the SDK's default {@code EventConsumerExecutorProducer}: each
-     * active event queue occupies one consumer thread for the whole stream
-     * lifetime (the thread is mostly parked in queue polling), so threads are
-     * created on demand and reclaimed after the idle timeout. The thread count
-     * is bounded in practice by the number of concurrently active streams,
-     * which the task admission gate caps; the explicit max pool size is a
-     * leak guard that rejects the stream instead of growing toward OOM.</p>
+     * <p>On runtimes without virtual-thread support, this mirrors the SDK's
+     * default {@code EventConsumerExecutorProducer}: each active event queue
+     * occupies one consumer thread for the whole stream lifetime. Threads are
+     * created on demand and reclaimed after the idle timeout, with an explicit
+     * hard cap acting as a leak guard. On runtimes with virtual-thread support,
+     * each consumer task runs in its own virtual thread without that executor
+     * cap.</p>
      */
-    private final ThreadPoolExecutor eventConsumerExecutor;
+    private final ExecutorService eventConsumerExecutor;
 
     private final int eventConsumerMaxThreads;
 
     A2AExecutionResources(MainEventBusProcessor eventBusProcessor, int configuredAgentThreads) {
         this.eventBusProcessor = eventBusProcessor;
-        int threads = configuredAgentThreads > 0 ? configuredAgentThreads : autoAgentPoolSize();
-        this.agentExecutor = new ThreadPoolExecutor(threads, threads, 60L, TimeUnit.SECONDS,
+        int agentThreads = configuredAgentThreads > 0 ? configuredAgentThreads : autoAgentPoolSize();
+        this.agentExecutor = newAgentExecutor(agentThreads);
+        this.eventConsumerMaxThreads = eventConsumerMaxThreads(agentThreads);
+        this.eventConsumerExecutor = newEventConsumerExecutor(eventConsumerMaxThreads);
+    }
+
+    private static ExecutorService newAgentExecutor(int agentThreads) {
+        if (VirtualThreadSupport.isSupported()) {
+            return VirtualThreadSupport.newVirtualExecutor("a2a-agent",
+                    (thread, error) -> log.error("Uncaught A2A agent execution error thread={}",
+                            thread.getName(), error));
+        }
+        return new ThreadPoolExecutor(agentThreads, agentThreads, 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(AGENT_QUEUE_CAPACITY),
                 new ThreadPoolExecutor.CallerRunsPolicy());
-        this.eventConsumerMaxThreads = Math.max(EVENT_CONSUMER_CAP_FLOOR, threads);
-        this.eventConsumerExecutor = new ThreadPoolExecutor(
-                0, eventConsumerMaxThreads, EVENT_CONSUMER_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
+    }
+
+    private static int eventConsumerMaxThreads(int agentThreads) {
+        if (VirtualThreadSupport.isSupported()) {
+            return Integer.MAX_VALUE;
+        }
+        return Math.max(EVENT_CONSUMER_CAP_FLOOR, agentThreads);
+    }
+
+    private static ExecutorService newEventConsumerExecutor(int maximumPoolSize) {
+        if (VirtualThreadSupport.isSupported()) {
+            return VirtualThreadSupport.newVirtualExecutor("a2a-event-consumer",
+                    A2AExecutionResources::logUncaught);
+        }
+        return new ThreadPoolExecutor(
+                0, maximumPoolSize, EVENT_CONSUMER_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
                 new SynchronousQueue<>(),
                 r -> {
                     Thread thread = new Thread(r, "a2a-event-consumer-"
@@ -517,8 +671,7 @@ final class A2AExecutionResources {
      * @param throwable the uncaught throwable
      */
     private static void logUncaught(Thread thread, Throwable throwable) {
-        Logger logger = LoggerFactory.getLogger(A2AExecutionResources.class);
-        logger.error("A2A event consumer thread died with uncaught exception thread={}", thread.getName(),
+        log.error("A2A event consumer thread died with uncaught exception thread={}", thread.getName(),
                 throwable);
     }
 
@@ -531,7 +684,12 @@ final class A2AExecutionResources {
     }
 
     int agentConcurrencyCapacity() {
-        return agentExecutor.getMaximumPoolSize();
+        if (agentExecutor instanceof ThreadPoolExecutor platformExecutor) {
+            return platformExecutor.getMaximumPoolSize();
+        }
+        // Per-task virtual threads have no executor-level concurrency limit;
+        // the business admission gate still applies.
+        return Integer.MAX_VALUE;
     }
 
     MainEventBusProcessor eventBusProcessor() {

@@ -35,6 +35,10 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import java.util.ArrayList;
@@ -58,6 +62,39 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 class RemoteInvocationBatchCoordinatorTest {
     private static final int REMOTE_OUTPUT_COUNT = 256;
+
+    @ParameterizedTest
+    @CsvSource({
+        "0, -1, 0, maxConcurrency must be greater than zero",
+        "-1, 0, 30, maxConcurrency must be greater than zero",
+        "1, -1, 0, maxQueueSize must not be negative",
+        "1, 0, 0, queueTimeoutSeconds must be greater than zero",
+        "1, 0, -1, queueTimeoutSeconds must be greater than zero"
+    })
+    void legacyConstructorPreservesDispatchValidation(int maxConcurrency, int maxQueueSize,
+            long queueTimeoutSeconds, String message) {
+        TaskStore store = new InMemoryTaskStore();
+        RemoteAgentCaller client = mock(RemoteAgentCaller.class);
+        assertThatThrownBy(() -> new RemoteInvocationBatchCoordinator(store, client, "test-agent",
+                maxConcurrency, maxQueueSize, queueTimeoutSeconds))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage(message);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t"})
+    void legacyConstructorUsesFallbackAgentIdForShadowTasks(String agentId) {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        RemoteAgentCaller client = (call, observer) ->
+                CompletableFuture.completedFuture(inputRequired("remote-a", "input-a"));
+        var coordinator = new RemoteInvocationBatchCoordinator(store, client, agentId, 1, 0, 30);
+
+        var resolution = coordinator.execute(batch("batch-fallback", "call-a"),
+                request("parent-fallback", Map.of()), mock(QueryStreamObserver.class)).join();
+
+        assertThat(resolution.isReadyToResume()).isFalse();
+        assertThat(store.get("shadow:agent:parent-fallback")).isNotNull();
+    }
 
     @Test
     void concurrentCompletionKeepsOriginalToolCallOrder() {
@@ -761,6 +798,47 @@ class RemoteInvocationBatchCoordinatorTest {
         ArgumentCaptor<RemoteCall> call = ArgumentCaptor.forClass(RemoteCall.class);
         verify(client).callOutcome(call.capture(), any());
         assertThat(call.getValue().metadata()).containsOnly(Map.entry("traceId", "trace-1"));
+    }
+
+    @Test
+    void directResumeUsesCurrentMetadataAndRestoresParent() {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
+                "test-agent", 1, 10, 30);
+        CompletableFuture<RemoteCallOutcome> first = new CompletableFuture<>();
+        when(client.callOutcome(any(), any())).thenReturn(first);
+
+        ServeRequest initialRequest = request("parent-metadata-lifecycle", Map.of(
+                "headers", Map.of("x-request", "one"), "body", Map.of("step", 1)));
+        coordinator.execute(batch("batch-metadata-lifecycle", "call-a"), initialRequest,
+                mock(QueryStreamObserver.class));
+        first.complete(inputRequired("remote-a", "need-input"));
+
+        ArgumentCaptor<RemoteCall> firstCall = ArgumentCaptor.forClass(RemoteCall.class);
+        verify(client).callOutcome(firstCall.capture(), any());
+        assertThat(firstCall.getValue().metadata()).containsEntry("headers", Map.of("x-request", "one"));
+
+        CompletableFuture<RemoteCallOutcome> second = new CompletableFuture<>();
+        org.mockito.Mockito.reset(client);
+        when(client.callOutcome(any(), any())).thenReturn(second);
+        ServeRequest directResume = request("parent-metadata-lifecycle", Map.of(
+                "headers", Map.of("x-request", "two"), "body", Map.of("step", 2),
+                "runtime.remoteToolInputs", Map.of("call-a", "answer")));
+        Optional<CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution>> resumed =
+                coordinator.resume(directResume, mock(QueryStreamObserver.class));
+        ArgumentCaptor<RemoteCall> secondCall = ArgumentCaptor.forClass(RemoteCall.class);
+        verify(client).callOutcome(secondCall.capture(), any());
+        assertThat(secondCall.getValue().metadata()).containsEntry("headers", Map.of("x-request", "two"));
+
+        second.complete(completed("remote-a", "done"));
+        assertThat(resumed.orElseThrow().join().parentParamsMetadata())
+                .containsEntry("headers", Map.of("x-request", "one"))
+                .containsEntry("body", Map.of("step", 1));
+        Map<?, ?> snapshot = (Map<?, ?>) store.get("shadow:test-agent:parent-metadata-lifecycle")
+                .metadata().get("_remote_batch");
+        Map<?, ?> savedMetadata = (Map<?, ?>) ((Map<?, ?>) snapshot.get("request")).get("metadata");
+        assertThat(savedMetadata.get("headers")).isEqualTo(Map.of("x-request", "one"));
     }
 
     @Test

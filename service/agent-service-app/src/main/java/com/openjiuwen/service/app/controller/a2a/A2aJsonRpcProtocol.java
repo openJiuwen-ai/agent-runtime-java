@@ -20,6 +20,7 @@ import org.a2aproject.sdk.spec.InvalidRequestError;
 import org.a2aproject.sdk.spec.JSONParseError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
@@ -58,14 +59,58 @@ final class A2aJsonRpcProtocol {
         return new Request(payload, payload.get("method").getAsString(), id);
     }
 
+    /**
+     * Builds a JSON-RPC success envelope around an already-serialized result,
+     * for streaming/result paths whose payloads need adapter post-processing
+     * (e.g. unwrapping the {@code StreamingEventKind} discriminator) before
+     * they can be used as the {@code result} member. The {@code id} member is
+     * always present, backfilled with {@code null} per JSON-RPC 2.0.
+     *
+     * @param id the JSON-RPC request id, may be null
+     * @param result the serialized result element
+     * @return the JSON-RPC success envelope as a JSON string
+     */
+    static String resultEnvelope(Object id, JsonElement result) {
+        JsonObject response = new JsonObject();
+        response.addProperty("jsonrpc", A2AMessage.JSONRPC_VERSION);
+        response.add("id", id != null ? GSON.toJsonTree(id) : JsonNull.INSTANCE);
+        response.add("result", result);
+        return response.toString();
+    }
+
+    /**
+     * Builds a JSON-RPC success envelope around a raw result JSON string.
+     *
+     * @param id the JSON-RPC request id, may be null
+     * @param resultJson the serialized result JSON
+     * @return the JSON-RPC success envelope as a JSON string
+     */
+    static String resultEnvelope(Object id, String resultJson) {
+        return resultEnvelope(id, JsonParser.parseString(resultJson));
+    }
+
     static ResponseEntity<String> errorResponse(Object id, A2AError error) {
+        return errorResponse(id, error, HttpStatus.OK);
+    }
+
+    /**
+     * Builds a JSON-RPC error response carried on an explicit HTTP status, for
+     * transport-level rejections (e.g. admission control) whose HTTP binding
+     * requires a non-200 status while the body stays a JSON-RPC error object.
+     *
+     * @param id the JSON-RPC request id, may be null
+     * @param error the A2A error to serialize
+     * @param status the HTTP status carrying the error body
+     * @return the error response entity with the given status
+     */
+    static ResponseEntity<String> errorResponse(Object id, A2AError error, HttpStatus status) {
         try {
             JsonObject response = JsonParser.parseString(JsonUtil.toJson(new A2AErrorResponse(id, error)))
                     .getAsJsonObject();
             if (!response.has("id")) {
                 response.add("id", JsonNull.INSTANCE);
             }
-            return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(response.toString());
+            return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(response.toString());
         } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
             log.error("Failed to serialize A2A JSON-RPC error response", e);
             return ResponseEntity.internalServerError().contentType(MediaType.APPLICATION_JSON)

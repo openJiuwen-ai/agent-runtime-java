@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.query;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.app.hosting.HostedIngressResolver;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -49,6 +50,9 @@ public class QueryWebFluxController {
 
     private final ObjectMapper objectMapper;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private HostedIngressResolver hostedResolver;
+
     public QueryWebFluxController(ObjectProvider<ServeOrchestrator> orchestratorProvider,
             ObjectProvider<AgentReadiness> readinessProvider, ObjectMapper objectMapper) {
         this.orchestratorProvider = orchestratorProvider;
@@ -81,7 +85,22 @@ public class QueryWebFluxController {
             return reactor.core.publisher.Mono.just(
                     ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(QueryIngressSupport.agentNotReady()));
         }
-        ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
+        ServeOrchestrator orchestrator;
+        try {
+            if (hostedResolver == null) {
+                orchestrator = orchestratorProvider.getIfAvailable();
+            } else {
+                var target = hostedResolver.resolveOrDefault(request.getAgentId());
+                if (org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()
+                        instanceof org.springframework.web.context.request.ServletRequestAttributes attributes) {
+                    HostedIngressResolver.selected(attributes.getRequest(), target);
+                }
+                orchestrator = target.orchestrator();
+            }
+        } catch (HostedIngressResolver.SelectionException error) {
+            return reactor.core.publisher.Mono.just(ResponseEntity.status(error.status())
+                    .body(Map.of("type", "error", "error", error.getMessage(), "reason", error.reason())));
+        }
         if (orchestrator == null) {
             return reactor.core.publisher.Mono.just(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(QueryIngressSupport.serviceUnavailable()));

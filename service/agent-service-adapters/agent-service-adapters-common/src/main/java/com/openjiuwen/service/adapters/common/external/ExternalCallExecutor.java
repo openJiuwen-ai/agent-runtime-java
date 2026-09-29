@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.adapters.common.external;
 
+import com.openjiuwen.service.adapters.common.concurrent.VirtualThreadSupport;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -269,10 +271,13 @@ public class ExternalCallExecutor {
         return value.getClass().getSimpleName() + "(hash=" + Integer.toHexString(value.hashCode()) + ")";
     }
 
-    private static ThreadPoolExecutor newTimeoutExecutor() {
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(0, 64, 100L, TimeUnit.MILLISECONDS,
-            new SynchronousQueue<>(), new ThreadPoolExecutor.AbortPolicy());
-        return executor;
+    private static ExecutorService newTimeoutExecutor() {
+        if (VirtualThreadSupport.isSupported()) {
+            return VirtualThreadSupport.newVirtualExecutor("external-call-timeout",
+                    (thread, error) -> log.error("Uncaught external call error thread={}", thread.getName(), error));
+        }
+        return new ThreadPoolExecutor(0, 64, 100L, TimeUnit.MILLISECONDS,
+                new SynchronousQueue<>(), new ThreadPoolExecutor.AbortPolicy());
     }
 
     private static void validatePolicy(ExternalCallPolicy policy) {
