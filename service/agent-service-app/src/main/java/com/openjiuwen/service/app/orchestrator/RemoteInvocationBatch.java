@@ -9,6 +9,7 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /** Mutable state for one remote invocation batch. */
@@ -19,6 +20,9 @@ final class RemoteInvocationBatch {
 
     final ServeRequest request;
 
+    /** Business params metadata of the local-agent invocation that created this batch. */
+    final Map<String, Object> parentParamsMetadata;
+
     final SerialQueryStreamObserver observer;
 
     final List<Member> members;
@@ -27,13 +31,20 @@ final class RemoteInvocationBatch {
 
     final CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> completion = new CompletableFuture<>();
 
-    boolean isResolved;
+    volatile boolean isResolved;
 
     RemoteInvocationBatch(String batchId, String parentTaskId, ServeRequest request, SerialQueryStreamObserver observer,
             List<Member> members, boolean shouldResume) {
+        this(batchId, parentTaskId, request, request.getMetadata(), observer, members, shouldResume);
+    }
+
+    RemoteInvocationBatch(String batchId, String parentTaskId, ServeRequest request,
+            Map<String, Object> parentParamsMetadata, SerialQueryStreamObserver observer, List<Member> members,
+            boolean shouldResume) {
         this.batchId = batchId;
         this.parentTaskId = parentTaskId;
         this.request = request;
+        this.parentParamsMetadata = RemoteInvocationBatchMapper.cleanRequestMetadata(parentParamsMetadata);
         this.observer = observer;
         this.members = members;
         this.shouldResume = shouldResume;
@@ -54,6 +65,9 @@ final class RemoteInvocationBatch {
         final String agentName;
 
         String message;
+
+        /** Normalized Part list carried from the interrupt payload; empty when absent. */
+        List<Map<String, Object>> parts = List.of();
 
         volatile MemberState state = MemberState.QUEUED;
 

@@ -19,6 +19,7 @@ import redis.clients.jedis.JedisSocketFactory;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 
+import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -197,12 +198,51 @@ public final class RedisJedisClientFactory {
         return config;
     }
 
+    /**
+     * Pool sizing rationale (JDK21 virtual threads, admission limit above 120
+     * concurrent tasks):
+     * <ul>
+     * <li>{@code maxTotal=64} — borrow/return is a deque handover (no network
+     * on the fast path); measured checkpoint reads at c120 use well under one
+     * ops/s per connection, so capacity is not the constraint.</li>
+     * <li>{@code maxIdle=16} — covers the steady-state working set so load
+     * waves do not thrash connections; larger idle counts only cost a TCP
+     * socket each.</li>
+     * <li>{@code minIdle=8} — keeps a warm floor so cold-start bursts do not
+     * serialise on TCP+AUTH handshakes.</li>
+     * <li>{@code testOnBorrow=false} — the borrow-path PING runs on a virtual
+     * thread; a broken connection would stall that PING for the socket timeout
+     * inside the borrow path while other borrowers queue, amplifying a single
+     * dead connection into a full stall under high concurrency. Liveness is
+     * enforced off the borrow path instead: the evictor (a platform thread, so
+     * monitor pinning is irrelevant) PINGs idle connections and destroys
+     * broken ones; with 16 tests per run and a 30s period the whole pool is
+     * covered in ~2 minutes, which also bounds how long a dead idle connection
+     * can linger. A dead connection that slips through before its PING is
+     * healed by the first command failing once with
+     * {@code JedisConnectionException} and being replaced on the next
+     * borrow.</li>
+     * <li>{@code softMinEvictableIdleDuration=60s} — surplus idle connections
+     * beyond {@code minIdle} are reclaimed after 60s idle. The soft (not hard)
+     * variant is used deliberately: the hard {@code minEvictableIdleDuration}
+     * ignores {@code minIdle} and would tear down the warm floor itself.</li>
+     * <li>{@code maxWait=5s} — borrowers fail fast with {@code JedisException}
+     * instead of blocking indefinitely when the pool is exhausted.</li>
+     * </ul>
+     *
+     * @param config the pool configuration to apply the limits to
+     */
     private static void applyPoolLimits(GenericObjectPoolConfig<?> config) {
         config.setMaxTotal(64);
-        config.setMaxIdle(8);
-        config.setMinIdle(1);
-        config.setTestOnBorrow(true);
+        config.setMaxIdle(16);
+        config.setMinIdle(8);
+        config.setTestOnBorrow(false);
         config.setTestWhileIdle(true);
+        config.setNumTestsPerEvictionRun(16);
+        config.setSoftMinEvictableIdleDuration(Duration.ofSeconds(60));
+        config.setTimeBetweenEvictionRuns(Duration.ofSeconds(30));
+        // 池耗尽时最多等待 5s，之后抛 JedisException 快速失败；commons-pool2 默认 -1 会无限阻塞。
+        config.setMaxWait(Duration.ofSeconds(5));
     }
 
     private static final class LazyConfiguredConnection extends Connection {

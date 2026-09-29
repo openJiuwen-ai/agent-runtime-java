@@ -25,7 +25,7 @@
     </modules>
 
     <properties>
-        <revision>0.1.2</revision>
+        <revision>0.1.3</revision>
         <java.version>17</java.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
@@ -33,8 +33,8 @@
 
         <a2a-sdk.version>1.0.0.Final</a2a-sdk.version>
         <!-- Agent Core：Maven 版本与本地源码分支，文档仅引用此处，勿在多处写死版本号 -->
-        <agent-core.version>0.1.15</agent-core.version>
-        <agent-core.git.branch>830</agent-core.git.branch>
+        <agent-core.version>0.1.16</agent-core.version>
+        <agent-core.git.branch>930</agent-core.git.branch>
         <agent-core.repo.url>https://gitcode.com/openJiuwen/agent-core-java</agent-core.repo.url>
 
         <!--
@@ -52,6 +52,8 @@
           - jackson-annotations：core 已升 jackson-bom 2.21.5，annotations 随 BOM
             为 2.21（含 a2a-sdk 需要的 JsonSerializeAs），不再需要单独 pin。
           - jedis：core 已升 7.0.0（=Boot 管理值），不再覆盖。
+          - bouncy-castle：Memory 拆包前 core 直接引入 bcprov 1.85；拆包后
+            bcprov 只会经 pulsar 回落到 1.84，因此 runtime 继续锁定 1.85。
           gson 例外：core 未声明 gson；a2a-sdk 需 2.11.0+，runtime 独立 pin 2.11.0，
           见下方 dependencyManagement。
 
@@ -66,6 +68,7 @@
         <!-- jedis：core 已升 7.0.0（=Boot 管理值），无需覆盖 -->
         <!-- <jedis.version>5.1.5</jedis.version> -->
         <pulsar.version>4.2.3</pulsar.version>
+        <bouncy-castle.version>1.85</bouncy-castle.version>
         <mockito.version>5.14.2</mockito.version>
         <!-- byte-buddy：main scope 对齐 core 1.15.11；test 侧 surefire 插件自带 1.18.3，
              属测试组件差异，不纳入对齐（约定见上方注释） -->
@@ -116,7 +119,7 @@
             <dependency>
                 <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-core-java</artifactId>
-                <version>0.1.15</version>
+                <version>0.1.16</version>
             </dependency>
 
             <!-- ② Service leaf modules（${revision} 是 CI-friendly，flatten 会展开为字面值） -->
@@ -218,6 +221,13 @@
                 <version>2.4.10</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+
+            <!-- Keep bcprov at its pre-split version for consumers that only depend on Core. -->
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>1.85</version>
             </dependency>
 
             <dependency>

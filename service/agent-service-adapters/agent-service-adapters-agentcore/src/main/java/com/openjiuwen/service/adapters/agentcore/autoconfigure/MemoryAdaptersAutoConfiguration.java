@@ -10,6 +10,7 @@ import com.openjiuwen.service.adapters.agentcore.memory.MemoryStoreFactory;
 import com.openjiuwen.service.adapters.agentcore.memory.MemoryStoreMemoryProvider;
 import com.openjiuwen.service.adapters.agentcore.memory.MemoryStoreProvider;
 import com.openjiuwen.service.adapters.agentcore.memory.jiuwen.JiuwenMemoryStoreProvider;
+import com.openjiuwen.service.adapters.agentcore.memory.jiuwen2.Jiuwen2MemoryStoreProvider;
 import com.openjiuwen.service.adapters.agentcore.memory.mem0.Mem0MemoryStoreProvider;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
@@ -60,6 +61,17 @@ public class MemoryAdaptersAutoConfiguration {
     @ConditionalOnMissingBean(JiuwenMemoryStoreProvider.class)
     public MemoryStoreProvider jiuwenMemoryStoreProvider() {
         return new JiuwenMemoryStoreProvider();
+    }
+
+    /**
+     * Registers the agent-memory 2.0 store provider.
+     *
+     * @return the Jiuwen2 provider
+     */
+    @Bean
+    @ConditionalOnMissingBean(Jiuwen2MemoryStoreProvider.class)
+    public MemoryStoreProvider jiuwen2MemoryStoreProvider() {
+        return new Jiuwen2MemoryStoreProvider();
     }
 
     /**

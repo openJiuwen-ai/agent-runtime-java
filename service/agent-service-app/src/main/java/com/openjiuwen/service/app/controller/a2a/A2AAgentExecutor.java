@@ -87,6 +87,9 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private static final String INTERRUPT = "_interrupt";
 
+    /** Non-streaming counterpart of the cancel chunk. */
+    private static final String CANCEL = "_cancel";
+
     private static final String GENERIC_EXECUTION_ERROR = "AGENT_EXECUTION_FAILED";
 
     /**
@@ -114,6 +117,7 @@ public class A2AAgentExecutor implements AgentExecutor {
     private final ChunkMapper chunkMapper = new ChunkMapper();
 
     private final ConcurrentMap<String, AtomicBoolean> activeCancellations = new ConcurrentHashMap<>();
+
 
     public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter) {
         this(orchestrator, adapter, null);
@@ -148,6 +152,7 @@ public class A2AAgentExecutor implements AgentExecutor {
         this.admissionListener = admissionListener;
     }
 
+
     @Override
     public void execute(RequestContext ctx, AgentEmitter emitter) {
         A2AMessageContext msgCtx = A2AMessageContext.from(ctx);
@@ -174,6 +179,7 @@ public class A2AAgentExecutor implements AgentExecutor {
     void continueTask(RequestContext ctx, ServeRequest request, AgentEmitter emitter) {
         executeRequest(ctx, A2AMessageContext.from(ctx), request, emitter, false);
     }
+
 
     private void executeRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
             boolean isNewTask) {
@@ -271,22 +277,24 @@ public class A2AAgentExecutor implements AgentExecutor {
     private void executeStreaming(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
             AgentEmitter emitter) {
         AtomicBoolean cancelled = new AtomicBoolean(false);
-        AtomicBoolean interrupted = new AtomicBoolean(false);
-        AtomicBoolean failed = new AtomicBoolean(false);
+        StreamVerdict verdict = new StreamVerdict();
         activeCancellations.put(ctx.getContextId(), cancelled);
         try {
             orchestrator.streamQuery(req, new QueryStreamObserver() {
                 @Override
                 public void onNext(QueryChunk chunk) {
-                    handleStreamingChunk(chunk, msgCtx, emitter, interrupted, failed);
+                    handleStreamingChunk(chunk, msgCtx, emitter, verdict);
                 }
 
                 @Override
                 public void onComplete() {
-                    if (interrupted.get()) {
+                    if (verdict.interrupted.get()) {
                         log.info("A2A stream ended after interrupt (COMPLETED suppressed) taskId={}",
                                 msgCtx.getTaskId());
-                    } else if (failed.get()) {
+                    } else if (verdict.canceled.get()) {
+                        log.info("A2A stream ended after cancel (COMPLETED suppressed) taskId={}",
+                                msgCtx.getTaskId());
+                    } else if (verdict.failed.get()) {
                         log.info("A2A stream ended after failure (COMPLETED suppressed) taskId={}", msgCtx.getTaskId());
                     } else {
                         log.info("A2A stream complete taskId={}", msgCtx.getTaskId());
@@ -298,7 +306,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 public void onError(Throwable error) {
                     log.error("A2A agent stream error taskId={} contextId={}", msgCtx.getTaskId(),
                             msgCtx.getContextId(), error);
-                    if (failed.compareAndSet(false, true)) {
+                    if (verdict.failed.compareAndSet(false, true)) {
                         failAndDrain(emitter, msgCtx, error);
                     }
                 }
@@ -313,13 +321,40 @@ public class A2AAgentExecutor implements AgentExecutor {
         }
     }
 
+    /**
+     * Terminal signals seen on one stream.
+     *
+     * <p>The three flags travel together: every reader wants "has this task already been decided",
+     * and the first one to be set wins. Keeping them in one object is also what keeps the chunk
+     * handler's parameter list within the limit.</p>
+     */
+    private static final class StreamVerdict {
+        private final AtomicBoolean interrupted = new AtomicBoolean(false);
+
+        private final AtomicBoolean failed = new AtomicBoolean(false);
+
+        private final AtomicBoolean canceled = new AtomicBoolean(false);
+
+        private boolean decided() {
+            return interrupted.get() || failed.get() || canceled.get();
+        }
+    }
+
     private void handleStreamingChunk(QueryChunk chunk, A2AMessageContext msgCtx, AgentEmitter emitter,
-            AtomicBoolean interrupted, AtomicBoolean failed) {
-        if (interrupted.get() || failed.get()) {
+            StreamVerdict verdict) {
+        if (verdict.decided()) {
+            // A terminal signal already decided this task; later chunks must not change the verdict.
+            return;
+        }
+        if (QueryChunk.TYPE_CANCEL.equals(chunk.getType())) {
+            log.info("A2A cancel requested by the execution side taskId={} contextId={} reason={}",
+                    msgCtx.getTaskId(), msgCtx.getContextId(), cancelReason(chunk.getData()));
+            verdict.canceled.set(true);
+            cancelTask(msgCtx, emitter);
             return;
         }
         if (QueryChunk.TYPE_ERROR.equals(chunk.getType())) {
-            failed.set(true);
+            verdict.failed.set(true);
             failAndDrain(emitter, msgCtx, streamChunkFailure(chunk));
             return;
         }
@@ -332,7 +367,7 @@ public class A2AAgentExecutor implements AgentExecutor {
                 emitter.requiresInput();
             }
             closeEventQueue(emitter, msgCtx.getTaskId());
-            interrupted.set(true);
+            verdict.interrupted.set(true);
             return;
         }
         if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())
@@ -372,6 +407,12 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter) {
         QueryResponse response = orchestrator.query(req);
+        if (response.getResult() instanceof Map<?, ?> cancelResult && cancelResult.containsKey(CANCEL)) {
+            log.info("A2A cancel requested by the execution side taskId={} contextId={} reason={}",
+                    msgCtx.getTaskId(), msgCtx.getContextId(), cancelReason(cancelResult.get(CANCEL)));
+            cancelTask(msgCtx, emitter);
+            return;
+        }
         if (response.getResult() instanceof Map<?, ?> result
                 && result.get(INTERRUPT) instanceof Map<?, ?> interruptData) {
             log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
@@ -387,6 +428,44 @@ public class A2AAgentExecutor implements AgentExecutor {
         } else {
             completeAndDrain(emitter, msgCtx.getTaskId());
         }
+    }
+
+    /**
+     * Moves the task to the canceled terminal state at the execution side's request.
+     *
+     * <p>The signal only declares intent; the state write stays on the runtime's own authoritative
+     * path, so the single-lifecycle-writer invariant is unaffected.</p>
+     *
+     * @param msgCtx the message context
+     * @param emitter the task event emitter
+     */
+    private void cancelTask(A2AMessageContext msgCtx, AgentEmitter emitter) {
+        AtomicBoolean cancelled = activeCancellations.get(msgCtx.getContextId());
+        if (cancelled != null) {
+            cancelled.set(true);
+        }
+        orchestrator.cancelActive(msgCtx.getContextId());
+        emitter.cancel();
+        closeEventQueue(emitter, msgCtx.getTaskId());
+    }
+
+    /**
+     * Extracts a human-readable reason from a cancel payload.
+     *
+     * <p>The payload is opaque to the runtime: a reason is used for logs and audit only, and an
+     * unusable payload never rejects the signal.</p>
+     *
+     * @param data the cancel payload, may be null
+     * @return the reason text, or an empty string
+     */
+    private static String cancelReason(Object data) {
+        if (data instanceof String text) {
+            return text;
+        }
+        if (data instanceof Map<?, ?> map && map.get("reason") != null) {
+            return String.valueOf(map.get("reason"));
+        }
+        return "";
     }
 
     private static Message statusMessage(Map<?, ?> interruptData) {

@@ -8,7 +8,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+import com.openjiuwen.service.adapters.common.middleware.redis.JedisPooledRuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
+
+import redis.clients.jedis.JedisPooled;
+import redis.clients.jedis.UnifiedJedis;
 
 import org.junit.jupiter.api.Test;
 
@@ -70,6 +74,27 @@ class AgentCoreCheckpointerConfigAssemblerTest {
     }
 
     @Test
+    void unwrapsJedisBackedRuntimeRedisClientToNativeDelegate() {
+        MiddlewareProperties properties = new MiddlewareProperties();
+        properties.getCheckpointer().setType("redis");
+        MiddlewareProperties.RedisEndpoint endpoint = new MiddlewareProperties.RedisEndpoint();
+        endpoint.setHost("127.0.0.1");
+        endpoint.setPort(6379);
+        properties.getRedis().put("default", endpoint);
+        JedisPooledRuntimeRedisClient redisClient = new JedisPooledRuntimeRedisClient(new JedisPooled("127.0.0.1",
+                6379));
+
+        Map<String, Object> config = AgentCoreCheckpointerConfigAssembler.build(properties, ciphertext -> ciphertext,
+                redisClient);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> conf = (Map<String, Object>) config.get("conf");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
+        assertThat(connection.get("redis_client")).isSameAs(redisClient.jedisDelegate())
+                .isInstanceOf(UnifiedJedis.class).isNotSameAs(redisClient);
+    }
+
+    @Test
     void redisRequiresEndpointDefinition() {
         MiddlewareProperties properties = new MiddlewareProperties();
         properties.getCheckpointer().setType("redis");
@@ -86,6 +111,24 @@ class AgentCoreCheckpointerConfigAssemblerTest {
 
         assertThatThrownBy(() -> AgentCoreCheckpointerConfigAssembler.build(properties, s -> s, null))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("RuntimeRedisClient");
+    }
+
+    @Test
+    void keepsNonJedisRuntimeRedisClientAsIs() {
+        MiddlewareProperties properties = new MiddlewareProperties();
+        properties.getCheckpointer().setType("redis");
+        MiddlewareProperties.RedisEndpoint endpoint = new MiddlewareProperties.RedisEndpoint();
+        endpoint.setHost("127.0.0.1");
+        properties.getRedis().put("default", endpoint);
+        RuntimeRedisClient redisClient = new NoopRuntimeRedisClient();
+
+        Map<String, Object> config = AgentCoreCheckpointerConfigAssembler.build(properties, value -> value,
+                redisClient);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> conf = (Map<String, Object>) config.get("conf");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
+        assertThat(connection.get("redis_client")).isSameAs(redisClient);
     }
 
     private static final class NoopRuntimeRedisClient implements RuntimeRedisClient {
@@ -172,6 +215,51 @@ class AgentCoreCheckpointerConfigAssemblerTest {
         @Override
         public List<String> scanIter(String pattern) {
             return List.of();
+        }
+
+        @Override
+        public long hset(String key, String field, String value) {
+            return 0;
+        }
+
+        @Override
+        public String hget(String key, String field) {
+            return null;
+        }
+
+        @Override
+        public long hdel(String key, String... fields) {
+            return 0;
+        }
+
+        @Override
+        public Map<String, String> hgetAll(String key) {
+            return Map.of();
+        }
+
+        @Override
+        public long sadd(String key, String... members) {
+            return 0;
+        }
+
+        @Override
+        public boolean sismember(String key, String member) {
+            return false;
+        }
+
+        @Override
+        public long srem(String key, String... members) {
+            return 0;
+        }
+
+        @Override
+        public long hincrBy(String key, String field, long delta) {
+            return 0;
+        }
+
+        @Override
+        public Object eval(String script, List<String> keys, String... args) {
+            return null;
         }
     }
 }
