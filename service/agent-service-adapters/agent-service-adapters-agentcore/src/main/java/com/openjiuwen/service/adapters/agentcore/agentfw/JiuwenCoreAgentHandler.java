@@ -293,6 +293,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return RUNNER_STARTED.get();
     }
 
+    static void resetRunnerStarted() {
+        RUNNER_STARTED.set(false);
+    }
+
     @Override
     public void clearSession(String conversationId) {
         if (conversationId == null || conversationId.isBlank()) {
