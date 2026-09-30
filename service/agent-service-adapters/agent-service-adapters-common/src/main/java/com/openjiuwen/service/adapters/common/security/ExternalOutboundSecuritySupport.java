@@ -123,6 +123,12 @@ public class ExternalOutboundSecuritySupport {
             if (okHttpClient != null) {
                 params.put(ExternalOutboundSecurityConstants.PARAM_OKHTTP_CLIENT, okHttpClient);
             }
+            if (authMaterial != null && !authMaterial.isEmpty()) {
+                params.put(ExternalOutboundSecurityConstants.KWARG_AUTH_HEADERS,
+                    new LinkedHashMap<>(authMaterial.headers()));
+                params.put(ExternalOutboundSecurityConstants.KWARG_AUTH_QUERY_PARAMS,
+                    new LinkedHashMap<>(authMaterial.queryParams()));
+            }
         }
 
         /**
