@@ -49,9 +49,6 @@ import java.util.concurrent.TimeUnit;
         disabledReason = "core 0.1.17 将 MCP client 升级为 Java SDK streamable 协议，demo 的简化 JSON-RPC mock 不再匹配；"
                 + "链路已由 core McpEverythingSystemTest 与 runtime DecoratingMcpClientTest/McpGovernanceIntegrationTest 覆盖")
 class DemoExternalMcpServerApplicationTest {
-    static boolean mcpDemoMockNotSupported() {
-        return true;
-    }
     private static final LocalMcpServer MCP_SERVER = LocalMcpServer.start();
 
     @Autowired
@@ -63,6 +60,10 @@ class DemoExternalMcpServerApplicationTest {
         registry.add("DEMO_MCP_SERVER_NAME", () -> "demo-mcp-tools");
         registry.add("DEMO_MCP_SERVER_PATH", MCP_SERVER::endpoint);
         registry.add("DEMO_MCP_RETRY_MAX", () -> "0");
+    }
+
+    static boolean mcpDemoMockNotSupported() {
+        return true;
     }
 
     @AfterEach

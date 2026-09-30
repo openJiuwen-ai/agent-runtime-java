@@ -81,9 +81,6 @@ import java.util.concurrent.atomic.AtomicReference;
         disabledReason = "core 0.1.17 将 MCP client 升级为 Java SDK streamable 协议，demo 的简化 JSON-RPC mock 不再匹配；"
                 + "链路已由 core McpEverythingSystemTest 与 runtime DecoratingMcpClientTest/McpGovernanceIntegrationTest 覆盖")
 class DemoMcpToolCallEndToEndTest {
-    static boolean mcpDemoMockNotSupported() {
-        return true;
-    }
     private static final String TEST_PROVIDER = "DemoMcpToolCallProvider";
 
     private static final String MCP_TOOL_NAME = "demo_echo";
@@ -97,6 +94,12 @@ class DemoMcpToolCallEndToEndTest {
     private static final List<String> TOOL_LISTS_SEEN_BY_MODEL = new CopyOnWriteArrayList<>();
 
     private static final LocalMcpServer MCP_SERVER = LocalMcpServer.start();
+
+    static {
+        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
+            Model.registerFactory(new ToolCallingModelFactory());
+        }
+    }
 
     @Autowired
     private TestRestTemplate rest;
@@ -121,10 +124,8 @@ class DemoMcpToolCallEndToEndTest {
         registry.add("DEMO_MCP_CIRCUIT_BREAKER_ENABLED", () -> "false");
     }
 
-    static {
-        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
-            Model.registerFactory(new ToolCallingModelFactory());
-        }
+    static boolean mcpDemoMockNotSupported() {
+        return true;
     }
 
     @AfterAll

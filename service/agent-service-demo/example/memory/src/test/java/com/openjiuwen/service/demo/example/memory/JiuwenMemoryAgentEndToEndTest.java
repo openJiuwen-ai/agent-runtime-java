@@ -97,6 +97,12 @@ class JiuwenMemoryAgentEndToEndTest {
 
     private static final LocalJiuwenServer JIUWEN_SERVER = LocalJiuwenServer.start();
 
+    static {
+        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
+            Model.registerFactory(new JiuwenE2eModelFactory());
+        }
+    }
+
     @Autowired
     private TestRestTemplate rest;
 
@@ -124,12 +130,6 @@ class JiuwenMemoryAgentEndToEndTest {
         registry.add("openjiuwen.service.middleware.memory.timeout-ms", () -> "3000");
         registry.add("openjiuwen.service.middleware.memory.retry.max", () -> "0");
         registry.add("openjiuwen.service.middleware.memory.circuit-breaker.enabled", () -> "false");
-    }
-
-    static {
-        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
-            Model.registerFactory(new JiuwenE2eModelFactory());
-        }
     }
 
     @BeforeEach

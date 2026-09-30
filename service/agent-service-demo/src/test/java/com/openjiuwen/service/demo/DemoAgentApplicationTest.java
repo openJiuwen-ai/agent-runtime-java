@@ -61,6 +61,12 @@ class DemoAgentApplicationTest {
     private static final AtomicReference<List<Map<String, Object>>> LAST_MODEL_MESSAGES = new AtomicReference<>(
             List.of());
 
+    static {
+        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
+            Model.registerFactory(new EchoModelFactory());
+        }
+    }
+
     @Autowired
     private TestRestTemplate rest;
 
@@ -76,12 +82,6 @@ class DemoAgentApplicationTest {
         registry.add("openjiuwen.service.llm.api-base", () -> "mirror://demo-smoke");
         registry.add("openjiuwen.service.llm.model-name", () -> "test-model");
         registry.add("openjiuwen.service.llm.auto-discover", () -> "false");
-    }
-
-    static {
-        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
-            Model.registerFactory(new EchoModelFactory());
-        }
     }
 
     @AfterAll
