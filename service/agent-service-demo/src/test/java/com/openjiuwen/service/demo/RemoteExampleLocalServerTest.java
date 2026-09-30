@@ -7,8 +7,6 @@ package com.openjiuwen.service.demo;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
-import com.openjiuwen.core.singleagent.schema.AgentResult;
-import com.openjiuwen.core.singleagent.schema.Artifact;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalProperties;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreRemoteClientFactory;
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientDecoratorFactory;
@@ -78,26 +76,31 @@ class RemoteExampleLocalServerTest {
         assertThat(client.getClass().getName()).isEqualTo(
             "com.openjiuwen.service.adapters.agentcore.external.DecoratingRemoteClient");
 
-        Object result = client.invoke(Map.of("message", "hello remote", "conversation_id", "demo-session"), null);
-        assertThat(result).isInstanceOf(AgentResult.class);
-        if (result instanceof AgentResult agentResult) {
-            assertThat(String.valueOf(agentResult.getStatus())).isEqualTo("completed");
-            assertThat(agentResult.getSessionId()).isEqualTo("demo-session");
-            assertThat(firstText(agentResult.getArtifacts())).isEqualTo("mock a2a response: hello remote");
-        }
+        Object result = client.invoke(Map.of("query", "hello remote", "conversation_id", "demo-session"), null);
+        assertThat(result).isInstanceOf(Map.class);
+        Map<?, ?> resultMap = (Map<?, ?>) result;
+        assertThat(String.valueOf(resultMap.get("status"))).isEqualTo("completed");
+        assertThat(String.valueOf(resultMap.get("sessionId"))).isEqualTo("demo-session");
+        assertThat(firstTextFromMap(resultMap)).isEqualTo("mock a2a response: hello remote");
     }
 
-    private static String firstText(List<Artifact> artifacts) {
-        if (artifacts == null) {
+    @SuppressWarnings("unchecked")
+    private static String firstTextFromMap(Map<?, ?> resultMap) {
+        Object artifacts = resultMap.get("artifacts");
+        if (!(artifacts instanceof List<?> artifactList)) {
             return "";
         }
-        for (Artifact artifact : artifacts) {
-            if (artifact == null || artifact.getParts() == null) {
+        for (Object artifactObj : artifactList) {
+            if (!(artifactObj instanceof Map<?, ?> artifact)) {
                 continue;
             }
-            for (com.openjiuwen.core.singleagent.schema.Part part : artifact.getParts()) {
-                if (part != null && part.getText() != null) {
-                    return part.getText();
+            Object parts = artifact.get("parts");
+            if (!(parts instanceof List<?> partList)) {
+                continue;
+            }
+            for (Object partObj : partList) {
+                if (partObj instanceof Map<?, ?> part && part.get("text") != null) {
+                    return String.valueOf(part.get("text"));
                 }
             }
         }

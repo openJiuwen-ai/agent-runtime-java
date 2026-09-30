@@ -26,7 +26,6 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -130,8 +129,7 @@ class MemoryAgentEndToEndTest {
         registry.add("openjiuwen.service.middleware.memory.circuit-breaker.enabled", () -> "false");
     }
 
-    @BeforeAll
-    static void registerModelFactory() {
+    static {
         if (FACTORY_REGISTERED.compareAndSet(false, true)) {
             Model.registerFactory(new MemoryE2eModelFactory());
         }
