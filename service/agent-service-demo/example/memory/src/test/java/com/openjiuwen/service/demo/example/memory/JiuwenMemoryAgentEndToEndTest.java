@@ -26,7 +26,6 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -98,6 +97,12 @@ class JiuwenMemoryAgentEndToEndTest {
 
     private static final LocalJiuwenServer JIUWEN_SERVER = LocalJiuwenServer.start();
 
+    static {
+        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
+            Model.registerFactory(new JiuwenE2eModelFactory());
+        }
+    }
+
     @Autowired
     private TestRestTemplate rest;
 
@@ -125,13 +130,6 @@ class JiuwenMemoryAgentEndToEndTest {
         registry.add("openjiuwen.service.middleware.memory.timeout-ms", () -> "3000");
         registry.add("openjiuwen.service.middleware.memory.retry.max", () -> "0");
         registry.add("openjiuwen.service.middleware.memory.circuit-breaker.enabled", () -> "false");
-    }
-
-    @BeforeAll
-    static void registerModelFactory() {
-        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
-            Model.registerFactory(new JiuwenE2eModelFactory());
-        }
     }
 
     @BeforeEach

@@ -12,6 +12,7 @@ import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSession;
 import com.openjiuwen.core.session.AgentSessionApi;
+import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
@@ -238,9 +239,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return;
         }
         // Both the auto-configuration and an explicitly supplied registrar publish here.
-        Map<String, Object> checkpointer = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
-        if (checkpointer != null && ("redis".equals(checkpointer.get("type"))
-                || "redis_checkpointer_cluster".equals(checkpointer.get("type")))) {
+        CheckpointerConfig checkpointer = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
+        if (checkpointer != null && ("redis".equals(checkpointer.getType())
+                || "redis_checkpointer_cluster".equals(checkpointer.getType()))) {
             config.setTodoStorageType(CheckpointerRedisTodoStorageProvider.TYPE);
         }
     }
@@ -262,7 +263,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             if (externalSvcAdapterRegistrar != null) {
                 externalSvcAdapterRegistrar.registerToRunner();
             }
-            Runner.start();
+            var start = Runner.start();
+            if (start != null) {
+                start.toCompletableFuture().join();
+            }
         } catch (RuntimeException | Error ex) {
             RUNNER_STARTED.set(false);
             throw ex;
@@ -290,6 +294,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     static boolean isRunnerStarted() {
         return RUNNER_STARTED.get();
+    }
+
+    /**
+     * Resets the runner-started flag so a subsequent {@link #start()} re-applies registrar config.
+     */
+    public static void resetRunnerStarted() {
+        RUNNER_STARTED.set(false);
     }
 
     @Override

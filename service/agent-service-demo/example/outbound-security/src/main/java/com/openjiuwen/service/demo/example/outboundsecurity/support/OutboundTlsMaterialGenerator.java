@@ -44,7 +44,7 @@ public final class OutboundTlsMaterialGenerator {
          * @return location string
          */
         public String serverKeyStoreLocation() {
-            return serverKeyStore.toUri().toString();
+            return springFileLocation(serverKeyStore);
         }
 
         /**
@@ -53,7 +53,11 @@ public final class OutboundTlsMaterialGenerator {
          * @return location string
          */
         public String clientTrustStoreLocation() {
-            return clientTrustStore.toUri().toString();
+            return springFileLocation(clientTrustStore);
+        }
+
+        private static String springFileLocation(java.nio.file.Path path) {
+            return "file:" + path.toAbsolutePath().toString().replace('\\', '/');
         }
     }
 
