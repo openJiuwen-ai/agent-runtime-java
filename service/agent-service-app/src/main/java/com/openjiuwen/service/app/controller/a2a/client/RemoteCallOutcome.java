@@ -8,6 +8,8 @@ import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 
 import org.a2aproject.sdk.spec.TaskState;
 
+import java.util.Map;
+
 /**
  * Structured terminal or input-required result for a coordinator-owned
  * {@link RemoteAgentCaller#callOutcome} invocation.
@@ -22,9 +24,15 @@ import org.a2aproject.sdk.spec.TaskState;
  * @param inputPrompt    the input-required prompt; non-{@code null} only when
  *                       {@code remoteState} is interrupted
  * @param remoteFailure  specific remote failure descriptor, when reported
+ * @param responseMetadata independent metadata of a successful response, empty for legacy or non-success outcomes
  */
 public record RemoteCallOutcome(String remoteTaskId, TaskState remoteState, String resultCategory, String result,
-        String inputPrompt, AgentFailureDescriptor remoteFailure) {
+        String inputPrompt, AgentFailureDescriptor remoteFailure, Map<String, Object> responseMetadata) {
+    public RemoteCallOutcome(String remoteTaskId, TaskState remoteState, String resultCategory, String result,
+            String inputPrompt, AgentFailureDescriptor remoteFailure) {
+        this(remoteTaskId, remoteState, resultCategory, result, inputPrompt, remoteFailure, Map.of());
+    }
+
     /**
      * Backward-compatible constructor for outcomes without a structured remote error.
      *

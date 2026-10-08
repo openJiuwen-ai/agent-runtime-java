@@ -20,6 +20,7 @@ import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 
 import org.a2aproject.sdk.client.ClientEvent;
+import org.a2aproject.sdk.client.MessageEvent;
 import org.a2aproject.sdk.client.TaskEvent;
 import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.spec.Artifact;
@@ -46,6 +47,56 @@ import java.util.concurrent.CompletableFuture;
  */
 class A2ARemoteAgentClientResultTest {
     private static final Gson GSON = new Gson();
+
+    @Test
+    void responseMetadataIsKeptSeparateAndOnlyReadAtSuccessfulCompletion() throws Exception {
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        Method method = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class,
+                RemoteAgentCaller.EventObserver.class, boolean.class);
+        method.setAccessible(true);
+        Map<String, Object> metadata = Map.of("leadOut", List.of("service-next"));
+        Artifact answer = Artifact.builder().artifactId("answer").parts(new TextPart("business-answer")).build();
+        Map<String, Object> taskMetadata = Map.of("_agentcore_response_metadata", metadata);
+        try {
+            for (TaskState state : List.of(TaskState.TASK_STATE_COMPLETED, TaskState.TASK_STATE_FAILED,
+                    TaskState.TASK_STATE_INPUT_REQUIRED, TaskState.TASK_STATE_CANCELED)) {
+                Task task = Task.builder().id("task").contextId("context").status(new TaskStatus(state))
+                        .artifacts(List.of(answer)).metadata(taskMetadata).build();
+                CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+                method.invoke(client, new TaskStatusUpdateEvent("task", task.status(), "context", Map.of()),
+                        task, result, mock(RemoteAgentCaller.EventObserver.class), false);
+                assertThat(result.getNow(null).responseMetadata())
+                        .isEqualTo(state == TaskState.TASK_STATE_COMPLETED ? metadata : Map.of());
+                if (state == TaskState.TASK_STATE_COMPLETED) {
+                    assertThat(result.getNow(null).result()).isEqualTo("business-answer");
+                }
+            }
+        } finally {
+            client.shutdown();
+        }
+    }
+
+    @Test
+    void messageResponseMetadataIsReadWithoutChangingBusinessText() throws Exception {
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        Method method = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeMessage",
+                MessageEvent.class, CompletableFuture.class);
+        method.setAccessible(true);
+        MessageEvent event = mock(MessageEvent.class);
+        Map<String, Object> metadata = Map.of("leadOut", "next");
+        org.mockito.Mockito.when(event.getMessage()).thenReturn(Message.builder().role(Message.Role.ROLE_AGENT)
+                .taskId("task").parts(new TextPart("done"))
+                .metadata(Map.of("_agentcore_response_metadata", metadata)).build());
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        try {
+            method.invoke(client, event, result);
+            assertThat(result.getNow(null).result()).isEqualTo("done");
+            assertThat(result.getNow(null).responseMetadata()).isEqualTo(metadata);
+        } finally {
+            client.shutdown();
+        }
+    }
 
     @Test
     void remoteStatesMapToStableResultCategories() {

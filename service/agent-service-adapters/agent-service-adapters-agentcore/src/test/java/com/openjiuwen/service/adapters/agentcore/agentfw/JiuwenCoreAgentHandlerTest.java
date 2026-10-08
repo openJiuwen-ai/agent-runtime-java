@@ -55,6 +55,13 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 class JiuwenCoreAgentHandlerTest {
     @Test
+    void synchronousFallbackRejectsErrorChunk() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new ErrorStreamingAgent());
+        assertThatThrownBy(() -> handler.query(request("c-query-error", "fail")))
+                .isInstanceOf(IllegalStateException.class).hasMessage("Connection refused");
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void passesQueryContextToRunnerInputs() {
         CapturingAgent agent = new CapturingAgent();
