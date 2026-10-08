@@ -263,7 +263,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             if (externalSvcAdapterRegistrar != null) {
                 externalSvcAdapterRegistrar.registerToRunner();
             }
-            Runner.start();
+            var start = Runner.start();
+            if (start != null) {
+                start.toCompletableFuture().join();
+            }
         } catch (RuntimeException | Error ex) {
             RUNNER_STARTED.set(false);
             throw ex;
