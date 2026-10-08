@@ -293,7 +293,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return RUNNER_STARTED.get();
     }
 
-    static void resetRunnerStarted() {
+    /** Resets the runner-started flag so a subsequent {@link #start()} re-applies registrar config. */
+    public static void resetRunnerStarted() {
         RUNNER_STARTED.set(false);
     }
 
