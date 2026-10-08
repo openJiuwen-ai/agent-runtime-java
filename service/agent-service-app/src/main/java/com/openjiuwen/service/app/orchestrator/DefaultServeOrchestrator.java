@@ -133,6 +133,15 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
             }
 
             @Override
+            public void onComplete(QueryResponse response) {
+                if (!isCancelled()) {
+                    observer.onComplete(response);
+                } else {
+                    observer.onComplete();
+                }
+            }
+
+            @Override
             public boolean isCancelled() {
                 return handle.isCancelled() || observer.isCancelled();
             }

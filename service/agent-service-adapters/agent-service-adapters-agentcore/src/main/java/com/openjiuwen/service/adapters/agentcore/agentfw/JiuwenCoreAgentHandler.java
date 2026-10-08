@@ -349,31 +349,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
         try {
             List<Map<String, Object>> interrupts = new ArrayList<>();
-            List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
-            Iterator<Object> source = executeAgentStreaming(buildInputs(request), runnerSession(request),
-                    streamModes);
-            while (!observer.isCancelled() && source.hasNext()) {
-                if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
-                    break;
-                }
-                Object raw = source.next();
-                Object normalized = normalizeChunk(raw);
-                String chunkType = mapToQueryChunkType(normalized);
-                if (QueryChunk.TYPE_ERROR.equals(chunkType)) {
-                    observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, normalized));
-                    observer.onError(toStreamException(normalized));
-                    return;
-                }
-                if (QueryChunk.TYPE_INTERRUPT.equals(chunkType) && normalized instanceof Map<?, ?> map) {
-                    interrupts.add(copyStringMap(map));
-                } else {
-                    observer.onNext(new QueryChunk(chunkType, normalized));
-                }
+            Object session = runnerSession(request);
+            if (!forwardStream(request, observer, session, interrupts)) {
+                return;
             }
-            if (!observer.isCancelled() && !interrupts.isEmpty()) {
-                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, normalizeInterrupts(interrupts)));
-            }
-            observer.onComplete();
+            finishStream(observer, session, interrupts, convId);
         } catch (CancellationException ex) {
             observer.onComplete();
         } catch (Exception ex) {
@@ -385,12 +365,70 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
     }
 
+    private boolean forwardStream(ServeRequest request, QueryStreamObserver observer, Object session,
+            List<Map<String, Object>> interrupts) {
+        Iterator<Object> source = executeAgentStreaming(buildInputs(request), session, List.of(StreamMode.OUTPUT));
+        while (!observer.isCancelled() && source.hasNext()) {
+            if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
+                return true;
+            }
+            Object normalized = normalizeChunk(source.next());
+            if (!forwardChunk(normalized, observer, interrupts)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean forwardChunk(Object normalized, QueryStreamObserver observer,
+            List<Map<String, Object>> interrupts) {
+        String chunkType = mapToQueryChunkType(normalized);
+        if (QueryChunk.TYPE_ERROR.equals(chunkType)) {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, normalized));
+            observer.onError(toStreamException(normalized));
+            return false;
+        }
+        if (QueryChunk.TYPE_INTERRUPT.equals(chunkType) && normalized instanceof Map<?, ?> map) {
+            interrupts.add(copyStringMap(map));
+        } else {
+            observer.onNext(new QueryChunk(chunkType, normalized));
+        }
+        return true;
+    }
+
+    private void finishStream(QueryStreamObserver observer, Object session,
+            List<Map<String, Object>> interrupts, String conversationId) {
+        if (!observer.isCancelled() && !interrupts.isEmpty()) {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, normalizeInterrupts(interrupts)));
+        }
+        if (canExportResponseMetadata(observer, interrupts)) {
+            Map<String, Object> metadata = responseMetadata(session);
+            if (metadata.isEmpty()) {
+                observer.onComplete();
+            } else {
+                observer.onComplete(new QueryResponse(null, conversationId, metadata));
+            }
+            return;
+        }
+        observer.onComplete();
+    }
+
+    private static boolean canExportResponseMetadata(QueryStreamObserver observer,
+            List<Map<String, Object>> interrupts) {
+        return !observer.isCancelled() && !Thread.currentThread().isInterrupted() && interrupts.isEmpty();
+    }
+
     @Override
     public QueryResponse query(ServeRequest request) {
         FutureTask<QueryResponse> execution = new FutureTask<>(() -> {
             if (supportsInvoke(agent)) {
-                Object rawResult = executeAgent(buildInputs(request), runnerSession(request));
-                return toQueryResponse(rawResult, request.getConversationId());
+                Object session = runnerSession(request);
+                Object rawResult = executeAgent(buildInputs(request), session);
+                QueryResponse response = toQueryResponse(rawResult, request.getConversationId());
+                if (!isInterruptResponse(response) && !Thread.currentThread().isInterrupted()) {
+                    response.setMetadata(responseMetadata(session));
+                }
+                return response;
             }
             return queryViaStreaming(request);
         });
@@ -416,10 +454,14 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         Object lastPayload = null;
         List<Map<String, Object>> interrupts = new ArrayList<>();
         List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
-        Iterator<Object> source = executeAgentStreaming(buildInputs(request), runnerSession(request),
+        Object session = runnerSession(request);
+        Iterator<Object> source = executeAgentStreaming(buildInputs(request), session,
                 streamModes);
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
+            if (QueryChunk.TYPE_ERROR.equals(mapToQueryChunkType(payload))) {
+                throw toStreamException(payload);
+            }
             lastPayload = payload;
             if (isCoreInteraction(payload) && payload instanceof Map<?, ?> map) {
                 interrupts.add(copyStringMap(map));
@@ -430,7 +472,25 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (!interrupts.isEmpty()) {
             return buildInterruptQueryResponse(normalizeInterrupts(interrupts), request.getConversationId());
         }
-        return buildQueryResponse(lastPayload, content, request.getConversationId());
+        QueryResponse response = buildQueryResponse(lastPayload, content, request.getConversationId());
+        if (!Thread.currentThread().isInterrupted()) {
+            response.setMetadata(responseMetadata(session));
+        }
+        return response;
+    }
+
+    private static boolean isInterruptResponse(QueryResponse response) {
+        return response.getResult() instanceof Map<?, ?> result && result.containsKey("_interrupt");
+    }
+
+    /**
+     * Reads response metadata from the same request session used by the runner.
+     *
+     * @param session the request-scoped runner session
+     * @return structured response metadata, or an empty map when none is available
+     */
+    protected Map<String, Object> responseMetadata(Object session) {
+        return Map.of();
     }
 
     /**
@@ -446,6 +506,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (rawResult instanceof Map<?, ?> rawMap) {
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) rawMap;
+            if (QueryChunk.TYPE_ERROR.equals(map.get("type")) || "error".equals(map.get("result_type"))) {
+                throw toStreamException(map);
+            }
             Optional<QueryResponse> result1 = getQueryResponse(conversationId, map);
             if (result1.isPresent()) {
                 return result1.get();

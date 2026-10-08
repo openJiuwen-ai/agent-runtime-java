@@ -24,6 +24,8 @@ import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskStatus;
+import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -276,113 +278,139 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private void executeStreaming(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req,
             AgentEmitter emitter) {
-        AtomicBoolean cancelled = new AtomicBoolean(false);
-        StreamVerdict verdict = new StreamVerdict();
-        activeCancellations.put(ctx.getContextId(), cancelled);
+        StreamingState state = new StreamingState(msgCtx, emitter);
+        activeCancellations.put(ctx.getContextId(), state.cancelled);
         try {
-            orchestrator.streamQuery(req, new QueryStreamObserver() {
-                @Override
-                public void onNext(QueryChunk chunk) {
-                    handleStreamingChunk(chunk, msgCtx, emitter, verdict);
-                }
-
-                @Override
-                public void onComplete() {
-                    if (verdict.interrupted.get()) {
-                        log.info("A2A stream ended after interrupt (COMPLETED suppressed) taskId={}",
-                                msgCtx.getTaskId());
-                    } else if (verdict.canceled.get()) {
-                        log.info("A2A stream ended after cancel (COMPLETED suppressed) taskId={}",
-                                msgCtx.getTaskId());
-                    } else if (verdict.failed.get()) {
-                        log.info("A2A stream ended after failure (COMPLETED suppressed) taskId={}", msgCtx.getTaskId());
-                    } else {
-                        log.info("A2A stream complete taskId={}", msgCtx.getTaskId());
-                        emitter.complete();
-                    }
-                }
-
-                @Override
-                public void onError(Throwable error) {
-                    log.error("A2A agent stream error taskId={} contextId={}", msgCtx.getTaskId(),
-                            msgCtx.getContextId(), error);
-                    if (verdict.failed.compareAndSet(false, true)) {
-                        failAndDrain(emitter, msgCtx, error);
-                    }
-                }
-
-                @Override
-                public boolean isCancelled() {
-                    return cancelled.get();
-                }
-            });
+            orchestrator.streamQuery(req, streamingObserver(state));
         } finally {
             activeCancellations.remove(ctx.getContextId());
         }
     }
 
-    /**
-     * Terminal signals seen on one stream.
-     *
-     * <p>The three flags travel together: every reader wants "has this task already been decided",
-     * and the first one to be set wins. Keeping them in one object is also what keeps the chunk
-     * handler's parameter list within the limit.</p>
-     */
-    private static final class StreamVerdict {
-        private final AtomicBoolean interrupted = new AtomicBoolean(false);
+    private QueryStreamObserver streamingObserver(StreamingState state) {
+        return new QueryStreamObserver() {
+            @Override
+            public void onNext(QueryChunk chunk) {
+                if (!state.completed.get() && !state.cancelled.get()) {
+                    handleStreamingChunk(chunk, state);
+                }
+            }
 
-        private final AtomicBoolean failed = new AtomicBoolean(false);
+            @Override
+            public void onComplete() {
+                finishStreaming(state, null);
+            }
 
-        private final AtomicBoolean canceled = new AtomicBoolean(false);
+            @Override
+            public void onComplete(QueryResponse response) {
+                finishStreaming(state, response);
+            }
 
-        private boolean decided() {
-            return interrupted.get() || failed.get() || canceled.get();
+            @Override
+            public void onError(Throwable error) {
+                failStreaming(state, error);
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return state.cancelled.get();
+            }
+        };
+    }
+
+    private static void finishStreaming(StreamingState state, QueryResponse response) {
+        if (!state.completed.compareAndSet(false, true)) {
+            return;
+        }
+        if (state.interrupted.get()) {
+            log.info("A2A stream ended after interrupt (COMPLETED suppressed) taskId={}", state.msgCtx.getTaskId());
+            return;
+        }
+        if (state.failed.get()) {
+            log.info("A2A stream ended after failure (COMPLETED suppressed) taskId={}", state.msgCtx.getTaskId());
+            return;
+        }
+        if (!state.cancelled.get()) {
+            log.info("A2A stream complete taskId={}", state.msgCtx.getTaskId());
+            completeAndDrain(state.emitter, state.msgCtx.getTaskId(), response);
+            return;
+        }
+        log.debug("A2A stream cancelled before completion taskId={}", state.msgCtx.getTaskId());
+    }
+
+    private void failStreaming(StreamingState state, Throwable error) {
+        if (state.decided()) {
+            return;
+        }
+        if (!state.completed.compareAndSet(false, true)) {
+            return;
+        }
+        log.error("A2A agent stream error taskId={} contextId={}", state.msgCtx.getTaskId(),
+                state.msgCtx.getContextId(), error);
+        if (state.failed.compareAndSet(false, true)) {
+            failAndDrain(state.emitter, state.msgCtx, error);
         }
     }
 
-    private void handleStreamingChunk(QueryChunk chunk, A2AMessageContext msgCtx, AgentEmitter emitter,
-            StreamVerdict verdict) {
-        if (verdict.decided()) {
-            // A terminal signal already decided this task; later chunks must not change the verdict.
+    private void handleStreamingChunk(QueryChunk chunk, StreamingState state) {
+        if (state.decided()) {
             return;
         }
         if (QueryChunk.TYPE_CANCEL.equals(chunk.getType())) {
             log.info("A2A cancel requested by the execution side taskId={} contextId={} reason={}",
-                    msgCtx.getTaskId(), msgCtx.getContextId(), cancelReason(chunk.getData()));
-            verdict.canceled.set(true);
-            cancelTask(msgCtx, emitter);
+                    state.msgCtx.getTaskId(), state.msgCtx.getContextId(), cancelReason(chunk.getData()));
+            state.cancelled.set(true);
+            cancelTask(state.msgCtx, state.emitter);
             return;
         }
         if (QueryChunk.TYPE_ERROR.equals(chunk.getType())) {
-            verdict.failed.set(true);
-            failAndDrain(emitter, msgCtx, streamChunkFailure(chunk));
+            state.failed.set(true);
+            failAndDrain(state.emitter, state.msgCtx, streamChunkFailure(chunk));
             return;
         }
         if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
-            log.info("A2A interrupt detected taskId={} contextId={} message={}", msgCtx.getTaskId(),
-                    msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> map ? map.get("message") : null);
+            log.info("A2A interrupt detected taskId={} contextId={} message={}", state.msgCtx.getTaskId(),
+                    state.msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> map ? map.get("message") : null);
             if (chunk.getData() instanceof Map<?, ?> interruptData) {
-                emitter.requiresInput(statusMessage(interruptData));
+                state.emitter.requiresInput(statusMessage(interruptData));
             } else {
-                emitter.requiresInput();
+                state.emitter.requiresInput();
             }
-            closeEventQueue(emitter, msgCtx.getTaskId());
-            verdict.interrupted.set(true);
+            closeEventQueue(state.emitter, state.msgCtx.getTaskId());
+            state.interrupted.set(true);
             return;
         }
         if (QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())
                 && chunk.getData() instanceof TaskArtifactUpdateEvent update) {
-            emitter.emitEvent(new TaskArtifactUpdateEvent(msgCtx.getTaskId(), update.artifact(),
-                    msgCtx.getContextId(), update.append(), update.lastChunk(), update.metadata()));
+            state.emitter.emitEvent(new TaskArtifactUpdateEvent(state.msgCtx.getTaskId(), update.artifact(),
+                    state.msgCtx.getContextId(), update.append(), update.lastChunk(), update.metadata()));
             return;
         }
         List<Part<?>> parts = chunkMapper.toParts(chunk);
         if (!parts.isEmpty()) {
             if (chunkMapper.isTerminalResult(chunk)) {
-                emitter.addArtifact(parts, null, null, Map.of(A2aPartContent.TERMINAL_RESULT_METADATA, true));
+                state.emitter.addArtifact(parts, null, null, Map.of(A2aPartContent.TERMINAL_RESULT_METADATA, true));
             } else {
-                emitter.addArtifact(parts);
+                state.emitter.addArtifact(parts);
             }
+        }
+    }
+
+    private static final class StreamingState {
+        private final A2AMessageContext msgCtx;
+        private final AgentEmitter emitter;
+        private final AtomicBoolean cancelled = new AtomicBoolean(false);
+        private final AtomicBoolean interrupted = new AtomicBoolean(false);
+        private final AtomicBoolean failed = new AtomicBoolean(false);
+        private final AtomicBoolean completed = new AtomicBoolean(false);
+
+        private StreamingState(A2AMessageContext msgCtx, AgentEmitter emitter) {
+            this.msgCtx = msgCtx;
+            this.emitter = emitter;
+        }
+
+        private boolean decided() {
+            return interrupted.get() || failed.get() || cancelled.get() || completed.get();
         }
     }
 
@@ -421,12 +449,12 @@ public class A2AAgentExecutor implements AgentExecutor {
         } else if (response.getResult() instanceof Map<?, ?> result) {
             Object content = result.get("content");
             if (content != null) {
-                emitter.addArtifact(List.of(new TextPart(String.valueOf(content))), null, null,
-                        Map.of(A2aPartContent.TERMINAL_RESULT_METADATA, true));
+                emitter.addArtifact(List.of(new TextPart(String.valueOf(content))),
+                        null, null, Map.of(A2aPartContent.TERMINAL_RESULT_METADATA, true));
             }
-            completeAndDrain(emitter, msgCtx.getTaskId());
+            completeAndDrain(emitter, msgCtx.getTaskId(), response);
         } else {
-            completeAndDrain(emitter, msgCtx.getTaskId());
+            completeAndDrain(emitter, msgCtx.getTaskId(), response);
         }
     }
 
@@ -466,6 +494,16 @@ public class A2AAgentExecutor implements AgentExecutor {
             return String.valueOf(map.get("reason"));
         }
         return "";
+    }
+
+    private static boolean hasResponseMetadata(QueryResponse response) {
+        return response != null && response.getMetadata() != null && !response.getMetadata().isEmpty();
+    }
+
+    private static TaskStatusUpdateEvent completionEvent(AgentEmitter emitter, QueryResponse response) {
+        return TaskStatusUpdateEvent.builder().taskId(emitter.getTaskId()).contextId(emitter.getContextId())
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
+                .metadata(Map.of(A2aPartContent.RESPONSE_METADATA, response.getMetadata())).build();
     }
 
     private static Message statusMessage(Map<?, ?> interruptData) {
@@ -548,6 +586,19 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private static void completeAndDrain(AgentEmitter emitter, String taskId) {
         emitter.complete();
+        drainCompletedQueue(emitter, taskId);
+    }
+
+    private static void completeAndDrain(AgentEmitter emitter, String taskId, QueryResponse response) {
+        if (hasResponseMetadata(response)) {
+            emitter.emitEvent(completionEvent(emitter, response));
+        } else {
+            emitter.complete();
+        }
+        drainCompletedQueue(emitter, taskId);
+    }
+
+    private static void drainCompletedQueue(AgentEmitter emitter, String taskId) {
         try {
             Optional<org.a2aproject.sdk.server.events.EventQueue> queue = emitterEventQueue(emitter);
             queue.ifPresent(q -> awaitInFlightDrained(q, taskId, CLOSE_DRAIN_TIMEOUT_MS));

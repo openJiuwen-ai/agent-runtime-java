@@ -85,7 +85,7 @@ final class RemoteInvocationBatchMapper {
             }
             int memberIndex = item.get("index") instanceof Number number ? number.intValue() : index;
             Member member = new Member(memberIndex, toolCallId, stringValue(item.get("toolName")), agentName,
-                    stringValue(item.get("message")));
+                    stringValue(item.get("message")), contextMetadata(context));
             member.parts = parseMemberParts(context.get("parts"), member);
             members.add(member);
         }
@@ -107,12 +107,17 @@ final class RemoteInvocationBatchMapper {
             }
             int index = rawMember.get("index") instanceof Number number ? number.intValue() : members.size();
             Member member = new Member(index, stringValue(rawMember.get("toolCallId")),
-                    stringValue(rawMember.get("toolName")), stringValue(rawMember.get("agentName")), "");
+                    stringValue(rawMember.get("toolName")), stringValue(rawMember.get("agentName")), "",
+                    rawMember.get("requestMetadata") instanceof Map<?, ?> metadata
+                            ? contextMetadata(copyMap(metadata)) : Map.of());
             member.parts = normalizedParts(rawMember.get("parts"));
             member.state = MemberState.valueOf(stringValue(rawMember.get("state")));
             member.remoteTaskId = stringValue(rawMember.get("remoteTaskId"));
             member.resultCategory = optionalNonBlank(stringValue(rawMember.get("resultCategory"))).orElse(null);
             member.result = rawMember.get("result");
+            Object rawResponseMetadata = rawMember.get("responseMetadata");
+            member.responseMetadata = completedState(member.state) && rawResponseMetadata instanceof Map<?, ?> metadata
+                    ? copyMap(metadata) : Map.of();
             restoreFailure(member);
             member.inputPrompt = optionalNonBlank(stringValue(rawMember.get("inputPrompt"))).orElse(null);
             members.add(member);
@@ -156,12 +161,17 @@ final class RemoteInvocationBatchMapper {
         if (outcome.remoteState() == TaskState.TASK_STATE_INPUT_REQUIRED
                 || outcome.remoteState() == TaskState.TASK_STATE_AUTH_REQUIRED) {
             member.state = MemberState.INPUT_REQUIRED;
+            member.responseMetadata = Map.of();
             member.inputPrompt = outcome.inputPrompt() == null ? "Remote agent requires input" : outcome.inputPrompt();
         } else if (outcome.remoteState() == TaskState.TASK_STATE_COMPLETED) {
             member.state = MemberState.COMPLETED;
             member.result = outcome.result() == null ? "" : outcome.result();
+            member.responseMetadata = outcome.responseMetadata() == null
+                    ? Map.of() : copyMap(outcome.responseMetadata());
         } else {
-            String message = outcome.result() == null || outcome.result().isBlank() ? "Remote task did not complete"
+            member.responseMetadata = Map.of();
+            String message = outcome.result() == null || outcome.result().isBlank()
+                    ? "Remote task did not complete"
                     : outcome.result();
             member.fail(MemberState.FAILED, outcome.resultCategory(), message);
             member.remoteFailure = outcome.remoteFailure();
@@ -184,7 +194,8 @@ final class RemoteInvocationBatchMapper {
                 : (statusText.isBlank() ? taskText : statusText);
         AgentFailureDescriptor remoteFailure = status == null || status.message() == null ? null
                 : A2aErrorMetadata.decode(status.message().metadata()).orElse(null);
-        return new RemoteCallOutcome(task.id(), state, resultCategory(state), resultText, null, remoteFailure);
+        return new RemoteCallOutcome(task.id(), state, resultCategory(state), resultText, null, remoteFailure,
+                state == TaskState.TASK_STATE_COMPLETED ? A2aPartContent.extractTaskResponseMetadata(task) : Map.of());
     }
 
     Map<String, Object> snapshot(RemoteInvocationBatch batch, String state) {
@@ -202,6 +213,9 @@ final class RemoteInvocationBatchMapper {
             value.put("toolName", member.toolName);
             value.put("agentName", member.agentName);
             value.put("state", member.state.name());
+            if (!member.requestMetadata.isEmpty()) {
+                value.put("requestMetadata", member.requestMetadata);
+            }
             putIfNotBlank(value, "remoteTaskId", member.remoteTaskId);
             if (!member.parts.isEmpty()) {
                 value.put("parts", member.parts);
@@ -211,6 +225,9 @@ final class RemoteInvocationBatchMapper {
                 Object result = member.state == MemberState.COMPLETED && member.result != null ? member.result
                         : toolResult(member);
                 value.put("result", result);
+            }
+            if (member.state == MemberState.COMPLETED && !member.responseMetadata.isEmpty()) {
+                value.put("responseMetadata", copyMap(member.responseMetadata));
             }
             putIfNotBlank(value, "inputPrompt", member.inputPrompt);
             members.add(value);
@@ -255,12 +272,16 @@ final class RemoteInvocationBatchMapper {
                 .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
         if (hasWaitingMember) {
             return new RemoteInvocationBatchCoordinator.BatchResolution(batch.batchId, false, Map.of(),
-                    publicInterrupt(batch), batch.shouldResume, batch.parentParamsMetadata);
+                    publicInterrupt(batch), batch.shouldResume, batch.parentParamsMetadata, Map.of());
         }
         Map<String, Object> results = new LinkedHashMap<>();
+        Map<String, Object> responseMetadata = new LinkedHashMap<>();
         batch.members.forEach(member -> results.put(member.toolCallId, toolResult(member)));
+        batch.members.stream().filter(member -> member.state == MemberState.COMPLETED)
+                .filter(member -> !member.responseMetadata.isEmpty())
+                .forEach(member -> responseMetadata.put(member.toolCallId, copyMetadataValue(member.responseMetadata)));
         return new RemoteInvocationBatchCoordinator.BatchResolution(batch.batchId, true, results, Map.of(),
-                batch.shouldResume, batch.parentParamsMetadata);
+                batch.shouldResume, batch.parentParamsMetadata, responseMetadata);
     }
 
     private static void restoreFailure(Member member) {
@@ -290,6 +311,21 @@ final class RemoteInvocationBatchMapper {
             return items;
         }
         return List.of(new LinkedHashMap<>(interrupt));
+    }
+
+    private static Map<String, Object> contextMetadata(Map<String, Object> context) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        context.forEach((key, value) -> {
+            if (!isInterruptControlKey(key)) {
+                metadata.put(key, copyMetadataValue(value));
+            }
+        });
+        return metadata;
+    }
+
+    private static boolean isInterruptControlKey(String key) {
+        return "_interrupt_kind".equals(key) || "agentName".equals(key) || "resume".equals(key)
+                || "parts".equals(key);
     }
 
     private static Map<String, Object> publicInterrupt(RemoteInvocationBatch batch) {
@@ -329,6 +365,10 @@ final class RemoteInvocationBatchMapper {
             error.put("remoteError", A2aErrorMetadata.encode(member.remoteFailure));
         }
         return error;
+    }
+
+    private static boolean completedState(MemberState state) {
+        return state == MemberState.COMPLETED;
     }
 
     private static Map<String, Object> requestSnapshot(ServeRequest request, Map<String, Object> parentMetadata) {
@@ -434,7 +474,7 @@ final class RemoteInvocationBatchMapper {
 
     private static Map<String, Object> copyMap(Map<?, ?> value) {
         Map<String, Object> result = new LinkedHashMap<>();
-        value.forEach((key, item) -> result.put(String.valueOf(key), item));
+        value.forEach((key, item) -> result.put(String.valueOf(key), copyMetadataValue(item)));
         return result;
     }
 

@@ -64,6 +64,8 @@ final class RemoteInvocationBatch {
 
         final String agentName;
 
+        final Map<String, Object> requestMetadata;
+
         String message;
 
         /** Normalized Part list carried from the interrupt payload; empty when absent. */
@@ -74,6 +76,9 @@ final class RemoteInvocationBatch {
         String remoteTaskId = "";
 
         Object result;
+
+        /** Response-side metadata exported only when this remote member completes successfully. */
+        Map<String, Object> responseMetadata = Map.of();
 
         String resultCategory;
 
@@ -90,14 +95,21 @@ final class RemoteInvocationBatch {
         Instant completedAt;
 
         Member(int index, String toolCallId, String toolName, String agentName, String message) {
+            this(index, toolCallId, toolName, agentName, message, Map.of());
+        }
+
+        Member(int index, String toolCallId, String toolName, String agentName, String message,
+                Map<String, Object> requestMetadata) {
             this.index = index;
             this.toolCallId = toolCallId;
             this.toolName = toolName;
             this.agentName = agentName;
             this.message = message;
+            this.requestMetadata = Map.copyOf(requestMetadata);
         }
 
         void fail(MemberState failedState, String category, String failureMessage) {
+            responseMetadata = Map.of();
             resultCategory = category;
             errorMessage = failureMessage;
             remoteFailure = null;

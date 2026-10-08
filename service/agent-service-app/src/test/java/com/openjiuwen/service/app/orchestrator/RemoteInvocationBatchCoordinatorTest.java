@@ -801,6 +801,37 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     @Test
+    void followUpContextReachesOnlyTheSelectedRemoteMember() {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        when(client.callOutcome(any(), any()))
+                .thenAnswer(invocation -> CompletableFuture.completedFuture(completed("remote", "done")));
+        RemoteInvocationBatchCoordinator coordinator = coordinator(client, 2);
+        Map<String, Object> followUp = Map.of("query", "ok", "selectedCapabilityId", "cap.next",
+                "offers", List.of(Map.of("capabilityId", "cap.next")));
+        Map<String, Object> urlPart = Map.of("kind", "url", "url", "https://example.com/report.pdf");
+        Map<String, Object> first = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-a",
+                "message", "ok", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                        "agentName", "agent-a", "parts", List.of(urlPart), "business.follow_up", followUp));
+        Map<String, Object> second = Map.of("index", 1, "toolCallId", "call-b", "toolName", "tool-b",
+                "message", "other", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                        "agentName", "agent-b"));
+        ServeRequest request = request("parent-followup", Map.of("traceId", "trace-1"));
+
+        coordinator.execute(Map.of("items", List.of(first, second)), request,
+                mock(QueryStreamObserver.class)).join();
+
+        ArgumentCaptor<RemoteCall> calls = ArgumentCaptor.forClass(RemoteCall.class);
+        verify(client, times(2)).callOutcome(calls.capture(), any());
+        Map<String, RemoteCall> byAgent = calls.getAllValues().stream()
+                .collect(java.util.stream.Collectors.toMap(RemoteCall::agentName, call -> call));
+        assertThat(byAgent.get("agent-a").metadata()).containsEntry("traceId", "trace-1")
+                .containsEntry("business.follow_up", followUp).doesNotContainKey("parts");
+        assertThat(byAgent.get("agent-a").parts()).containsExactly(urlPart);
+        assertThat(byAgent.get("agent-b").parts()).isEmpty();
+        assertThat(byAgent.get("agent-b").metadata()).containsOnly(Map.entry("traceId", "trace-1"));
+    }
+
+    @Test
     void directResumeUsesCurrentMetadataAndRestoresParent() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         InMemoryTaskStore store = new InMemoryTaskStore();

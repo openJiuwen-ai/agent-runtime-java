@@ -114,6 +114,86 @@ class A2AEnabledServeOrchestratorTest {
         assertThat(completed.get()).isTrue();
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void remoteMetadataReachesLocalResumeWithoutEnteringToolResults(boolean isStreaming) throws Exception {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        Map<String, Object> responseMetadata = Map.of("leadOut", "next-service");
+        when(a2aClient.callOutcome(any(), any())).thenReturn(CompletableFuture.completedFuture(
+                new RemoteCallOutcome("remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "done",
+                        null, null, responseMetadata)));
+        AtomicInteger localRuns = new AtomicInteger();
+        java.util.function.Function<ServeRequest, QueryResponse> local = request -> {
+            if (localRuns.getAndIncrement() == 0) {
+                return new QueryResponse(Map.of("_interrupt", Map.of("type", "__interaction__",
+                        "toolCallId", "call-1", "toolName", "a2a_delegate", "message", "go",
+                        "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "remote-agent"))), "c1");
+            }
+            assertThat(request.getRemoteResponseMetadata()).isEqualTo(Map.of("call-1", responseMetadata));
+            assertThat(request.getMetadata().get("runtime.remoteToolResults")).isEqualTo(Map.of("call-1", "done"));
+            assertThat(request.getMetadata()).doesNotContainKeys("leadOut", "runtime.response_metadata");
+            return new QueryResponse(Map.of("content", "parent-done"), "c1");
+        };
+        when(agentHandler.query(any())).thenAnswer(invocation -> local.apply(invocation.getArgument(0)));
+        doAnswer(invocation -> {
+            QueryResponse response = local.apply(invocation.getArgument(0));
+            QueryStreamObserver observer = invocation.getArgument(1);
+            Map<?, ?> result = (Map<?, ?>) response.getResult();
+            if (result.containsKey("_interrupt")) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, result.get("_interrupt")));
+            }
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        ServeRequest request = req("c1");
+        request.setStream(isStreaming);
+        if (isStreaming) {
+            QueryStreamObserver observer = mock(QueryStreamObserver.class);
+            orchestrator.streamQuery(request, observer);
+            verify(observer, never()).onError(any());
+        } else {
+            assertThat(orchestrator.query(request).getMetadata()).isNullOrEmpty();
+        }
+        assertThat(localRuns.get()).isEqualTo(2);
+        assertThat(request.getRemoteResponseMetadata()).isEmpty();
+    }
+
+    @Test
+    void directRemoteResponseExportsMetadataAndForwardsBusinessArtifact() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        Map<String, Object> metadata = Map.of("leadOut", "next-service");
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
+            RemoteAgentCaller.EventObserver events = invocation.getArgument(1);
+            var artifact = org.a2aproject.sdk.spec.Artifact.builder().artifactId("business")
+                    .parts(new org.a2aproject.sdk.spec.TextPart("done")).build();
+            events.onArtifact(new org.a2aproject.sdk.spec.TaskArtifactUpdateEvent("remote-task", artifact,
+                    "c1", false, true, Map.of()));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-task",
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "done", null, null, metadata));
+        });
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("type", "__interaction__",
+                    "toolCallId", "call-1", "toolName", "a2a_delegate", "message", "go", "context",
+                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "remote-agent", "resume", false))));
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        orchestrator.streamQuery(req("c1"), observer);
+
+        verify(observer).onComplete(argThat(response -> response != null && metadata.equals(response.getMetadata())));
+        verify(observer).onNext(argThat(chunk -> QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())
+                && chunk.getData() instanceof org.a2aproject.sdk.spec.TaskArtifactUpdateEvent update
+                && update.artifact().parts().equals(List.of(new org.a2aproject.sdk.spec.TextPart("done")))
+                && !update.artifact().metadata().containsKey("_agentcore_response_metadata")));
+    }
+
     @Test
     void streamingClientToolResumeBypassesRemoteBatchProbe() {
         ServeRequest request = req("c-client-tool-stream");
