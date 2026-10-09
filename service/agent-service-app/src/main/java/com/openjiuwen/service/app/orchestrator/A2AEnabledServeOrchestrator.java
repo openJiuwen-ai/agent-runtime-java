@@ -256,15 +256,25 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
      */
     private Optional<QueryChunk> runAgentAndCaptureInterrupt(ServeRequest current, QueryStreamObserver observer,
         StreamCancellationHandle handle) {
-        var interruptHolder = new java.util.concurrent.atomic.AtomicReference<QueryChunk>();
-        var coreCompleted = new java.util.concurrent.atomic.AtomicBoolean(false);
-        var callbackFailed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        AgentStreamState state = new AgentStreamState();
         try {
-            agentHandler.streamQuery(current, new QueryStreamObserver() {
+            agentHandler.streamQuery(current, agentStreamObserver(current, observer, handle, state));
+        } catch (RuntimeException | Error ex) {
+            if (!state.coreCompleted.get()) {
+                batchCoordinator.abortResume(current);
+            }
+            throw ex;
+        }
+        return state.callbackFailed.get() ? Optional.empty() : Optional.ofNullable(state.interruptHolder.get());
+    }
+
+    private QueryStreamObserver agentStreamObserver(ServeRequest current, QueryStreamObserver observer,
+            StreamCancellationHandle handle, AgentStreamState state) {
+        return new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
                 if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
-                    interruptHolder.set(chunk);
+                    state.interruptHolder.set(chunk);
                     return;
                 }
                 observer.onNext(chunk);
@@ -272,39 +282,68 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
 
             @Override
             public void onComplete() {
-                if (handle.isCancelled() || observer.isCancelled()) {
-                    batchCoordinator.abortResume(current);
-                } else {
-                    coreCompleted.set(true);
-                    batchCoordinator.completeResume(current);
-                }
-                if (interruptHolder.get() == null) {
-                    observer.onComplete();
-                }
+                finishAgentStream(current, observer, handle, state, null);
             }
 
             @Override
-            public void onError(Throwable e) {
-                callbackFailed.set(true);
-                if (!coreCompleted.get()) {
-                    batchCoordinator.abortResume(current);
-                }
-                log.error("Agent stream error", e);
-                observer.onError(e);
+            public void onComplete(QueryResponse response) {
+                finishAgentStream(current, observer, handle, state, response);
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                failAgentStream(current, observer, state, error);
             }
 
             @Override
             public boolean isCancelled() {
                 return handle.isCancelled() || observer.isCancelled();
             }
-            });
-        } catch (RuntimeException | Error ex) {
-            if (!coreCompleted.get()) {
-                batchCoordinator.abortResume(current);
-            }
-            throw ex;
+        };
+    }
+
+    private void finishAgentStream(ServeRequest current, QueryStreamObserver observer,
+            StreamCancellationHandle handle, AgentStreamState state, QueryResponse response) {
+        if (!state.completionNotified.compareAndSet(false, true)) {
+            return;
         }
-        return callbackFailed.get() ? Optional.empty() : Optional.ofNullable(interruptHolder.get());
+        if (handle.isCancelled() || observer.isCancelled()) {
+            batchCoordinator.abortResume(current);
+        } else {
+            state.coreCompleted.set(true);
+            batchCoordinator.completeResume(current);
+        }
+        if (state.interruptHolder.get() == null) {
+            if (response != null && !handle.isCancelled() && !observer.isCancelled()) {
+                observer.onComplete(response);
+            } else {
+                observer.onComplete();
+            }
+        }
+    }
+
+    private void failAgentStream(ServeRequest current, QueryStreamObserver observer,
+            AgentStreamState state, Throwable error) {
+        if (!state.completionNotified.compareAndSet(false, true)) {
+            return;
+        }
+        state.callbackFailed.set(true);
+        if (!state.coreCompleted.get()) {
+            batchCoordinator.abortResume(current);
+        }
+        log.error("Agent stream error", error);
+        observer.onError(error);
+    }
+
+    private static final class AgentStreamState {
+        private final java.util.concurrent.atomic.AtomicReference<QueryChunk> interruptHolder =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        private final java.util.concurrent.atomic.AtomicBoolean coreCompleted =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        private final java.util.concurrent.atomic.AtomicBoolean callbackFailed =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        private final java.util.concurrent.atomic.AtomicBoolean completionNotified =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
     }
 
     /**
@@ -438,6 +477,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                     batchCoordinator.execute(interruptData, current, outputObserver).get(), response);
                 if (batchResult.response() != null) {
                     response.setResult(batchResult.response().getResult());
+                    response.setMetadata(batchResult.response().getMetadata());
                     return Optional.empty();
                 }
                 return batchResult.request();
@@ -466,24 +506,47 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
 
     private Optional<ServeRequest> streamBatchResolution(ServeRequest current,
             RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
-        if (resolution.isReadyToResume()) {
-            if (!resolution.shouldResume()) {
-                if (!observer.isCancelled()) {
-                    observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, joinRemoteAnswers(resolution)));
-                    observer.onComplete();
-                }
-                return Optional.empty();
-            }
-            ServeRequest resume = buildBatchResumeRequest(current, resolution);
-            if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
-                observer.onError(new IllegalStateException(CORE_RESUME_IN_FLIGHT + ": " + resolution.batchId()));
-                return Optional.empty();
-            }
-            return Optional.of(resume);
+        if (!resolution.isReadyToResume()) {
+            return streamInputRequiredBatch(resolution, observer);
         }
+        if (!resolution.shouldResume()) {
+            return streamDirectBatchResponse(current, resolution, observer);
+        }
+        return claimBatchResume(current, resolution, observer);
+    }
+
+    private Optional<ServeRequest> streamInputRequiredBatch(
+            RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
         observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, resolution.interrupt()));
         observer.onComplete();
         return Optional.empty();
+    }
+
+    private Optional<ServeRequest> streamDirectBatchResponse(ServeRequest current,
+            RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
+        if (observer.isCancelled()) {
+            return Optional.empty();
+        }
+        String answer = joinRemoteAnswers(resolution);
+        observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, answer));
+        Map<String, Object> metadata = directResponseMetadata(resolution);
+        if (metadata.isEmpty()) {
+            observer.onComplete();
+        } else {
+            observer.onComplete(new QueryResponse(Map.of("role", "assistant", "content", answer),
+                    current.getConversationId(), metadata));
+        }
+        return Optional.empty();
+    }
+
+    private Optional<ServeRequest> claimBatchResume(ServeRequest current,
+            RemoteInvocationBatchCoordinator.BatchResolution resolution, QueryStreamObserver observer) {
+        ServeRequest resume = buildBatchResumeRequest(current, resolution);
+        if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
+            observer.onError(new IllegalStateException(CORE_RESUME_IN_FLIGHT + ": " + resolution.batchId()));
+            return Optional.empty();
+        }
+        return Optional.of(resume);
     }
 
     private QueryResumeResult queryBatchResolution(ServeRequest current,
@@ -493,7 +556,8 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                 Map<String, Object> result = new LinkedHashMap<>();
                 result.put("role", "assistant");
                 result.put("content", joinRemoteAnswers(resolution));
-                return QueryResumeResult.respond(new QueryResponse(result, current.getConversationId()));
+                return QueryResumeResult.respond(new QueryResponse(result, current.getConversationId(),
+                        directResponseMetadata(resolution)));
             }
             ServeRequest resume = buildBatchResumeRequest(current, resolution);
             if (!batchCoordinator.claimCoreResume(resume, resolution.batchId())) {
@@ -533,6 +597,20 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         return sb.toString();
     }
 
+    private static Map<String, Object> directResponseMetadata(
+            RemoteInvocationBatchCoordinator.BatchResolution resolution) {
+        if (resolution.results().size() == 1) {
+            String toolCallId = resolution.results().keySet().iterator().next();
+            if (resolution.responseMetadata().get(toolCallId) instanceof Map<?, ?> metadata) {
+                Map<String, Object> result = new LinkedHashMap<>();
+                metadata.forEach((key, value) -> result.put(String.valueOf(key), value));
+                return result;
+            }
+            return Map.of();
+        }
+        return resolution.responseMetadata();
+    }
+
     private static ServeRequest buildBatchResumeRequest(ServeRequest original,
             RemoteInvocationBatchCoordinator.BatchResolution resolution) {
         ServeRequest resume = new ServeRequest();
@@ -550,6 +628,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         metadata.put("runtime.remoteToolResults", new LinkedHashMap<>(resolution.results()));
         metadata.put("runtime.remoteBatchId", resolution.batchId());
         resume.setMetadata(metadata);
+        resume.setRemoteResponseMetadata(new LinkedHashMap<>(resolution.responseMetadata()));
         return resume;
     }
 

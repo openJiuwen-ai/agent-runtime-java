@@ -4,6 +4,8 @@
 
 package com.openjiuwen.service.spec.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import lombok.Data;
 
 import java.util.ArrayList;
@@ -32,6 +34,10 @@ public class ServeRequest {
     private boolean stream = true;
 
     private Map<String, Object> metadata = new LinkedHashMap<>();
+
+    /** Internal successful remote-response metadata keyed by toolCallId, never an ingress parameter. */
+    @JsonIgnore
+    private Map<String, Object> remoteResponseMetadata = new LinkedHashMap<>();
 
     /**
      * Builds a serve request from the external query request body.

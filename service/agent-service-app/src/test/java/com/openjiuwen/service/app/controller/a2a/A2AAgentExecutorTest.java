@@ -34,6 +34,8 @@ import org.a2aproject.sdk.server.events.EventQueue;
 import org.a2aproject.sdk.server.events.EventQueueClosedException;
 import org.a2aproject.sdk.server.events.EventQueueItem;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
+import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
+import org.a2aproject.sdk.server.tasks.TaskManager;
 import org.a2aproject.sdk.spec.A2AError;
 import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.Message;
@@ -55,6 +57,104 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Unit tests for {@link A2AAgentExecutor}.
  */
 class A2AAgentExecutorTest {
+    @Test
+    void cancellationBeforeCompletionSuppressesResponseMetadata() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        RequestContext context = requestContext("task-1", "ctx-1", true);
+        CapturingEventQueue queue = new CapturingEventQueue();
+        AgentEmitter emitter = new AgentEmitter(context, queue);
+        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of()));
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
+            executor.cancel(context, emitter);
+            observer.onComplete(new QueryResponse(null, "ctx-1", Map.of("leadOut", "cancelled")));
+        })).when(orchestrator).streamQuery(any(), any());
+
+        executor.execute(context, emitter);
+
+        assertThat(queue.events).noneMatch(TaskArtifactUpdateEvent.class::isInstance);
+        assertThat(queue.events.stream().filter(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast).map(event -> event.status().state()))
+                .contains(TaskState.TASK_STATE_CANCELED).doesNotContain(TaskState.TASK_STATE_COMPLETED);
+    }
+
+    @Test
+    void responseMetadataIsSeparateFromBusinessArtifactsAndCompletesOnce() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        Map<String, Object> metadata = Map.of("leadOut", List.of("service-next"));
+        doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK,
+                    Map.of("type", "answer", "index", 0, "payload", Map.of("output", "done"))));
+            observer.onComplete(new QueryResponse(null, "ctx-1", metadata));
+            observer.onComplete();
+            observer.onComplete(new QueryResponse(null, "ctx-1", metadata));
+        })).when(orchestrator).streamQuery(any(), any());
+        RequestContext context = requestContext("task-1", "ctx-1", true);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of()))
+                .execute(context, new AgentEmitter(context, queue));
+
+        List<Artifact> artifacts = queue.events.stream().filter(TaskArtifactUpdateEvent.class::isInstance)
+                .map(TaskArtifactUpdateEvent.class::cast).map(TaskArtifactUpdateEvent::artifact).toList();
+        assertThat(artifacts).singleElement().satisfies(artifact -> assertThat(artifact.metadata())
+                .containsEntry(A2aPartContent.TERMINAL_RESULT_METADATA, true));
+        TaskStatusUpdateEvent completion = queue.events.stream().filter(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast)
+                .filter(event -> event.status().state() == TaskState.TASK_STATE_COMPLETED).findFirst()
+                .orElseThrow(() -> new AssertionError("No completed event in events: " + queue.events));
+        assertThat(completion.metadata()).containsOnly(Map.entry(A2aPartContent.RESPONSE_METADATA, metadata));
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        TaskManager taskManager = new TaskManager("task-1", "ctx-1", store, null);
+        queue.events.forEach(event -> taskManager.process(event, false));
+        Task task = store.get("task-1");
+        assertThat(task.metadata()).containsEntry(A2aPartContent.RESPONSE_METADATA, metadata);
+        assertThat(A2aPartContent.extractTaskResult(task)).isEqualTo("done");
+        assertThat(A2aPartContent.extractTaskResponseMetadata(task)).isEqualTo(metadata);
+        assertThat(queue.events.stream().filter(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast)
+                .filter(event -> event.status().state() == TaskState.TASK_STATE_COMPLETED).count()).isEqualTo(1);
+    }
+
+    @Test
+    void queryResponseMetadataIsSeparateFromTerminalBusinessResult() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        Map<String, Object> metadata = Map.of("leadOut", "next");
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1", metadata));
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        CapturingEventQueue queue = new CapturingEventQueue();
+
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()))
+                .execute(context, new AgentEmitter(context, queue));
+
+        List<Artifact> artifacts = queue.events.stream().filter(TaskArtifactUpdateEvent.class::isInstance)
+                .map(TaskArtifactUpdateEvent.class::cast).map(TaskArtifactUpdateEvent::artifact).toList();
+        assertThat(artifacts).singleElement().satisfies(artifact -> assertThat(artifact.metadata())
+                .containsEntry(A2aPartContent.TERMINAL_RESULT_METADATA, true));
+        TaskStatusUpdateEvent completion = queue.events.stream().filter(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast)
+                .filter(event -> event.status().state() == TaskState.TASK_STATE_COMPLETED).findFirst()
+                .orElseThrow(() -> new AssertionError("No completed event in events: " + queue.events));
+        assertThat(completion.metadata()).containsOnly(Map.entry(A2aPartContent.RESPONSE_METADATA, metadata));
+    }
+
+    @Test
+    void unsuccessfulStreamDoesNotExportResponseMetadata() {
+        for (String type : List.of(QueryChunk.TYPE_INTERRUPT, QueryChunk.TYPE_ERROR)) {
+            ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+            doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
+                observer.onNext(new QueryChunk(type, Map.of("message", "stopped")));
+                observer.onComplete(new QueryResponse(null, "ctx-1", Map.of("leadOut", "not-final")));
+            })).when(orchestrator).streamQuery(any(), any());
+            RequestContext context = requestContext("task-1", "ctx-1", true);
+            CapturingEventQueue queue = new CapturingEventQueue();
+
+            new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of()))
+                    .execute(context, new AgentEmitter(context, queue));
+
+            assertThat(queue.events).noneMatch(TaskArtifactUpdateEvent.class::isInstance);
+        }
+    }
+
     @Test
     void blockingCallContextOverridesAdapterDefaultStreamFlag() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);

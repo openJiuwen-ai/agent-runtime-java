@@ -55,6 +55,24 @@ class RemoteInvocationBatchMapperTest {
     }
 
     @Test
+    void contextMetadataIsScopedToItsMemberAndSurvivesSnapshot() {
+        Map<String, Object> followUp = Map.of("query", "ok", "selectedCapabilityId", "cap.next",
+                "offers", List.of(Map.of("capabilityId", "cap.next")));
+        Map<String, Object> first = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-a",
+                "message", "ok", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                        "agentName", "agent-a", "business.follow_up", followUp));
+        RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(first,
+                interruptMember(1, "call-b", true))), request(), "parent-1", observer());
+        assertThat(batch.members.get(0).requestMetadata).containsEntry("business.follow_up", followUp);
+        assertThat(batch.members.get(1).requestMetadata).isEmpty();
+
+        RemoteInvocationBatch restored = mapper.restore(mapper.snapshot(batch, "RUNNING"), request(),
+                "parent-1", observer());
+        assertThat(restored.members.get(0).requestMetadata).containsEntry("business.follow_up", followUp);
+        assertThat(restored.members.get(1).requestMetadata).isEmpty();
+    }
+
+    @Test
     void parseRejectsDuplicateToolCallIds() {
         Map<String, Object> interrupt = Map.of("items",
                 List.of(interruptMember(0, "call-a", true), interruptMember(1, "call-a", true)));
@@ -384,6 +402,40 @@ class RemoteInvocationBatchMapperTest {
         return Map.of("index", index, "toolCallId", toolCallId, "toolName", "tool-" + toolCallId, "message",
                 "message-" + toolCallId, "context",
                 Map.of("_interrupt_kind", "a2a_delegate", "agentName", "agent-" + toolCallId, "resume", shouldResume));
+    }
+
+    @Test
+    void responseMetadataSurvivesSnapshot() {
+        Member first = member("call-a");
+        Member second = member("call-b");
+        mapper.applyOutcome(first, new RemoteCallOutcome("task-a", TaskState.TASK_STATE_COMPLETED,
+                "COMPLETED", "answer-a", null, null, Map.of("leadOut", "next-a")), null);
+        mapper.applyOutcome(second, new RemoteCallOutcome("task-b", TaskState.TASK_STATE_COMPLETED,
+                "COMPLETED", "answer-b", null, null, Map.of("leadOut", "next-b")), null);
+        RemoteInvocationBatch batch = batch(List.of(first, second), true);
+        RemoteInvocationBatch restored = mapper.restore(mapper.snapshot(batch, "READY_TO_RESUME"),
+                request(), "parent-1", observer());
+
+        RemoteInvocationBatchCoordinator.BatchResolution resolution = mapper.resolution(restored);
+
+        assertThat(resolution.responseMetadata()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "call-a", Map.of("leadOut", "next-a"), "call-b", Map.of("leadOut", "next-b")));
+        assertThat(resolution.results()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "call-a", "answer-a", "call-b", "answer-b"));
+        assertThat(resolution.parentParamsMetadata()).isEmpty();
+    }
+
+    @Test
+    void metadataFromNonSuccessfulOutcomeIsNotKept() {
+        for (TaskState state : List.of(TaskState.TASK_STATE_FAILED, TaskState.TASK_STATE_CANCELED,
+                TaskState.TASK_STATE_INPUT_REQUIRED)) {
+            Member member = member("call-a");
+            member.responseMetadata = Map.of("stale", true);
+            mapper.applyOutcome(member, new RemoteCallOutcome("task-a", state,
+                    "STOPPED", "answer", null, null, Map.of("leadOut", "not-final")), null);
+            assertThat(member.responseMetadata).isEmpty();
+            assertThat(mapper.resolution(batch(List.of(member), true)).responseMetadata()).isEmpty();
+        }
     }
 
     private static Map<String, Object> snapshotMember(int index, String toolCallId, String state, Object result) {
