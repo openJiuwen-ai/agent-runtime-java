@@ -32,6 +32,19 @@ class A2AProtocolAdapterTest {
     private final A2AProtocolAdapter adapter = new A2AProtocolAdapter();
 
     @Test
+    void selectionComesOnlyFromParamsMetadata() {
+        var ctx = new A2AMessageContext();
+        ctx.setA2aMessage(Message.builder().role(Message.Role.ROLE_USER).parts(new TextPart("hello"))
+                .metadata(Map.of("model_name", "untrusted-message-alias")).build());
+        assertThat(adapter.toServeRequest(ctx).getModelName()).isNull();
+        ctx.setMetadata(Map.of("model_name", " b ", "dynamic_model_id", "untrusted-core-id"));
+        assertThat(adapter.toServeRequest(ctx).getModelName()).isEqualTo("b");
+        ctx.setMetadata(Map.of("model_name", 42));
+        assertThatThrownBy(() -> adapter.toServeRequest(ctx))
+                .isInstanceOf(org.a2aproject.sdk.spec.InvalidParamsError.class);
+    }
+
+    @Test
     void normalizesProtobufRoleToInternal() {
         assertThat(A2AProtocolAdapter.normalizeRole("ROLE_USER")).isEqualTo("user");
         assertThat(A2AProtocolAdapter.normalizeRole("ROLE_AGENT")).isEqualTo("assistant");

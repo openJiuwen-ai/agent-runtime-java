@@ -48,6 +48,28 @@ import java.util.concurrent.RejectedExecutionException;
  * @since 0.1.0
  */
 class A2aJsonRpcControllerTest {
+    @Test
+    void malformedModelSelectionReturnsInvalidParamsWithoutCreatingTaskOrStream() {
+        var handler = mock(RequestHandler.class);
+        var controller = new A2aJsonRpcController(handler);
+        for (String method : java.util.List.of("SendMessage", "SendStreamingMessage")) {
+            for (String value : java.util.List.of("123", "true", "[]", "{}", "\"   \"")) {
+                String json = """
+                        {"jsonrpc":"2.0","id":"model-test","method":"%s","params":{
+                          "message":{"role":"ROLE_USER","parts":[{"text":"hello"}]},
+                          "metadata":{"model_name":%s}}}
+                        """.formatted(method, value);
+                var servletRequest = new MockHttpServletRequest();
+                servletRequest.setContent(json.getBytes(StandardCharsets.UTF_8));
+                var response = controller.handleJsonRpc(json, servletRequest);
+                assertThat(response.getBody()).isInstanceOf(String.class);
+                assertThat(JsonParser.parseString((String) response.getBody()).getAsJsonObject()
+                        .getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32602);
+            }
+        }
+        verifyNoInteractions(handler);
+    }
+
     private static final String[] UNSUPPORTED_PUSH_CRUD_METHODS = {"CreateTaskPushNotificationConfig",
             "GetTaskPushNotificationConfig", "ListTaskPushNotificationConfigs",
             "DeleteTaskPushNotificationConfig"};

@@ -41,6 +41,51 @@ class QueryMvcControllerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void errorChunkIsWrittenAsActualSseDataBeforeErrorTermination() throws Exception {
+        var beans = new DefaultListableBeanFactory();
+        var orchestrator = org.mockito.Mockito.mock(ServeOrchestrator.class);
+        var failure = new IllegalStateException("Agent execution failed");
+        org.mockito.Mockito.doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_CHUNK, Map.of("content", "partial")));
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR,
+                    Map.of("type", "error", "error", failure.getMessage())));
+            observer.onError(failure);
+            return null;
+        }).when(orchestrator).streamQuery(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        beans.registerSingleton("serveOrchestrator", orchestrator);
+        var mvc = MockMvcBuilders.standaloneSetup(new QueryMvcController(beans.getBeanProvider(ServeOrchestrator.class),
+                beans.getBeanProvider(AgentReadiness.class), objectMapper)).build();
+        var result = mvc.perform(post("/v1/query").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"conversation_id\":\"sse-model\",\"message\":\"hello\",\"stream\":true,\"model_name\":\"b\"}"))
+                .andExpect(request().asyncStarted()).andReturn();
+        assertThat(result.getAsyncResult(5000)).isSameAs(failure);
+        String wire = result.getResponse().getContentAsString();
+        assertThat(wire).contains("data:", "\"type\":\"error\"", "Agent execution failed", "partial")
+                .doesNotContain("result_type", "secret");
+    }
+
+    @Test
+    void malformedModelSelectionReturns400BeforeExecutionOrSse() throws Exception {
+        var beans = new DefaultListableBeanFactory();
+        var orchestrator = org.mockito.Mockito.mock(ServeOrchestrator.class);
+        beans.registerSingleton("serveOrchestrator", orchestrator);
+        var controller = new QueryMvcController(beans.getBeanProvider(ServeOrchestrator.class),
+                beans.getBeanProvider(AgentReadiness.class), objectMapper);
+        var mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        for (String value : java.util.List.of("123", "true", "[]", "{}", "\"   \"")) {
+            for (boolean stream : new boolean[] {false, true}) {
+                mvc.perform(post("/v1/query").contentType(MediaType.APPLICATION_JSON).content(
+                        "{\"conversation_id\":\"invalid-model\",\"message\":\"hello\",\"stream\":" + stream
+                                + ",\"model_name\":" + value + "}"))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest())
+                        .andExpect(request().asyncNotStarted());
+            }
+        }
+        org.mockito.Mockito.verifyNoInteractions(orchestrator);
+    }
+
+    @Test
     void streamingQueryOnErrorPropagatesFailureAndLogsConversationId(CapturedOutput output) throws Exception {
         IllegalStateException failure = new IllegalStateException("stream failed");
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();

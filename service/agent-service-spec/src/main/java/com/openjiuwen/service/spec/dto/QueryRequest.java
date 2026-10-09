@@ -28,6 +28,17 @@ public class QueryRequest {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String agentId;
 
+    /** Public alias in the deployment model catalog, not the provider model name. */
+    @JsonProperty("model_name")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String modelName;
+
+    /** Accepts only null or a non-blank model alias. */
+    @JsonSetter("model_name")
+    public void setModelName(Object modelName) {
+        this.modelName = ServeRequest.normalizeModelName(modelName);
+    }
+
     private List<Map<String, Object>> messages = new ArrayList<>();
 
     @JsonProperty("conversation_id")

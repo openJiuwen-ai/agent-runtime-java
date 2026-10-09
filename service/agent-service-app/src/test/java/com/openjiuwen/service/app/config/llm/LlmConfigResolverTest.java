@@ -28,6 +28,55 @@ class LlmConfigResolverTest {
     private Path tempDir;
 
     @Test
+    void catalogSharesDefaultSnapshotAndDecryptsEachModelOnce() throws Exception {
+        Path file = tempDir.resolve("apiconfig.json");
+        Files.writeString(file, """
+            {"MODEL_ID":" a ","API_KEY":"ENC:a","API_BASE":"https://a.example/v1","MODEL_NAME":"a",
+             "MODELS":[{"MODEL_ID":" b ","API_KEY":"ENC:b","API_BASE":"https://b.example/v1",
+                        "MODEL_NAME":"b","LLM_SSL_VERIFY":false}]}
+            """);
+        LlmProperties properties = fileProperties(file);
+        properties.setApiBase("https://spring.example/v1");
+        properties.setTemperature(0.3);
+        AtomicInteger count = new AtomicInteger();
+        LlmConfigResolver resolver = resolver(properties, sceneAwareDecryptor(count, new AtomicInteger()));
+        ResolvedLlmConfig defaults = resolver.resolveRequired();
+        Files.writeString(file, "{}");
+        var catalog = resolver.resolveCatalog();
+        assertThat(catalog).isSameAs(resolver.resolveCatalog());
+        assertThat(catalog.defaultId()).isEqualTo("a");
+        assertThat(catalog.models().keySet()).containsExactly("a", "b");
+        assertThat(catalog.models().get("a").apiBase()).isEqualTo(defaults.getApiBase());
+        assertThat(catalog.models().get("b").apiBase()).isEqualTo("https://b.example/v1");
+        assertThat(catalog.models().get("b").apiKey()).isEqualTo("plain:b");
+        assertThat(catalog.models().get("b").provider()).isEqualTo("OpenAI");
+        assertThat(catalog.models().get("b").sslVerify()).isFalse();
+        assertThat(catalog.temperature()).isEqualTo(0.3);
+        assertThat(count.get()).isEqualTo(2);
+        assertThat(catalog.models().toString()).doesNotContain("plain:");
+        assertThatThrownBy(() -> catalog.models().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void catalogValidatesNewFieldsWithoutChangingLegacyResolve() throws Exception {
+        Path file = tempDir.resolve("apiconfig.json");
+        for (String extra : java.util.List.of(
+                "\"MODELS\":null", "\"MODELS\":{}", "\"MODELS\":[1]", "\"MODEL_ID\":1",
+                "\"MODELS\":[{}]", "\"MODELS\":[{\"MODEL_ID\":\"default\"}]",
+                "\"MODELS\":[{\"MODEL_ID\":\"b\",\"API_KEY\":false}]",
+                "\"MODELS\":[{\"MODEL_ID\":\"b\"}]")) {
+            Files.writeString(file, "{" + extra + "}");
+            LlmProperties properties = configuredProperties();
+            properties.setConfigFile(file.toString());
+            LlmConfigResolver resolver = resolver(properties, ciphertext -> ciphertext);
+            assertThat(resolver.resolveRequired().getModelName()).isEqualTo("spring-model");
+            assertThatThrownBy(resolver::resolveCatalog).isInstanceOf(IllegalStateException.class);
+        }
+        assertThat(resolver(configuredProperties(), ciphertext -> ciphertext).resolveCatalog().defaultId())
+            .isEqualTo("default");
+    }
+
+    @Test
     void resolve_appliesFileValuesDecryptsApiKeyAndCachesResult() throws Exception {
         Path file = tempDir.resolve("apiconfig.json");
         Files.writeString(file, """

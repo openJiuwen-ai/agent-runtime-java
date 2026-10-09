@@ -5,6 +5,7 @@
 package com.openjiuwen.service.spec.dto;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -20,6 +21,20 @@ import java.util.Map;
  */
 class QueryRequestTest {
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @Test
+    void modelSelectionUsesStrictPublicAliasAndCopiesToServeRequest() throws Exception {
+        QueryRequest request = mapper.readValue("{\"model_name\":\" model-b \"}", QueryRequest.class);
+        assertThat(request.getModelName()).isEqualTo("model-b");
+        assertThat(ServeRequest.fromQueryRequest(request).getModelName()).isEqualTo("model-b");
+        assertThat(mapper.readValue("{\"model_name\":null}", QueryRequest.class).getModelName()).isNull();
+        assertThat(mapper.readValue("{}", QueryRequest.class).getModelName()).isNull();
+        for (String value : List.of("42", "true", "[]", "{}", "\"  \"")) {
+            assertThatThrownBy(() ->
+                mapper.readValue("{\"model_name\":" + value + "}", QueryRequest.class))
+                .hasRootCauseInstanceOf(IllegalArgumentException.class);
+        }
+    }
 
     @Test
     void deserializesPythonStyleSnakeCaseFields() throws Exception {

@@ -23,6 +23,29 @@ import java.util.Optional;
 public class ServeRequest {
     private String conversationId;
 
+    /** Public model alias for this request; null selects the deployment default. */
+    private String modelName;
+
+    /** Sets and normalizes a request model alias. */
+    public void setModelName(String modelName) {
+        this.modelName = normalizeModelName(modelName);
+    }
+
+    /**
+     * Validates the model alias without JSON scalar coercion.
+     * @param value raw protocol value
+     * @return trimmed alias, or null for the default
+     */
+    public static String normalizeModelName(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof String text) || text.trim().isEmpty()) {
+            throw new IllegalArgumentException("model_name must be a non-blank string or null");
+        }
+        return text.trim();
+    }
+
     private List<Map<String, Object>> messages = new ArrayList<>();
 
     private String userId;
@@ -54,6 +77,7 @@ public class ServeRequest {
         serveRequest.setSpaceId(request.getSpaceId());
         serveRequest.setTenantId(request.getTenantId());
         serveRequest.setStream(request.isStream());
+        serveRequest.setModelName(request.getModelName());
         return serveRequest;
     }
 

@@ -437,12 +437,16 @@ class A2AEnabledServeOrchestratorTest {
         }).when(agentHandler).streamQuery(any(), any());
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
         ServeRequest request = req("c-batch");
+        request.setModelName("b");
         request.setMetadata(Map.of("runtime.parentTaskId", "parent-batch"));
 
         orchestrator.streamQuery(request, observer);
 
         verify(a2aClient, times(3)).callOutcome(any(), any());
         assertThat(localRuns.get()).isEqualTo(2);
+        var resumedRequests = org.mockito.ArgumentCaptor.forClass(ServeRequest.class);
+        verify(agentHandler, times(2)).streamQuery(resumedRequests.capture(), any());
+        assertThat(resumedRequests.getAllValues()).allSatisfy(value -> assertThat(value.getModelName()).isEqualTo("b"));
         assertThat(taskStore.get("shadow:test-agent:parent-batch")).isNull();
         verify(observer).onComplete();
     }

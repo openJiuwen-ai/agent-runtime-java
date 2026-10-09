@@ -8,8 +8,12 @@ import com.openjiuwen.core.common.exception.BaseError;
 import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
+import com.openjiuwen.core.foundation.llm.Model;
+import com.openjiuwen.core.foundation.llm.schema.ModelClientConfig;
+import com.openjiuwen.core.foundation.llm.schema.ModelRequestConfig;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.core.runner.base.Tag;
 import com.openjiuwen.core.session.AgentSession;
 import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
@@ -27,6 +31,7 @@ import com.openjiuwen.harness.deep_agent.DeepAgent;
 import com.openjiuwen.harness.tools.CheckpointerRedisTodoStorageProvider;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
+import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -40,7 +45,9 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -109,6 +116,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private boolean hasStarted;
 
+    private final LlmModelCatalog modelCatalog;
+
+    private final String instanceScope;
+
+    private volatile boolean modelsRegistered;
+
     /**
      * Creates a handler with the given agent and default middleware/external registrars.
      *
@@ -147,9 +160,21 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
             ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
+        this(agent, middlewareAdapterRegistrar, externalSvcAdapterRegistrar, null, null);
+    }
+
+    /** Creates a catalog-aware handler while preserving existing registrar ownership. */
+    public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
+            ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar, String instanceScope,
+            LlmModelCatalog modelCatalog) {
+        if (modelCatalog != null && (instanceScope == null || instanceScope.isBlank())) {
+            throw new IllegalArgumentException("A model catalog requires a unique instance scope");
+        }
         this.agent = agent;
         this.middlewareAdapterRegistrar = middlewareAdapterRegistrar;
         this.externalSvcAdapterRegistrar = externalSvcAdapterRegistrar;
+        this.instanceScope = instanceScope;
+        this.modelCatalog = modelCatalog;
     }
 
     /**
@@ -250,15 +275,18 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     public synchronized void start() {
         hasStarted = true;
         if (isHostedRuntime) {
+            registerModels();
             return;
         }
         if (!RUNNER_STARTED.compareAndSet(false, true)) {
+            registerModels();
             return;
         }
         if (middlewareAdapterRegistrar != null) {
             middlewareAdapterRegistrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
         }
         log.info("Starting AgentCore Runner");
+        boolean runnerReady = false;
         try {
             if (externalSvcAdapterRegistrar != null) {
                 externalSvcAdapterRegistrar.registerToRunner();
@@ -267,10 +295,102 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             if (start != null) {
                 start.toCompletableFuture().join();
             }
+            runnerReady = true;
+            registerModels();
         } catch (RuntimeException | Error ex) {
+            if (runnerReady) {
+                try {
+                    Runner.stop();
+                } catch (RuntimeException cleanupFailure) {
+                    ex.addSuppressed(cleanupFailure);
+                }
+            }
             RUNNER_STARTED.set(false);
             throw ex;
         }
+    }
+
+    private void registerModels() {
+        if (modelCatalog == null || modelsRegistered) {
+            return;
+        }
+        List<String> added = new ArrayList<>();
+        try {
+            for (var entry : modelCatalog.models().entrySet()) {
+                var definition = entry.getValue();
+                ModelClientConfig client = ModelClientConfig.builder()
+                        .clientProvider(definition.provider()).apiKey(definition.apiKey())
+                        .apiBase(definition.apiBase()).verifySsl(definition.sslVerify())
+                        .timeout(modelCatalog.timeout().getSeconds()
+                                + modelCatalog.timeout().getNano() / 1_000_000_000.0).build();
+                ModelRequestConfig generation = ModelRequestConfig.builder()
+                        .modelName(definition.modelName()).temperature(modelCatalog.temperature())
+                        .topP(modelCatalog.topP()).build();
+                Model model = new Model(client, generation);
+                String id = coreModelId(entry.getKey());
+                var result = Runner.resourceMgr().addModel(id, () -> model, List.of(Tag.GLOBAL));
+                if (result == null || !result.isOk()) {
+                    throw registrationDiagnostic("registration", id, result == null ? null : result.getError());
+                }
+                added.add(id);
+                if (Runner.resourceMgr().getModel(id).toCompletableFuture().join() != model) {
+                    throw new IllegalStateException("Runtime model registration verification failed");
+                }
+            }
+            modelsRegistered = true;
+        } catch (RuntimeException | Error failure) {
+            for (String id : added) {
+                try {
+                    Runner.resourceMgr().removeModelForce(id, true);
+                } catch (RuntimeException rollbackFailure) {
+                    IllegalStateException diagnostic = registrationDiagnostic("rollback", id, rollbackFailure);
+                    log.error("{}", diagnostic.getMessage());
+                    failure.addSuppressed(diagnostic);
+                }
+            }
+            throw failure;
+        }
+    }
+
+    /** Keep diagnostic type, Core code and stack location without credential-bearing exception messages. */
+    private static IllegalStateException registrationDiagnostic(String operation, String id, Object error) {
+        String reason = error == null ? "missing error details" : error.getClass().getName();
+        if (error instanceof BaseError coreError) {
+            reason += " (status=" + coreError.getStatus() + ", code=" + coreError.getCode() + ")";
+        }
+        IllegalStateException diagnostic = new IllegalStateException(
+                "Runtime model " + operation + " failed: id=" + id + ", reason=" + reason);
+        if (error instanceof Throwable throwable) {
+            diagnostic.setStackTrace(throwable.getStackTrace());
+        }
+        return diagnostic;
+    }
+
+    private String coreModelId(String publicId) {
+        Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+        return "runtime:model:" + encoder.encodeToString(instanceScope.getBytes(StandardCharsets.UTF_8))
+                + ":" + encoder.encodeToString(publicId.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Adds the validated selection after all normal and tool-resume input construction. */
+    private Map<String, Object> buildExecutionInputs(ServeRequest request) {
+        String selected = request.getModelName();
+        if (modelCatalog == null) {
+            if (selected != null) {
+                throw new IllegalArgumentException("Request model selection is not enabled for this handler");
+            }
+            return buildInputs(request);
+        }
+        String publicId = selected == null ? modelCatalog.defaultId() : selected;
+        if (!modelCatalog.models().containsKey(publicId)) {
+            throw new IllegalArgumentException("Unknown model_name for this agent instance");
+        }
+        if (!modelsRegistered) {
+            throw new IllegalStateException("Runtime model catalog has not been registered; start the handler first");
+        }
+        Map<String, Object> inputs = buildInputs(request);
+        inputs.put("model_id", coreModelId(publicId));
+        return inputs;
     }
 
     @Override
@@ -278,6 +398,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (isHostedRuntime) {
             return;
         }
+        modelsRegistered = false;
         if (!RUNNER_STARTED.get()) {
             return;
         }
@@ -347,33 +468,44 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         String query = request.lastUserQuery();
         log.info("JiuwenCoreAgentHandler streamQuery convId={} textLen={} msgCount={}", convId,
                 query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
+        boolean[] terminal = {false};
         try {
             List<Map<String, Object>> interrupts = new ArrayList<>();
             Object session = runnerSession(request);
-            if (!forwardStream(request, observer, session, interrupts)) {
+            if (!forwardStream(request, observer, session, interrupts, () -> terminal[0] = true)) {
                 return;
             }
-            finishStream(observer, session, interrupts, convId);
+            finishStream(observer, session, interrupts, convId, () -> terminal[0] = true);
         } catch (CancellationException ex) {
-            observer.onComplete();
+            if (!terminal[0]) {
+                terminal[0] = true;
+                observer.onComplete();
+            }
         } catch (Exception ex) {
+            if (terminal[0]) {
+                return;
+            }
+            terminal[0] = true;
             RuntimeException failure = ex instanceof RuntimeException runtimeException
                     ? structuredFailure(runtimeException)
-                    : new RuntimeException(ex);
-            observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, errorEvent(failure)));
-            observer.onError(failure);
+                    : structuredFailure(new RuntimeException(ex));
+            try {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, errorEvent(failure)));
+            } finally {
+                observer.onError(failure);
+            }
         }
     }
 
     private boolean forwardStream(ServeRequest request, QueryStreamObserver observer, Object session,
-            List<Map<String, Object>> interrupts) {
-        Iterator<Object> source = executeAgentStreaming(buildInputs(request), session, List.of(StreamMode.OUTPUT));
+            List<Map<String, Object>> interrupts, Runnable markTerminal) {
+        Iterator<Object> source = executeAgentStreaming(buildExecutionInputs(request), session, List.of(StreamMode.OUTPUT));
         while (!observer.isCancelled() && source.hasNext()) {
             if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
                 return true;
             }
             Object normalized = normalizeChunk(source.next());
-            if (!forwardChunk(normalized, observer, interrupts)) {
+            if (!forwardChunk(normalized, observer, interrupts, markTerminal)) {
                 return false;
             }
         }
@@ -381,12 +513,19 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private boolean forwardChunk(Object normalized, QueryStreamObserver observer,
-            List<Map<String, Object>> interrupts) {
+            List<Map<String, Object>> interrupts, Runnable markTerminal) {
         String chunkType = mapToQueryChunkType(normalized);
         if (QueryChunk.TYPE_ERROR.equals(chunkType)) {
-            observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, normalized));
-            observer.onError(toStreamException(normalized));
-            return false;
+            if (modelCatalog == null) {
+                markTerminal.run();
+                try {
+                    observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, normalized));
+                } finally {
+                    observer.onError(toStreamException(normalized));
+                }
+                return false;
+            }
+            throw toStreamException(normalized);
         }
         if (QueryChunk.TYPE_INTERRUPT.equals(chunkType) && normalized instanceof Map<?, ?> map) {
             interrupts.add(copyStringMap(map));
@@ -397,12 +536,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private void finishStream(QueryStreamObserver observer, Object session,
-            List<Map<String, Object>> interrupts, String conversationId) {
+            List<Map<String, Object>> interrupts, String conversationId, Runnable markTerminal) {
         if (!observer.isCancelled() && !interrupts.isEmpty()) {
             observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, normalizeInterrupts(interrupts)));
         }
         if (canExportResponseMetadata(observer, interrupts)) {
             Map<String, Object> metadata = responseMetadata(session);
+            markTerminal.run();
             if (metadata.isEmpty()) {
                 observer.onComplete();
             } else {
@@ -410,6 +550,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             }
             return;
         }
+        markTerminal.run();
         observer.onComplete();
     }
 
@@ -423,7 +564,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         FutureTask<QueryResponse> execution = new FutureTask<>(() -> {
             if (supportsInvoke(agent)) {
                 Object session = runnerSession(request);
-                Object rawResult = executeAgent(buildInputs(request), session);
+                Object rawResult = executeAgent(buildExecutionInputs(request), session);
                 QueryResponse response = toQueryResponse(rawResult, request.getConversationId());
                 if (!isInterruptResponse(response) && !Thread.currentThread().isInterrupted()) {
                     response.setMetadata(responseMetadata(session));
@@ -455,7 +596,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         List<Map<String, Object>> interrupts = new ArrayList<>();
         List<StreamMode> streamModes = List.of(StreamMode.OUTPUT);
         Object session = runnerSession(request);
-        Iterator<Object> source = executeAgentStreaming(buildInputs(request), session,
+        Iterator<Object> source = executeAgentStreaming(buildExecutionInputs(request), session,
                 streamModes);
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
@@ -506,7 +647,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (rawResult instanceof Map<?, ?> rawMap) {
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) rawMap;
-            if (QueryChunk.TYPE_ERROR.equals(map.get("type")) || "error".equals(map.get("result_type"))) {
+            if (isErrorResult(map) || isDeepTaskLoopFailure(map)) {
                 throw toStreamException(map);
             }
             Optional<QueryResponse> result1 = getQueryResponse(conversationId, map);
@@ -525,6 +666,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         if (rawResult instanceof WorkflowOutput workflowOutput) {
             return toQueryResponse(workflowOutput.getResult(), conversationId);
+        }
+        if (modelCatalog != null && rawResult instanceof OutputSchema output) {
+            return toQueryResponse(normalizeChunk(output), conversationId);
         }
         result.put("content", stringify(rawResult));
         return new QueryResponse(result, conversationId);
@@ -546,7 +690,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return Optional.empty();
     }
 
-    private static QueryResponse buildQueryResponseFromControllerOutput(ControllerOutput controllerOutput,
+    private QueryResponse buildQueryResponseFromControllerOutput(ControllerOutput controllerOutput,
             String conversationId) {
         StringBuilder content = new StringBuilder();
         Object lastPayload = null;
@@ -555,6 +699,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (data instanceof List<?> items) {
             for (Object item : items) {
                 Object payload = normalizeChunk(item);
+                if (modelCatalog != null && QueryChunk.TYPE_ERROR.equals(mapToQueryChunkType(payload))) {
+                    throw toStreamException(payload);
+                }
                 lastPayload = payload;
                 if (isCoreInteraction(payload) && payload instanceof Map<?, ?> map) {
                     interrupts.add(copyStringMap(map));
@@ -856,17 +1003,34 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      *            the normalized chunk data
      * @return the QueryChunk type string
      */
-    private static String mapToQueryChunkType(Object normalized) {
+    private String mapToQueryChunkType(Object normalized) {
         if (!(normalized instanceof Map<?, ?> m)) {
             return QueryChunk.TYPE_CHUNK;
         }
         if (INTERACTION_TYPE.equals(m.get("type"))) {
             return QueryChunk.TYPE_INTERRUPT;
         }
-        if (QueryChunk.TYPE_ERROR.equals(m.get("type"))) {
+        if (QueryChunk.TYPE_ERROR.equals(m.get("type")) || modelCatalog != null && isErrorResult(m)) {
             return QueryChunk.TYPE_ERROR;
         }
         return QueryChunk.TYPE_CHUNK;
+    }
+
+    private boolean isErrorResult(Map<?, ?> result) {
+        return QueryChunk.TYPE_ERROR.equals(result.get("type")) || "error".equals(result.get("result_type"))
+                || (modelCatalog != null && "answer".equals(result.get("type"))
+                        && result.get("payload") instanceof Map<?, ?> payload
+                        && "error".equals(payload.get("result_type")));
+    }
+
+    private boolean isDeepTaskLoopFailure(Map<?, ?> result) {
+        // DeepAgent.awaitRoundCompletion returns {error: ...} when the task event handler
+        // fails. runTaskLoop exposes it as final_result without adding result_type.
+        // Inspect only this standard final result, never historical rounds or business output.
+        return modelCatalog != null && "deep_agent_result".equals(result.get("type"))
+                && result.get("final_result") instanceof Map<?, ?> last
+                && last.get("result_type") == null && last.get("error") instanceof String error
+                && !error.isBlank() && resolveAgent() instanceof DeepAgent;
     }
 
     private static RuntimeException toStreamException(Object normalized) {
@@ -875,7 +1039,17 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return new IllegalStateException(message);
     }
 
-    private static RuntimeException structuredFailure(RuntimeException failure) {
+    private RuntimeException structuredFailure(RuntimeException failure) {
+        RuntimeException structured = legacyStructuredFailure(failure);
+        if (modelCatalog == null) {
+            return structured;
+        }
+        AgentFailureDescriptor descriptor = structured instanceof AgentExecutionException execution
+                ? execution.getDescriptor() : new AgentFailureDescriptor("AGENT_EXECUTION_FAILED", null, false);
+        return new AgentExecutionException("Agent execution failed", descriptor, failure);
+    }
+
+    private static RuntimeException legacyStructuredFailure(RuntimeException failure) {
         if (failure instanceof AgentExecutionException) {
             return failure;
         }

@@ -242,6 +242,7 @@ final class RemoteInvocationBatchMapper {
         }
         ServeRequest request = new ServeRequest();
         request.setConversationId(stringValue(rawRequest.get("conversationId")));
+        request.setModelName(ServeRequest.normalizeModelName(rawRequest.get("modelName")));
         request.setStream(!(rawRequest.get("stream") instanceof Boolean isStream) || isStream);
         request.setUserId(optionalNonBlank(stringValue(rawRequest.get("userId"))).orElse(null));
         request.setSpaceId(optionalNonBlank(stringValue(rawRequest.get("spaceId"))).orElse(null));
@@ -374,6 +375,7 @@ final class RemoteInvocationBatchMapper {
     private static Map<String, Object> requestSnapshot(ServeRequest request, Map<String, Object> parentMetadata) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("conversationId", request.getConversationId());
+        putIfNotBlank(snapshot, "modelName", request.getModelName());
         snapshot.put("stream", request.isStream());
         putIfNotBlank(snapshot, "userId", request.getUserId());
         putIfNotBlank(snapshot, "spaceId", request.getSpaceId());
