@@ -730,7 +730,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 ? (taskText.isBlank() ? outcome.statusText() : taskText)
                 : (outcome.statusText().isBlank() ? taskText : outcome.statusText());
         result.complete(new RemoteCallOutcome(outcome.taskId(), outcome.state(), resultCategory(outcome.state()),
-                resultText, null, outcome.remoteFailure()));
+                resultText, null, outcome.remoteFailure(), outcome.state() == TaskState.TASK_STATE_COMPLETED
+                        ? A2aPartContent.extractTaskResponseMetadata(outcome.task()) : Map.of()));
     }
 
     private void handleOutcomeMessage(MessageEvent event, CompletableFuture<RemoteCallOutcome> result) {
@@ -739,7 +740,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         }
         Message message = event.getMessage();
         result.complete(new RemoteCallOutcome(message.taskId(), TaskState.TASK_STATE_COMPLETED, "COMPLETED",
-                A2aPartContent.extract(message.parts()), null));
+                A2aPartContent.extract(message.parts()), null, null,
+                A2aPartContent.extractResponseMetadata(message.metadata())));
     }
 
     /**

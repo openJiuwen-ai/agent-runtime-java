@@ -393,12 +393,13 @@ final class RemoteInvocationBatchCoordinator {
             finishBatchIfSettled(batch);
             return;
         }
+        Member member = invocation.member();
         Map<String, Object> metadata = outboundMetadata(batch.request.getMetadata());
+        metadata.putAll(member.requestMetadata);
         String userId = batch.request.getUserId();
         if (userId != null && !userId.isBlank() && !metadata.containsKey("userId")) {
             metadata.put("userId", userId);
         }
-        Member member = invocation.member();
         RemoteCall call = new RemoteCall(member.agentName, member.message, remoteContextId(batch, member),
                 optionalNonBlank(member.remoteTaskId).orElse(null), metadata, batch.request.lastUserMessageMetadata(),
                 batch.request.isStream(), member.parts);
@@ -781,8 +782,14 @@ final class RemoteInvocationBatchCoordinator {
      *                          answer is this layer's terminal output ({@code false}, intent-workflow
      *                          path). Defaults to {@code true} when the interrupt payload omits it.
      * @param parentParamsMetadata business metadata to restore when re-entering the local agent
+     * @param responseMetadata successful remote-response metadata keyed by toolCallId, outside tool result text
      */
     record BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
-            Map<String, Object> interrupt, boolean shouldResume, Map<String, Object> parentParamsMetadata) {
+            Map<String, Object> interrupt, boolean shouldResume, Map<String, Object> parentParamsMetadata,
+            Map<String, Object> responseMetadata) {
+        BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
+                Map<String, Object> interrupt, boolean shouldResume, Map<String, Object> parentParamsMetadata) {
+            this(batchId, isReadyToResume, results, interrupt, shouldResume, parentParamsMetadata, Map.of());
+        }
     }
 }

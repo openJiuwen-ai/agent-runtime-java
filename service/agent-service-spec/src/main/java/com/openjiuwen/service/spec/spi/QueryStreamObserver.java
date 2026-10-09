@@ -5,6 +5,7 @@
 package com.openjiuwen.service.spec.spi;
 
 import com.openjiuwen.service.spec.dto.QueryChunk;
+import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.exception.AgentExecutionException;
 
 /**
@@ -32,6 +33,18 @@ public interface QueryStreamObserver {
      * Notifies successful stream completion.
      */
     void onComplete();
+
+    /**
+     * Notifies successful completion with optional response metadata.
+     *
+     * <p>The default implementation preserves the original callback contract;
+     * observers interested in response metadata may override this method.</p>
+     *
+     * @param response successful terminal response; result may be null when already delivered as chunks
+     */
+    default void onComplete(QueryResponse response) {
+        onComplete();
+    }
 
     /**
      * Returns whether the stream has been cancelled by the client.

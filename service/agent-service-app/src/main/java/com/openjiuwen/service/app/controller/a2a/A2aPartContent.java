@@ -14,7 +14,9 @@ import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TextPart;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -25,6 +27,9 @@ import java.util.Optional;
 public final class A2aPartContent {
     /** Marks an artifact whose AgentCore terminal envelope has already been removed. */
     public static final String TERMINAL_RESULT_METADATA = "_agentcore_terminal";
+
+    /** Carries structured metadata from a successfully completed AgentCore response. */
+    public static final String RESPONSE_METADATA = "_agentcore_response_metadata";
 
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
 
@@ -100,5 +105,50 @@ public final class A2aPartContent {
             }
         }
         return hasTerminal ? terminal : content.toString();
+    }
+
+    /**
+     * Extracts response metadata from the task-level metadata of a successfully completed task.
+     *
+     * <p>Response metadata is deliberately kept outside business text and is
+     * only exposed for a completed task.</p>
+     *
+     * @param task completed A2A task
+     * @return copied response metadata, or an empty map for non-completed tasks
+     */
+    public static Map<String, Object> extractTaskResponseMetadata(Task task) {
+        if (task == null || task.status() == null
+                || task.status().state() != org.a2aproject.sdk.spec.TaskState.TASK_STATE_COMPLETED) {
+            return Map.of();
+        }
+        return extractResponseMetadata(task.metadata());
+    }
+
+    /**
+     * Extracts the reserved response channel from transport metadata without
+     * exposing unrelated A2A transport fields.
+     *
+     * @param transportMetadata metadata attached to an A2A message or task
+     * @return copied response metadata, or an empty map when the channel is absent
+     */
+    public static Map<String, Object> extractResponseMetadata(Map<String, Object> transportMetadata) {
+        if (transportMetadata == null || !(transportMetadata.get(RESPONSE_METADATA) instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        map.forEach((key, value) -> metadata.put(String.valueOf(key), copyValue(value)));
+        return metadata;
+    }
+
+    private static Object copyValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copied = new LinkedHashMap<>();
+            map.forEach((key, item) -> copied.put(String.valueOf(key), copyValue(item)));
+            return copied;
+        }
+        if (value instanceof List<?> list) {
+            return list.stream().map(A2aPartContent::copyValue).toList();
+        }
+        return value;
     }
 }
