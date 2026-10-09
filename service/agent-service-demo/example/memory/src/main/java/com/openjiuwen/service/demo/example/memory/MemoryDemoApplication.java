@@ -88,6 +88,9 @@ public class MemoryDemoApplication {
             .temperature(config.getTemperature())
             .topP(config.getTopP())
             .timeout(config.getTimeout())
+            .connectTimeout(config.getConnectTimeout())
+            .streamIdleSeconds(config.getStreamIdleSeconds())
+            .timeoutExplicit(config.isTimeoutExplicit())
             .contextWindowLimit(config.getContextWindowLimit())
             .maxIterations(config.getMaxIterations())
             .build();

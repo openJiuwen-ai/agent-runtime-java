@@ -122,13 +122,17 @@ public final class ExampleDeepAgentFactory {
 
     private static Model buildModel(ResolvedLlmConfig config) {
         DefaultModelClientFactories.ensureRegistered();
-        ModelClientConfig clientConfig = ModelClientConfig.builder()
+        ModelClientConfig.ModelClientConfigBuilder clientBuilder = ModelClientConfig.builder()
             .clientProvider(config.getProvider())
             .apiKey(config.getApiKey())
             .apiBase(config.getApiBase())
-            .timeout(config.getTimeout().toMillis() / 1000.0D)
-            .verifySsl(config.isSslVerify())
-            .build();
+            .connectTimeoutSeconds(config.getConnectTimeout().toMillis() / 1000.0D)
+            .streamIdleSeconds(config.getStreamIdleSeconds().toMillis() / 1000.0D)
+            .verifySsl(config.isSslVerify());
+        if (config.isTimeoutExplicit()) {
+            clientBuilder.timeout(config.getTimeout().toMillis() / 1000.0D);
+        }
+        ModelClientConfig clientConfig = clientBuilder.build();
         ModelRequestConfig requestConfig = ModelRequestConfig.builder()
             .modelName(config.getModelName())
             .temperature(config.getTemperature())

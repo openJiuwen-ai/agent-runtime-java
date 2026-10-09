@@ -90,6 +90,9 @@ public class ConcurrencyDemoLlmSupport {
             .temperature(base.getTemperature())
             .topP(base.getTopP())
             .timeout(base.getTimeout())
+            .connectTimeout(base.getConnectTimeout())
+            .streamIdleSeconds(base.getStreamIdleSeconds())
+            .timeoutExplicit(base.isTimeoutExplicit())
             .contextWindowLimit(base.getContextWindowLimit())
             .maxIterations(base.getMaxIterations())
             .build();

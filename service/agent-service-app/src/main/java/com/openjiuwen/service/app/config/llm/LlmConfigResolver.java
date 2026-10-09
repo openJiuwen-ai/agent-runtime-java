@@ -31,6 +31,18 @@ public final class LlmConfigResolver {
 
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
 
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(10);
+
+    private static final Duration DEFAULT_STREAM_IDLE_TIMEOUT = Duration.ofSeconds(600);
+
+    private static final Duration MIN_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+
+    private static final Duration MAX_CONNECT_TIMEOUT = Duration.ofSeconds(15);
+
+    private static final Duration MIN_STREAM_IDLE_TIMEOUT = Duration.ofSeconds(300);
+
+    private static final Duration MAX_STREAM_IDLE_TIMEOUT = Duration.ofSeconds(900);
+
     private static final int DEFAULT_CONTEXT_WINDOW_LIMIT = 10;
 
     private static final int DEFAULT_MAX_ITERATIONS = 5;
@@ -154,10 +166,15 @@ public final class LlmConfigResolver {
         double temperature = valueOrDefault(properties.getTemperature(), DEFAULT_TEMPERATURE);
         double topP = valueOrDefault(properties.getTopP(), DEFAULT_TOP_P);
         Duration timeout = properties.getTimeout() != null ? properties.getTimeout() : DEFAULT_TIMEOUT;
+        Duration connectTimeout = properties.getConnectTimeout() != null
+            ? properties.getConnectTimeout() : DEFAULT_CONNECT_TIMEOUT;
+        Duration streamIdleTimeout = properties.getStreamIdleSeconds() != null
+            ? properties.getStreamIdleSeconds() : DEFAULT_STREAM_IDLE_TIMEOUT;
         int contextWindowLimit = valueOrDefault(properties.getContextWindowLimit(), DEFAULT_CONTEXT_WINDOW_LIMIT);
         int maxIterations = valueOrDefault(properties.getMaxIterations(), DEFAULT_MAX_ITERATIONS);
 
         validateRuntimeValues(temperature, topP, timeout, contextWindowLimit, maxIterations);
+        validateTimeoutTiering(connectTimeout, streamIdleTimeout);
 
         return ResolvedLlmConfig.builder()
             .provider(firstText(properties.getProvider(), fileValues.provider(), DEFAULT_PROVIDER))
@@ -170,6 +187,9 @@ public final class LlmConfigResolver {
             .temperature(temperature)
             .topP(topP)
             .timeout(timeout)
+            .connectTimeout(connectTimeout)
+            .streamIdleSeconds(streamIdleTimeout)
+            .timeoutExplicit(properties.getTimeout() != null)
             .contextWindowLimit(contextWindowLimit)
             .maxIterations(maxIterations)
             .build();
@@ -199,6 +219,18 @@ public final class LlmConfigResolver {
         }
         if (maxIterations <= 0) {
             throw new IllegalStateException("openjiuwen.service.llm.max-iterations must be greater than zero");
+        }
+    }
+
+    private static void validateTimeoutTiering(Duration connectTimeout, Duration streamIdleTimeout) {
+        if (connectTimeout.compareTo(MIN_CONNECT_TIMEOUT) < 0 || connectTimeout.compareTo(MAX_CONNECT_TIMEOUT) > 0) {
+            throw new IllegalStateException(
+                "openjiuwen.service.llm.connect-timeout must be between 5 and 15 seconds");
+        }
+        if (streamIdleTimeout.compareTo(MIN_STREAM_IDLE_TIMEOUT) < 0
+            || streamIdleTimeout.compareTo(MAX_STREAM_IDLE_TIMEOUT) > 0) {
+            throw new IllegalStateException(
+                "openjiuwen.service.llm.stream-idle-seconds must be between 300 and 900 seconds");
         }
     }
 

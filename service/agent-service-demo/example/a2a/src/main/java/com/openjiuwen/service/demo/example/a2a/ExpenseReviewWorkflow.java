@@ -95,9 +95,15 @@ public final class ExpenseReviewWorkflow {
 
     private static LLMComponent finalResponseComponent(ResolvedLlmConfig config) {
         LLMCompConfig componentConfig = new LLMCompConfig();
-        componentConfig.setModelClientConfig(ModelClientConfig.builder().clientProvider(config.getProvider())
-                .apiKey(config.getApiKey()).apiBase(config.getApiBase())
-                .timeout(config.getTimeout().toMillis() / 1000.0D).verifySsl(config.isSslVerify()).build());
+        ModelClientConfig.ModelClientConfigBuilder clientBuilder = ModelClientConfig.builder()
+                .clientProvider(config.getProvider()).apiKey(config.getApiKey()).apiBase(config.getApiBase())
+                .connectTimeoutSeconds(config.getConnectTimeout().toMillis() / 1000.0D)
+                .streamIdleSeconds(config.getStreamIdleSeconds().toMillis() / 1000.0D)
+                .verifySsl(config.isSslVerify());
+        if (config.isTimeoutExplicit()) {
+            clientBuilder.timeout(config.getTimeout().toMillis() / 1000.0D);
+        }
+        componentConfig.setModelClientConfig(clientBuilder.build());
         componentConfig.setModelConfig(ModelRequestConfig.builder().modelName(config.getModelName()).temperature(0.0D)
                 .topP(config.getTopP()).maxTokens(256).build());
         componentConfig.setSystemPromptTemplate(new SystemMessage(

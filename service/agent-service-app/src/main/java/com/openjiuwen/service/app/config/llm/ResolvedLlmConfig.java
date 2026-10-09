@@ -36,6 +36,12 @@ public final class ResolvedLlmConfig {
 
     private final Duration timeout;
 
+    private final Duration connectTimeout;
+
+    private final Duration streamIdleSeconds;
+
+    private final boolean timeoutExplicit;
+
     private final int contextWindowLimit;
 
     private final int maxIterations;
