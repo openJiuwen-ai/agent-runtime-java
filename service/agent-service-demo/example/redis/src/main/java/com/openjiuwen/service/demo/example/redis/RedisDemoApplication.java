@@ -9,6 +9,7 @@ import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
 import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
+import com.openjiuwen.service.app.config.runbudget.RunBudgetWiring;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
@@ -32,10 +33,11 @@ public class RedisDemoApplication {
 
     @Bean
     AgentHandler agentHandler(LlmConfigResolver llmConfigResolver,
-        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider) {
+        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
+        RunBudgetWiring runBudgetWiring) {
         ResolvedLlmConfig llmConfig = llmConfigResolver.resolveRequired();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Demo Redis Agent",
-            "ReAct agent for Redis Checkpointer demo", llmConfig);
+            "ReAct agent for Redis Checkpointer demo", llmConfig, runBudgetWiring);
         return new JiuwenCoreAgentHandler(agent,
             externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
     }
