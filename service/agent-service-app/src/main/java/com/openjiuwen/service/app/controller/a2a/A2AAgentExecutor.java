@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.controller.a2a;
 
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionService;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
@@ -53,37 +54,41 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>
  * Authoritative admission control: {@link #execute(RequestContext, AgentEmitter)}
  * (SDK entry) and {@code continueTask} (callback continuation entry) both funnel
- * into {@code executeRequest}, which acquires a quota slot up front and releases
- * it in a {@code finally} block on the same thread — exactly-once release is
- * guaranteed by the language structure. When the transport entry point has
+ * into {@code executeRequest}, which runs the unified two-level admission
+ * classification and acquires a quota slot up front. When the transport entry point has
  * already acquired a permit (see {@link #PRE_ACQUIRED_ADMISSION_KEY}), the
  * executor adopts it instead of acquiring a second one, so a request admitted at
  * the HTTP boundary can never be re-rejected inside the SDK pipeline. Rejection
- * throws an {@link A2AError} before any task state transition, so the SDK's own
- * error path turns it into a FAILED task without manual compensation. When a
- * {@link TaskAdmissionListener} is configured, its {@code onAdmitted} /
- * {@code onReleased} notifications bracket the same permit scope, so listeners
- * observe exactly the tasks occupying admission quota.
+ * throws an {@link A2AError} before any task state transition. Under the
+ * consequence-landed release model (DFX-006) the executor's {@code finally}
+ * only marks the round as execution-done via the admission-release
+ * coordinator; the permit is released when the round's terminal or
+ * interrupted event has been consumed by the event processor, with a TTL
+ * fallback for lost consequences. A {@link TaskAdmissionListener} brackets
+ * the same permit scope, so listeners observe exactly the tasks occupying
+ * admission quota.
  *
  * @since 0.1.0
  */
 public class A2AAgentExecutor implements AgentExecutor {
     /**
-     * Error message carried by the A2AError thrown when admission is rejected.
-     * Package-visible so the callback continuation can distinguish admission
-     * rejection (transient, retryable) from other executor failures.
+     * Error message carried by the A2AError thrown when admission is rejected:
+     * a neutral text that leaks no internal detail; the machine-readable reason
+     * travels in {@code details.businessCode} (see {@link TaskAdmissionService}).
+     * Package-visible for rejection-path assertions.
      */
-    static final String ADMISSION_REJECTED_MESSAGE = "Service Unavailable: concurrent task limit reached";
+    static final String ADMISSION_REJECTED_MESSAGE = "Agent Runtime is temporarily unavailable";
 
     /**
      * {@code ServerCallContext} state key set by a transport entry point after it
-     * has already acquired an admission permit for the request. The executor
-     * atomically removes the marker and adopts the permit instead of acquiring a
-     * second one; the regular {@code finally} block then releases it, so the
-     * permit is handed over exactly once. Entries without the marker (e.g. the
-     * callback continuation) acquire a permit themselves.
+     * has already acquired an admission permit for the request. The value is the
+     * single source of truth defined by {@link TaskAdmissionService}; the agent
+     * executor atomically removes the marker and adopts the permit instead of
+     * acquiring a second one, and the permit's release then follows the
+     * consequence-landed lifecycle owned by the coordinator. Entries without the
+     * marker (e.g. the callback continuation) acquire a permit themselves.
      */
-    static final String PRE_ACQUIRED_ADMISSION_KEY = "_a2a_admission_preacquired";
+    static final String PRE_ACQUIRED_ADMISSION_KEY = TaskAdmissionService.HANDOVER_MARKER_KEY;
 
     private static final Logger log = LoggerFactory.getLogger(A2AAgentExecutor.class);
 
@@ -116,13 +121,15 @@ public class A2AAgentExecutor implements AgentExecutor {
 
     private final TaskAdmissionListener admissionListener;
 
+    private final AdmissionReleaseCoordinator admissionCoordinator;
+
     private final ChunkMapper chunkMapper = new ChunkMapper();
 
     private final ConcurrentMap<String, AtomicBoolean> activeCancellations = new ConcurrentHashMap<>();
 
 
     public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter) {
-        this(orchestrator, adapter, null);
+        this(orchestrator, adapter, null, null, null);
     }
 
     /**
@@ -130,11 +137,16 @@ public class A2AAgentExecutor implements AgentExecutor {
      *
      * @param orchestrator the serve orchestrator
      * @param adapter the A2A protocol adapter
-     * @param admissionGate the task admission gate; {@code null} disables admission control
+     * @param admissionGate the task admission gate; must be {@code null} —
+     *        these legacy constructors cannot supply the coordinator a
+     *        bounded gate requires
+     * @throws IllegalArgumentException when {@code admissionGate} is non-null —
+     *         use the five-argument constructor with an
+     *         {@code AdmissionReleaseCoordinator} instead
      */
     public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
             TaskAdmissionGate admissionGate) {
-        this(orchestrator, adapter, admissionGate, null);
+        this(orchestrator, adapter, admissionGate, null, null);
     }
 
     /**
@@ -142,16 +154,49 @@ public class A2AAgentExecutor implements AgentExecutor {
      *
      * @param orchestrator the serve orchestrator
      * @param adapter the A2A protocol adapter
-     * @param admissionGate the task admission gate; {@code null} disables admission control
+     * @param admissionGate the task admission gate; must be {@code null} —
+     *        these legacy constructors cannot supply the coordinator a
+     *        bounded gate requires
      * @param admissionListener the admission lifecycle listener; {@code null}
      *        disables quota-occupancy tracking
+     * @throws IllegalArgumentException when {@code admissionGate} is non-null —
+     *         use the five-argument constructor with an
+     *         {@code AdmissionReleaseCoordinator} instead
      */
     public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
             TaskAdmissionGate admissionGate, TaskAdmissionListener admissionListener) {
+        this(orchestrator, adapter, admissionGate, admissionListener, null);
+    }
+
+    /**
+     * Constructs the agent executor with an admission gate, listener and the
+     * admission-release coordinator (DFX-006).
+     *
+     * @param orchestrator the serve orchestrator
+     * @param adapter the A2A protocol adapter
+     * @param admissionGate the task admission gate; {@code null} disables admission control
+     * @param admissionListener the admission lifecycle listener; {@code null}
+     *        disables quota-occupancy tracking
+     * @param admissionCoordinator the admission-release coordinator owning the
+     *        permit lifecycle; required when a gate is present
+     * @throws IllegalArgumentException when {@code admissionGate} is non-null
+     *         but {@code admissionCoordinator} is null — a bounded gate without
+     *         the coordinator would silently revert to the pre-DFX-006
+     *         execution-time release contract
+     * @since 0.1.4
+     */
+    public A2AAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
+            TaskAdmissionGate admissionGate, TaskAdmissionListener admissionListener,
+            AdmissionReleaseCoordinator admissionCoordinator) {
+        if (admissionGate != null && admissionCoordinator == null) {
+            throw new IllegalArgumentException(
+                    "an admission gate requires an AdmissionReleaseCoordinator (DFX-006)");
+        }
         this.orchestrator = orchestrator;
         this.adapter = adapter;
         this.admissionGate = admissionGate;
         this.admissionListener = admissionListener;
+        this.admissionCoordinator = admissionCoordinator;
     }
 
 
@@ -186,43 +231,58 @@ public class A2AAgentExecutor implements AgentExecutor {
     private void executeRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
             boolean isNewTask) {
         boolean hasPreAcquiredPermit = consumePreAcquiredAdmission(ctx);
-        if (!hasPreAcquiredPermit && admissionGate != null && !admissionGate.tryAcquire()) {
-            log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} "
-                    + "maxConcurrent={} reason=\"limit_reached\"",
-                    req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());
-            throw new A2AError(A2AErrorCodes.INTERNAL.code(), ADMISSION_REJECTED_MESSAGE, null);
+        if (!hasPreAcquiredPermit && admissionGate != null) {
+            Optional<String> eventRejection = admissionCoordinator.checkEventSafety();
+            if (eventRejection.isPresent()) {
+                logRejected(req.getConversationId(), eventRejection.get());
+                throw admissionError(eventRejection.get());
+            }
+            if (!admissionGate.tryAcquire()) {
+                String businessCode = admissionCoordinator.classifyPoolExhaustion();
+                logRejected(req.getConversationId(), businessCode);
+                throw admissionError(businessCode);
+            }
         }
-        if (admissionGate != null) {
-            log.info("[CONCURRENCY] task_admitted taskId={} conversationId={} currentActive={} maxConcurrent={}",
-                    msgCtx.getTaskId(), req.getConversationId(), admissionGate.currentCount(), admissionGate.limit());
-        }
+        Optional<AdmissionReleaseCoordinator.ReleaseLease> roundLease = admissionCoordinator != null
+                ? admissionCoordinator.register(msgCtx.getTaskId(), req.getConversationId()) : Optional.empty();
         try {
-            // Inside the try so a throwing listener still gets the finally-side
-            // release()/onReleased() compensation — the permit must not leak.
+            if (admissionGate != null) {
+                log.info("[CONCURRENCY] task_admitted taskId={} conversationId={} currentActive={} maxConcurrent={}",
+                        msgCtx.getTaskId(), req.getConversationId(), admissionGate.currentCount(),
+                        admissionGate.limit());
+            }
+            // Inside the try so a throwing listener still reaches the
+            // finally-side round completion; the release itself belongs to
+            // the coordinator (consequence-landed), not to this block.
             if (admissionGate != null && admissionListener != null) {
                 admissionListener.onAdmitted(msgCtx.getTaskId(), req.getConversationId());
             }
             executeAdmitted(ctx, msgCtx, req, emitter, isNewTask);
         } finally {
-            if (admissionGate != null) {
-                admissionGate.release();
-                if (admissionListener != null) {
-                    admissionListener.onReleased(msgCtx.getTaskId(), req.getConversationId());
-                }
-                log.info("[CONCURRENCY] task_released taskId={} conversationId={} "
-                        + "currentActive={} maxConcurrent={}",
-                        msgCtx.getTaskId(), req.getConversationId(),
-                        admissionGate.currentCount(), admissionGate.limit());
+            if (admissionCoordinator != null) {
+                roundLease.ifPresent(admissionCoordinator::completeRound);
             }
         }
+    }
+
+    private void logRejected(String conversationId, String businessCode) {
+        log.warn("[CONCURRENCY] task_rejected conversationId={} currentActive={} maxConcurrent={} "
+                + "businessCode={}", conversationId, admissionGate.currentCount(), admissionGate.limit(),
+                businessCode);
+    }
+
+    private static A2AError admissionError(String businessCode) {
+        return new A2AError(A2AErrorCodes.INTERNAL.code(), ADMISSION_REJECTED_MESSAGE,
+                Map.of("businessCode", businessCode));
     }
 
     /**
      * Adopts a permit already acquired by the transport entry point (e.g.
      * {@code A2aJsonRpcController}), if any. The state-map removal is atomic, so
      * ownership transfers exactly once: when this method returns {@code true},
-     * the executor's {@code finally} block owns the release and the transport
-     * must not release again.
+     * the round lease registered by the executor owns the release lifecycle —
+     * the coordinator releases on consequence landing (or TTL) — and the
+     * transport must not compensate-release after adoption.
      *
      * @param ctx the request context carrying the (possibly null) call context
      * @return {@code true} when a pre-acquired permit was adopted

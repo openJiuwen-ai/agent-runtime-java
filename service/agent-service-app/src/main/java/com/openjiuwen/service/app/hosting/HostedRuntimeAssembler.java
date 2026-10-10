@@ -12,6 +12,7 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
 import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
+import com.openjiuwen.service.app.controller.a2a.AdmissionReleaseCoordinator;
 import com.openjiuwen.service.app.controller.a2a.HttpPushNotificationSender;
 import com.openjiuwen.service.app.controller.a2a.InMemoryA2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
@@ -127,12 +128,13 @@ public final class HostedRuntimeAssembler {
         assembly.onClose(orchestrator::stopDispatching);
         var listener = assembly.component(TaskAdmissionListener.class).orElse(null);
         var executor = new A2AAgentExecutor(orchestrator, dependencies.protocol(),
-                dependencies.admissionGate(), listener);
+                dependencies.admissionGate(), listener, dependencies.admissionCoordinator());
         localExecutor.set(executor);
         var pushConfigs = new InMemoryPushNotificationConfigStore();
         var sender = new HttpPushNotificationSender(pushConfigs, dependencies.httpClient(),
                 dependencies.properties().getCallbackAllowedHosts());
-        var processor = A2AAutoConfiguration.createEventProcessor(bus, store, sender, queues);
+        var processor = A2AAutoConfiguration.createEventProcessor(bus, store, sender, queues,
+                dependencies.admissionCoordinator());
         var sdkHandler = new DefaultRequestHandler(executor, store, queues, pushConfigs, processor,
                 dependencies.resources().agentExecutor(), dependencies.resources().eventConsumerExecutor());
         // Only the new SDK object needs @Inject/@PostConstruct. User handlers and
@@ -169,7 +171,7 @@ public final class HostedRuntimeAssembler {
         for (int i = actions.size() - 1; i >= 0; i--) {
             try {
                 actions.get(i).run();
-            } catch (RuntimeException exception) {
+            } catch (RuntimeException | Error exception) {
                 log.error("Hosted resource cleanup failed type={}", exception.getClass().getSimpleName());
             }
         }
@@ -181,7 +183,8 @@ public final class HostedRuntimeAssembler {
     public record Dependencies(A2AProperties properties, MiddlewareProperties middleware,
             RuntimeRedisClient redisClient, RemoteAgentCaller remoteCaller, A2AProtocolAdapter protocol,
             TaskAdmissionGate admissionGate, HostedResources resources, RemoteInvocationDispatcher dispatcher,
-            HostedAgentCardFactory cards, AutowireCapableBeanFactory beanFactory, HttpClient httpClient) {
+            HostedAgentCardFactory cards, AutowireCapableBeanFactory beanFactory, HttpClient httpClient,
+            AdmissionReleaseCoordinator admissionCoordinator) {
     }
 
     /**
