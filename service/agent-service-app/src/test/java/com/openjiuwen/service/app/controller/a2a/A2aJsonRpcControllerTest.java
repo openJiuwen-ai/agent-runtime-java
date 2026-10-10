@@ -53,6 +53,30 @@ class A2aJsonRpcControllerTest {
             "DeleteTaskPushNotificationConfig"};
 
     @Test
+    void malformedSelectionFailsBeforeTaskOrStream() {
+        var handler = mock(RequestHandler.class);
+        var controller = new A2aJsonRpcController(handler);
+        for (String method : java.util.List.of("SendMessage", "SendStreamingMessage")) {
+            for (String value : java.util.List.of("123", "true", "[]", "{}", "\"   \"")) {
+                String json = """
+                        {"jsonrpc":"2.0","id":"model-test","method":"%s","params":{
+                          "message":{"role":"ROLE_USER","parts":[{"text":"hello"}]},
+                          "metadata":{"model_name":%s}}}
+                        """.formatted(method, value);
+                var servletRequest = new MockHttpServletRequest();
+                servletRequest.setContent(json.getBytes(StandardCharsets.UTF_8));
+                var response = controller.handleJsonRpc(json, servletRequest);
+                if (!(response.getBody() instanceof String body)) {
+                    throw new AssertionError("Expected a JSON-RPC error body");
+                }
+                assertThat(JsonParser.parseString(body).getAsJsonObject()
+                        .getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32602);
+            }
+        }
+        verifyNoInteractions(handler);
+    }
+
+    @Test
     void oversizedContentLengthIsRejectedWith413BeforeJsonParsing() {
         RequestHandler requestHandler = mock(RequestHandler.class);
         A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);

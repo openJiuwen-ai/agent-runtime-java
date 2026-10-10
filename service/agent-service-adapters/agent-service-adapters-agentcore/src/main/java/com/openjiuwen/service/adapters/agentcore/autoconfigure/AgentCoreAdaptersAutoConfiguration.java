@@ -21,6 +21,7 @@ import com.openjiuwen.service.adapters.agentcore.external.DefaultExternalSvcAdap
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.autoconfigure.ExternalSecurityAutoConfiguration;
+import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog;
 import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.spi.AgentHandler;
@@ -136,6 +137,7 @@ public class AgentCoreAdaptersAutoConfiguration {
      * @param agentId agent id configured for the service
      * @param middlewareAdapterRegistrar middleware adapter registrar, if available
      * @param externalSvcAdapterRegistrar external service adapter registrar
+     * @param modelCatalog deployment model catalog, if request model selection is enabled
      * @return agent-core-backed service handler bean
      */
     @Bean
@@ -144,8 +146,10 @@ public class AgentCoreAdaptersAutoConfiguration {
         "'${openjiuwen.service.agent-id:}' != '' " + "&& '${openjiuwen.service.handler:agentcore}' == 'agentcore'")
     public AgentHandler coreAgentHandler(@Value("${openjiuwen.service.agent-id}") String agentId,
         @Autowired(required = false) MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
-        ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar) {
-        return new JiuwenCoreAgentHandler(agentId, middlewareAdapterRegistrar, externalSvcAdapterRegistrar);
+        ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar,
+        ObjectProvider<LlmModelCatalog> modelCatalog) {
+        return new JiuwenCoreAgentHandler(agentId, middlewareAdapterRegistrar, externalSvcAdapterRegistrar,
+                agentId, modelCatalog.getIfAvailable());
     }
 
     /**

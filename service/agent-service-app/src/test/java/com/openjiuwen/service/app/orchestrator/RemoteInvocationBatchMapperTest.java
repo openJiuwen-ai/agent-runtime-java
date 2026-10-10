@@ -334,6 +334,7 @@ class RemoteInvocationBatchMapperTest {
         void continuationRequestSurvivesTaskStoreSerialization() {
                 ServeRequest request = new ServeRequest();
                 request.setConversationId("conversation-persisted");
+                request.setModelName(" b ");
                 request.setStream(false);
                 request.setUserId("user-1");
                 request.setSpaceId("space-1");
@@ -353,6 +354,7 @@ class RemoteInvocationBatchMapperTest {
                 ServeRequest restored = mapper.continuationRequest(restoredSnapshot, new ServeRequest());
 
                 assertThat(restored.getConversationId()).isEqualTo("conversation-persisted");
+                assertThat(restored.getModelName()).isEqualTo("b");
                 assertThat(restored.isStream()).isFalse();
                 assertThat(restored.getUserId()).isEqualTo("user-1");
                 assertThat(restored.getSpaceId()).isEqualTo("space-1");
@@ -379,6 +381,19 @@ class RemoteInvocationBatchMapperTest {
                                 Map.of("request", rawRequest), new ServeRequest());
 
                 assertThat(restored.getMetadata()).containsExactlyEntriesOf(Map.of("traceId", "trace-1"));
+        }
+
+        @Test
+        void continuationValidatesAliasAndOldSnapshotsSelectDefault() {
+                ServeRequest fallback = request();
+                fallback.setModelName("b");
+                assertThat(mapper.continuationRequest(Map.of("request", Map.of("conversationId", "old")),
+                                fallback).getModelName()).isNull();
+                for (Object value : List.of(1, true, List.of(), Map.of(), "   ")) {
+                        assertThatThrownBy(() -> mapper.continuationRequest(
+                                        Map.of("request", Map.of("modelName", value)), fallback))
+                                        .isInstanceOf(IllegalArgumentException.class);
+                }
         }
 
         @Test

@@ -11,6 +11,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
+import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.part.A2aPartLimits;
 import com.openjiuwen.service.spec.part.A2aPartRules;
 
@@ -65,8 +66,10 @@ final class A2aJsonRpcParamsParser {
             JsonArray partObjects = requiredNonEmptyArray(messageObject, "parts", "params.message.parts");
             List<Part<?>> parts = parseParts(partObjects);
             Message message = buildMessage(messageObject, parts);
+            Map<String, Object> metadata = parseMetadata(params, "params.metadata");
+            modelName(metadata);
             MessageSendParams.Builder builder = MessageSendParams.builder().message(message)
-                    .metadata(parseMetadata(params, "params.metadata"));
+                    .metadata(metadata);
             parseConfiguration(params).ifPresent(builder::configuration);
             return builder.build();
         } catch (InvalidParamsError e) {
@@ -74,6 +77,15 @@ final class A2aJsonRpcParamsParser {
         } catch (JsonParseException | ClassCastException | IllegalStateException | IllegalArgumentException
                 | NullPointerException | UnsupportedOperationException e) {
             log.debug("Invalid SendMessage params", e);
+            throw new InvalidParamsError();
+        }
+    }
+
+    static String modelName(Map<String, Object> metadata) {
+        try {
+            return ServeRequest.normalizeModelName(metadata == null ? null : metadata.get("model_name"))
+                    .orElse(null);
+        } catch (IllegalArgumentException failure) {
             throw new InvalidParamsError();
         }
     }

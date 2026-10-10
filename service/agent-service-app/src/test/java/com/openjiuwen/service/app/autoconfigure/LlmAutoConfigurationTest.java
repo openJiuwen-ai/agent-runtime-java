@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
 import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
+import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog;
 import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
 import com.openjiuwen.service.app.config.llm.LlmProperties;
 
@@ -34,6 +35,24 @@ class LlmAutoConfigurationTest {
 
     @TempDir
     private Path tempDir;
+
+    @Test
+    void catalogIsOptInAndFailsStartupWhenEnabledWithoutCredentials() {
+        contextRunner.withPropertyValues("openjiuwen.service.llm.auto-discover=false")
+            .run(context -> assertThat(context)
+                .doesNotHaveBean(LlmModelCatalog.class));
+        contextRunner.withPropertyValues("openjiuwen.service.llm.auto-discover=false",
+                "openjiuwen.service.llm.model-selection-enabled=true")
+            .run(context -> assertThat(context).hasFailed());
+        contextRunner.withPropertyValues("openjiuwen.service.llm.auto-discover=false",
+                "openjiuwen.service.llm.model-selection-enabled=true", "openjiuwen.service.llm.api-key=key",
+                "openjiuwen.service.llm.api-base=https://example.invalid/v1",
+                "openjiuwen.service.llm.model-name=default-model")
+            .run(context -> {
+                assertThat(context).hasNotFailed();
+                assertThat(context).hasSingleBean(LlmModelCatalog.class);
+            });
+    }
 
     @Test
     void autoConfiguration_bindsServicePrefixAndRegistersResolver() {
