@@ -63,7 +63,7 @@ public class RunBudgetProperties {
      * @since 2026-10-08
      */
     public static class Turn {
-        private boolean enabled;
+        private boolean isEnabled;
         private Integer suggestedRounds;
         private int defaultGuaranteedRounds = 30;
         private Integer hardLimit;
@@ -75,7 +75,7 @@ public class RunBudgetProperties {
          * @return enabled flag
          */
         public boolean isEnabled() {
-            return enabled;
+            return isEnabled;
         }
 
         /**
@@ -117,10 +117,10 @@ public class RunBudgetProperties {
         /**
          * Sets whether the turn dimension is enabled.
          *
-         * @param enabled enabled flag
+         * @param isEnabled enabled flag
          */
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
+        public void setEnabled(boolean isEnabled) {
+            this.isEnabled = isEnabled;
         }
 
         /**

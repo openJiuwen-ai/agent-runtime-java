@@ -37,12 +37,12 @@ final class RunBudgetWirer {
             return Optional.empty();
         }
         RunBudgetProperties properties = wiring.budgetProperties();
-        boolean turnEnabled = properties.getTurn().isEnabled() && rawMaxIterationsAbsent(wiring);
-        boolean timeEnabled = normalizeZero(properties.getTime().getTotalBudgetSeconds()) != null;
-        if (!turnEnabled && !timeEnabled) {
+        boolean isTurnEnabled = properties.getTurn().isEnabled() && rawMaxIterationsAbsent(wiring);
+        boolean isTimeEnabled = normalizeZero(properties.getTime().getTotalBudgetSeconds()).isPresent();
+        if (!isTurnEnabled && !isTimeEnabled) {
             return Optional.empty();
         }
-        return Optional.of(toRunBudgetConfig(properties, turnEnabled, timeEnabled));
+        return Optional.of(toRunBudgetConfig(properties, isTurnEnabled, isTimeEnabled));
     }
 
     /**
@@ -79,24 +79,24 @@ final class RunBudgetWirer {
         return Math.max(guarantee * 2, HARD_LIMIT_FLOOR);
     }
 
-    private static RunBudgetConfig toRunBudgetConfig(RunBudgetProperties properties, boolean turnEnabled,
-        boolean timeEnabled) {
+    private static RunBudgetConfig toRunBudgetConfig(RunBudgetProperties properties, boolean isTurnEnabled,
+        boolean isTimeEnabled) {
         RunBudgetProperties.Turn turn = properties.getTurn();
         RunBudgetProperties.Checkpoint checkpoint = turn.getCheckpoint();
         RunBudgetProperties.Time time = properties.getTime();
         try {
             return RunBudgetConfig.builder()
-                .turnEnabled(turnEnabled)
-                .suggestedRounds(normalizeZero(turn.getSuggestedRounds()))
+                .turnEnabled(isTurnEnabled)
+                .suggestedRounds(normalizeZero(turn.getSuggestedRounds()).orElse(null))
                 .defaultGuaranteedRounds(turn.getDefaultGuaranteedRounds())
-                .hardLimit(normalizeZero(turn.getHardLimit()))
-                .firstCheckpoint(normalizeZero(checkpoint.getFirstCheckpoint()))
+                .hardLimit(normalizeZero(turn.getHardLimit()).orElse(null))
+                .firstCheckpoint(normalizeZero(checkpoint.getFirstCheckpoint()).orElse(null))
                 .progressIntervalStep(checkpoint.getProgressIntervalStep())
                 .maxCheckpointInterval(checkpoint.getMaxInterval())
                 .stagnationEscalationThreshold(checkpoint.getStagnationEscalationThreshold())
                 .gentleReminderStartMultiplier(checkpoint.getGentleReminderStartMultiplier())
                 .gentleReminderInterval(checkpoint.getGentleReminderInterval())
-                .totalBudgetSeconds(timeEnabled ? normalizeZero(time.getTotalBudgetSeconds()) : null)
+                .totalBudgetSeconds(isTimeEnabled ? normalizeZero(time.getTotalBudgetSeconds()).orElse(null) : null)
                 .nearDeadlineThresholdSeconds(time.getNearDeadlineThresholdSeconds())
                 .build();
         } catch (IllegalArgumentException exception) {
@@ -106,7 +106,10 @@ final class RunBudgetWirer {
         }
     }
 
-    private static Integer normalizeZero(Integer value) {
-        return value != null && value == 0 ? null : value;
+    private static Optional<Integer> normalizeZero(Integer value) {
+        if (value == null || value.intValue() == 0) {
+            return Optional.empty();
+        }
+        return Optional.of(value);
     }
 }
