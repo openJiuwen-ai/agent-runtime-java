@@ -14,6 +14,7 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.hosting.HostedAgentRuntime;
 import com.openjiuwen.service.app.hosting.HostedIngressResolver;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionService;
 import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
@@ -23,6 +24,7 @@ import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.auth.UnauthenticatedUser;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
 import org.a2aproject.sdk.spec.A2AError;
+import org.a2aproject.sdk.spec.A2AErrorCodes;
 import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.EventKind;
 import org.a2aproject.sdk.spec.InternalError;
@@ -49,8 +51,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -77,6 +81,8 @@ public class A2aJsonRpcController {
 
     private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
 
+    private ObjectProvider<TaskAdmissionService> admissionServiceProvider;
+
     private A2AProperties a2aProperties;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -94,6 +100,11 @@ public class A2aJsonRpcController {
     @org.springframework.beans.factory.annotation.Autowired
     void setAdmissionGateProvider(ObjectProvider<TaskAdmissionGate> admissionGateProvider) {
         this.admissionGateProvider = admissionGateProvider;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setAdmissionServiceProvider(ObjectProvider<TaskAdmissionService> admissionServiceProvider) {
+        this.admissionServiceProvider = admissionServiceProvider;
     }
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -170,8 +181,9 @@ public class A2aJsonRpcController {
             validateInlinePushNotificationConfig(params);
             Optional<HostedAgentRuntime> target = selectTarget(servletRequest, request.payload());
             target.ifPresent(runtime -> validateHostedTask(runtime, params.message()));
-            if (isAdmissionRejected(ctx, params.message().contextId())) {
-                yield admissionRejectedResponse(id);
+            Optional<String> admissionRejection = admissionRejectionCode(ctx, params.message().contextId());
+            if (admissionRejection.isPresent()) {
+                yield admissionRejectedResponse(id, admissionRejection.get());
             }
             EventKind result = selectedHandler(target).onMessageSend(params, ctx);
             yield ResponseEntity.ok(serializeA2aJson(new SendMessageResponse(id, result)));
@@ -182,8 +194,9 @@ public class A2aJsonRpcController {
             validateInlinePushNotificationConfig(params);
             Optional<HostedAgentRuntime> target = selectTarget(servletRequest, request.payload());
             target.ifPresent(runtime -> validateHostedTask(runtime, params.message()));
-            if (isAdmissionRejected(ctx, params.message().contextId())) {
-                yield admissionRejectedResponse(id);
+            Optional<String> admissionRejection = admissionRejectionCode(ctx, params.message().contextId());
+            if (admissionRejection.isPresent()) {
+                yield admissionRejectedResponse(id, admissionRejection.get());
             }
             Flow.Publisher<StreamingEventKind> pub = selectedHandler(target).onMessageSendStream(params, ctx);
             yield streamToSse(pub, id);
@@ -197,38 +210,66 @@ public class A2aJsonRpcController {
 
     /**
      * Authoritative admission at the transport entry. When a bounded gate is
-     * configured, acquires a permit synchronously and marks the call context so
-     * {@code A2AAgentExecutor} adopts the already-held permit instead of
-     * acquiring a second one; the executor's {@code finally} block owns the
-     * release. This closes the race window of the former read-only pre-check,
-     * in which a request that slipped through was rejected inside the SDK
-     * pipeline and surfaced as an asynchronous A2AError (HTTP 500 on the
-     * streaming path) instead of a clean synchronous 503.
+     * configured, runs the unified two-level classification first — the
+     * event-safety stall check before acquiring, then the pool-exhaustion
+     * attribution when the quota is full — and on success acquires a permit
+     * synchronously and marks the call context so {@code A2AAgentExecutor}
+     * adopts the already-held permit instead of acquiring a second one; the
+     * permit is returned when the round's consequence lands. This closes the
+     * race window of the former read-only pre-check, in which a request that
+     * slipped through was rejected inside the SDK pipeline and surfaced as an
+     * asynchronous A2AError (HTTP 500 on the streaming path) instead of a
+     * clean synchronous 503.
      *
      * @param ctx the server call context that carries the handover marker
      * @param conversationId the conversation identifier for rejection logging
-     * @return {@code true} when the request must be rejected with HTTP 503
+     * @return the rejection businessCode when the request must be rejected
+     *         with HTTP 503; empty when the request is admitted
      */
-    private boolean isAdmissionRejected(ServerCallContext ctx, String conversationId) {
+    private Optional<String> admissionRejectionCode(ServerCallContext ctx, String conversationId) {
         Optional<TaskAdmissionGate> admissionGate = admissionGate();
         if (admissionGate.isEmpty() || admissionGate.get().limit() < 0) {
-            return false;
+            return Optional.empty();
+        }
+        Optional<String> eventRejection = admissionService().map(TaskAdmissionService::checkEventSafety)
+                .orElse(Optional.empty());
+        if (eventRejection.isPresent()) {
+            logRejected(conversationId, eventRejection.get());
+            return eventRejection;
         }
         TaskAdmissionGate gate = admissionGate.get();
         if (gate.tryAcquire()) {
             ctx.getState().put(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY, Boolean.TRUE);
-            return false;
+            return Optional.empty();
         }
-        logRejected(conversationId);
-        return true;
+        String businessCode = admissionService().map(TaskAdmissionService::classifyPoolExhaustion)
+                .orElse(TaskAdmissionService.BUSINESS_CODE_CONCURRENCY_LIMIT_REACHED);
+        logRejected(conversationId, businessCode);
+        return Optional.of(businessCode);
+    }
+
+    /**
+     * Resolves the admission service (the release coordinator's
+     * classification surface), when configured.
+     *
+     * @return the service wrapped as {@link Optional}; empty when no
+     *         {@code TaskAdmissionService} bean is available — classification
+     *         then degrades to the plain concurrency-limit code
+     */
+    private Optional<TaskAdmissionService> admissionService() {
+        if (admissionServiceProvider == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(admissionServiceProvider.getIfAvailable());
     }
 
     /**
      * Returns the pre-acquired permit when the request failed synchronously
      * before the agent executor adopted it (e.g. parameter validation inside
-     * the SDK). The state-map removal is atomic, so exactly one of {this
-     * controller, the executor's {@code finally}} releases the permit; on the
-     * normal path the executor wins and this method is a no-op.
+     * the SDK). The state-map removal is atomic, so the compensating release
+     * runs exactly once: on the normal path the executor adopted the marker,
+     * the round lease owns the release lifecycle (coordinator releases on
+     * consequence landing or TTL) and this method is a no-op.
      *
      * @param ctx the server call context carrying the handover marker
      */
@@ -259,16 +300,18 @@ public class A2aJsonRpcController {
         return Optional.ofNullable(admissionGateProvider.getIfAvailable());
     }
 
-    private void logRejected(String conversationId) {
+    private void logRejected(String conversationId, String businessCode) {
         admissionGate().ifPresent(gate -> log.warn(
                 "[CONCURRENCY] task_rejected conversationId={} "
-                        + "currentActive={} maxConcurrent={} reason=\"limit_reached\"",
-                conversationId, gate.currentCount(), gate.limit()));
+                        + "currentActive={} maxConcurrent={} businessCode={}",
+                conversationId, gate.currentCount(), gate.limit(), businessCode));
     }
 
-    private static ResponseEntity<String> admissionRejectedResponse(Object id) {
+    private static ResponseEntity<String> admissionRejectedResponse(Object id, String businessCode) {
         return A2aJsonRpcProtocol.errorResponse(id,
-                new InternalError(A2AAgentExecutor.ADMISSION_REJECTED_MESSAGE), HttpStatus.SERVICE_UNAVAILABLE);
+                new A2AError(A2AErrorCodes.INTERNAL.code(), A2AAgentExecutor.ADMISSION_REJECTED_MESSAGE,
+                        Map.of("businessCode", businessCode)),
+                HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     private ResponseEntity<SseEmitter> streamToSse(Flow.Publisher<StreamingEventKind> publisher, Object requestId) {
@@ -458,12 +501,16 @@ public class A2aJsonRpcController {
                     (thread, error) -> log.error("Uncaught A2A SSE thread={}", thread.getName(), error));
         }
         AtomicInteger idx = new AtomicInteger();
-        return Executors.newCachedThreadPool(runnable -> {
-            Thread thread = new Thread(runnable, "a2a-sse-" + idx.incrementAndGet());
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler((source, error) ->
-                    log.error("Uncaught A2A SSE thread={}", source.getName(), error));
-            return thread;
-        });
+        return new ThreadPoolExecutor(
+                0, Integer.MAX_VALUE, 60L, TimeUnit.SECONDS,
+                new SynchronousQueue<>(),
+                runnable -> {
+                    Thread thread = new Thread(runnable, "a2a-sse-" + idx.incrementAndGet());
+                    thread.setDaemon(true);
+                    thread.setUncaughtExceptionHandler((source, error) ->
+                            log.error("Uncaught A2A SSE thread={}", source.getName(), error));
+                    return thread;
+                },
+                new ThreadPoolExecutor.AbortPolicy());
     }
 }

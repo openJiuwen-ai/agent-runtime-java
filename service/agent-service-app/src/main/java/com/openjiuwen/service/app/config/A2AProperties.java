@@ -14,6 +14,7 @@ import lombok.Setter;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -92,6 +93,20 @@ public class A2AProperties {
      * the pre-check as an emergency switch.
      */
     private long maxMessageBytes = A2aPartLimits.DEFAULT_MAX_REQUEST_BODY_BYTES;
+
+    /**
+     * Fallback TTL for admission release: when a round's consequence events
+     * are lost before landing, the permit is reclaimed once the task is
+     * finalized in the store or the main event deque drains; otherwise the
+     * lease re-arms at a fixed step and is released unconditionally when the
+     * force cap (max(20m, 2x this TTL)) elapses since execution finished.
+     * Values &lt;= 0 disable the TTL fallback together with the force cap —
+     * capacity recovery then relies on processor self-healing only, a
+     * declared recovery boundary.
+     *
+     * @since 0.1.4
+     */
+    private Duration admissionReleaseTtl = Duration.ofMinutes(10);
 
     /**
      * A2A platform agent execution pool size. Values <= 0 mean auto-sizing
