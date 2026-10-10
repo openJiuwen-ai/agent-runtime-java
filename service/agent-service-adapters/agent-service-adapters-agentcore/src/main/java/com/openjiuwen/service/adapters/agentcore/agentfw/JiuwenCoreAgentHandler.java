@@ -925,11 +925,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 data.put("message", req.getMessage());
             }
             if (context != null && !context.isEmpty()) {
-                if (context.get("context") instanceof Map<?, ?> nestedContext) {
-                    data.put("context", nestedContext);
-                } else {
-                    data.put("context", context);
-                }
+                data.put("context", context);
             }
             if (value instanceof ToolCallInterruptRequest tcr) {
                 extractToolCallData(tcr, data);

@@ -63,10 +63,9 @@ class JiuwenCoreAgentHandlerTest {
         pending.setToolCallId("call-1");
         pending.setToolName("bash");
         Map<String, Object> context = Map.of("_interrupt_kind", "tool_permission_ask", "command", "echo cleaning");
+        context.forEach(pending::putExtraField);
         if (hasNestedContext) {
-            pending.putExtraField("context", context);
-        } else {
-            context.forEach(pending::putExtraField);
+            pending.putExtraField("context", Map.of("locale", "zh"));
         }
         OutputSchema output = new OutputSchema(type, 0, new InteractionOutput("call-1", pending));
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id") {
@@ -84,7 +83,7 @@ class JiuwenCoreAgentHandlerTest {
         assertThat(chunks.get(0).getType()).isEqualTo(QueryChunk.TYPE_INTERRUPT);
         assertThat(chunks.get(0).getData()).isInstanceOfSatisfying(Map.class, data -> {
             assertThat(data.get("type")).isEqualTo("__interaction__");
-            assertThat(data.get("context")).isEqualTo(context);
+            assertThat(data.get("context")).isEqualTo(pending.getExtraFields());
             assertThat(data.get("toolCallId")).isEqualTo("call-1");
             assertThat(data.get("message")).isEqualTo("Confirm this command");
             assertThat(data.get("payload")).isSameAs(output.getPayload());
