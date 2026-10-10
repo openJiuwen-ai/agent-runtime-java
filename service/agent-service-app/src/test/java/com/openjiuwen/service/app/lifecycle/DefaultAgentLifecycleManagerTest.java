@@ -239,6 +239,7 @@ class DefaultAgentLifecycleManagerTest {
             }
         });
         manager.runShutdownPhase();
+        assertThat(registry.activeCount()).isZero();
         completion.join();
 
         assertThat(handle.isCancelled()).isTrue();
@@ -246,7 +247,6 @@ class DefaultAgentLifecycleManagerTest {
         assertThat(stopCalled.get()).isTrue();
         assertThat(readiness.isAgentLoaded()).isFalse();
         assertThat(readiness.isProcessUp()).isFalse();
-        assertThat(registry.activeCount()).isZero();
     }
 
     @Test
