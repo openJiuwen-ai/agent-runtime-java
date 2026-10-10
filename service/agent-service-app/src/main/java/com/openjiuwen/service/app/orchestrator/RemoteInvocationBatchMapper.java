@@ -242,7 +242,7 @@ final class RemoteInvocationBatchMapper {
         }
         ServeRequest request = new ServeRequest();
         request.setConversationId(stringValue(rawRequest.get("conversationId")));
-        request.setModelName(ServeRequest.normalizeModelName(rawRequest.get("modelName")));
+        request.setModelName(ServeRequest.normalizeModelName(rawRequest.get("modelName")).orElse(null));
         request.setStream(!(rawRequest.get("stream") instanceof Boolean isStream) || isStream);
         request.setUserId(optionalNonBlank(stringValue(rawRequest.get("userId"))).orElse(null));
         request.setSpaceId(optionalNonBlank(stringValue(rawRequest.get("spaceId"))).orElse(null));

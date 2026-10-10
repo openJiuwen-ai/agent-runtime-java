@@ -48,8 +48,12 @@ import java.util.concurrent.RejectedExecutionException;
  * @since 0.1.0
  */
 class A2aJsonRpcControllerTest {
+    private static final String[] UNSUPPORTED_PUSH_CRUD_METHODS = {"CreateTaskPushNotificationConfig",
+            "GetTaskPushNotificationConfig", "ListTaskPushNotificationConfigs",
+            "DeleteTaskPushNotificationConfig"};
+
     @Test
-    void malformedModelSelectionReturnsInvalidParamsWithoutCreatingTaskOrStream() {
+    void malformedSelectionFailsBeforeTaskOrStream() {
         var handler = mock(RequestHandler.class);
         var controller = new A2aJsonRpcController(handler);
         for (String method : java.util.List.of("SendMessage", "SendStreamingMessage")) {
@@ -62,17 +66,15 @@ class A2aJsonRpcControllerTest {
                 var servletRequest = new MockHttpServletRequest();
                 servletRequest.setContent(json.getBytes(StandardCharsets.UTF_8));
                 var response = controller.handleJsonRpc(json, servletRequest);
-                assertThat(response.getBody()).isInstanceOf(String.class);
-                assertThat(JsonParser.parseString((String) response.getBody()).getAsJsonObject()
+                if (!(response.getBody() instanceof String body)) {
+                    throw new AssertionError("Expected a JSON-RPC error body");
+                }
+                assertThat(JsonParser.parseString(body).getAsJsonObject()
                         .getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32602);
             }
         }
         verifyNoInteractions(handler);
     }
-
-    private static final String[] UNSUPPORTED_PUSH_CRUD_METHODS = {"CreateTaskPushNotificationConfig",
-            "GetTaskPushNotificationConfig", "ListTaskPushNotificationConfigs",
-            "DeleteTaskPushNotificationConfig"};
 
     @Test
     void oversizedContentLengthIsRejectedWith413BeforeJsonParsing() {

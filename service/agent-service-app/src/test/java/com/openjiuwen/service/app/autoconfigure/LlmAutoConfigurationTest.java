@@ -30,6 +30,12 @@ import java.time.Duration;
  * Auto-configuration tests for reusable LLM configuration.
  */
 class LlmAutoConfigurationTest {
+    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
+        AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class, LlmAutoConfiguration.class));
+
+    @TempDir
+    private Path tempDir;
+
     @Test
     void catalogIsOptInAndFailsStartupWhenEnabledWithoutCredentials() {
         contextRunner.withPropertyValues("openjiuwen.service.llm.auto-discover=false")
@@ -47,11 +53,6 @@ class LlmAutoConfigurationTest {
                 assertThat(context).hasSingleBean(LlmModelCatalog.class);
             });
     }
-    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
-        AutoConfigurations.of(CredentialDecryptorAutoConfiguration.class, LlmAutoConfiguration.class));
-
-    @TempDir
-    private Path tempDir;
 
     @Test
     void autoConfiguration_bindsServicePrefixAndRegistersResolver() {

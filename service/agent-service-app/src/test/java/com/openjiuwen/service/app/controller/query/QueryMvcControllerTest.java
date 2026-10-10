@@ -7,6 +7,7 @@ package com.openjiuwen.service.app.controller.query;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -42,7 +43,6 @@ class QueryMvcControllerTest {
 
     @Test
     void errorChunkIsWrittenAsActualSseDataBeforeErrorTermination() throws Exception {
-        var beans = new DefaultListableBeanFactory();
         var orchestrator = org.mockito.Mockito.mock(ServeOrchestrator.class);
         var failure = new IllegalStateException("Agent execution failed");
         org.mockito.Mockito.doAnswer(invocation -> {
@@ -51,13 +51,15 @@ class QueryMvcControllerTest {
             observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR,
                     Map.of("type", "error", "error", failure.getMessage())));
             observer.onError(failure);
-            return null;
+            return org.mockito.Answers.RETURNS_DEFAULTS.answer(invocation);
         }).when(orchestrator).streamQuery(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        var beans = new DefaultListableBeanFactory();
         beans.registerSingleton("serveOrchestrator", orchestrator);
         var mvc = MockMvcBuilders.standaloneSetup(new QueryMvcController(beans.getBeanProvider(ServeOrchestrator.class),
                 beans.getBeanProvider(AgentReadiness.class), objectMapper)).build();
         var result = mvc.perform(post("/v1/query").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"conversation_id\":\"sse-model\",\"message\":\"hello\",\"stream\":true,\"model_name\":\"b\"}"))
+                .content("{\"conversation_id\":\"sse-model\",\"message\":\"hello\","
+                        + "\"stream\":true,\"model_name\":\"b\"}"))
                 .andExpect(request().asyncStarted()).andReturn();
         assertThat(result.getAsyncResult(5000)).isSameAs(failure);
         String wire = result.getResponse().getContentAsString();
@@ -74,11 +76,11 @@ class QueryMvcControllerTest {
                 beans.getBeanProvider(AgentReadiness.class), objectMapper);
         var mvc = MockMvcBuilders.standaloneSetup(controller).build();
         for (String value : java.util.List.of("123", "true", "[]", "{}", "\"   \"")) {
-            for (boolean stream : new boolean[] {false, true}) {
+            for (boolean isStreaming : new boolean[] {false, true}) {
                 mvc.perform(post("/v1/query").contentType(MediaType.APPLICATION_JSON).content(
-                        "{\"conversation_id\":\"invalid-model\",\"message\":\"hello\",\"stream\":" + stream
+                        "{\"conversation_id\":\"invalid-model\",\"message\":\"hello\",\"stream\":" + isStreaming
                                 + ",\"model_name\":" + value + "}"))
-                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest())
+                        .andExpect(status().isBadRequest())
                         .andExpect(request().asyncNotStarted());
             }
         }

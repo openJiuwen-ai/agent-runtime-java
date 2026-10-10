@@ -28,16 +28,12 @@ public class QueryRequest {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String agentId;
 
-    /** Public alias in the deployment model catalog, not the provider model name. */
+    /**
+     * Public alias in the deployment model catalog, not the provider model name.
+     */
     @JsonProperty("model_name")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String modelName;
-
-    /** Accepts only null or a non-blank model alias. */
-    @JsonSetter("model_name")
-    public void setModelName(Object modelName) {
-        this.modelName = ServeRequest.normalizeModelName(modelName);
-    }
 
     private List<Map<String, Object>> messages = new ArrayList<>();
 
@@ -61,6 +57,17 @@ public class QueryRequest {
      */
     @JsonProperty("message")
     private String message;
+
+    /**
+     * Accepts only null or a non-blank model alias.
+     *
+     * @param modelName raw model alias from the request
+     * @throws IllegalArgumentException if the value is not a non-blank string or null
+     */
+    @JsonSetter("model_name")
+    public void setModelName(Object modelName) {
+        this.modelName = ServeRequest.normalizeModelName(modelName).orElse(null);
+    }
 
     /**
      * Accepts only a JSON string or null without changing global coercion rules.

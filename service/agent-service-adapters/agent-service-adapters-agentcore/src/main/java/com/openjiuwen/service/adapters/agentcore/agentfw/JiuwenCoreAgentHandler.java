@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -120,7 +121,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private final String instanceScope;
 
-    private volatile boolean modelsRegistered;
+    private volatile boolean isModelsRegistered;
 
     /**
      * Creates a handler with the given agent and default middleware/external registrars.
@@ -163,7 +164,16 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         this(agent, middlewareAdapterRegistrar, externalSvcAdapterRegistrar, null, null);
     }
 
-    /** Creates a catalog-aware handler while preserving existing registrar ownership. */
+    /**
+     * Creates a catalog-aware handler while preserving existing registrar ownership.
+     *
+     * @param agent the agent instance or agent-id string
+     * @param middlewareAdapterRegistrar middleware adapter registrar, if available
+     * @param externalSvcAdapterRegistrar external service adapter registrar, if available
+     * @param instanceScope unique deployment instance scope when a catalog is provided
+     * @param modelCatalog deployment model catalog, or null to disable selection
+     * @throws IllegalArgumentException if a catalog has no instance scope
+     */
     public JiuwenCoreAgentHandler(Object agent, MiddlewareAdapterRegistrar middlewareAdapterRegistrar,
             ExternalSvcAdapterRegistrar externalSvcAdapterRegistrar, String instanceScope,
             LlmModelCatalog modelCatalog) {
@@ -286,7 +296,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             middlewareAdapterRegistrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
         }
         log.info("Starting AgentCore Runner");
-        boolean runnerReady = false;
+        boolean isRunnerReady = false;
         try {
             if (externalSvcAdapterRegistrar != null) {
                 externalSvcAdapterRegistrar.registerToRunner();
@@ -295,13 +305,15 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             if (start != null) {
                 start.toCompletableFuture().join();
             }
-            runnerReady = true;
+            isRunnerReady = true;
             registerModels();
-        } catch (RuntimeException | Error ex) {
-            if (runnerReady) {
+        } catch (BaseError | CompletionException | IllegalArgumentException
+                | IllegalStateException | Error ex) {
+            if (isRunnerReady) {
                 try {
                     Runner.stop();
-                } catch (RuntimeException cleanupFailure) {
+                } catch (BaseError | CompletionException | IllegalArgumentException
+                        | IllegalStateException cleanupFailure) {
                     ex.addSuppressed(cleanupFailure);
                 }
             }
@@ -311,22 +323,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private void registerModels() {
-        if (modelCatalog == null || modelsRegistered) {
+        if (modelCatalog == null || isModelsRegistered) {
             return;
         }
         List<String> added = new ArrayList<>();
         try {
             for (var entry : modelCatalog.models().entrySet()) {
-                var definition = entry.getValue();
-                ModelClientConfig client = ModelClientConfig.builder()
-                        .clientProvider(definition.provider()).apiKey(definition.apiKey())
-                        .apiBase(definition.apiBase()).verifySsl(definition.sslVerify())
-                        .timeout(modelCatalog.timeout().getSeconds()
-                                + modelCatalog.timeout().getNano() / 1_000_000_000.0).build();
-                ModelRequestConfig generation = ModelRequestConfig.builder()
-                        .modelName(definition.modelName()).temperature(modelCatalog.temperature())
-                        .topP(modelCatalog.topP()).build();
-                Model model = new Model(client, generation);
+                Model model = createCatalogModel(entry.getValue());
                 String id = coreModelId(entry.getKey());
                 var result = Runner.resourceMgr().addModel(id, () -> model, List.of(Tag.GLOBAL));
                 if (result == null || !result.isOk()) {
@@ -337,12 +340,14 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                     throw new IllegalStateException("Runtime model registration verification failed");
                 }
             }
-            modelsRegistered = true;
-        } catch (RuntimeException | Error failure) {
+            isModelsRegistered = true;
+        } catch (BaseError | CompletionException | IllegalArgumentException
+                | IllegalStateException | Error failure) {
             for (String id : added) {
                 try {
                     Runner.resourceMgr().removeModelForce(id, true);
-                } catch (RuntimeException rollbackFailure) {
+                } catch (BaseError | CompletionException | IllegalArgumentException
+                        | IllegalStateException rollbackFailure) {
                     IllegalStateException diagnostic = registrationDiagnostic("rollback", id, rollbackFailure);
                     log.error("{}", diagnostic.getMessage());
                     failure.addSuppressed(diagnostic);
@@ -352,7 +357,32 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
     }
 
-    /** Keep diagnostic type, Core code and stack location without credential-bearing exception messages. */
+    /**
+     * Builds a Core model using deployment connection fields and shared generation settings.
+     *
+     * @param definition deployment model connection fields
+     * @return configured Core model
+     */
+    private Model createCatalogModel(LlmModelCatalog.ModelDefinition definition) {
+        ModelClientConfig client = ModelClientConfig.builder()
+                .clientProvider(definition.provider()).apiKey(definition.apiKey())
+                .apiBase(definition.apiBase()).verifySsl(definition.sslVerify())
+                .timeout(modelCatalog.timeout().getSeconds()
+                        + modelCatalog.timeout().getNano() / 1_000_000_000.0).build();
+        ModelRequestConfig generation = ModelRequestConfig.builder()
+                .modelName(definition.modelName()).temperature(modelCatalog.temperature())
+                .topP(modelCatalog.topP()).build();
+        return new Model(client, generation);
+    }
+
+    /**
+     * Keeps diagnostic type, Core code and stack location without credential-bearing exception messages.
+     *
+     * @param operation failed registration or rollback operation
+     * @param id namespaced model identifier
+     * @param error underlying error with potentially sensitive details
+     * @return sanitized failure diagnostic
+     */
     private static IllegalStateException registrationDiagnostic(String operation, String id, Object error) {
         String reason = error == null ? "missing error details" : error.getClass().getName();
         if (error instanceof BaseError coreError) {
@@ -372,7 +402,14 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 + ":" + encoder.encodeToString(publicId.getBytes(StandardCharsets.UTF_8));
     }
 
-    /** Adds the validated selection after all normal and tool-resume input construction. */
+    /**
+     * Adds the validated selection after all normal and tool-resume input construction.
+     *
+     * @param request normalized request
+     * @return Core inputs with the validated selection
+     * @throws IllegalArgumentException if selection is disabled or the alias is unknown
+     * @throws IllegalStateException if the catalog has not been registered
+     */
     private Map<String, Object> buildExecutionInputs(ServeRequest request) {
         String selected = request.getModelName();
         if (modelCatalog == null) {
@@ -385,7 +422,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (!modelCatalog.models().containsKey(publicId)) {
             throw new IllegalArgumentException("Unknown model_name for this agent instance");
         }
-        if (!modelsRegistered) {
+        if (!isModelsRegistered) {
             throw new IllegalStateException("Runtime model catalog has not been registered; start the handler first");
         }
         Map<String, Object> inputs = buildInputs(request);
@@ -398,7 +435,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (isHostedRuntime) {
             return;
         }
-        modelsRegistered = false;
+        isModelsRegistered = false;
         if (!RUNNER_STARTED.get()) {
             return;
         }
@@ -468,24 +505,24 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         String query = request.lastUserQuery();
         log.info("JiuwenCoreAgentHandler streamQuery convId={} textLen={} msgCount={}", convId,
                 query != null ? query.length() : 0, request.getMessages() != null ? request.getMessages().size() : 0);
-        boolean[] terminal = {false};
+        boolean[] isTerminal = {false};
         try {
             List<Map<String, Object>> interrupts = new ArrayList<>();
             Object session = runnerSession(request);
-            if (!forwardStream(request, observer, session, interrupts, () -> terminal[0] = true)) {
+            if (!forwardStream(request, observer, session, interrupts, () -> isTerminal[0] = true)) {
                 return;
             }
-            finishStream(observer, session, interrupts, convId, () -> terminal[0] = true);
+            finishStream(observer, session, interrupts, convId, () -> isTerminal[0] = true);
         } catch (CancellationException ex) {
-            if (!terminal[0]) {
-                terminal[0] = true;
+            if (!isTerminal[0]) {
+                isTerminal[0] = true;
                 observer.onComplete();
             }
         } catch (Exception ex) {
-            if (terminal[0]) {
+            if (isTerminal[0]) {
                 return;
             }
-            terminal[0] = true;
+            isTerminal[0] = true;
             RuntimeException failure = ex instanceof RuntimeException runtimeException
                     ? structuredFailure(runtimeException)
                     : structuredFailure(new RuntimeException(ex));
@@ -499,7 +536,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private boolean forwardStream(ServeRequest request, QueryStreamObserver observer, Object session,
             List<Map<String, Object>> interrupts, Runnable markTerminal) {
-        Iterator<Object> source = executeAgentStreaming(buildExecutionInputs(request), session, List.of(StreamMode.OUTPUT));
+        Iterator<Object> source = executeAgentStreaming(buildExecutionInputs(request), session,
+                List.of(StreamMode.OUTPUT));
         while (!observer.isCancelled() && source.hasNext()) {
             if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
                 return true;

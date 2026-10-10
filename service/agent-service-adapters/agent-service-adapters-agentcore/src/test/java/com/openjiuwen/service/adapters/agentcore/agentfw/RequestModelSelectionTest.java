@@ -31,6 +31,7 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.AfterEach;
@@ -42,6 +43,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.net.InetSocketAddress;
@@ -56,17 +58,21 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Real Core execution against a local HTTP model, with no external infrastructure. */
+/**
+ * Real Core execution against a local HTTP model, with no external infrastructure.
+ */
 @Timeout(90)
 class RequestModelSelectionTest {
     private static final ObjectMapper JSON = new ObjectMapper();
-    @TempDir Path workspace;
+
+    @TempDir
+    private Path workspace;
     private HttpServer server;
     private final List<DeepAgent> agents = new ArrayList<>();
     private final List<JiuwenCoreAgentHandler> handlers = new ArrayList<>();
     private final List<Call> calls = new CopyOnWriteArrayList<>();
     private int status = 200;
-    private boolean delayResponse;
+    private boolean shouldDelayResponse;
 
     @BeforeEach
     void setup() throws Exception {
@@ -76,43 +82,45 @@ class RequestModelSelectionTest {
         RunnerConfig.setRunnerConfig(null);
         CheckpointerFactory.setDefaultCheckpointer(new InMemoryCheckpointer());
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/", exchange -> {
-            try (exchange) {
-                var body = JSON.readTree(exchange.getRequestBody());
-                String selected = body.path("model").asText();
-                calls.add(new Call(exchange.getRequestURI().getPath(),
-                        exchange.getRequestHeaders().getFirst("Authorization"), selected));
-                if (delayResponse) {
-                    try {
-                        Thread.sleep(200);
-                    } catch (InterruptedException interrupted) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
-                }
-                String response;
-                if (status != 200) {
-                    exchange.getResponseHeaders().set("Content-Type", "application/json");
-                    response = "{\"error\":{\"message\":\"private-provider-payload secret-b\",\"type\":\"invalid_request_error\"}}";
-                } else if (body.path("stream").asBoolean()) {
-                    exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
-                    response = "data: " + JSON.writeValueAsString(envelope("chat.completion.chunk", selected,
-                            Map.of("index", 0, "delta", Map.of("role", "assistant", "content", selected))))
-                            + "\n\ndata: " + JSON.writeValueAsString(envelope("chat.completion.chunk", selected,
-                            Map.of("index", 0, "delta", Map.of(), "finish_reason", "stop")))
-                            + "\n\ndata: [DONE]\n\n";
-                } else {
-                    exchange.getResponseHeaders().set("Content-Type", "application/json");
-                    response = JSON.writeValueAsString(envelope("chat.completion", selected,
-                            Map.of("index", 0, "message", Map.of("role", "assistant", "content", selected),
-                                    "finish_reason", "stop")));
-                }
-                byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
-                exchange.sendResponseHeaders(status, bytes.length);
-                exchange.getResponseBody().write(bytes);
-            }
-        });
+        server.createContext("/", this::respondToModelRequest);
         server.start();
+    }
+
+    private void respondToModelRequest(HttpExchange exchange) throws IOException {
+        try (exchange) {
+            var body = JSON.readTree(exchange.getRequestBody());
+            String selected = body.path("model").asText();
+            calls.add(new Call(exchange.getRequestURI().getPath(),
+                    exchange.getRequestHeaders().getFirst("Authorization"), selected));
+            if (shouldDelayResponse) {
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException interrupted) {
+                    return;
+                }
+            }
+            String response;
+            if (status != 200) {
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                response = "{\"error\":{\"message\":\"private-provider-payload secret-b\","
+                        + "\"type\":\"invalid_request_error\"}}";
+            } else if (body.path("stream").asBoolean()) {
+                exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+                response = "data: " + JSON.writeValueAsString(envelope("chat.completion.chunk", selected,
+                        Map.of("index", 0, "delta", Map.of("role", "assistant", "content", selected))))
+                        + "\n\ndata: " + JSON.writeValueAsString(envelope("chat.completion.chunk", selected,
+                        Map.of("index", 0, "delta", Map.of(), "finish_reason", "stop")))
+                        + "\n\ndata: [DONE]\n\n";
+            } else {
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                response = JSON.writeValueAsString(envelope("chat.completion", selected,
+                        Map.of("index", 0, "message", Map.of("role", "assistant", "content", selected),
+                                "finish_reason", "stop")));
+            }
+            byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status, bytes.length);
+            exchange.getResponseBody().write(bytes);
+        }
     }
 
     @AfterEach
@@ -130,14 +138,14 @@ class RequestModelSelectionTest {
 
     @ParameterizedTest
     @CsvSource({"false,false", "false,true", "true,false", "true,true"})
-    void selectedEndpointKeyAndVendorModelThenReturnToDefault(boolean deep, boolean stream) {
-        var handler = handler(deep, "instance", catalog());
+    void selectedEndpointKeyAndVendorModelThenReturnToDefault(boolean isDeep, boolean isStreaming) {
+        var handler = handler(isDeep, "instance", catalog());
         handler.start(); // Registration must be idempotent.
         var selectedRequest = request(" b ");
-        run(handler, selectedRequest, stream, "vendor-b");
+        run(handler, selectedRequest, isStreaming, "vendor-b");
         var defaultRequest = request(null);
         defaultRequest.setConversationId(selectedRequest.getConversationId());
-        run(handler, defaultRequest, stream, "vendor-a");
+        run(handler, defaultRequest, isStreaming, "vendor-a");
         assertThat(calls).containsExactly(new Call("/b/chat/completions", "Bearer secret-b", "vendor-b"),
                 new Call("/a/chat/completions", "Bearer secret-a", "vendor-a"));
     }
@@ -145,18 +153,21 @@ class RequestModelSelectionTest {
     @ParameterizedTest
     @CsvSource({"false,false,401", "false,true,401", "true,false,401", "true,true,401",
             "false,false,500", "false,true,500", "true,false,500", "true,true,500"})
-    void finalHttpFailureIsRedactedAndNeverCompletesSuccessfully(boolean deep, boolean stream, int failureStatus) {
+    void finalHttpFailureIsRedactedAndNeverCompletesSuccessfully(boolean isDeep, boolean isStreaming,
+            int failureStatus) {
         status = failureStatus;
-        var handler = handler(deep, "instance", catalog());
-        if (stream) {
+        var handler = handler(isDeep, "instance", catalog());
+        if (isStreaming) {
             var observer = new Observer();
             handler.streamQuery(request("b"), observer);
             assertThat(observer.errors).hasSize(1);
             assertThat(observer.completions).isZero();
             assertThat(observer.chunks).filteredOn(chunk -> QueryChunk.TYPE_ERROR.equals(chunk.getType()))
                     .singleElement().satisfies(chunk -> {
-                        assertThat(chunk.getData()).isInstanceOf(Map.class);
-                        assertThat(((Map<?, ?>) chunk.getData()).get("type")).isEqualTo("error");
+                        if (!(chunk.getData() instanceof Map<?, ?> data)) {
+                            throw new AssertionError("Expected a structured stream error");
+                        }
+                        assertThat(data.get("type")).isEqualTo("error");
                         assertThat(chunk.getData().toString()).doesNotContain("secret-b", "private-provider-payload");
                     });
         } else {
@@ -202,22 +213,22 @@ class RequestModelSelectionTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void connectionFailureAndTimeoutSurfaceAsExecutionFailures(boolean timeout) {
-        delayResponse = timeout;
+    void connectionFailureAndTimeoutSurfaceAsExecutionFailures(boolean isTimeout) {
+        shouldDelayResponse = isTimeout;
         var catalog = new LlmModelCatalog("a", catalog().models(), 0.0, 0.8, Duration.ofMillis(50));
         var handler = handler(false, "instance", catalog);
-        if (!timeout) {
+        if (!isTimeout) {
             server.stop(0);
         }
         assertThatThrownBy(() -> handler.query(request("b")))
                 .isInstanceOf(AgentExecutionException.class).hasMessage("Agent execution failed");
-        if (timeout) {
+        if (isTimeout) {
             assertThat(calls).isNotEmpty().allSatisfy(call -> assertThat(call.model()).isEqualTo("vendor-b"));
         }
     }
 
     @Test
-    void toolResumePreservesSelectionAndCannotInjectHigherPriorityCoreAliases() {
+    void toolResumePreservesSelectionAndRejectsCoreAliases() {
         var request = request("b");
         request.setMetadata(Map.of("runtime.remoteToolResults", Map.of("call-a", "answer"),
                 "dynamic_model_id", "forged", "target_model_id", "forged"));
@@ -242,6 +253,14 @@ class RequestModelSelectionTest {
     void conflictRollsBackOnlyNewResourcesAndKeepsOriginalOwnerUsable() {
         var first = handler(false, "instance", new LlmModelCatalog("b", Map.of("b", definition("b")),
                 0.0, 0.8, Duration.ofSeconds(2)));
+        assertConflictingCatalogRollsBack();
+        var replacement = new JiuwenCoreAgentHandler("unused", null, null, "instance",
+                new LlmModelCatalog("a", Map.of("a", definition("a")), 0.0, 0.8, Duration.ofSeconds(2)));
+        replacement.start(); // Proves rollback removed A and did not leave a half catalog.
+        run(first, request("b"), false, "vendor-b");
+    }
+
+    private void assertConflictingCatalogRollsBack() {
         var ordered = new LinkedHashMap<String, ModelDefinition>();
         ordered.put("a", definition("a"));
         ordered.put("b", definition("b"));
@@ -250,14 +269,10 @@ class RequestModelSelectionTest {
         assertThatThrownBy(conflict::start).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("id=runtime:model:aW5zdGFuY2U:Yg")
                 .hasMessageContaining("RESOURCE_ADD_ERROR");
-        var replacement = new JiuwenCoreAgentHandler("unused", null, null, "instance",
-                new LlmModelCatalog("a", Map.of("a", definition("a")), 0.0, 0.8, Duration.ofSeconds(2)));
-        replacement.start(); // Proves rollback removed A and did not leave a half catalog.
-        run(first, request("b"), false, "vendor-b");
     }
 
     @Test
-    void registrationAndRollbackDiagnosticsRetainSafeDetailsWithoutSecrets() {
+    void registrationDiagnosticsKeepSafeDetails() {
         var definitions = new LinkedHashMap<String, ModelDefinition>();
         definitions.put("a", definition("a"));
         definitions.put("b", definition("b"));
@@ -268,7 +283,6 @@ class RequestModelSelectionTest {
         var resources = org.mockito.Mockito.mock(ResourceMgr.class);
         var registrationError = new BaseError(StatusCode.RESOURCE_ADD_ERROR, "secret-b private-provider-payload",
                 null, null);
-        var rollbackError = new IllegalStateException("secret-a private-provider-payload");
         org.mockito.Mockito.doAnswer(invocation -> {
             String id = invocation.getArgument(0);
             if (id.endsWith(":Yg")) {
@@ -279,6 +293,7 @@ class RequestModelSelectionTest {
             return new Ok<>(id);
         }).when(resources).addModel(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        var rollbackError = new IllegalStateException("secret-a private-provider-payload");
         org.mockito.Mockito.doThrow(rollbackError).when(resources)
                 .removeModelForce("runtime:model:aW5zdGFuY2U:YQ", true);
         try (var runner = org.mockito.Mockito.mockStatic(Runner.class)) {
@@ -294,11 +309,17 @@ class RequestModelSelectionTest {
                                     .hasMessageContaining("java.lang.IllegalStateException");
                             assertThat(rollback.getStackTrace()).containsExactly(rollbackError.getStackTrace());
                         });
-                        var output = new java.io.StringWriter();
-                        failure.printStackTrace(new java.io.PrintWriter(output));
-                        assertThat(output.toString()).doesNotContain("secret-a", "secret-b", "private-provider-payload");
+                        assertSanitizedDiagnostic(failure);
+                        for (Throwable suppressed : failure.getSuppressed()) {
+                            assertSanitizedDiagnostic(suppressed);
+                        }
                     });
         }
+    }
+
+    private static void assertSanitizedDiagnostic(Throwable failure) {
+        assertThat(failure.getCause()).isNull();
+        assertThat(failure.getMessage()).doesNotContain("secret-a", "secret-b", "private-provider-payload");
     }
 
     @Test
@@ -350,43 +371,10 @@ class RequestModelSelectionTest {
     @ParameterizedTest
     @ValueSource(strings = {"none", "next", "error", "complete"})
     void observerExceptionsNeverDuplicateTerminalNotification(String throwingCallback) {
-        var handler = new JiuwenCoreAgentHandler("unused", null, null, "instance", catalog()) {
-            @Override
-            protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
-                    List<StreamMode> modes) {
-                if ("complete".equals(throwingCallback)) {
-                    return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "OK"))).iterator();
-                }
-                return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "partial")),
-                        new OutputSchema("answer", 1, Map.of("result_type", "error", "output", "secret-b")))
-                        .iterator();
-            }
-        };
+        var handler = streamingCallbackHandler(throwingCallback);
         handlers.add(handler);
         handler.start();
-        var observer = new Observer() {
-            @Override
-            public void onNext(QueryChunk chunk) {
-                super.onNext(chunk);
-                if ("next".equals(throwingCallback) && QueryChunk.TYPE_ERROR.equals(chunk.getType())) {
-                    throw new IllegalStateException("observer next");
-                }
-            }
-            @Override
-            public void onError(Throwable error) {
-                super.onError(error);
-                if ("error".equals(throwingCallback)) {
-                    throw new IllegalStateException("observer error");
-                }
-            }
-            @Override
-            public void onComplete() {
-                super.onComplete();
-                if ("complete".equals(throwingCallback)) {
-                    throw new IllegalStateException("observer complete");
-                }
-            }
-        };
+        var observer = throwingObserver(throwingCallback);
         try {
             handler.streamQuery(request("b"), observer);
         } catch (IllegalStateException expectedObserverFailure) {
@@ -403,9 +391,67 @@ class RequestModelSelectionTest {
         }
     }
 
+    private JiuwenCoreAgentHandler streamingCallbackHandler(String throwingCallback) {
+        return new JiuwenCoreAgentHandler("unused", null, null, "instance", catalog()) {
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
+                    List<StreamMode> modes) {
+                if ("complete".equals(throwingCallback)) {
+                    return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "OK"))).iterator();
+                }
+                return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "partial")),
+                        new OutputSchema("answer", 1, Map.of("result_type", "error", "output", "secret-b")))
+                        .iterator();
+            }
+        };
+    }
+
+    private static Observer throwingObserver(String throwingCallback) {
+        return new Observer() {
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            public void onNext(QueryChunk chunk) {
+                super.onNext(chunk);
+                if ("next".equals(throwingCallback) && QueryChunk.TYPE_ERROR.equals(chunk.getType())) {
+                    throw new IllegalStateException("observer next");
+                }
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            public void onError(Throwable error) {
+                super.onError(error);
+                if ("error".equals(throwingCallback)) {
+                    throw new IllegalStateException("observer error");
+                }
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            public void onComplete() {
+                super.onComplete();
+                if ("complete".equals(throwingCallback)) {
+                    throw new IllegalStateException("observer complete");
+                }
+            }
+        };
+    }
+
     private Map<String, Object> captureExecutionInputs(String scope, LlmModelCatalog catalog, ServeRequest request) {
         var captured = new AtomicReference<Map<String, Object>>();
         var handler = new JiuwenCoreAgentHandler("unused", null, null, scope, catalog) {
+            /**
+             * {@inheritDoc}
+             */
             @Override
             protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
                     List<StreamMode> modes) {
@@ -423,22 +469,25 @@ class RequestModelSelectionTest {
         return captured.get();
     }
 
-    private JiuwenCoreAgentHandler handler(boolean deep, String scope, LlmModelCatalog catalog) {
+    private JiuwenCoreAgentHandler handler(boolean isDeep, String scope, LlmModelCatalog catalog) {
         String id = "agent-" + UUID.randomUUID();
         String path = workspace.resolve(id).toString();
         var config = DeepAgentConfig.builder().systemPrompt("Reply once; do not call tools.")
-                .workspacePath(path).enableTaskLoop(deep).maxIterations(1).completionTimeout(20.0)
+                .workspacePath(path).enableTaskLoop(isDeep).maxIterations(1).completionTimeout(20.0)
                 .model(Map.of("model", "vendor-a", "temperature", 0.0))
                 .backend(Map.of("provider", "OpenAI", "api_key", "secret-a", "api_base", base("a"), "timeout", 2))
                 .build();
         var agent = new DeepAgent(AgentCard.builder().id(id).name(id).build(), config,
                 Workspace.builder().rootPath(path).build());
         agents.add(agent);
-        var handler = new JiuwenCoreAgentHandler(deep ? agent : agent.getAgent(), null, null, scope, catalog);
+        var handler = new JiuwenCoreAgentHandler(isDeep ? agent : agent.getAgent(), null, null, scope, catalog);
         handlers.add(handler);
         handler.start();
         agent.ensureInitialized();
-        ((ReActAgentConfig) agent.getAgent().getConfig()).configureStreamRetry(0, 0);
+        if (!(agent.getAgent().getConfig() instanceof ReActAgentConfig reactConfig)) {
+            throw new AssertionError("Expected a ReAct configuration");
+        }
+        reactConfig.configureStreamRetry(0, 0);
         return handler;
     }
 
@@ -463,8 +512,9 @@ class RequestModelSelectionTest {
         return request;
     }
 
-    private static void run(JiuwenCoreAgentHandler handler, ServeRequest request, boolean stream, String expected) {
-        if (stream) {
+    private static void run(JiuwenCoreAgentHandler handler, ServeRequest request, boolean isStreaming,
+            String expected) {
+        if (isStreaming) {
             var observer = new Observer();
             handler.streamQuery(request, observer);
             assertThat(observer.errors).isEmpty();
@@ -479,14 +529,41 @@ class RequestModelSelectionTest {
         return Map.of("id", "selection-test", "object", type, "created", 1, "model", model, "choices", List.of(choice));
     }
 
-    private record Call(String path, String authorization, String model) { }
+    private record Call(String path, String authorization, String model) {
+        // Immutable record of each model endpoint request.
+    }
 
     private static class Observer implements QueryStreamObserver {
         final List<QueryChunk> chunks = new ArrayList<>();
         final List<Throwable> errors = new ArrayList<>();
         int completions;
-        public void onNext(QueryChunk chunk) { chunks.add(chunk); }
-        public void onError(Throwable error) { errors.add(error); }
-        public void onComplete() { completions++; }
+
+        /**
+         * Records an emitted chunk.
+         *
+         * @param chunk emitted chunk
+         */
+        @Override
+        public void onNext(QueryChunk chunk) {
+            chunks.add(chunk);
+        }
+
+        /**
+         * Records terminal failure.
+         *
+         * @param error terminal failure
+         */
+        @Override
+        public void onError(Throwable error) {
+            errors.add(error);
+        }
+
+        /**
+         * Records successful completion.
+         */
+        @Override
+        public void onComplete() {
+            completions++;
+        }
     }
 }

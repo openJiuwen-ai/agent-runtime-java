@@ -83,7 +83,8 @@ final class A2aJsonRpcParamsParser {
 
     static String modelName(Map<String, Object> metadata) {
         try {
-            return ServeRequest.normalizeModelName(metadata == null ? null : metadata.get("model_name"));
+            return ServeRequest.normalizeModelName(metadata == null ? null : metadata.get("model_name"))
+                    .orElse(null);
         } catch (IllegalArgumentException failure) {
             throw new InvalidParamsError();
         }

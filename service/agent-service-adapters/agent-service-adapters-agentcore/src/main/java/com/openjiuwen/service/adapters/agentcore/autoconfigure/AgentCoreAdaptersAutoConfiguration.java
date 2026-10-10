@@ -137,6 +137,7 @@ public class AgentCoreAdaptersAutoConfiguration {
      * @param agentId agent id configured for the service
      * @param middlewareAdapterRegistrar middleware adapter registrar, if available
      * @param externalSvcAdapterRegistrar external service adapter registrar
+     * @param modelCatalog deployment model catalog, if request model selection is enabled
      * @return agent-core-backed service handler bean
      */
     @Bean

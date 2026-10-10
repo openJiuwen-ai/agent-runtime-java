@@ -24,7 +24,7 @@ import java.time.Duration;
 @Setter
 @ConfigurationProperties(prefix = "openjiuwen.service.llm")
 public class LlmProperties {
-    private boolean modelSelectionEnabled;
+    private boolean isModelSelectionEnabled;
     private String configFile;
     private Boolean autoDiscover;
     private String provider;

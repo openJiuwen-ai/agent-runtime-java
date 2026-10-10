@@ -444,11 +444,15 @@ class A2AEnabledServeOrchestratorTest {
 
         verify(a2aClient, times(3)).callOutcome(any(), any());
         assertThat(localRuns.get()).isEqualTo(2);
-        var resumedRequests = org.mockito.ArgumentCaptor.forClass(ServeRequest.class);
-        verify(agentHandler, times(2)).streamQuery(resumedRequests.capture(), any());
-        assertThat(resumedRequests.getAllValues()).allSatisfy(value -> assertThat(value.getModelName()).isEqualTo("b"));
+        assertModelSelectionPreserved(agentHandler);
         assertThat(taskStore.get("shadow:test-agent:parent-batch")).isNull();
         verify(observer).onComplete();
+    }
+
+    private static void assertModelSelectionPreserved(AgentHandler handler) {
+        var resumedRequests = org.mockito.ArgumentCaptor.forClass(ServeRequest.class);
+        verify(handler, times(2)).streamQuery(resumedRequests.capture(), any());
+        assertThat(resumedRequests.getAllValues()).allSatisfy(value -> assertThat(value.getModelName()).isEqualTo("b"));
     }
 
     @Test

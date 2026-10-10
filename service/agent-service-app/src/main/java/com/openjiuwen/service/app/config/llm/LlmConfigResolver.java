@@ -97,6 +97,7 @@ public final class LlmConfigResolver {
     /**
      * Resolves the fixed deployment catalog from the same snapshot as the default model.
      * Explicit Java callers may opt in independently of Spring auto-configuration.
+     *
      * @return validated, decrypted catalog
      */
     public synchronized LlmModelCatalog resolveCatalog() {
@@ -129,7 +130,8 @@ public final class LlmConfigResolver {
 
     private ResolvedLlmConfig doResolve() {
         if (fileSnapshot == null) {
-            fileSnapshot = apiConfigLoader.load(properties.getConfigFile(), Boolean.TRUE.equals(properties.getAutoDiscover()))
+            fileSnapshot = apiConfigLoader.load(properties.getConfigFile(),
+                    Boolean.TRUE.equals(properties.getAutoDiscover()))
                 .orElseGet(ApiConfigLoader.ApiConfigValues::empty);
         }
         ApiConfigLoader.ApiConfigValues fileValues = fileSnapshot;

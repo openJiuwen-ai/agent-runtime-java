@@ -28,7 +28,13 @@ import org.springframework.core.env.Environment;
 @Import(CredentialDecryptorAutoConfiguration.class)
 @EnableConfigurationProperties(LlmProperties.class)
 public class LlmAutoConfiguration {
-    /** Builds and validates all deployment models before the application becomes ready. */
+    /**
+     * Builds and validates all deployment models before the application becomes ready.
+     *
+     * @param resolver deployment configuration resolver
+     * @return validated model catalog
+     * @throws IllegalStateException if required deployment configuration is invalid
+     */
     @Bean
     @Lazy(false)
     @ConditionalOnMissingBean
