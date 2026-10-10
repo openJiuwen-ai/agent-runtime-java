@@ -34,7 +34,7 @@ class ExampleReActAgentFactoryBudgetWiringTest {
     }
 
     @Test
-    void build_turnEnabledWithoutExplicitLimit_raisesEnvelopeToHardLimitPlusOne() {
+    void build_turnEnabledNoLimit_raisesEnvelopeToHardLimitPlusOne() {
         // Given turn budget enabled and no explicit llm.max-iterations
         RunBudgetProperties budget = new RunBudgetProperties();
         budget.getTurn().setEnabled(true);
