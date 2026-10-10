@@ -684,6 +684,42 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     @Test
+    void unexpectedRegistrarFailureAllowsStartupRetry() {
+        var registrar = mock(ExternalSvcAdapterRegistrar.class);
+        var failure = new UnsupportedOperationException("registration unavailable");
+        org.mockito.Mockito.doThrow(failure).doNothing().when(registrar).registerToRunner();
+        var handler = new JiuwenCoreAgentHandler("agent-id", registrar);
+        try {
+            assertThatThrownBy(handler::start).isSameAs(failure);
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isFalse();
+            handler.start();
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isTrue();
+            verify(registrar, org.mockito.Mockito.times(2)).registerToRunner();
+        } finally {
+            handler.stop();
+        }
+    }
+
+    @Test
+    void middlewareFailureAllowsStartupRetry() {
+        var middleware = mock(com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar.class);
+        var failure = new UnsupportedOperationException("middleware unavailable");
+        org.mockito.Mockito.doThrow(failure).doNothing().when(middleware)
+                .applyToRunnerConfig(org.mockito.ArgumentMatchers.any());
+        var handler = new JiuwenCoreAgentHandler("agent-id", middleware, null);
+        try {
+            assertThatThrownBy(handler::start).isSameAs(failure);
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isFalse();
+            handler.start();
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isTrue();
+            verify(middleware, org.mockito.Mockito.times(2))
+                    .applyToRunnerConfig(org.mockito.ArgumentMatchers.any());
+        } finally {
+            handler.stop();
+        }
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void clearSessionReleasesRunnerSessionMemory() {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());

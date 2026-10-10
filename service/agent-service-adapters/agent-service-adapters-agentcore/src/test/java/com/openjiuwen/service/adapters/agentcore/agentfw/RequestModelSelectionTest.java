@@ -1,6 +1,7 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
+
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -320,6 +321,95 @@ class RequestModelSelectionTest {
     private static void assertSanitizedDiagnostic(Throwable failure) {
         assertThat(failure.getCause()).isNull();
         assertThat(failure.getMessage()).doesNotContain("secret-a", "secret-b", "private-provider-payload");
+    }
+
+    @Test
+    void unexpectedRegistrationFailureRollsBackAllOwnedModelsDespiteCleanupError() {
+        var definitions = new LinkedHashMap<String, ModelDefinition>();
+        definitions.put("a", definition("a"));
+        definitions.put("b", definition("b"));
+        definitions.put("c", definition("b"));
+        var handler = new JiuwenCoreAgentHandler("unused", null, null, "instance",
+                new LlmModelCatalog("a", definitions, 0.0, 0.8, Duration.ofSeconds(2)));
+        var resources = org.mockito.Mockito.mock(ResourceMgr.class);
+        var failure = new UnsupportedOperationException("registration unavailable");
+        org.mockito.Mockito.doAnswer(invocation -> {
+            String id = invocation.getArgument(0);
+            if (id.endsWith(":Yw")) {
+                throw failure;
+            }
+            Object model = invocation.<java.util.function.Supplier<?>>getArgument(1).get();
+            org.mockito.Mockito.doReturn(CompletableFuture.completedFuture(model)).when(resources).getModel(id);
+            return new Ok<>(id);
+        }).when(resources).addModel(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.doThrow(new AssertionError("secret-a")).when(resources)
+                .removeModelForce("runtime:model:aW5zdGFuY2U:YQ", true);
+        try (var runner = org.mockito.Mockito.mockStatic(Runner.class)) {
+            runner.when(Runner::resourceMgr).thenReturn(resources);
+            runner.when(Runner::stop).thenThrow(new AssertionError("stop unavailable"));
+            assertThatThrownBy(handler::start).isSameAs(failure).satisfies(error -> {
+                assertThat(error.getSuppressed()).hasSize(2);
+                assertSanitizedDiagnostic(error.getSuppressed()[0]);
+            });
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isFalse();
+            org.mockito.Mockito.verify(resources).removeModelForce("runtime:model:aW5zdGFuY2U:YQ", true);
+            org.mockito.Mockito.verify(resources).removeModelForce("runtime:model:aW5zdGFuY2U:Yg", true);
+            org.mockito.Mockito.verify(resources, org.mockito.Mockito.never())
+                    .removeModelForce("runtime:model:aW5zdGFuY2U:Yw", true);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void deepFinalStreamFailureAfterPartialOutputTerminatesOnce(boolean isWrapped) {
+        Map<String, Object> failure = Map.of("type", "deep_agent_result",
+                "final_result", Map.of("error", "completion_timeout secret-b"));
+        Object finalChunk = isWrapped
+                ? new OutputSchema("answer", 1, Map.of("result_type", "answer", "output", failure)) : failure;
+        var handler = finalResultStreamHandler(true, catalog(), finalChunk);
+        var observer = new Observer();
+        handler.streamQuery(request("b"), observer);
+        assertThat(observer.errors).singleElement().satisfies(error ->
+                assertThat(error).hasMessage("Agent execution failed"));
+        assertThat(observer.completions).isZero();
+        assertThat(observer.chunks).hasSize(2);
+        assertThat(observer.chunks.get(0).getData().toString()).contains("partial");
+        assertThat(observer.chunks.get(1).getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+        assertThat(observer.chunks.get(1).getData().toString()).contains("error").doesNotContain("secret-b");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,true", "false,true", "true,false"})
+    void finalStreamRecognitionPreservesBusinessResultsAndLegacyBehavior(boolean isDeep, boolean isEnabled) {
+        Map<String, Object> finalResult = isDeep && isEnabled
+                ? Map.of("result_type", "answer", "output", "recovered", "error", "business-field")
+                : Map.of("error", "business-field");
+        Object answer = new OutputSchema("answer", 1, Map.of("result_type", "answer", "output",
+                Map.of("type", "deep_agent_result", "rounds", List.of(Map.of("error", "old-failure")),
+                        "final_result", finalResult)));
+        var handler = finalResultStreamHandler(isDeep, isEnabled ? catalog() : null, answer);
+        var observer = new Observer();
+        handler.streamQuery(request(isEnabled ? "b" : null), observer);
+        assertThat(observer.errors).isEmpty();
+        assertThat(observer.completions).isOne();
+        assertThat(observer.chunks).hasSize(3).allSatisfy(chunk ->
+                assertThat(chunk.getType()).isEqualTo(QueryChunk.TYPE_CHUNK));
+    }
+
+    private JiuwenCoreAgentHandler finalResultStreamHandler(boolean isDeep, LlmModelCatalog catalog, Object answer) {
+        Object agent = isDeep ? org.mockito.Mockito.mock(DeepAgent.class) : new Object();
+        var handler = new JiuwenCoreAgentHandler(agent, null, null, "instance", catalog) {
+            @Override
+            protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
+                    List<StreamMode> modes) {
+                return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "partial")),
+                        answer, new OutputSchema("llm_output", 2, Map.of("content", "trailing"))).iterator();
+            }
+        };
+        handlers.add(handler);
+        handler.start();
+        return handler;
     }
 
     @Test

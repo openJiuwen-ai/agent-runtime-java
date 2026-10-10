@@ -54,7 +54,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -292,12 +291,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             registerModels();
             return;
         }
-        if (middlewareAdapterRegistrar != null) {
-            middlewareAdapterRegistrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
-        }
         log.info("Starting AgentCore Runner");
         boolean isRunnerReady = false;
         try {
+            if (middlewareAdapterRegistrar != null) {
+                middlewareAdapterRegistrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
+            }
             if (externalSvcAdapterRegistrar != null) {
                 externalSvcAdapterRegistrar.registerToRunner();
             }
@@ -307,17 +306,18 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             }
             isRunnerReady = true;
             registerModels();
-        } catch (BaseError | CompletionException | IllegalArgumentException
-                | IllegalStateException | Error ex) {
-            if (isRunnerReady) {
-                try {
-                    Runner.stop();
-                } catch (BaseError | CompletionException | IllegalArgumentException
-                        | IllegalStateException cleanupFailure) {
-                    ex.addSuppressed(cleanupFailure);
+        } catch (RuntimeException | Error ex) {
+            try {
+                if (isRunnerReady) {
+                    try {
+                        Runner.stop();
+                    } catch (RuntimeException | Error cleanupFailure) {
+                        ex.addSuppressed(cleanupFailure);
+                    }
                 }
+            } finally {
+                RUNNER_STARTED.set(false);
             }
-            RUNNER_STARTED.set(false);
             throw ex;
         }
     }
@@ -341,13 +341,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 }
             }
             isModelsRegistered = true;
-        } catch (BaseError | CompletionException | IllegalArgumentException
-                | IllegalStateException | Error failure) {
+        } catch (RuntimeException | Error failure) {
             for (String id : added) {
                 try {
                     Runner.resourceMgr().removeModelForce(id, true);
-                } catch (BaseError | CompletionException | IllegalArgumentException
-                        | IllegalStateException rollbackFailure) {
+                } catch (RuntimeException | Error rollbackFailure) {
                     IllegalStateException diagnostic = registrationDiagnostic("rollback", id, rollbackFailure);
                     log.error("{}", diagnostic.getMessage());
                     failure.addSuppressed(diagnostic);
@@ -1048,7 +1046,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (INTERACTION_TYPE.equals(m.get("type"))) {
             return QueryChunk.TYPE_INTERRUPT;
         }
-        if (QueryChunk.TYPE_ERROR.equals(m.get("type")) || modelCatalog != null && isErrorResult(m)) {
+        if (QueryChunk.TYPE_ERROR.equals(m.get("type"))
+                || modelCatalog != null && (isErrorResult(m) || isDeepTaskLoopFailure(m))) {
             return QueryChunk.TYPE_ERROR;
         }
         return QueryChunk.TYPE_CHUNK;
@@ -1058,7 +1057,9 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         return QueryChunk.TYPE_ERROR.equals(result.get("type")) || "error".equals(result.get("result_type"))
                 || (modelCatalog != null && "answer".equals(result.get("type"))
                         && result.get("payload") instanceof Map<?, ?> payload
-                        && "error".equals(payload.get("result_type")));
+                        && ("error".equals(payload.get("result_type"))
+                                || payload.get("output") instanceof Map<?, ?> output
+                                        && isDeepTaskLoopFailure(output)));
     }
 
     private boolean isDeepTaskLoopFailure(Map<?, ?> result) {
