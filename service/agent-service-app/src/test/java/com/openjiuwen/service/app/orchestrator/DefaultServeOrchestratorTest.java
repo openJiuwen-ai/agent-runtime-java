@@ -6,6 +6,11 @@ package com.openjiuwen.service.app.orchestrator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -15,6 +20,8 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -246,5 +253,32 @@ class DefaultServeOrchestratorTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("conversation busy");
         assertThat(events).containsExactly("prepare", "complete:Optional.empty");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void streamCleanupFailureStillUnregisters(boolean isCancelled) {
+        AgentHandler handler = mock(AgentHandler.class);
+        Optional<Object> taskToken = Optional.of(new Object());
+        when(handler.prepareTask(any())).thenReturn(taskToken);
+        IllegalStateException failure = new IllegalStateException("resource cleanup failed");
+        doThrow(failure).when(handler).completeTask(taskToken);
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (isCancelled) {
+                streamRegistry.cancel("cleanup-failure");
+                assertThat(observer.isCancelled()).isTrue();
+            }
+            observer.onComplete();
+            return null;
+        }).when(handler).streamQuery(any(), any());
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("cleanup-failure");
+
+        assertThatThrownBy(() -> orchestrator.streamQuery(request, mock(QueryStreamObserver.class)))
+                .isSameAs(failure);
+        assertThat(streamRegistry.activeCount()).isZero();
+        assertThat(streamRegistry.awaitDrain(0L)).isTrue();
     }
 }
