@@ -324,13 +324,11 @@ class RequestModelSelectionTest {
     }
 
     @Test
-    void unexpectedRegistrationFailureRollsBackAllOwnedModelsDespiteCleanupError() {
+    void registrationFailureRollsBackOwnedModelsDespiteCleanupError() {
         var definitions = new LinkedHashMap<String, ModelDefinition>();
         definitions.put("a", definition("a"));
         definitions.put("b", definition("b"));
         definitions.put("c", definition("b"));
-        var handler = new JiuwenCoreAgentHandler("unused", null, null, "instance",
-                new LlmModelCatalog("a", definitions, 0.0, 0.8, Duration.ofSeconds(2)));
         var resources = org.mockito.Mockito.mock(ResourceMgr.class);
         var failure = new UnsupportedOperationException("registration unavailable");
         org.mockito.Mockito.doAnswer(invocation -> {
@@ -345,6 +343,8 @@ class RequestModelSelectionTest {
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         org.mockito.Mockito.doThrow(new AssertionError("secret-a")).when(resources)
                 .removeModelForce("runtime:model:aW5zdGFuY2U:YQ", true);
+        var handler = new JiuwenCoreAgentHandler("unused", null, null, "instance",
+                new LlmModelCatalog("a", definitions, 0.0, 0.8, Duration.ofSeconds(2)));
         try (var runner = org.mockito.Mockito.mockStatic(Runner.class)) {
             runner.when(Runner::resourceMgr).thenReturn(resources);
             runner.when(Runner::stop).thenThrow(new AssertionError("stop unavailable"));
