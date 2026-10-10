@@ -8,6 +8,7 @@ import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
 import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
+import com.openjiuwen.service.app.config.runbudget.RunBudgetWiring;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
@@ -37,10 +38,10 @@ public class A2aAgentADemoApplication {
     }
 
     @Bean
-    AgentHandler agentAHandler(LlmConfigResolver llmConfigResolver) {
+    AgentHandler agentAHandler(LlmConfigResolver llmConfigResolver, RunBudgetWiring runBudgetWiring) {
         ResolvedLlmConfig llmConfig = llmConfigResolver.resolveRequired();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Agent A (A2A Demo)",
-            "ReAct agent that delegates to Agent B via A2A", llmConfig);
+            "ReAct agent that delegates to Agent B via A2A", llmConfig, runBudgetWiring);
         agent.registerRail(new A2aDelegateRail());
         return new JiuwenCoreAgentHandler(agent);
     }

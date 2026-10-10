@@ -8,6 +8,7 @@ import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
 import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
+import com.openjiuwen.service.app.config.runbudget.RunBudgetWiring;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
@@ -36,11 +37,11 @@ public class A2aAgentBDemoApplication {
     }
 
     @Bean
-    AgentHandler agentBHandler(LlmConfigResolver llmConfigResolver) {
+    AgentHandler agentBHandler(LlmConfigResolver llmConfigResolver, RunBudgetWiring runBudgetWiring) {
         ResolvedLlmConfig llmConfig = llmConfigResolver.resolveRequired();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Agent B (A2A Demo)",
                 "ReAct agent with local calc, Agent C food delegation, and Agent D expense workflow routing",
-                llmConfig);
+                llmConfig, runBudgetWiring);
         agent.registerRail(new CalcInterruptRail());
         agent.registerRail(new BToCDelegateRail());
         agent.registerRail(new BToDDelegateRail());
