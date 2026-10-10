@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.lifecycle;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
 
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
@@ -24,6 +25,8 @@ import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -227,9 +230,18 @@ class DefaultAgentLifecycleManagerTest {
         assertThat(startCalled.get()).isTrue();
         assertThat(readiness.isAgentLoaded()).isTrue();
 
-        registry.register("active-conv");
+        StreamCancellationHandle handle = registry.register("active-conv");
+        CompletableFuture<Void> completion = CompletableFuture.runAsync(() -> {
+            try {
+                await().atMost(5, TimeUnit.SECONDS).until(handle::isCancelled);
+            } finally {
+                registry.unregister("active-conv", handle);
+            }
+        });
         manager.runShutdownPhase();
+        completion.join();
 
+        assertThat(handle.isCancelled()).isTrue();
         assertThat(shutdownOrder).containsExactly("shutdown");
         assertThat(stopCalled.get()).isTrue();
         assertThat(readiness.isAgentLoaded()).isFalse();
