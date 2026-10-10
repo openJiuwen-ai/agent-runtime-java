@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
  */
 class ActiveStreamRegistryTest {
     @Test
-    void cancelMarksHandleAndDrainsRegistry() {
+    void cancelWaitsForExecutionToUnregister() {
         ActiveStreamRegistry registry = new ActiveStreamRegistry();
         StreamCancellationHandle first = registry.register("c1");
         StreamCancellationHandle second = registry.register("c1");
@@ -26,7 +26,12 @@ class ActiveStreamRegistryTest {
 
         assertThat(first.isCancelled()).isTrue();
         assertThat(second.isCancelled()).isTrue();
-        assertThat(registry.activeCount()).isZero();
+        assertThat(registry.activeCount()).isEqualTo(2);
+        assertThat(registry.awaitDrain(0L)).isFalse();
+        registry.unregister("c1", first);
+        assertThat(registry.awaitDrain(0L)).isFalse();
+        registry.unregister("c1", second);
+        assertThat(registry.awaitDrain(0L)).isTrue();
     }
 
     @Test
@@ -61,6 +66,10 @@ class ActiveStreamRegistryTest {
 
         assertThat(first.isCancelled()).isTrue();
         assertThat(second.isCancelled()).isTrue();
-        assertThat(registry.activeCount()).isZero();
+        assertThat(registry.activeCount()).isEqualTo(2);
+        assertThat(registry.awaitDrain(0L)).isFalse();
+        registry.unregister("c1", first);
+        registry.unregister("c2", second);
+        assertThat(registry.awaitDrain(0L)).isTrue();
     }
 }

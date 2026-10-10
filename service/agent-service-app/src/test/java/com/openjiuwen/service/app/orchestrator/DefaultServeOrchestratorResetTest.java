@@ -49,6 +49,8 @@ class DefaultServeOrchestratorResetTest {
 
         assertThat(handle.isCancelled()).isTrue();
         assertThat(cleared.get()).isTrue();
+        assertThat(registry.activeCount()).isEqualTo(1);
+        registry.unregister("reset-me", handle);
         assertThat(registry.activeCount()).isZero();
     }
 
