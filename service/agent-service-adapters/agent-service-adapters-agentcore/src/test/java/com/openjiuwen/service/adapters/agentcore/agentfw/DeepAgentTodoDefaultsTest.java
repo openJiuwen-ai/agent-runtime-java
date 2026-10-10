@@ -138,7 +138,7 @@ class DeepAgentTodoDefaultsTest {
             agent.ensureInitialized();
             List<Object> tools = List.copyOf(agent.getRegisteredTools());
             Tool create = tools.stream().filter(Tool.class::isInstance).map(Tool.class::cast)
-                    .filter(tool -> "todo_create".equals(tool.getCard().getId())).findFirst().orElseThrow();
+                    .filter(tool -> "todo_create".equals(tool.getCard().getName())).findFirst().orElseThrow();
             Object output = create.invoke(Map.of("session_id", "file-session",
                     "tasks", List.of(Map.of("content", "existing file task", "activeForm",
                             "working", "description", "existing file task"))));
@@ -149,7 +149,7 @@ class DeepAgentTodoDefaultsTest {
             assertThat(agent.getConfig().isTodoStorageTypeExplicit()).isFalse();
             assertThat(agent.getRegisteredTools()).containsExactlyElementsOf(tools);
             Tool list = tools.stream().filter(Tool.class::isInstance).map(Tool.class::cast)
-                    .filter(tool -> "todo_list".equals(tool.getCard().getId())).findFirst().orElseThrow();
+                    .filter(tool -> "todo_list".equals(tool.getCard().getName())).findFirst().orElseThrow();
             Object loaded = list.invoke(Map.of("session_id", "file-session"));
             assertThat(loaded).isInstanceOf(Map.class);
             assertThat(((Map<?, ?>) loaded).get("tasks").toString()).contains("existing file task");
