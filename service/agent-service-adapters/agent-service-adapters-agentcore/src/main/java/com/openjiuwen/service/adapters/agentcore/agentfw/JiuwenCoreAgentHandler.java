@@ -20,6 +20,7 @@ import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.session.stream.TraceSchema;
 import com.openjiuwen.core.singleagent.ControllerAgent;
 import com.openjiuwen.core.singleagent.agents.ReActAgent;
+import com.openjiuwen.core.singleagent.interrupt.InterruptConstants;
 import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.core.workflow.WorkflowOutput;
@@ -818,8 +819,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      */
     protected static Object normalizeChunk(Object chunk) {
         if (chunk instanceof OutputSchema output) {
-            // agent-core-java interrupt: map __interaction__ to structured form
-            if (INTERACTION_TYPE.equals(output.getType())) {
+            // Keep the service protocol for both current ReAct and legacy/DeepAgent envelopes.
+            if (INTERACTION_TYPE.equals(output.getType()) || InterruptConstants.INTERACTION.equals(output.getType())) {
                 log.info("JiuwenCoreAgentHandler interrupt detected type={}", output.getType());
                 return toInterruptData(output);
             }
@@ -924,7 +925,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 data.put("message", req.getMessage());
             }
             if (context != null && !context.isEmpty()) {
-                data.put("context", context);
+                if (context.get("context") instanceof Map<?, ?> nestedContext) {
+                    data.put("context", nestedContext);
+                } else {
+                    data.put("context", context);
+                }
             }
             if (value instanceof ToolCallInterruptRequest tcr) {
                 extractToolCallData(tcr, data);

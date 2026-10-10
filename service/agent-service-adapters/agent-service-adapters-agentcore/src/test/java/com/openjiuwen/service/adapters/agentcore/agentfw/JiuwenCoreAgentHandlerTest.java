@@ -16,14 +16,14 @@ import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
-import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.AgentSession;
+import com.openjiuwen.core.session.AgentSessionApi;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
-import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.core.singleagent.BaseAgent;
+import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.core.singleagent.schema.AgentCard;
@@ -37,6 +37,8 @@ import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -53,6 +55,46 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 2026-07-03
  */
 class JiuwenCoreAgentHandlerTest {
+    @ParameterizedTest
+    @CsvSource({"interaction,true", "interaction,false", "__interaction__,true", "__interaction__,false"})
+    void coreInterruptKeepsDispatchAndClientContext(String type, boolean hasNestedContext) {
+        ToolCallInterruptRequest pending = new ToolCallInterruptRequest();
+        pending.setMessage("Confirm this command");
+        pending.setToolCallId("call-1");
+        pending.setToolName("bash");
+        Map<String, Object> context = Map.of("_interrupt_kind", "tool_permission_ask", "command", "echo cleaning");
+        if (hasNestedContext) {
+            pending.putExtraField("context", context);
+        } else {
+            context.forEach(pending::putExtraField);
+        }
+        OutputSchema output = new OutputSchema(type, 0, new InteractionOutput("call-1", pending));
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id") {
+            @Override
+            protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
+                    List<StreamMode> streamModes) {
+                return List.<Object>of(output).iterator();
+            }
+        };
+        List<QueryChunk> chunks = new ArrayList<>();
+
+        handler.streamQuery(request("c-core-interrupt", "run"), collectingObserver(chunks));
+
+        assertThat(chunks).hasSize(1);
+        assertThat(chunks.get(0).getType()).isEqualTo(QueryChunk.TYPE_INTERRUPT);
+        assertThat(chunks.get(0).getData()).isInstanceOfSatisfying(Map.class, data -> {
+            assertThat(data.get("type")).isEqualTo("__interaction__");
+            assertThat(data.get("context")).isEqualTo(context);
+            assertThat(data.get("toolCallId")).isEqualTo("call-1");
+            assertThat(data.get("message")).isEqualTo("Confirm this command");
+            assertThat(data.get("payload")).isSameAs(output.getPayload());
+        });
+        QueryResponse response = handler.toQueryResponse(Map.of("result_type", "interrupt", "state", List.of(output)),
+                "c-core-interrupt");
+        assertThat(response.getResult()).isInstanceOfSatisfying(Map.class,
+                result -> assertThat(result.get("_interrupt")).isEqualTo(chunks.get(0).getData()));
+    }
+
     @Test
     void synchronousFallbackRejectsErrorChunk() {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new ErrorStreamingAgent());
