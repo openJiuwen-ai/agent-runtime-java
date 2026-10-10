@@ -1085,4 +1085,30 @@ class A2AEnabledServeOrchestratorTest {
             "toolName", toolName,
             "context", Map.of("_interrupt_kind", "client_tool"));
     }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void streamCleanupFailureStillUnregisters(boolean isCancelled) {
+        ActiveStreamRegistry realRegistry = new ActiveStreamRegistry();
+        A2AEnabledServeOrchestrator realOrchestrator = new A2AEnabledServeOrchestrator(agentHandler,
+            taskStore, a2aClient, realRegistry, "test-agent", 16, 256, 30);
+        Optional<Object> taskToken = Optional.of(new Object());
+        when(agentHandler.prepareTask(any())).thenReturn(taskToken);
+        IllegalStateException failure = new IllegalStateException("resource cleanup failed");
+        doThrow(failure).when(agentHandler).completeTask(taskToken);
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (isCancelled) {
+                realOrchestrator.cancelActive("cleanup-failure");
+                assertThat(observer.isCancelled()).isTrue();
+            }
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+
+        assertThatThrownBy(() -> realOrchestrator.streamQuery(req("cleanup-failure"),
+                mock(QueryStreamObserver.class))).isSameAs(failure);
+        assertThat(realRegistry.activeCount()).isZero();
+        assertThat(realRegistry.awaitDrain(0L)).isTrue();
+    }
 }

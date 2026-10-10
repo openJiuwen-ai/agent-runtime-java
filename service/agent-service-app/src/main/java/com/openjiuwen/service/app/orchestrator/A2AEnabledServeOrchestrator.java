@@ -234,9 +234,12 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         } finally {
             // Empty token means prepareTask acquired nothing (e.g. busy
             // rejection) — completeTask must not disturb the other task.
-            agentHandler.completeTask(taskToken);
-            batchCoordinator.abortResume(current);
-            streamRegistry.unregister(request.getConversationId(), handle);
+            try {
+                agentHandler.completeTask(taskToken);
+                batchCoordinator.abortResume(current);
+            } finally {
+                streamRegistry.unregister(request.getConversationId(), handle);
+            }
         }
     }
 
