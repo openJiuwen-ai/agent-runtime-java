@@ -20,6 +20,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
@@ -31,6 +33,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
@@ -63,6 +66,9 @@ public class A2ATaskContinuation {
     private static final long INPUT_REQUIRED_POLL_MS = 20L;
 
     private static final int MAX_ADMISSION_RETRIES = 5;
+
+    /** Backoff jitter ratio (±20%) — prevents lockstep retries across instances. */
+    private static final double RETRY_JITTER_RATIO = 0.2;
 
     private final TaskStore taskStore;
 
@@ -275,7 +281,8 @@ public class A2ATaskContinuation {
                     MAX_ADMISSION_RETRIES, taskId, batchId, request.getConversationId());
             return false;
         }
-        long delayMs = retryBaseDelayMs << (attempt - 1);
+        long baseDelayMs = retryBaseDelayMs << (attempt - 1);
+        long delayMs = withRetryJitter(baseDelayMs);
         log.info("A2A callback continuation deferred by admission control, retry scheduled taskId={} batchId={} "
                 + "attempt={} delayMs={}", taskId, batchId, attempt, delayMs);
         synchronized (lifecycleLock) {
@@ -304,7 +311,22 @@ public class A2ATaskContinuation {
         Integer code = error.getCode();
         return code != null
                 && code == A2AErrorCodes.INTERNAL.code()
-                && A2AAgentExecutor.ADMISSION_REJECTED_MESSAGE.equals(error.getMessage());
+                && error.getDetails() != null
+                && error.getDetails().containsKey("businessCode");
+    }
+
+    /**
+     * Applies a bounded random jitter of ±20% to the backoff delay so that
+     * multiple runtime instances rejected by the same admission gate do not
+     * retry in lockstep (thundering herd).
+     *
+     * @param baseDelayMs the exponential backoff base delay
+     * @return the jittered delay in milliseconds
+     */
+    private static long withRetryJitter(long baseDelayMs) {
+        double factor = 1.0 + ThreadLocalRandom.current().nextDouble(-RETRY_JITTER_RATIO, RETRY_JITTER_RATIO);
+        return Math.max(0L, BigDecimal.valueOf(baseDelayMs).multiply(BigDecimal.valueOf(factor))
+                .setScale(0, RoundingMode.HALF_UP).longValue());
     }
 
     private Optional<Task> awaitInputRequired(String taskId) {
