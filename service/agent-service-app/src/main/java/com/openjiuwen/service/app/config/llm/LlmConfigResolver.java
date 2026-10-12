@@ -7,10 +7,13 @@ package com.openjiuwen.service.app.config.llm;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
+import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog;
 
 import org.springframework.core.env.Environment;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -39,6 +42,8 @@ public final class LlmConfigResolver {
     private final CredentialDecryptor credentialDecryptor;
 
     private ResolvedLlmConfig resolved;
+
+    private LlmModelCatalog catalog;
 
     /**
      * Creates an LLM configuration resolver.
@@ -87,10 +92,61 @@ public final class LlmConfigResolver {
         return config;
     }
 
+    /**
+     * Resolves the fixed deployment catalog from the same snapshot as the default model.
+     * Explicit Java callers may opt in independently of Spring auto-configuration.
+     *
+     * @return validated, decrypted catalog
+     */
+    public synchronized LlmModelCatalog resolveCatalog() {
+        if (catalog != null) {
+            return catalog;
+        }
+        ResolvedLlmConfig defaults = resolveRequired();
+        String defaultId = properties.getModelId() == null ? "default"
+            : requireModelId(properties.getModelId(), "openjiuwen.service.llm.model-id");
+        Map<String, LlmModelCatalog.ModelDefinition> models = new LinkedHashMap<>();
+        models.put(defaultId, new LlmModelCatalog.ModelDefinition(defaults.getProvider(), defaults.getApiKey(),
+            defaults.getApiBase(), defaults.getModelName(), defaults.isSslVerify()));
+        if (properties.getModels() != null) {
+            for (LlmProperties.ModelProperties item : properties.getModels()) {
+                if (item == null) {
+                    throw new IllegalStateException("openjiuwen.service.llm.models entries must be objects");
+                }
+                addModel(models, item);
+            }
+        }
+        catalog = new LlmModelCatalog(defaultId, models, defaults.getTemperature(), defaults.getTopP(),
+            defaults.getTimeout());
+        return catalog;
+    }
+
+    private void addModel(Map<String, LlmModelCatalog.ModelDefinition> models,
+        LlmProperties.ModelProperties item) {
+        String source = "openjiuwen.service.llm.models";
+        String id = requireModelId(item.getModelId(), source + ".model-id");
+        if (models.containsKey(id)) {
+            throw new IllegalStateException("Duplicate model-id in LLM catalog");
+        }
+        String key = decryptApiKey(firstSecret(item.getApiKey(), Optional.empty()));
+        String base = firstText(item.getApiBase(), Optional.empty(), "");
+        String name = firstText(item.getModelName(), Optional.empty(), "");
+        requireText(key, source + ".api-key");
+        requireText(base, source + ".api-base");
+        requireText(name, source + ".model-name");
+        models.put(id, new LlmModelCatalog.ModelDefinition(
+            firstText(item.getProvider(), Optional.empty(), DEFAULT_PROVIDER), key, base, name,
+            item.getSslVerify() == null || item.getSslVerify()));
+    }
+
+    private static String requireModelId(String id, String propertyName) {
+        requireText(id, propertyName);
+        return id.trim();
+    }
+
     private ResolvedLlmConfig doResolve() {
-        boolean shouldAutoDiscover = Boolean.TRUE.equals(properties.getAutoDiscover());
-        ApiConfigLoader.ApiConfigValues fileValues = apiConfigLoader
-            .load(properties.getConfigFile(), shouldAutoDiscover)
+        ApiConfigLoader.ApiConfigValues fileValues = apiConfigLoader.load(properties.getConfigFile(),
+                Boolean.TRUE.equals(properties.getAutoDiscover()))
             .orElseGet(ApiConfigLoader.ApiConfigValues::empty);
 
         String encryptedApiKey = firstSecret(properties.getApiKey(), fileValues.apiKey());

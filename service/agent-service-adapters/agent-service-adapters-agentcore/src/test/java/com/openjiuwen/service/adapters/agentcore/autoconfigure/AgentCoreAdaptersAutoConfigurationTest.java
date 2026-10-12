@@ -22,6 +22,7 @@ import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemote
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientFactory;
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreSandboxClientFactory;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
+import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,25 @@ import org.springframework.context.annotation.Configuration;
 class AgentCoreAdaptersAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
         AutoConfigurations.of(AgentCoreAdaptersAutoConfiguration.class));
+
+    @Test
+    void optionalCatalogIsConsumedAtDefaultHandlerStartup() {
+        var catalog = new LlmModelCatalog("a", java.util.Map.of("a", new LlmModelCatalog.ModelDefinition(
+                "OpenAI", "test-only", "http://127.0.0.1:1/v1", "vendor-a", true)),
+                0.0, 0.8, java.time.Duration.ofSeconds(1));
+        contextRunner.withBean(LlmModelCatalog.class, () -> catalog)
+                .withPropertyValues("openjiuwen.service.agent-id=my-agent").run(context -> {
+                    var handler = context.getBean(AgentHandler.class);
+                    try {
+                        handler.start();
+                        assertThat(com.openjiuwen.core.runner.Runner.resourceMgr()
+                                .getModel("runtime:model:bXktYWdlbnQ:YQ").toCompletableFuture().join())
+                                .isInstanceOf(com.openjiuwen.core.foundation.llm.Model.class);
+                    } finally {
+                        handler.stop();
+                    }
+                });
+    }
 
     @Test
     void registersJiuwenCoreAgentHandlerWhenAgentIdConfigured() {

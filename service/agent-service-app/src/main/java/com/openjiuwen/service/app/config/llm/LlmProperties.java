@@ -10,6 +10,8 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Raw LLM configuration bound from {@code openjiuwen.service.llm}.
@@ -24,8 +26,10 @@ import java.time.Duration;
 @Setter
 @ConfigurationProperties(prefix = "openjiuwen.service.llm")
 public class LlmProperties {
+    private boolean isModelSelectionEnabled;
     private String configFile;
     private Boolean autoDiscover;
+    private String modelId;
     private String provider;
     private String apiKey;
     private String apiBase;
@@ -37,4 +41,21 @@ public class LlmProperties {
     private Duration timeout;
     private Integer contextWindowLimit;
     private Integer maxIterations;
+
+    private List<ModelProperties> models = new ArrayList<>();
+
+    /**
+     * Additional deployment models. The existing root connection remains the default;
+     * sampling parameters and timeout are shared with it.
+     */
+    @Getter
+    @Setter
+    public static class ModelProperties {
+        private String modelId;
+        private String provider;
+        private String apiKey;
+        private String apiBase;
+        private String modelName;
+        private Boolean sslVerify;
+    }
 }

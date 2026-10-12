@@ -651,6 +651,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         resume.setUserId(original.getUserId());
         resume.setSpaceId(original.getSpaceId());
         resume.setTenantId(original.getTenantId());
+        resume.setModelName(resolution.parentModelName());
         // Direct remote replies use the latest ingress metadata; local continuation restores its own metadata.
         Map<String, Object> metadata = RemoteInvocationBatchMapper.cleanRequestMetadata(
                 resolution.parentParamsMetadata());

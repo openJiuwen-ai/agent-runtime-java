@@ -725,8 +725,9 @@ class RemoteInvocationBatchCoordinatorTest {
         assertThat(resolution.results().get("call-c")).isEqualTo("result-c");
     }
 
-    @Test
-    void terminalCallbackSchedulesContinuationWithParentIdentity() {
+    @ParameterizedTest
+    @CsvSource({"b, 0", "b, 2", "c, 2", ", 2"})
+    void terminalCallbackRestoresLatestSelection(String currentModel, int supplementalRounds) {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
         when(client.callOutcome(any(), any())).thenReturn(outcome);
@@ -738,18 +739,96 @@ class RemoteInvocationBatchCoordinatorTest {
                     continuationRequest.set(request);
                     continuations.incrementAndGet();
                 });
-        coordinator.execute(batch("batch-callback", "call-a"), request("parent-callback", Map.of()),
+        ServeRequest initial = request("parent-callback", Map.of("model_name", "b"));
+        initial.setModelName("b");
+        coordinator.execute(batch("batch-callback", "call-a"), initial,
                 mock(QueryStreamObserver.class));
         outcome.complete(inputRequired("remote-a", "callback pending"));
+        when(client.callOutcome(any(), any())).thenReturn(
+                CompletableFuture.completedFuture(inputRequired("remote-a", "still pending")));
+        resumeCallbackRounds(coordinator, store, currentModel, supplementalRounds);
+        assertSupplementalCalls(client, supplementalRounds);
         Task callbackTask = Task.builder().id("remote-a").contextId("remote-context")
                 .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+        Task shadow = store.get("shadow:test-agent:parent-callback");
+        store.save(org.a2aproject.sdk.jsonrpc.common.json.JsonUtil.OBJECT_MAPPER.fromJson(
+                org.a2aproject.sdk.jsonrpc.common.json.JsonUtil.OBJECT_MAPPER.toJson(shadow), Task.class), true);
 
         assertThat(coordinator.recoverCallback(callbackTask)).isTrue();
 
         assertThat(continuations).hasValue(1);
+        assertThat(continuationRequest.get().getModelName()).isEqualTo(currentModel);
+        assertThat(continuationRequest.get().lastUserQuery())
+                .isEqualTo(supplementalRounds == 0 ? initial.lastUserQuery() : "new answer");
         assertThat(continuationRequest.get().getMetadata())
                 .containsEntry("runtime.parentTaskId", "parent-callback")
-                .containsKey("runtime.remoteBatchId");
+                .containsKey("runtime.remoteBatchId").doesNotContainKey("model_name");
+    }
+
+    private static void resumeCallbackRounds(RemoteInvocationBatchCoordinator coordinator, InMemoryTaskStore store,
+            String currentModel, int supplementalRounds) {
+        ServeRequest supplemental = request("parent-callback",
+                Map.of("runtime.remoteToolInputs", Map.of("call-a", "new answer")));
+        supplemental.setMessages(List.of(Map.of("role", "user", "content", "new answer")));
+        supplemental.setModelName(currentModel);
+        for (int round = 0; round < supplementalRounds; round++) {
+            var resolution = coordinator.resume(supplemental, mock(QueryStreamObserver.class)).orElseThrow().join();
+            assertThat(resolution.parentModelName()).isEqualTo(currentModel);
+            assertThat(resolution.isReadyToResume()).isFalse();
+            Object saved = store.get("shadow:test-agent:parent-callback").metadata().get("_remote_batch");
+            assertThat(saved).isInstanceOfSatisfying(Map.class, snapshot ->
+                    assertSavedSelection(snapshot.get("request"), currentModel));
+        }
+        assertThat(supplemental.getModelName()).isEqualTo(currentModel);
+    }
+
+    private static void assertSavedSelection(Object savedRequest, String currentModel) {
+        assertThat(savedRequest).isInstanceOfSatisfying(Map.class, request -> {
+            assertThat(request.get("modelName")).isEqualTo(currentModel);
+            if (currentModel == null) {
+                assertThat(request.containsKey("modelName")).isFalse();
+            }
+        });
+    }
+
+    private static void assertSupplementalCalls(A2ARemoteAgentClient client, int supplementalRounds) {
+        ArgumentCaptor<RemoteCall> calls = ArgumentCaptor.forClass(RemoteCall.class);
+        verify(client, times(1 + supplementalRounds)).callOutcome(calls.capture(), any());
+        assertThat(calls.getAllValues().subList(1, 1 + supplementalRounds)).allSatisfy(call -> {
+            assertThat(call.message()).isEqualTo("new answer");
+            assertThat(call.metadata()).doesNotContainKey("model_name");
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"b, c, false", "b, c, true", ", c, false", ", c, true",
+            "b, a, false", "b, a, true", ", a, false", ", a, true",
+            "b, , false", "b, , true", ", , false", ", , true"})
+    void supplementalRequestSelectsCurrentModelOrDefault(String parentModel, String currentModel, boolean isReady) {
+        A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
+        when(client.callOutcome(any(), any())).thenReturn(CompletableFuture.completedFuture(
+                isReady ? completed("remote-a", "done") : inputRequired("remote-a", "answer?")));
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
+                "test-agent", 1, 10, 30);
+        ServeRequest initial = request("parent-selection", Map.of());
+        initial.setModelName(parentModel);
+        coordinator.execute(batch("batch-selection", "call-a"), initial, mock(QueryStreamObserver.class)).join();
+        ServeRequest supplemental = request("parent-selection",
+                Map.of("runtime.remoteToolInputs", Map.of("call-a", "answer")));
+        supplemental.setModelName(currentModel);
+
+        var resolution = coordinator.resume(supplemental, mock(QueryStreamObserver.class)).orElseThrow().join();
+
+        assertThat(resolution.parentModelName()).isEqualTo(currentModel);
+        assertThat(resolution.isReadyToResume()).isEqualTo(isReady);
+        verify(client, times(isReady ? 1 : 2)).callOutcome(any(), any());
+        if (!isReady) {
+            Map<?, ?> saved = (Map<?, ?>) store.get("shadow:test-agent:parent-selection")
+                    .metadata().get("_remote_batch");
+            assertThat(((Map<?, ?>) saved.get("request")).get("modelName")).isEqualTo(currentModel);
+        }
+        assertThat(supplemental.getModelName()).isEqualTo(currentModel);
     }
 
     @Test
@@ -787,6 +866,7 @@ class RemoteInvocationBatchCoordinatorTest {
             .thenReturn(CompletableFuture.completedFuture(completed("remote-a", "result-a")));
         RemoteInvocationBatchCoordinator coordinator = coordinator(client, 1);
         ServeRequest request = request("parent-metadata", Map.of(
+            "model_name", "b",
             "traceId", "trace-1",
             "_interrupt", Map.of("secret", "internal"),
             "runtime.remoteToolInputs", Map.of("call-a", "forged"),
@@ -805,17 +885,18 @@ class RemoteInvocationBatchCoordinatorTest {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         when(client.callOutcome(any(), any()))
                 .thenAnswer(invocation -> CompletableFuture.completedFuture(completed("remote", "done")));
-        RemoteInvocationBatchCoordinator coordinator = coordinator(client, 2);
         Map<String, Object> followUp = Map.of("query", "ok", "selectedCapabilityId", "cap.next",
                 "offers", List.of(Map.of("capabilityId", "cap.next")));
         Map<String, Object> urlPart = Map.of("kind", "url", "url", "https://example.com/report.pdf");
         Map<String, Object> first = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-a",
                 "message", "ok", "context", Map.of("_interrupt_kind", "a2a_delegate",
-                        "agentName", "agent-a", "parts", List.of(urlPart), "business.follow_up", followUp));
+                        "agentName", "agent-a", "parts", List.of(urlPart), "business.follow_up", followUp,
+                        "model_name", "member-model"));
         Map<String, Object> second = Map.of("index", 1, "toolCallId", "call-b", "toolName", "tool-b",
                 "message", "other", "context", Map.of("_interrupt_kind", "a2a_delegate",
                         "agentName", "agent-b"));
         ServeRequest request = request("parent-followup", Map.of("traceId", "trace-1"));
+        RemoteInvocationBatchCoordinator coordinator = coordinator(client, 2);
 
         coordinator.execute(Map.of("items", List.of(first, second)), request,
                 mock(QueryStreamObserver.class)).join();
@@ -825,7 +906,7 @@ class RemoteInvocationBatchCoordinatorTest {
         Map<String, RemoteCall> byAgent = calls.getAllValues().stream()
                 .collect(java.util.stream.Collectors.toMap(RemoteCall::agentName, call -> call));
         assertThat(byAgent.get("agent-a").metadata()).containsEntry("traceId", "trace-1")
-                .containsEntry("business.follow_up", followUp).doesNotContainKey("parts");
+                .containsEntry("business.follow_up", followUp).doesNotContainKeys("parts", "model_name");
         assertThat(byAgent.get("agent-a").parts()).containsExactly(urlPart);
         assertThat(byAgent.get("agent-b").parts()).isEmpty();
         assertThat(byAgent.get("agent-b").metadata()).containsOnly(Map.entry("traceId", "trace-1"));

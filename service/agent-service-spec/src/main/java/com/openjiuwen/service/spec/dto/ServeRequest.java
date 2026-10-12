@@ -23,6 +23,11 @@ import java.util.Optional;
 public class ServeRequest {
     private String conversationId;
 
+    /**
+     * Public model alias for this request; null selects the deployment default.
+     */
+    private String modelName;
+
     private List<Map<String, Object>> messages = new ArrayList<>();
 
     private String userId;
@@ -40,6 +45,33 @@ public class ServeRequest {
     private Map<String, Object> remoteResponseMetadata = new LinkedHashMap<>();
 
     /**
+     * Sets and normalizes a request model alias.
+     *
+     * @param modelName alias, or null for the deployment default
+     * @throws IllegalArgumentException if the alias is blank
+     */
+    public void setModelName(String modelName) {
+        this.modelName = normalizeModelName(modelName).orElse(null);
+    }
+
+    /**
+     * Validates the model alias without JSON scalar coercion.
+     *
+     * @param value raw protocol value
+     * @return trimmed alias, or an empty optional for the default
+     * @throws IllegalArgumentException if the value is not a non-blank string or null
+     */
+    public static Optional<String> normalizeModelName(Object value) {
+        if (value == null) {
+            return Optional.empty();
+        }
+        if (!(value instanceof String text) || text.trim().isEmpty()) {
+            throw new IllegalArgumentException("model_name must be a non-blank string or null");
+        }
+        return Optional.of(text.trim());
+    }
+
+    /**
      * Builds a serve request from the external query request body.
      *
      * @param request the query request
@@ -54,6 +86,7 @@ public class ServeRequest {
         serveRequest.setSpaceId(request.getSpaceId());
         serveRequest.setTenantId(request.getTenantId());
         serveRequest.setStream(request.isStream());
+        serveRequest.setModelName(request.getModelName());
         return serveRequest;
     }
 

@@ -6,7 +6,12 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -92,6 +97,68 @@ class JiuwenCoreAgentHandlerTest {
                 "c-core-interrupt");
         assertThat(response.getResult()).isInstanceOfSatisfying(Map.class,
                 result -> assertThat(result.get("_interrupt")).isEqualTo(chunks.get(0).getData()));
+    }
+
+    @Test
+    void legacyStreamPreservesOriginalErrorFieldsAndTerminatesOnce() {
+        Map<String, Object> error = Map.of("type", "error", "error", "failed",
+                "code", "ORIGINAL_CODE", "retryable", true);
+        var handler = legacyStreamHandler(List.of(error, Map.of("content", "must not be emitted")));
+        var observer = mock(QueryStreamObserver.class);
+
+        handler.streamQuery(request("legacy-error", "hello"), observer);
+
+        var chunk = org.mockito.ArgumentCaptor.forClass(QueryChunk.class);
+        verify(observer).onNext(chunk.capture());
+        assertThat(chunk.getValue().getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+        assertThat(chunk.getValue().getData()).isEqualTo(error);
+        verify(observer).onError(org.mockito.ArgumentMatchers.any(IllegalStateException.class));
+        verify(observer, org.mockito.Mockito.never()).onComplete();
+    }
+
+    @Test
+    void legacyStreamDoesNotReclassifyResultTypeOrAnswerPayload() {
+        List<Object> chunks = List.of(Map.of("result_type", "error", "output", "business result"),
+                new OutputSchema("answer", 0, Map.of("result_type", "error", "output", "legacy answer")));
+        var handler = legacyStreamHandler(chunks);
+        var observer = mock(QueryStreamObserver.class);
+
+        handler.streamQuery(request("legacy-result", "hello"), observer);
+
+        var captured = org.mockito.ArgumentCaptor.forClass(QueryChunk.class);
+        verify(observer, org.mockito.Mockito.times(2)).onNext(captured.capture());
+        assertThat(captured.getAllValues()).allSatisfy(chunk ->
+                assertThat(chunk.getType()).isEqualTo(QueryChunk.TYPE_CHUNK));
+        verify(observer).onComplete();
+        verify(observer, org.mockito.Mockito.never()).onError(org.mockito.ArgumentMatchers.any());
+        assertThat(handler.query(request("legacy-sync-fallback", "hello")).getResult()).isNotNull();
+    }
+
+    @Test
+    void legacyControllerOutputListKeepsExistingConversion() {
+        var handler = new JiuwenCoreAgentHandler("unused");
+        var output = new ControllerOutput("task_completion", List.of(
+                Map.of("type", "error", "content", "legacy content")));
+        assertThat(handler.toQueryResponse(output, "legacy-controller").getResult().toString())
+                .contains("legacy content");
+        // Direct synchronous errors were already failures before model selection was introduced.
+        assertThatThrownBy(() -> handler.toQueryResponse(Map.of("result_type", "error"), "legacy-direct"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    private static JiuwenCoreAgentHandler legacyStreamHandler(List<Object> chunks) {
+        return new JiuwenCoreAgentHandler("unused") {
+            @Override
+            protected Object runnerSession(ServeRequest request) {
+                return request.getConversationId();
+            }
+
+            @Override
+            protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
+                    List<StreamMode> modes) {
+                return chunks.iterator();
+            }
+        };
     }
 
     @Test
@@ -266,6 +333,30 @@ class JiuwenCoreAgentHandlerTest {
                     assertThat(failure.getDescriptor()).isEqualTo(
                             new AgentFailureDescriptor("MODEL_CALL_FAILED", 181001, false));
                 });
+    }
+
+    @Test
+    void queryRunsInlineAndPreservesErrorIdentity() {
+        var handler = spy(new JiuwenCoreAgentHandler(new InvokeEchoAgent()));
+        Thread caller = Thread.currentThread();
+        AssertionError failure = new AssertionError("fatal query failure");
+        doAnswer(invocation -> {
+            assertThat(Thread.currentThread()).isSameAs(caller);
+            throw failure;
+        }).when(handler).executeAgent(anyMap(), any());
+
+        assertThatThrownBy(() -> handler.query(request("c-fatal-error", "fail")))
+                .isSameAs(failure);
+    }
+
+    @Test
+    void legacyQueryPreservesRuntimeFailureIdentity() {
+        var handler = spy(new JiuwenCoreAgentHandler(new InvokeEchoAgent()));
+        UnsupportedOperationException failure = new UnsupportedOperationException("unsupported query");
+        doThrow(failure).when(handler).executeAgent(anyMap(), any());
+
+        assertThatThrownBy(() -> handler.query(request("c-runtime-error", "fail")))
+                .isSameAs(failure);
     }
 
     @Test
@@ -660,6 +751,42 @@ class JiuwenCoreAgentHandlerTest {
         assertThat(registrar.registerToCalls).isZero();
         assertThat(registrar.registerToRunnerCalls).isEqualTo(1);
         handler.stop();
+    }
+
+    @Test
+    void unexpectedRegistrarFailureAllowsStartupRetry() {
+        var registrar = mock(ExternalSvcAdapterRegistrar.class);
+        var failure = new UnsupportedOperationException("registration unavailable");
+        org.mockito.Mockito.doThrow(failure).doNothing().when(registrar).registerToRunner();
+        var handler = new JiuwenCoreAgentHandler("agent-id", registrar);
+        try {
+            assertThatThrownBy(handler::start).isSameAs(failure);
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isFalse();
+            handler.start();
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isTrue();
+            verify(registrar, org.mockito.Mockito.times(2)).registerToRunner();
+        } finally {
+            handler.stop();
+        }
+    }
+
+    @Test
+    void middlewareFailureAllowsStartupRetry() {
+        var middleware = mock(com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar.class);
+        var failure = new UnsupportedOperationException("middleware unavailable");
+        org.mockito.Mockito.doThrow(failure).doNothing().when(middleware)
+                .applyToRunnerConfig(org.mockito.ArgumentMatchers.any());
+        var handler = new JiuwenCoreAgentHandler("agent-id", middleware, null);
+        try {
+            assertThatThrownBy(handler::start).isSameAs(failure);
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isFalse();
+            handler.start();
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isTrue();
+            verify(middleware, org.mockito.Mockito.times(2))
+                    .applyToRunnerConfig(org.mockito.ArgumentMatchers.any());
+        } finally {
+            handler.stop();
+        }
     }
 
     @Test
