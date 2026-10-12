@@ -41,6 +41,7 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
@@ -437,14 +438,22 @@ class A2AEnabledServeOrchestratorTest {
         }).when(agentHandler).streamQuery(any(), any());
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
         ServeRequest request = req("c-batch");
+        request.setModelName("b");
         request.setMetadata(Map.of("runtime.parentTaskId", "parent-batch"));
 
         orchestrator.streamQuery(request, observer);
 
         verify(a2aClient, times(3)).callOutcome(any(), any());
         assertThat(localRuns.get()).isEqualTo(2);
+        assertModelSelectionPreserved(agentHandler);
         assertThat(taskStore.get("shadow:test-agent:parent-batch")).isNull();
         verify(observer).onComplete();
+    }
+
+    private static void assertModelSelectionPreserved(AgentHandler handler) {
+        var resumedRequests = org.mockito.ArgumentCaptor.forClass(ServeRequest.class);
+        verify(handler, times(2)).streamQuery(resumedRequests.capture(), any());
+        assertThat(resumedRequests.getAllValues()).allSatisfy(value -> assertThat(value.getModelName()).isEqualTo("b"));
     }
 
     @Test
@@ -920,7 +929,37 @@ class A2AEnabledServeOrchestratorTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void parentMetadataSurvivesRepeatedDirectResumeAndNextDelegation(boolean isStreaming) {
+    void modelSelectionStaysLocalAcrossRepeatedDelegation(boolean isStreaming) {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        List<RemoteCall> calls = new java.util.ArrayList<>();
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
+            calls.add(invocation.getArgument(0));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-a",
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result", null));
+        });
+        List<ServeRequest> localRequests = new java.util.ArrayList<>();
+        stubMetadataAgent(localRequests);
+        ServeRequest initial = metadataRequest(Map.of("model_name", "b", "trace", "keep"), isStreaming, "initial");
+        initial.setModelName("b");
+
+        runMetadataRequest(initial, isStreaming);
+
+        assertThat(calls).hasSize(2).allSatisfy(call -> assertThat(call.metadata())
+                .containsEntry("trace", "keep").doesNotContainKey("model_name"));
+        assertThat(localRequests).hasSize(3)
+                .allSatisfy(request -> assertThat(request.getModelName()).isEqualTo("b"));
+        assertThat(localRequests.subList(1, 3)).allSatisfy(request ->
+                assertThat(request.getMetadata()).doesNotContainKey("model_name"));
+
+        runMetadataRequest(metadataRequest(Map.of(), isStreaming, "new request"), isStreaming);
+        assertThat(localRequests.get(3).getModelName()).isNull();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, c", "true, c", "false,", "true,"})
+    void parentMetadataSurvivesRepeatedDirectResumeAndNextDelegation(boolean isStreaming, String currentModel) {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
                 "test-agent", 16, 256, 30);
@@ -932,14 +971,17 @@ class A2AEnabledServeOrchestratorTest {
         stubMetadataAgent(localRequests);
 
         ServeRequest initial = metadataRequest(parentMetadata, !isStreaming, "initial");
+        initial.setModelName("b");
         runMetadataRequest(initial, isStreaming);
         ServeRequest second = metadataRequest(Map.of("header", Map.of("trace", "second"),
                 "secondOnly", true), isStreaming, "answer-2");
+        second.setModelName("a");
         runMetadataRequest(second, isStreaming);
         assertThat(localRequests).hasSize(1);
         restoreMetadataShadow(parentMetadata);
         ServeRequest third = metadataRequest(Map.of("body", Map.of("answer", "third"),
                 "thirdOnly", true), isStreaming, "answer-3");
+        third.setModelName(currentModel);
         third.getMetadata().put("runtime.remoteToolInputs", Map.of("call-a", "answer-3"));
         third.getMetadata().put("_interrupt", Map.of("message", "current interrupt"));
         runMetadataRequest(third, isStreaming);
@@ -949,6 +991,7 @@ class A2AEnabledServeOrchestratorTest {
         ServeRequest fresh = metadataRequest(Map.of("fresh", true), isStreaming, "new-local-input");
         runMetadataRequest(fresh, isStreaming);
         assertThat(localRequests.get(3).getMetadata()).containsEntry("fresh", true).doesNotContainKey("parentOnly");
+        assertThat(localRequests.get(3).getModelName()).isNull();
     }
 
     private void stubMetadataRemote(List<RemoteCall> calls) {
@@ -988,6 +1031,7 @@ class A2AEnabledServeOrchestratorTest {
         Task shadow = taskStore.get("shadow:test-agent:metadata-parent");
         Map<?, ?> batch = (Map<?, ?>) shadow.metadata().get("_remote_batch");
         assertThat(((Map<?, ?>) batch.get("request")).get("metadata")).isEqualTo(parentMetadata);
+        assertThat(((Map<?, ?>) batch.get("request")).get("modelName")).isEqualTo("a");
         Task restored = JsonUtil.OBJECT_MAPPER.fromJson(
                 JsonUtil.OBJECT_MAPPER.toJson(shadow), Task.class);
         taskStore.save(restored, true);
@@ -998,6 +1042,7 @@ class A2AEnabledServeOrchestratorTest {
     private void assertMetadataRoundTrip(List<RemoteCall> calls, List<ServeRequest> localRequests,
             Map<String, Object> parentMetadata, ServeRequest third, boolean isStreaming) {
         assertThat(calls).hasSize(4);
+        assertThat(calls).allSatisfy(call -> assertThat(call.metadata()).doesNotContainKey("model_name"));
         assertThat(calls.get(0).metadata()).containsAllEntriesOf(parentMetadata);
         assertThat(calls.get(1).metadata()).containsEntry("secondOnly", true).doesNotContainKey("parentOnly");
         assertThat(calls.get(2).metadata()).containsEntry("thirdOnly", true).doesNotContainKey("header");
@@ -1007,6 +1052,10 @@ class A2AEnabledServeOrchestratorTest {
         assertThat(calls.get(3).isCallerStreaming()).isEqualTo(isStreaming);
         assertThat(localRequests).hasSize(3);
         ServeRequest resumed = localRequests.get(1);
+        // Supplemental HTTP requests select afresh, while internal delegation retains this round's selection.
+        assertThat(localRequests.get(0).getModelName()).isEqualTo("b");
+        assertThat(resumed.getModelName()).isEqualTo(third.getModelName());
+        assertThat(localRequests.get(2).getModelName()).isEqualTo(third.getModelName());
         assertThat(resumed.getMetadata()).containsAllEntriesOf(parentMetadata)
                 .containsEntry("runtime.parentTaskId", "metadata-parent")
                 .containsEntry("runtime.remoteToolResults", Map.of("call-a", "result"))

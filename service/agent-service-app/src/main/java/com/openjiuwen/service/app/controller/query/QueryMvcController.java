@@ -145,11 +145,12 @@ public class QueryMvcController {
         try {
             return objectMapper.readValue(rawBody, QueryRequest.class);
         } catch (com.fasterxml.jackson.databind.JsonMappingException failure) {
-            boolean isAgentField = failure.getPath().stream()
-                    .anyMatch(reference -> "agent_id".equals(reference.getFieldName()));
-            if (isAgentField) {
+            boolean isStrictRequestField = failure.getPath().stream()
+                    .anyMatch(reference -> "agent_id".equals(reference.getFieldName())
+                            || "model_name".equals(reference.getFieldName()));
+            if (isStrictRequestField) {
                 throw new org.springframework.http.converter.HttpMessageNotReadableException(
-                        "agent_id must be a string or null", failure,
+                        "Invalid agent_id or model_name", failure,
                         new org.springframework.http.server.ServletServerHttpRequest(request));
             }
             throw failure;
