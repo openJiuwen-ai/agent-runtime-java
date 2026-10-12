@@ -38,7 +38,11 @@ class A2AProtocolAdapterTest {
                 .metadata(Map.of("model_name", "untrusted-message-alias")).build());
         assertThat(adapter.toServeRequest(ctx).getModelName()).isNull();
         ctx.setMetadata(Map.of("model_name", " b ", "dynamic_model_id", "untrusted-core-id"));
-        assertThat(adapter.toServeRequest(ctx).getModelName()).isEqualTo("b");
+        ServeRequest request = adapter.toServeRequest(ctx);
+        assertThat(request.getModelName()).isEqualTo("b");
+        assertThat(request.getMetadata()).doesNotContainKey("model_name")
+                .containsEntry("dynamic_model_id", "untrusted-core-id");
+        assertThat(ctx.getMetadata()).containsEntry("model_name", " b ");
         ctx.setMetadata(Map.of("model_name", 42));
         assertThatThrownBy(() -> adapter.toServeRequest(ctx))
                 .isInstanceOf(org.a2aproject.sdk.spec.InvalidParamsError.class);

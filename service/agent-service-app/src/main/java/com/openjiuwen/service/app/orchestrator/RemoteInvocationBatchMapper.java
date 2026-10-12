@@ -46,6 +46,7 @@ import java.util.concurrent.TimeoutException;
  */
 final class RemoteInvocationBatchMapper {
     private static final Set<String> RESERVED_RESUME_METADATA = Set.of(
+            "model_name",
             "_interrupt",
             "runtime.parentTaskId",
             "runtime.remoteToolInputs",
@@ -129,7 +130,10 @@ final class RemoteInvocationBatchMapper {
                 && rawRequest.get("metadata") instanceof Map<?, ?> metadata
                         ? cleanRequestMetadata(metadata)
                         : cleanRequestMetadata(request.getMetadata());
-        return new RemoteInvocationBatch(batchId, parentTaskId, request, parentMetadata, observer, members,
+        // Keep the supplemental request intact; only parent execution state comes from the snapshot.
+        String parentModelName = rawBatch.get("request") instanceof Map<?, ?> rawRequest
+                ? ServeRequest.normalizeModelName(rawRequest.get("modelName")).orElse(null) : null;
+        return new RemoteInvocationBatch(batchId, parentTaskId, request, parentModelName, parentMetadata, observer, members,
                 shouldResume);
     }
 
@@ -204,7 +208,7 @@ final class RemoteInvocationBatchMapper {
         snapshot.put("parentTaskId", batch.parentTaskId);
         snapshot.put("resume", batch.shouldResume);
         snapshot.put("state", state);
-        snapshot.put("request", requestSnapshot(batch.request, batch.parentParamsMetadata));
+        snapshot.put("request", requestSnapshot(batch.request, batch.parentModelName, batch.parentParamsMetadata));
         List<Map<String, Object>> members = new ArrayList<>();
         for (Member member : batch.members) {
             Map<String, Object> value = new LinkedHashMap<>();
@@ -273,7 +277,8 @@ final class RemoteInvocationBatchMapper {
                 .anyMatch(member -> member.state == MemberState.INPUT_REQUIRED);
         if (hasWaitingMember) {
             return new RemoteInvocationBatchCoordinator.BatchResolution(batch.batchId, false, Map.of(),
-                    publicInterrupt(batch), batch.shouldResume, batch.parentParamsMetadata, Map.of());
+                    publicInterrupt(batch), batch.shouldResume, batch.parentParamsMetadata, Map.of(),
+                    batch.parentModelName);
         }
         Map<String, Object> results = new LinkedHashMap<>();
         Map<String, Object> responseMetadata = new LinkedHashMap<>();
@@ -282,7 +287,7 @@ final class RemoteInvocationBatchMapper {
                 .filter(member -> !member.responseMetadata.isEmpty())
                 .forEach(member -> responseMetadata.put(member.toolCallId, copyMetadataValue(member.responseMetadata)));
         return new RemoteInvocationBatchCoordinator.BatchResolution(batch.batchId, true, results, Map.of(),
-                batch.shouldResume, batch.parentParamsMetadata, responseMetadata);
+                batch.shouldResume, batch.parentParamsMetadata, responseMetadata, batch.parentModelName);
     }
 
     private static void restoreFailure(Member member) {
@@ -372,10 +377,11 @@ final class RemoteInvocationBatchMapper {
         return state == MemberState.COMPLETED;
     }
 
-    private static Map<String, Object> requestSnapshot(ServeRequest request, Map<String, Object> parentMetadata) {
+    private static Map<String, Object> requestSnapshot(ServeRequest request, String parentModelName,
+            Map<String, Object> parentMetadata) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("conversationId", request.getConversationId());
-        putIfNotBlank(snapshot, "modelName", request.getModelName());
+        putIfNotBlank(snapshot, "modelName", parentModelName);
         snapshot.put("stream", request.isStream());
         putIfNotBlank(snapshot, "userId", request.getUserId());
         putIfNotBlank(snapshot, "spaceId", request.getSpaceId());

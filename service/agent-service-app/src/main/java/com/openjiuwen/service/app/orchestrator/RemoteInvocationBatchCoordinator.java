@@ -233,6 +233,10 @@ final class RemoteInvocationBatchCoordinator {
         }
         RemoteInvocationBatch batch = batchMapper.restore(rawBatch, request, parentTaskId,
                 new SerialQueryStreamObserver(observer));
+        if (request.getModelName() != null && !request.getModelName().equals(batch.parentModelName)) {
+            return Optional.of(CompletableFuture.failedFuture(
+                    new IllegalArgumentException("REMOTE_BATCH_MODEL_SELECTION_CONFLICT")));
+        }
         if ("READY_TO_RESUME".equals(stringValue(rawBatch.get("state")))) {
             return resumeReadyBatch(batch, targetedInputs);
         }
@@ -396,6 +400,8 @@ final class RemoteInvocationBatchCoordinator {
         Member member = invocation.member();
         Map<String, Object> metadata = outboundMetadata(batch.request.getMetadata());
         metadata.putAll(member.requestMetadata);
+        // Also filter member metadata and restored batches: remote model selection is not supported.
+        metadata.remove("model_name");
         String userId = batch.request.getUserId();
         if (userId != null && !userId.isBlank() && !metadata.containsKey("userId")) {
             metadata.put("userId", userId);
@@ -783,13 +789,14 @@ final class RemoteInvocationBatchCoordinator {
      *                          path). Defaults to {@code true} when the interrupt payload omits it.
      * @param parentParamsMetadata business metadata to restore when re-entering the local agent
      * @param responseMetadata successful remote-response metadata keyed by toolCallId, outside tool result text
+     * @param parentModelName accepted local parent model alias; null means the deployment default
      */
     record BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
             Map<String, Object> interrupt, boolean shouldResume, Map<String, Object> parentParamsMetadata,
-            Map<String, Object> responseMetadata) {
+            Map<String, Object> responseMetadata, String parentModelName) {
         BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
                 Map<String, Object> interrupt, boolean shouldResume, Map<String, Object> parentParamsMetadata) {
-            this(batchId, isReadyToResume, results, interrupt, shouldResume, parentParamsMetadata, Map.of());
+            this(batchId, isReadyToResume, results, interrupt, shouldResume, parentParamsMetadata, Map.of(), null);
         }
     }
 }

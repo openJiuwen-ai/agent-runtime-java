@@ -194,6 +194,8 @@ public class A2AProtocolAdapter {
             metadata.putAll(ctx.getMetadata());
         }
         RESERVED_METADATA_KEYS.forEach(metadata::remove);
+        // Consumed into ServeRequest.modelName; selection belongs only to this local invocation.
+        metadata.remove("model_name");
         if (ctx.getTaskId() != null && !ctx.getTaskId().isBlank()) {
             metadata.put(PARENT_TASK_ID, ctx.getTaskId());
         }

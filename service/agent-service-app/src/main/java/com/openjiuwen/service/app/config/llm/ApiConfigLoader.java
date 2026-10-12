@@ -4,8 +4,11 @@
 
 package com.openjiuwen.service.app.config.llm;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import org.springframework.core.env.Environment;
 
@@ -15,12 +18,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * Loads the agent-core compatible {@code apiconfig.json} format.
+ * Loads the API configuration schema from JSON or explicitly selected YAML files.
+ * Auto-discovery continues to look only for {@code apiconfig.json}.
  *
  * @since 0.1.0
  */
@@ -107,9 +112,16 @@ final class ApiConfigLoader {
                 throw new IllegalStateException("LLM API configuration file exceeds 1 MiB: " + path);
             }
             try (InputStream input = Files.newInputStream(path)) {
-                Map<String, Object> raw = objectMapper.readValue(input, new TypeReference<>() {});
+                String filename = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                ObjectMapper reader = filename.endsWith(".yaml") || filename.endsWith(".yml")
+                    ? new ObjectMapper(new YAMLFactory())
+                        .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                        .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
+                    : objectMapper;
+                Map<String, Object> raw = reader.readValue(input, new TypeReference<>() {});
                 if (raw == null) {
-                    throw new IllegalStateException("LLM API configuration file must contain a JSON object: " + path);
+                    throw new IllegalStateException(
+                        "LLM API configuration file must contain a JSON object or YAML mapping: " + path);
                 }
                 return readValues(raw);
             }

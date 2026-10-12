@@ -20,6 +20,9 @@ final class RemoteInvocationBatch {
 
     final ServeRequest request;
 
+    /** Accepted local parent selection; null means the deployment default, including legacy snapshots. */
+    final String parentModelName;
+
     /** Business params metadata of the local-agent invocation that created this batch. */
     final Map<String, Object> parentParamsMetadata;
 
@@ -35,15 +38,17 @@ final class RemoteInvocationBatch {
 
     RemoteInvocationBatch(String batchId, String parentTaskId, ServeRequest request, SerialQueryStreamObserver observer,
             List<Member> members, boolean shouldResume) {
-        this(batchId, parentTaskId, request, request.getMetadata(), observer, members, shouldResume);
+        this(batchId, parentTaskId, request, request.getModelName(), request.getMetadata(), observer, members, shouldResume);
     }
 
     RemoteInvocationBatch(String batchId, String parentTaskId, ServeRequest request,
-            Map<String, Object> parentParamsMetadata, SerialQueryStreamObserver observer, List<Member> members,
+            String parentModelName, Map<String, Object> parentParamsMetadata,
+            SerialQueryStreamObserver observer, List<Member> members,
             boolean shouldResume) {
         this.batchId = batchId;
         this.parentTaskId = parentTaskId;
         this.request = request;
+        this.parentModelName = parentModelName;
         this.parentParamsMetadata = RemoteInvocationBatchMapper.cleanRequestMetadata(parentParamsMetadata);
         this.observer = observer;
         this.members = members;

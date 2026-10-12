@@ -340,7 +340,7 @@ class RemoteInvocationBatchMapperTest {
                 request.setSpaceId("space-1");
                 request.setTenantId("tenant-1");
                 request.setMessages(List.of(Map.of("role", "user", "content", "delegate")));
-                request.setMetadata(Map.of("traceId", "trace-1"));
+                request.setMetadata(Map.of("traceId", "trace-1", "model_name", "b"));
                 RemoteInvocationBatch batch = new RemoteInvocationBatch("batch-persisted", "parent-persisted", request,
                                 observer(), List.of(member("call-a")), true);
                 Map<String, Object> snapshot = mapper.snapshot(batch, "READY_TO_RESUME");
@@ -370,6 +370,7 @@ class RemoteInvocationBatchMapperTest {
                 rawRequest.put("stream", false);
                 rawRequest.put("messages", List.of(Map.of("role", "user", "content", "delegate")));
                 rawRequest.put("metadata", Map.of(
+                                "model_name", "legacy-alias",
                                 "traceId", "trace-1",
                                 "_interrupt", Map.of("type", "__interaction__"),
                                 "runtime.parentTaskId", "parent-old",

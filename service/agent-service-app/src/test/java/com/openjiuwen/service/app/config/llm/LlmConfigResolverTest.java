@@ -13,6 +13,8 @@ import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
 
 import java.nio.file.Files;
@@ -27,13 +29,25 @@ class LlmConfigResolverTest {
     @TempDir
     private Path tempDir;
 
-    @Test
-    void catalogSharesDefaultSnapshotAndDecryptsEachModelOnce() throws Exception {
-        Path file = tempDir.resolve("apiconfig.json");
-        Files.writeString(file, """
+    @ParameterizedTest
+    @ValueSource(strings = {"json", "yaml", "yml"})
+    void catalogSharesDefaultSnapshotAndDecryptsEachModelOnce(String extension) throws Exception {
+        Path file = tempDir.resolve("apiconfig." + extension);
+        Files.writeString(file, "json".equals(extension) ? """
             {"MODEL_ID":" a ","API_KEY":"ENC:a","API_BASE":"https://a.example/v1","MODEL_NAME":"a",
              "MODELS":[{"MODEL_ID":" b ","API_KEY":"ENC:b","API_BASE":"https://b.example/v1",
                         "MODEL_NAME":"b","LLM_SSL_VERIFY":false}]}
+            """ : """
+            MODEL_ID: ' a '
+            API_KEY: 'ENC:a'
+            API_BASE: https://a.example/v1
+            MODEL_NAME: a
+            MODELS:
+              - MODEL_ID: ' b '
+                API_KEY: 'ENC:b'
+                API_BASE: https://b.example/v1
+                MODEL_NAME: b
+                LLM_SSL_VERIFY: false
             """);
         LlmProperties properties = fileProperties(file);
         properties.setApiBase("https://spring.example/v1");
