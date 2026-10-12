@@ -133,8 +133,8 @@ final class RemoteInvocationBatchMapper {
         // Keep the supplemental request intact; only parent execution state comes from the snapshot.
         String parentModelName = rawBatch.get("request") instanceof Map<?, ?> rawRequest
                 ? ServeRequest.normalizeModelName(rawRequest.get("modelName")).orElse(null) : null;
-        return new RemoteInvocationBatch(batchId, parentTaskId, request, parentModelName, parentMetadata, observer, members,
-                shouldResume);
+        return new RemoteInvocationBatch(batchId, parentTaskId, request, parentModelName, parentMetadata,
+                observer, members, shouldResume);
     }
 
     void applyOutcome(Member member, RemoteCallOutcome outcome, Throwable error) {

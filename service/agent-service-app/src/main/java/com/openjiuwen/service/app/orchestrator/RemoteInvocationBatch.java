@@ -38,7 +38,8 @@ final class RemoteInvocationBatch {
 
     RemoteInvocationBatch(String batchId, String parentTaskId, ServeRequest request, SerialQueryStreamObserver observer,
             List<Member> members, boolean shouldResume) {
-        this(batchId, parentTaskId, request, request.getModelName(), request.getMetadata(), observer, members, shouldResume);
+        this(batchId, parentTaskId, request, request.getModelName(), request.getMetadata(),
+                observer, members, shouldResume);
     }
 
     RemoteInvocationBatch(String batchId, String parentTaskId, ServeRequest request,
