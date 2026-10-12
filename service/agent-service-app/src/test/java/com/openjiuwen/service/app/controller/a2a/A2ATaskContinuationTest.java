@@ -13,6 +13,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionService;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import org.a2aproject.sdk.server.events.InMemoryQueueManager;
@@ -136,6 +137,19 @@ class A2ATaskContinuationTest {
         verify(agentExecutor, times(2)).continueTask(any(), any(), any());
         Thread.sleep(QUIET_PERIOD_MS);
         verify(agentExecutor, times(2)).continueTask(any(), any(), any());
+    }
+
+    @Test
+    void neutralMessageWithoutBusinessCode_noRetry() throws Exception {
+        // Identification is businessCode-based (DFX-006): the neutral message
+        // alone must NOT be treated as an admission rejection.
+        doThrow(new A2AError(A2AErrorCodes.INTERNAL.code(), A2AAgentExecutor.ADMISSION_REJECTED_MESSAGE, null))
+                .when(agentExecutor).continueTask(any(), any(), any());
+
+        continuation.submit(request());
+        verify(agentExecutor, times(1)).continueTask(any(), any(), any());
+        Thread.sleep(QUIET_PERIOD_MS);
+        verify(agentExecutor, times(1)).continueTask(any(), any(), any());
     }
 
     @Test
@@ -304,7 +318,8 @@ class A2ATaskContinuationTest {
     }
 
     private static A2AError admissionRejected() {
-        return new A2AError(A2AErrorCodes.INTERNAL.code(), A2AAgentExecutor.ADMISSION_REJECTED_MESSAGE, null);
+        return new A2AError(A2AErrorCodes.INTERNAL.code(), A2AAgentExecutor.ADMISSION_REJECTED_MESSAGE,
+                Map.of("businessCode", TaskAdmissionService.BUSINESS_CODE_CONCURRENCY_LIMIT_REACHED));
     }
 
     private static Task inputRequiredTask() {

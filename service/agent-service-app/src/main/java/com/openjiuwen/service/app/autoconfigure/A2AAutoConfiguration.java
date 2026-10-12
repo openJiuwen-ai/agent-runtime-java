@@ -18,6 +18,7 @@ import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCapabilityGate;
+import com.openjiuwen.service.app.controller.a2a.AdmissionReleaseCoordinator;
 import com.openjiuwen.service.app.controller.a2a.HttpPushNotificationSender;
 import com.openjiuwen.service.app.controller.a2a.InMemoryA2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.NoOpA2aPushNotificationCallbackHandler;
@@ -55,6 +56,7 @@ import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStateProvider;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Event;
+import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -102,6 +104,22 @@ public class A2AAutoConfiguration {
      */
     @Autowired
     private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
+
+    /**
+     * Remote caller provider. Field-injected so the
+     * {@code a2aEnabledServeOrchestrator} bean method stays within five
+     * parameters.
+     */
+    @Autowired
+    private ObjectProvider<RemoteAgentCaller> remoteCallerProvider;
+
+    /**
+     * Active stream registry provider. Field-injected so the
+     * {@code a2aEnabledServeOrchestrator} bean method stays within five
+     * parameters.
+     */
+    @Autowired
+    private ObjectProvider<ActiveStreamRegistry> streamRegistryProvider;
 
     /**
      * Creates the SDK main event bus bean.
@@ -231,6 +249,36 @@ public class A2AAutoConfiguration {
     }
 
     /**
+     * Creates the admission-release coordinator that owns the permit
+     * lifecycle under the consequence-landed release model: permits are
+     * returned when a round's terminal or interrupted event has been consumed
+     * by the event processor, with a TTL fallback for lost consequences.
+     * Assembled after the queue manager, main event bus and task store so the
+     * stall detector observes the real bus and the TTL condition observes the
+     * real store.
+     *
+     * @param taskStore the task store; when it implements
+     *        {@link TaskStateProvider} it also drives the TTL final-state
+     *        condition
+     * @param mainEventBus the main assembly event bus used for stall detection
+     * @param properties the A2A properties carrying the release TTL
+     * @param admissionGateProvider the admission gate provider (optional; a
+     *        missing gate yields a no-op coordinator)
+     * @param admissionListenerProvider the admission lifecycle listener
+     *        provider (optional)
+     * @return the admission-release coordinator
+     */
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean({AdmissionReleaseCoordinator.class, HostedAgentDefinitions.class})
+    public AdmissionReleaseCoordinator a2aAdmissionReleaseCoordinator(TaskStore taskStore, MainEventBus mainEventBus,
+            A2AProperties properties, ObjectProvider<TaskAdmissionGate> admissionGateProvider,
+            ObjectProvider<TaskAdmissionListener> admissionListenerProvider) {
+        TaskStateProvider taskStateProvider = taskStore instanceof TaskStateProvider provider ? provider : null;
+        return new AdmissionReleaseCoordinator(admissionGateProvider.getIfAvailable(), mainEventBus,
+                taskStateProvider, properties, admissionListenerProvider.getIfAvailable());
+    }
+
+    /**
      * Creates the main event bus processor bean. The resilient variant restarts
      * the processing loop after an unexpected death, and the finalize callback
      * closes the task's queue so abandoned queues do not accumulate.
@@ -239,32 +287,52 @@ public class A2AAutoConfiguration {
      * @param taskStore the task store
      * @param pushSender the push notification sender
      * @param queueManager the queue manager
+     * @param admissionReleaseCoordinator the admission-release coordinator
+     *        owning the permit lifecycle
      * @return the main event bus processor
      */
     @Bean
     @ConditionalOnMissingBean({MainEventBusProcessor.class, HostedAgentDefinitions.class})
     public MainEventBusProcessor a2aMainEventBusProcessor(MainEventBus mainEventBus, TaskStore taskStore,
-            PushNotificationSender pushSender, QueueManager queueManager) {
-        return createEventProcessor(mainEventBus, taskStore, pushSender, queueManager);
+            PushNotificationSender pushSender, QueueManager queueManager,
+            AdmissionReleaseCoordinator admissionReleaseCoordinator) {
+        return createEventProcessor(mainEventBus, taskStore, pushSender, queueManager, admissionReleaseCoordinator);
     }
 
     /**
-     * Builds the existing event processor with its original finalization callback.
+     * Builds the existing event processor with its original finalization
+     * callback, extended with the admission-release signals: the interrupted
+     * filter and {@code consequenceLanded} release trigger in both event
+     * callbacks, plus the consumption heartbeat. The heartbeat feeds the
+     * coordinator's stall detector only; when the coordinator is assembled
+     * without a main event bus (hosted targets) the detector stays inert, so
+     * the heartbeat is harmless there and needs no caller-side switch.
      *
      * @param mainEventBus SDK event bus
      * @param taskStore final task store
      * @param pushSender push notification sender
      * @param queueManager SDK event queues
-     * @return processor with task finalization cleanup installed
+     * @param admissionReleaseCoordinator the admission-release coordinator
+     *        owning the permit lifecycle; may be null to keep the plain
+     *        cleanup-only callback
+     * @return processor with task finalization cleanup and release signals
      */
     public static MainEventBusProcessor createEventProcessor(MainEventBus mainEventBus, TaskStore taskStore,
-            PushNotificationSender pushSender, QueueManager queueManager) {
+            PushNotificationSender pushSender, QueueManager queueManager,
+            AdmissionReleaseCoordinator admissionReleaseCoordinator) {
         ResilientMainEventBusProcessor processor = new ResilientMainEventBusProcessor(mainEventBus, taskStore,
                 pushSender, queueManager);
         processor.setCallback(new MainEventBusProcessorCallback() {
             @Override
             public void onEventProcessed(String taskId, Event event) {
-                // Intentionally empty: production keeps the SDK's default no-op behavior.
+                if (admissionReleaseCoordinator == null) {
+                    return;
+                }
+                admissionReleaseCoordinator.heartbeat();
+                if (event instanceof TaskStatusUpdateEvent statusUpdate
+                        && statusUpdate.isFinalOrInterrupted() && !statusUpdate.isFinal()) {
+                    admissionReleaseCoordinator.consequenceLanded(taskId);
+                }
             }
 
             @Override
@@ -274,6 +342,9 @@ public class A2AAutoConfiguration {
                 } catch (NoTaskQueueException e) {
                     // Already closed or absent -- nothing to clean up for this task.
                     log.debug("A2A task {} queue already closed or absent", taskId);
+                }
+                if (admissionReleaseCoordinator != null) {
+                    admissionReleaseCoordinator.consequenceLanded(taskId);
                 }
             }
         });
@@ -316,15 +387,18 @@ public class A2AAutoConfiguration {
      * @param admissionListenerProvider the admission lifecycle listener
      *        provider (optional; the listener bean typically comes from the
      *        ext module's concurrency auto-configuration)
+     * @param admissionReleaseCoordinator the admission-release coordinator
+     *        owning the permit lifecycle (DFX-006)
      * @return the A2A agent executor
      */
     @Bean
     @ConditionalOnMissingBean({A2AAgentExecutor.class, HostedAgentDefinitions.class})
     public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
             ObjectProvider<TaskAdmissionGate> admissionGateProvider,
-            ObjectProvider<TaskAdmissionListener> admissionListenerProvider) {
+            ObjectProvider<TaskAdmissionListener> admissionListenerProvider,
+            AdmissionReleaseCoordinator admissionReleaseCoordinator) {
         return new A2AAgentExecutor(orchestrator, adapter, admissionGateProvider.getIfAvailable(),
-                admissionListenerProvider.getIfAvailable());
+                admissionListenerProvider.getIfAvailable(), admissionReleaseCoordinator);
     }
 
     /**
@@ -407,12 +481,10 @@ public class A2AAutoConfiguration {
     }
 
     /**
-     * Creates the A2A-enabled serve orchestrator bean as the default orchestrator.
+     * Creates the A2A-enabled serve orchestrator bean.
      *
      * @param agentHandler the agent handler
      * @param taskStore the task store
-     * @param remoteAgentCaller the remote agent caller SPI
-     * @param streamRegistry the active stream registry
      * @param agentId the application name used as the agent identifier for shadow task namespacing
      * @param props A2A runtime properties
      * @param continuation the callback task continuation adapter
@@ -421,11 +493,11 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean({ServeOrchestrator.class, HostedAgentDefinitions.class})
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-            RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry,
             @Value("${spring.application.name:agent}") String agentId, A2AProperties props,
             A2ATaskContinuation continuation) {
         A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
-        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId,
+        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteCallerProvider.getObject(),
+                streamRegistryProvider.getObject(), agentId,
                 limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds(), continuation);
     }
 

@@ -16,6 +16,7 @@ import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCapabilityGate;
+import com.openjiuwen.service.app.controller.a2a.AdmissionReleaseCoordinator;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.hosting.HostedAgentCardFactory;
 import com.openjiuwen.service.app.hosting.HostedAgentRuntime;
@@ -84,7 +85,17 @@ public class HostedRuntimeAutoConfiguration {
     private ObjectProvider<TaskAdmissionGate> admissionGate;
 
     @Autowired
+    private ObjectProvider<TaskAdmissionListener> admissionListener;
+
+    @Autowired
     private ObjectProvider<RuntimeRedisClient> redisClient;
+
+    /**
+     * Remote caller provider. Field-injected so the
+     * {@code hostedRuntimeAssembler} bean method stays within five parameters.
+     */
+    @Autowired
+    private ObjectProvider<RemoteAgentCaller> remoteCaller;
 
     @Autowired
     private ObjectProvider<MiddlewareProperties> middleware;
@@ -184,22 +195,46 @@ public class HostedRuntimeAutoConfiguration {
     }
 
     /**
+     * Creates the process-wide admission-release coordinator (DFX-006).
+     * Exposed as a bean so {@code TaskAdmissionService} injection points (the
+     * JSON-RPC controller, the transport bridges) resolve it in hosted form
+     * too — otherwise the HTTP face degrades to the plain concurrency-limit
+     * code and race-window rejections lose their admission identity — and so
+     * the TTL fallback scheduler is stopped on context close. Hosted targets
+     * each own their event pipeline, so stall detection stays off (null bus)
+     * and the TTL condition degrades to deque-drain plus force cap (null
+     * state provider).
+     *
+     * @param properties process-level A2A configuration
+     * @return the process-wide admission-release coordinator
+     * @since 0.1.4
+     */
+    @Bean(destroyMethod = "shutdown")
+    public AdmissionReleaseCoordinator admissionReleaseCoordinator(A2AProperties properties) {
+        return new AdmissionReleaseCoordinator(admissionGate.getIfAvailable(), null, null, properties,
+                admissionListener.getIfAvailable());
+    }
+
+    /**
      * Creates the assembler using shared inputs and ordered framework extensions.
      *
      * @param properties process-level A2A configuration
      * @param resources shared execution resources
      * @param dispatcher shared remote invocation limiter
      * @param cards per-target Card factory
-     * @param remoteCaller shared remote transport
+     * @param admissionCoordinator the process-wide admission-release coordinator
      * @return configured component
      */
     @Bean
     public HostedRuntimeAssembler hostedRuntimeAssembler(A2AProperties properties, HostedResources resources,
-            RemoteInvocationDispatcher dispatcher, HostedAgentCardFactory cards, RemoteAgentCaller remoteCaller) {
+            RemoteInvocationDispatcher dispatcher, HostedAgentCardFactory cards,
+            AdmissionReleaseCoordinator admissionCoordinator) {
+        TaskAdmissionGate gate = admissionGate.getIfAvailable();
         var dependencies = new HostedRuntimeAssembler.Dependencies(properties, middleware.getIfAvailable(),
-                redisClient.getIfAvailable(), remoteCaller, beanFactory.getBean(A2AProtocolAdapter.class),
-                admissionGate.getIfAvailable(), resources, dispatcher, cards, beanFactory,
-                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build());
+                redisClient.getIfAvailable(), remoteCaller.getObject(),
+                beanFactory.getBean(A2AProtocolAdapter.class),
+                gate, resources, dispatcher, cards, beanFactory,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build(), admissionCoordinator);
         return new HostedRuntimeAssembler(dependencies, extensions.orderedStream().toList(),
                 beanFactory.getBean(HostedRemoteAgentCatalogs.class));
     }

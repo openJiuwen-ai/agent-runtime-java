@@ -13,6 +13,7 @@ import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.autoconfigure.HostedRuntimeAutoConfiguration;
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
+import com.openjiuwen.service.app.controller.a2a.AdmissionReleaseCoordinator;
 import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
@@ -25,6 +26,7 @@ import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionService;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.hosting.HostedSharedLifecycle;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
@@ -111,6 +113,20 @@ class HostedAssemblyTest {
                         lifecycle.runShutdownPhase();
                     }
                 });
+    }
+
+    @Test
+    void exposesProcessWideAdmissionCoordinatorAsTaskAdmissionService() {
+        runner.run(context -> {
+            assertThat(context).hasNotFailed();
+            var coordinator = context.getBean(AdmissionReleaseCoordinator.class);
+            // The TaskAdmissionService injection points (controller, transport
+            // bridges) must resolve the hosted coordinator — otherwise the
+            // HTTP face degrades to the plain concurrency-limit code.
+            assertThat(context.getBean(TaskAdmissionService.class)).isSameAs(coordinator);
+            // The main assembly's coordinator must back off in hosted form.
+            assertThat(context.getBeanNamesForType(AdmissionReleaseCoordinator.class)).hasSize(1);
+        });
     }
 
     @Test
