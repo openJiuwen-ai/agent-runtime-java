@@ -746,28 +746,8 @@ class RemoteInvocationBatchCoordinatorTest {
         outcome.complete(inputRequired("remote-a", "callback pending"));
         when(client.callOutcome(any(), any())).thenReturn(
                 CompletableFuture.completedFuture(inputRequired("remote-a", "still pending")));
-        ServeRequest supplemental = request("parent-callback",
-                Map.of("runtime.remoteToolInputs", Map.of("call-a", "new answer")));
-        supplemental.setMessages(List.of(Map.of("role", "user", "content", "new answer")));
-        supplemental.setModelName(currentModel);
-        for (int round = 0; round < supplementalRounds; round++) {
-            var resolution = coordinator.resume(supplemental, mock(QueryStreamObserver.class)).orElseThrow().join();
-            assertThat(resolution.parentModelName()).isEqualTo(currentModel);
-            assertThat(resolution.isReadyToResume()).isFalse();
-            Map<?, ?> saved = (Map<?, ?>) store.get("shadow:test-agent:parent-callback")
-                    .metadata().get("_remote_batch");
-            assertThat(((Map<?, ?>) saved.get("request")).get("modelName")).isEqualTo(currentModel);
-            if (currentModel == null) {
-                assertThat(((Map<?, ?>) saved.get("request")).containsKey("modelName")).isFalse();
-            }
-        }
-        assertThat(supplemental.getModelName()).isEqualTo(currentModel);
-        ArgumentCaptor<RemoteCall> calls = ArgumentCaptor.forClass(RemoteCall.class);
-        verify(client, times(1 + supplementalRounds)).callOutcome(calls.capture(), any());
-        assertThat(calls.getAllValues().subList(1, 1 + supplementalRounds)).allSatisfy(call -> {
-            assertThat(call.message()).isEqualTo("new answer");
-            assertThat(call.metadata()).doesNotContainKey("model_name");
-        });
+        resumeCallbackRounds(coordinator, store, currentModel, supplementalRounds);
+        assertSupplementalCalls(client, supplementalRounds);
         Task callbackTask = Task.builder().id("remote-a").contextId("remote-context")
                 .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
         Task shadow = store.get("shadow:test-agent:parent-callback");
@@ -783,6 +763,41 @@ class RemoteInvocationBatchCoordinatorTest {
         assertThat(continuationRequest.get().getMetadata())
                 .containsEntry("runtime.parentTaskId", "parent-callback")
                 .containsKey("runtime.remoteBatchId").doesNotContainKey("model_name");
+    }
+
+    private static void resumeCallbackRounds(RemoteInvocationBatchCoordinator coordinator, InMemoryTaskStore store,
+            String currentModel, int supplementalRounds) {
+        ServeRequest supplemental = request("parent-callback",
+                Map.of("runtime.remoteToolInputs", Map.of("call-a", "new answer")));
+        supplemental.setMessages(List.of(Map.of("role", "user", "content", "new answer")));
+        supplemental.setModelName(currentModel);
+        for (int round = 0; round < supplementalRounds; round++) {
+            var resolution = coordinator.resume(supplemental, mock(QueryStreamObserver.class)).orElseThrow().join();
+            assertThat(resolution.parentModelName()).isEqualTo(currentModel);
+            assertThat(resolution.isReadyToResume()).isFalse();
+            Object saved = store.get("shadow:test-agent:parent-callback").metadata().get("_remote_batch");
+            assertThat(saved).isInstanceOfSatisfying(Map.class, snapshot ->
+                    assertSavedSelection(snapshot.get("request"), currentModel));
+        }
+        assertThat(supplemental.getModelName()).isEqualTo(currentModel);
+    }
+
+    private static void assertSavedSelection(Object savedRequest, String currentModel) {
+        assertThat(savedRequest).isInstanceOfSatisfying(Map.class, request -> {
+            assertThat(request.get("modelName")).isEqualTo(currentModel);
+            if (currentModel == null) {
+                assertThat(request.containsKey("modelName")).isFalse();
+            }
+        });
+    }
+
+    private static void assertSupplementalCalls(A2ARemoteAgentClient client, int supplementalRounds) {
+        ArgumentCaptor<RemoteCall> calls = ArgumentCaptor.forClass(RemoteCall.class);
+        verify(client, times(1 + supplementalRounds)).callOutcome(calls.capture(), any());
+        assertThat(calls.getAllValues().subList(1, 1 + supplementalRounds)).allSatisfy(call -> {
+            assertThat(call.message()).isEqualTo("new answer");
+            assertThat(call.metadata()).doesNotContainKey("model_name");
+        });
     }
 
     @ParameterizedTest

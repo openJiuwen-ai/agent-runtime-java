@@ -323,14 +323,16 @@ class RequestModelSelectionTest {
         assertThat(failure.getMessage()).doesNotContain("secret-a", "secret-b", "private-provider-payload");
     }
 
-    @Test
-    void registrationFailureRollsBackOwnedModelsDespiteCleanupError() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void registrationFailureRollsBackOwnedModelsDespiteCleanupError(boolean isFatal) {
         var definitions = new LinkedHashMap<String, ModelDefinition>();
         definitions.put("a", definition("a"));
         definitions.put("b", definition("b"));
         definitions.put("c", definition("b"));
         var resources = org.mockito.Mockito.mock(ResourceMgr.class);
-        var failure = new UnsupportedOperationException("registration unavailable");
+        Throwable failure = isFatal ? new AssertionError("registration unavailable")
+                : new UnsupportedOperationException("registration unavailable");
         org.mockito.Mockito.doAnswer(invocation -> {
             String id = invocation.getArgument(0);
             if (id.endsWith(":Yw")) {

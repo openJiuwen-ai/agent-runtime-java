@@ -42,8 +42,36 @@ class LlmAutoConfigurationTest {
     private Path tempDir;
 
     @Test
-    void autoConfiguration_bindsModelListFromMainYamlAndResolvesPlaceholders() throws Exception {
-        String yaml = """
+    void bindsMainYamlModelsAndResolvesPlaceholders() throws Exception {
+        var source = new YamlPropertySourceLoader().load("main-yaml",
+            new ByteArrayResource(mainModelsYaml().getBytes(StandardCharsets.UTF_8))).get(0);
+
+        contextRunner.withInitializer(context -> context.getEnvironment().getPropertySources().addLast(source))
+            .withPropertyValues("MODEL_A_API_KEY=key-a", "MODEL_B_API_KEY=key-b")
+            .run(context -> {
+                assertThat(context).hasNotFailed();
+                var resolver = context.getBean(LlmConfigResolver.class);
+                var catalog = context.getBean(LlmModelCatalog.class);
+                assertThat(catalog).isSameAs(resolver.resolveCatalog());
+                assertThat(catalog.defaultId()).isEqualTo("model-a");
+                assertThat(catalog.models().keySet()).containsExactly("model-a", "model-b", "model-c");
+                assertThat(catalog.models().get("model-a").apiKey()).isEqualTo("key-a");
+                assertThat(catalog.models().get("model-a").apiBase())
+                    .isEqualTo(resolver.resolveRequired().getApiBase());
+                assertThat(catalog.models().get("model-b").apiKey()).isEqualTo("key-b");
+                assertThat(catalog.models().get("model-b").provider()).isEqualTo("OpenAI");
+                assertThat(catalog.models().get("model-b").sslVerify()).isTrue();
+                assertThat(catalog.models().get("model-c").apiKey()).isEqualTo("default-c-key");
+                assertThat(catalog.models().get("model-c").provider()).isEqualTo("OtherProvider");
+                assertThat(catalog.models().get("model-c").sslVerify()).isFalse();
+                assertThat(catalog.temperature()).isEqualTo(0.3);
+                assertThat(catalog.topP()).isEqualTo(0.7);
+                assertThat(catalog.timeout()).isEqualTo(Duration.ofSeconds(15));
+            });
+    }
+
+    private static String mainModelsYaml() {
+        return """
             openjiuwen:
               service:
                 llm:
@@ -69,31 +97,6 @@ class LlmAutoConfigurationTest {
                       model-name: provider-chat-c
                       ssl-verify: false
             """;
-        var source = new YamlPropertySourceLoader().load("main-yaml",
-            new ByteArrayResource(yaml.getBytes(StandardCharsets.UTF_8))).get(0);
-
-        contextRunner.withInitializer(context -> context.getEnvironment().getPropertySources().addLast(source))
-            .withPropertyValues("MODEL_A_API_KEY=key-a", "MODEL_B_API_KEY=key-b")
-            .run(context -> {
-                assertThat(context).hasNotFailed();
-                var resolver = context.getBean(LlmConfigResolver.class);
-                var catalog = context.getBean(LlmModelCatalog.class);
-                assertThat(catalog).isSameAs(resolver.resolveCatalog());
-                assertThat(catalog.defaultId()).isEqualTo("model-a");
-                assertThat(catalog.models().keySet()).containsExactly("model-a", "model-b", "model-c");
-                assertThat(catalog.models().get("model-a").apiKey()).isEqualTo("key-a");
-                assertThat(catalog.models().get("model-a").apiBase())
-                    .isEqualTo(resolver.resolveRequired().getApiBase());
-                assertThat(catalog.models().get("model-b").apiKey()).isEqualTo("key-b");
-                assertThat(catalog.models().get("model-b").provider()).isEqualTo("OpenAI");
-                assertThat(catalog.models().get("model-b").sslVerify()).isTrue();
-                assertThat(catalog.models().get("model-c").apiKey()).isEqualTo("default-c-key");
-                assertThat(catalog.models().get("model-c").provider()).isEqualTo("OtherProvider");
-                assertThat(catalog.models().get("model-c").sslVerify()).isFalse();
-                assertThat(catalog.temperature()).isEqualTo(0.3);
-                assertThat(catalog.topP()).isEqualTo(0.7);
-                assertThat(catalog.timeout()).isEqualTo(Duration.ofSeconds(15));
-            });
     }
 
     @ParameterizedTest

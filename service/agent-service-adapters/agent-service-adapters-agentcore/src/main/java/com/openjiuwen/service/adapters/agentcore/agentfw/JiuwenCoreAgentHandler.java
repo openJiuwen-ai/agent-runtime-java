@@ -292,33 +292,32 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return;
         }
         log.info("Starting AgentCore Runner");
-        boolean isRunnerReady = false;
-        try {
-            if (middlewareAdapterRegistrar != null) {
-                middlewareAdapterRegistrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
-            }
-            if (externalSvcAdapterRegistrar != null) {
-                externalSvcAdapterRegistrar.registerToRunner();
-            }
-            var start = Runner.start();
-            if (start != null) {
-                start.toCompletableFuture().join();
-            }
-            isRunnerReady = true;
-            registerModels();
-        } catch (RuntimeException | Error ex) {
+        Optional<Throwable> failure = captureStartupFailure(this::startRunner);
+        if (failure.isPresent()) {
+            RUNNER_STARTED.set(false);
+            throw propagateStartupFailure(failure.get());
+        }
+        Optional<Throwable> registrationFailure = captureStartupFailure(this::registerModels);
+        if (registrationFailure.isPresent()) {
             try {
-                if (isRunnerReady) {
-                    try {
-                        Runner.stop();
-                    } catch (RuntimeException | Error cleanupFailure) {
-                        ex.addSuppressed(cleanupFailure);
-                    }
-                }
+                captureStartupFailure(Runner::stop).ifPresent(registrationFailure.get()::addSuppressed);
             } finally {
                 RUNNER_STARTED.set(false);
             }
-            throw ex;
+            throw propagateStartupFailure(registrationFailure.get());
+        }
+    }
+
+    private void startRunner() {
+        if (middlewareAdapterRegistrar != null) {
+            middlewareAdapterRegistrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
+        }
+        if (externalSvcAdapterRegistrar != null) {
+            externalSvcAdapterRegistrar.registerToRunner();
+        }
+        var start = Runner.start();
+        if (start != null) {
+            start.toCompletableFuture().join();
         }
     }
 
@@ -327,32 +326,67 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return;
         }
         List<String> added = new ArrayList<>();
-        try {
-            for (var entry : modelCatalog.models().entrySet()) {
-                Model model = createCatalogModel(entry.getValue());
-                String id = coreModelId(entry.getKey());
-                var result = Runner.resourceMgr().addModel(id, () -> model, List.of(Tag.GLOBAL));
-                if (result == null || !result.isOk()) {
-                    throw registrationDiagnostic("registration", id, result == null ? null : result.getError());
-                }
-                added.add(id);
-                if (Runner.resourceMgr().getModel(id).toCompletableFuture().join() != model) {
-                    throw new IllegalStateException("Runtime model registration verification failed");
-                }
-            }
-            isModelsRegistered = true;
-        } catch (RuntimeException | Error failure) {
-            for (String id : added) {
-                try {
-                    Runner.resourceMgr().removeModelForce(id, true);
-                } catch (RuntimeException | Error rollbackFailure) {
-                    IllegalStateException diagnostic = registrationDiagnostic("rollback", id, rollbackFailure);
-                    log.error("{}", diagnostic.getMessage());
-                    failure.addSuppressed(diagnostic);
-                }
-            }
-            throw failure;
+        Optional<Throwable> failure = captureStartupFailure(() -> registerCatalogModels(added));
+        if (failure.isPresent()) {
+            rollbackModels(added, failure.get());
+            throw propagateStartupFailure(failure.get());
         }
+        isModelsRegistered = true;
+    }
+
+    private void registerCatalogModels(List<String> added) {
+        for (var entry : modelCatalog.models().entrySet()) {
+            Model model = createCatalogModel(entry.getValue());
+            String id = coreModelId(entry.getKey());
+            var result = Runner.resourceMgr().addModel(id, () -> model, List.of(Tag.GLOBAL));
+            if (result == null || !result.isOk()) {
+                throw registrationDiagnostic("registration", id, result == null ? null : result.getError());
+            }
+            added.add(id);
+            if (Runner.resourceMgr().getModel(id).toCompletableFuture().join() != model) {
+                throw new IllegalStateException("Runtime model registration verification failed");
+            }
+        }
+    }
+
+    private static void rollbackModels(List<String> added, Throwable failure) {
+        for (String id : added) {
+            captureStartupFailure(() -> Runner.resourceMgr().removeModelForce(id, true)).ifPresent(rollbackFailure -> {
+                IllegalStateException diagnostic = registrationDiagnostic("rollback", id, rollbackFailure);
+                log.error("{}", diagnostic.getMessage());
+                failure.addSuppressed(diagnostic);
+            });
+        }
+    }
+
+    /**
+     * Captures a startup or cleanup failure without scheduling work on another thread.
+     * FutureTask preserves the original failure, including Error, behind ExecutionException.
+     *
+     * @param operation synchronous startup or cleanup operation
+     * @return the original failure, or empty on success
+     */
+    private static Optional<Throwable> captureStartupFailure(Runnable operation) {
+        FutureTask<Void> task = new FutureTask<>(operation, null);
+        task.run();
+        try {
+            task.get();
+            return Optional.empty();
+        } catch (ExecutionException failure) {
+            return Optional.of(failure.getCause());
+        } catch (InterruptedException failure) {
+            throw new IllegalStateException("Completed startup task was interrupted", failure);
+        }
+    }
+
+    private static RuntimeException propagateStartupFailure(Throwable failure) {
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        if (failure instanceof RuntimeException runtimeFailure) {
+            return runtimeFailure;
+        }
+        return new IllegalStateException("Unexpected checked startup failure", failure);
     }
 
     /**
@@ -683,7 +717,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (rawResult instanceof Map<?, ?> rawMap) {
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) rawMap;
-            if (isErrorResult(map) || isDeepTaskLoopFailure(map)) {
+            if (isErrorResult(map)) {
                 throw toStreamException(map);
             }
             Optional<QueryResponse> result1 = getQueryResponse(conversationId, map);
@@ -1047,26 +1081,31 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return QueryChunk.TYPE_INTERRUPT;
         }
         if (QueryChunk.TYPE_ERROR.equals(m.get("type"))
-                || modelCatalog != null && (isErrorResult(m) || isDeepTaskLoopFailure(m))) {
+                || modelCatalog != null && isErrorResult(m)) {
             return QueryChunk.TYPE_ERROR;
         }
         return QueryChunk.TYPE_CHUNK;
     }
 
     private boolean isErrorResult(Map<?, ?> result) {
-        return QueryChunk.TYPE_ERROR.equals(result.get("type")) || "error".equals(result.get("result_type"))
-                || (modelCatalog != null && "answer".equals(result.get("type"))
-                        && result.get("payload") instanceof Map<?, ?> payload
-                        && ("error".equals(payload.get("result_type"))
-                                || payload.get("output") instanceof Map<?, ?> output
-                                        && isDeepTaskLoopFailure(output)));
+        if (QueryChunk.TYPE_ERROR.equals(result.get("type")) || "error".equals(result.get("result_type"))) {
+            return true;
+        }
+        if (modelCatalog == null) {
+            return false;
+        }
+        if ("answer".equals(result.get("type")) && result.get("payload") instanceof Map<?, ?> payload) {
+            return "error".equals(payload.get("result_type"))
+                    || payload.get("output") instanceof Map<?, ?> output && isDeepTaskLoopFailure(output);
+        }
+        return isDeepTaskLoopFailure(result);
     }
 
     private boolean isDeepTaskLoopFailure(Map<?, ?> result) {
         // DeepAgent.awaitRoundCompletion returns {error: ...} when the task event handler
         // fails. runTaskLoop exposes it as final_result without adding result_type.
         // Inspect only this standard final result, never historical rounds or business output.
-        return modelCatalog != null && "deep_agent_result".equals(result.get("type"))
+        return "deep_agent_result".equals(result.get("type"))
                 && result.get("final_result") instanceof Map<?, ?> last
                 && last.get("result_type") == null && last.get("error") instanceof String error
                 && !error.isBlank() && resolveAgent() instanceof DeepAgent;

@@ -132,8 +132,7 @@ final class RemoteInvocationBatchMapper {
                         : cleanRequestMetadata(request.getMetadata());
         // Client requests select afresh; callback requests already carry the saved selection.
         // Preserve the current messages and tool inputs, while restoring the parent business metadata.
-        String parentModelName = request.getModelName();
-        return new RemoteInvocationBatch(batchId, parentTaskId, request, parentModelName, parentMetadata,
+        return new RemoteInvocationBatch(batchId, parentTaskId, request, parentMetadata,
                 observer, members, shouldResume);
     }
 
