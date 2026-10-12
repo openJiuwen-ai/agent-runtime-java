@@ -17,10 +17,12 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -43,6 +45,9 @@ final class ApiConfigLoader {
     private static final String KEY_MODEL_NAME = "MODEL_NAME";
 
     private static final String KEY_SSL_VERIFY = "LLM_SSL_VERIFY";
+
+    private static final Set<String> PLACEHOLDER_FIELDS = Set.of(KEY_PROVIDER, KEY_API_KEY, KEY_API_BASE,
+        KEY_MODEL_NAME, KEY_SSL_VERIFY, "MODEL_ID");
 
     private static final long MAX_FILE_SIZE_BYTES = 1024L * 1024L;
 
@@ -123,11 +128,39 @@ final class ApiConfigLoader {
                     throw new IllegalStateException(
                         "LLM API configuration file must contain a JSON object or YAML mapping: " + path);
                 }
-                return readValues(raw);
+                return readValues(resolvePlaceholders(raw));
             }
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to read LLM API configuration file: " + path, exception);
         }
+    }
+
+    private Map<String, Object> resolvePlaceholders(Map<String, Object> raw) {
+        Map<String, Object> values = new LinkedHashMap<>(raw);
+        for (String key : PLACEHOLDER_FIELDS) {
+            if (raw.get(key) instanceof String text) {
+                try {
+                    values.put(key, environment.resolveRequiredPlaceholders(text));
+                } catch (IllegalArgumentException exception) {
+                    // Placeholder text may contain credentials; report only the field name.
+                    throw new IllegalStateException("Unresolved placeholder in LLM API configuration field " + key);
+                }
+            }
+        }
+        if (raw.get("MODELS") instanceof List<?> entries) {
+            List<Object> models = new ArrayList<>();
+            for (Object entry : entries) {
+                if (entry instanceof Map<?, ?> map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> item = (Map<String, Object>) map;
+                    models.add(resolvePlaceholders(item));
+                } else {
+                    models.add(entry);
+                }
+            }
+            values.put("MODELS", models);
+        }
+        return values;
     }
 
     private static ApiConfigValues readValues(Map<String, Object> raw) {
@@ -135,7 +168,7 @@ final class ApiConfigLoader {
             readText(raw, KEY_API_BASE), readText(raw, KEY_MODEL_NAME), readBoolean(raw, KEY_SSL_VERIFY), raw);
     }
 
-    static Optional<String> readText(Map<String, Object> raw, String key) {
+    private static Optional<String> readText(Map<String, Object> raw, String key) {
         Object value = raw.get(key);
         if (value == null) {
             return Optional.empty();

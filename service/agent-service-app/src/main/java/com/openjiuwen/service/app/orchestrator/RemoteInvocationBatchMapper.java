@@ -130,9 +130,9 @@ final class RemoteInvocationBatchMapper {
                 && rawRequest.get("metadata") instanceof Map<?, ?> metadata
                         ? cleanRequestMetadata(metadata)
                         : cleanRequestMetadata(request.getMetadata());
-        // Keep the supplemental request intact; only parent execution state comes from the snapshot.
-        String parentModelName = rawBatch.get("request") instanceof Map<?, ?> rawRequest
-                ? ServeRequest.normalizeModelName(rawRequest.get("modelName")).orElse(null) : null;
+        // Client requests select afresh; callback requests already carry the saved selection.
+        // Preserve the current messages and tool inputs, while restoring the parent business metadata.
+        String parentModelName = request.getModelName();
         return new RemoteInvocationBatch(batchId, parentTaskId, request, parentModelName, parentMetadata,
                 observer, members, shouldResume);
     }

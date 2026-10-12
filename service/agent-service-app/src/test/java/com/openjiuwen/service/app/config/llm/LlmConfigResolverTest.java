@@ -20,6 +20,7 @@ import org.springframework.mock.env.MockEnvironment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -28,6 +29,58 @@ import java.util.concurrent.atomic.AtomicInteger;
 class LlmConfigResolverTest {
     @TempDir
     private Path tempDir;
+
+    @Test
+    void catalogUsesMainModelListInsteadOfFileListAndDecryptsOnce() throws Exception {
+        Path file = tempDir.resolve("apiconfig.json");
+        Files.writeString(file, """
+            {"MODEL_ID":"file-default","API_KEY":"ENC:a","API_BASE":"https://a.example/v1",
+             "MODEL_NAME":"a","MODELS":[{"MODEL_ID":"invalid-unused-entry"}]}
+            """);
+        LlmProperties properties = fileProperties(file);
+        properties.setModelId(" main-default ");
+        var model = new LlmProperties.ModelProperties();
+        model.setModelId(" b ");
+        model.setApiKey("ENC:b");
+        model.setApiBase(" https://b.example/v1 ");
+        model.setModelName(" b ");
+        properties.setModels(List.of(model));
+        AtomicInteger count = new AtomicInteger();
+        LlmConfigResolver resolver = resolver(properties, sceneAwareDecryptor(count, new AtomicInteger()));
+
+        var defaults = resolver.resolveRequired();
+        var catalog = resolver.resolveCatalog();
+
+        assertThat(catalog.defaultId()).isEqualTo("main-default");
+        assertThat(catalog.models().keySet()).containsExactly("main-default", "b");
+        assertThat(catalog.models().get("main-default").apiKey()).isEqualTo(defaults.getApiKey());
+        assertThat(catalog.models().get("b").apiKey()).isEqualTo("plain:b");
+        assertThat(catalog.models().get("b").apiBase()).isEqualTo("https://b.example/v1");
+        assertThat(catalog.models().get("b").modelName()).isEqualTo("b");
+        assertThat(resolver.resolveCatalog()).isSameAs(catalog);
+        assertThat(count.get()).isEqualTo(2);
+    }
+
+    @Test
+    void catalogRejectsMissingAndDuplicateMainAliases() {
+        var model = new LlmProperties.ModelProperties();
+        model.setApiKey("key");
+        model.setApiBase("https://b.example/v1");
+        model.setModelName("b");
+        LlmProperties properties = configuredProperties();
+        properties.setModels(List.of(model));
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolveCatalog())
+            .isInstanceOf(IllegalStateException.class).hasMessageContaining("models.model-id");
+
+        model.setModelId("b");
+        properties.setModels(List.of(model, model));
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolveCatalog())
+            .isInstanceOf(IllegalStateException.class).hasMessageContaining("Duplicate");
+
+        properties.setModelId(" ");
+        assertThatThrownBy(() -> resolver(properties, ciphertext -> ciphertext).resolveCatalog())
+            .isInstanceOf(IllegalStateException.class).hasMessageContaining("llm.model-id");
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"json", "yaml", "yml"})

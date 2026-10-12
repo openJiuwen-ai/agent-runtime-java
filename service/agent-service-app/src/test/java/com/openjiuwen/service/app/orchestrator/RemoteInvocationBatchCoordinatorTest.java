@@ -726,8 +726,8 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void terminalCallbackPreservesParentSelectionAfterSupplementalWaiting(boolean shouldRepeatSelection) {
+    @CsvSource({"b, 0", "b, 2", "c, 2", ", 2"})
+    void terminalCallbackRestoresLatestSelection(String currentModel, int supplementalRounds) {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
         when(client.callOutcome(any(), any())).thenReturn(outcome);
@@ -749,63 +749,71 @@ class RemoteInvocationBatchCoordinatorTest {
         ServeRequest supplemental = request("parent-callback",
                 Map.of("runtime.remoteToolInputs", Map.of("call-a", "new answer")));
         supplemental.setMessages(List.of(Map.of("role", "user", "content", "new answer")));
-        if (shouldRepeatSelection) {
-            supplemental.setModelName("b");
-        }
-        for (int round = 0; round < 2; round++) {
+        supplemental.setModelName(currentModel);
+        for (int round = 0; round < supplementalRounds; round++) {
             var resolution = coordinator.resume(supplemental, mock(QueryStreamObserver.class)).orElseThrow().join();
-            assertThat(resolution.parentModelName()).isEqualTo("b");
+            assertThat(resolution.parentModelName()).isEqualTo(currentModel);
             assertThat(resolution.isReadyToResume()).isFalse();
             Map<?, ?> saved = (Map<?, ?>) store.get("shadow:test-agent:parent-callback")
                     .metadata().get("_remote_batch");
-            assertThat(((Map<?, ?>) saved.get("request")).get("modelName")).isEqualTo("b");
+            assertThat(((Map<?, ?>) saved.get("request")).get("modelName")).isEqualTo(currentModel);
+            if (currentModel == null) {
+                assertThat(((Map<?, ?>) saved.get("request")).containsKey("modelName")).isFalse();
+            }
         }
-        assertThat(supplemental.getModelName()).isEqualTo(shouldRepeatSelection ? "b" : null);
+        assertThat(supplemental.getModelName()).isEqualTo(currentModel);
         ArgumentCaptor<RemoteCall> calls = ArgumentCaptor.forClass(RemoteCall.class);
-        verify(client, times(3)).callOutcome(calls.capture(), any());
-        assertThat(calls.getAllValues().subList(1, 3)).allSatisfy(call -> {
+        verify(client, times(1 + supplementalRounds)).callOutcome(calls.capture(), any());
+        assertThat(calls.getAllValues().subList(1, 1 + supplementalRounds)).allSatisfy(call -> {
             assertThat(call.message()).isEqualTo("new answer");
             assertThat(call.metadata()).doesNotContainKey("model_name");
         });
         Task callbackTask = Task.builder().id("remote-a").contextId("remote-context")
                 .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+        Task shadow = store.get("shadow:test-agent:parent-callback");
+        store.save(org.a2aproject.sdk.jsonrpc.common.json.JsonUtil.OBJECT_MAPPER.fromJson(
+                org.a2aproject.sdk.jsonrpc.common.json.JsonUtil.OBJECT_MAPPER.toJson(shadow), Task.class), true);
 
         assertThat(coordinator.recoverCallback(callbackTask)).isTrue();
 
         assertThat(continuations).hasValue(1);
-        assertThat(continuationRequest.get().getModelName()).isEqualTo("b");
-        assertThat(continuationRequest.get().lastUserQuery()).isEqualTo("new answer");
+        assertThat(continuationRequest.get().getModelName()).isEqualTo(currentModel);
+        assertThat(continuationRequest.get().lastUserQuery())
+                .isEqualTo(supplementalRounds == 0 ? initial.lastUserQuery() : "new answer");
         assertThat(continuationRequest.get().getMetadata())
                 .containsEntry("runtime.parentTaskId", "parent-callback")
                 .containsKey("runtime.remoteBatchId").doesNotContainKey("model_name");
     }
 
     @ParameterizedTest
-    @CsvSource({"b, false", "b, true", ", false", ", true"})
-    void conflictingSelectionDoesNotDispatchOrOverwriteSnapshot(String parentModel, boolean isReady) {
+    @CsvSource({"b, c, false", "b, c, true", ", c, false", ", c, true",
+            "b, a, false", "b, a, true", ", a, false", ", a, true",
+            "b, , false", "b, , true", ", , false", ", , true"})
+    void supplementalRequestSelectsCurrentModelOrDefault(String parentModel, String currentModel, boolean isReady) {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         when(client.callOutcome(any(), any())).thenReturn(CompletableFuture.completedFuture(
                 isReady ? completed("remote-a", "done") : inputRequired("remote-a", "answer?")));
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
                 "test-agent", 1, 10, 30);
-        ServeRequest initial = request("parent-conflict", Map.of());
+        ServeRequest initial = request("parent-selection", Map.of());
         initial.setModelName(parentModel);
-        coordinator.execute(batch("batch-conflict", "call-a"), initial, mock(QueryStreamObserver.class)).join();
-        Task before = store.get("shadow:test-agent:parent-conflict");
-        String snapshotBefore = org.a2aproject.sdk.jsonrpc.common.json.JsonUtil.OBJECT_MAPPER.toJson(before);
-        ServeRequest supplemental = request("parent-conflict",
+        coordinator.execute(batch("batch-selection", "call-a"), initial, mock(QueryStreamObserver.class)).join();
+        ServeRequest supplemental = request("parent-selection",
                 Map.of("runtime.remoteToolInputs", Map.of("call-a", "answer")));
-        supplemental.setModelName("c");
+        supplemental.setModelName(currentModel);
 
-        var rejected = coordinator.resume(supplemental, mock(QueryStreamObserver.class)).orElseThrow();
+        var resolution = coordinator.resume(supplemental, mock(QueryStreamObserver.class)).orElseThrow().join();
 
-        assertThatThrownBy(rejected::join).hasRootCauseInstanceOf(IllegalArgumentException.class)
-                .hasRootCauseMessage("REMOTE_BATCH_MODEL_SELECTION_CONFLICT");
-        verify(client, times(1)).callOutcome(any(), any());
-        assertThat(org.a2aproject.sdk.jsonrpc.common.json.JsonUtil.OBJECT_MAPPER.toJson(
-                store.get("shadow:test-agent:parent-conflict"))).isEqualTo(snapshotBefore);
-        assertThat(supplemental.getModelName()).isEqualTo("c");
+        assertThat(resolution.parentModelName()).isEqualTo(currentModel);
+        assertThat(resolution.isReadyToResume()).isEqualTo(isReady);
+        verify(client, times(isReady ? 1 : 2)).callOutcome(any(), any());
+        if (!isReady) {
+            Map<?, ?> saved = (Map<?, ?>) store.get("shadow:test-agent:parent-selection")
+                    .metadata().get("_remote_batch");
+            assertThat(((Map<?, ?>) saved.get("request")).get("modelName")).isEqualTo(currentModel);
+        }
+        assertThat(supplemental.getModelName()).isEqualTo(currentModel);
     }
 
     @Test

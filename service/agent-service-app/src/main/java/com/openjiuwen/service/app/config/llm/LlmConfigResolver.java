@@ -105,27 +105,51 @@ public final class LlmConfigResolver {
             return catalog;
         }
         ResolvedLlmConfig defaults = resolveRequired();
-        String defaultId = fileSnapshot.modelId("default");
+        String defaultId = properties.getModelId() == null ? fileSnapshot.modelId("default")
+            : requireModelId(properties.getModelId(), "openjiuwen.service.llm.model-id");
         Map<String, LlmModelCatalog.ModelDefinition> models = new LinkedHashMap<>();
         models.put(defaultId, new LlmModelCatalog.ModelDefinition(defaults.getProvider(), defaults.getApiKey(),
             defaults.getApiBase(), defaults.getModelName(), defaults.isSslVerify()));
-        for (ApiConfigLoader.ApiConfigValues item : fileSnapshot.additionalModels()) {
-            String id = item.modelId(null);
-            if (models.containsKey(id)) {
-                throw new IllegalStateException("Duplicate MODEL_ID in LLM catalog");
+        if (properties.getModels() != null && !properties.getModels().isEmpty()) {
+            for (LlmProperties.ModelProperties item : properties.getModels()) {
+                if (item == null) {
+                    throw new IllegalStateException("openjiuwen.service.llm.models entries must be objects");
+                }
+                String id = requireModelId(item.getModelId(), "openjiuwen.service.llm.models.model-id");
+                ApiConfigLoader.ApiConfigValues values = new ApiConfigLoader.ApiConfigValues(
+                    Optional.ofNullable(item.getProvider()), Optional.ofNullable(item.getApiKey()),
+                    Optional.ofNullable(item.getApiBase()), Optional.ofNullable(item.getModelName()),
+                    Optional.ofNullable(item.getSslVerify()));
+                addModel(models, id, values, "openjiuwen.service.llm.models");
             }
-            String key = decryptApiKey(firstSecret(null, item.apiKey()));
-            String base = firstText(null, item.apiBase(), "");
-            String name = firstText(null, item.modelName(), "");
-            requireText(key, "MODELS.API_KEY");
-            requireText(base, "MODELS.API_BASE");
-            requireText(name, "MODELS.MODEL_NAME");
-            models.put(id, new LlmModelCatalog.ModelDefinition(firstText(null, item.provider(), DEFAULT_PROVIDER),
-                key, base, name, item.shouldVerifySsl().orElse(true)));
+        } else {
+            for (ApiConfigLoader.ApiConfigValues item : fileSnapshot.additionalModels()) {
+                addModel(models, item.modelId(null), item, "MODELS");
+            }
         }
         catalog = new LlmModelCatalog(defaultId, models, defaults.getTemperature(), defaults.getTopP(),
             defaults.getTimeout());
         return catalog;
+    }
+
+    private void addModel(Map<String, LlmModelCatalog.ModelDefinition> models, String id,
+        ApiConfigLoader.ApiConfigValues values, String source) {
+        if (models.containsKey(id)) {
+            throw new IllegalStateException("Duplicate MODEL_ID in LLM catalog (model-id)");
+        }
+        String key = decryptApiKey(firstSecret(null, values.apiKey()));
+        String base = firstText(null, values.apiBase(), "");
+        String name = firstText(null, values.modelName(), "");
+        requireText(key, source + ".api-key/API_KEY");
+        requireText(base, source + ".api-base/API_BASE");
+        requireText(name, source + ".model-name/MODEL_NAME");
+        models.put(id, new LlmModelCatalog.ModelDefinition(firstText(null, values.provider(), DEFAULT_PROVIDER),
+            key, base, name, values.shouldVerifySsl().orElse(true)));
+    }
+
+    private static String requireModelId(String id, String propertyName) {
+        requireText(id, propertyName);
+        return id.trim();
     }
 
     private ResolvedLlmConfig doResolve() {

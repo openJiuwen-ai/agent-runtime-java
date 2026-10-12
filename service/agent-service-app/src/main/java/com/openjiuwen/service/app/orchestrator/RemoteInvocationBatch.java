@@ -20,7 +20,7 @@ final class RemoteInvocationBatch {
 
     final ServeRequest request;
 
-    /** Accepted local parent selection; null means the deployment default, including legacy snapshots. */
+    /** Local selection for this execution round; null means the deployment default. */
     final String parentModelName;
 
     /** Business params metadata of the local-agent invocation that created this batch. */

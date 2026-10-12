@@ -26,6 +26,54 @@ class ApiConfigLoaderTest {
     @TempDir
     private Path tempDir;
 
+    @ParameterizedTest
+    @ValueSource(strings = {"json", "yaml"})
+    void load_resolvesEnvironmentPlaceholdersInRootAndAdditionalModels(String extension) throws Exception {
+        Path file = tempDir.resolve("apiconfig." + extension);
+        Files.writeString(file, "json".equals(extension) ? """
+            {"MODEL_ID":"${DEFAULT_ALIAS}","API_KEY":"${MODEL_A_KEY}","LLM_SSL_VERIFY":"${VERIFY_SSL}",
+             "API_BASE":"${MODEL_A_URL}","MODEL_NAME":"${MODEL_A_NAME:a}",
+             "MODELS":[{"MODEL_ID":"${OTHER_ALIAS:b}","API_KEY":"${MODEL_B_KEY}"}]}
+            """ : """
+            MODEL_ID: ${DEFAULT_ALIAS}
+            API_KEY: ${MODEL_A_KEY}
+            LLM_SSL_VERIFY: ${VERIFY_SSL}
+            API_BASE: ${MODEL_A_URL}
+            MODEL_NAME: ${MODEL_A_NAME:a}
+            MODELS:
+              - MODEL_ID: ${OTHER_ALIAS:b}
+                API_KEY: ${MODEL_B_KEY}
+            """);
+        var environment = new MockEnvironment().withProperty("DEFAULT_ALIAS", "a")
+            .withProperty("MODEL_A_KEY", "ENC:a").withProperty("MODEL_B_KEY", "ENC:b")
+            .withProperty("VERIFY_SSL", "false").withProperty("MODEL_A_URL", "https://a.example/v1");
+        var loader = new ApiConfigLoader(new ObjectMapper(), environment, () -> tempDir);
+
+        var values = loader.load(file.toString(), false).orElseThrow();
+
+        assertThat(values.modelId(null)).isEqualTo("a");
+        assertThat(values.apiKey()).hasValue("ENC:a");
+        assertThat(values.apiBase()).hasValue("https://a.example/v1");
+        assertThat(values.modelName()).hasValue("a");
+        assertThat(values.shouldVerifySsl()).hasValue(false);
+        assertThat(values.additionalModels()).singleElement().satisfies(model -> {
+            assertThat(model.modelId(null)).isEqualTo("b");
+            assertThat(model.apiKey()).hasValue("ENC:b");
+        });
+    }
+
+    @Test
+    void load_rejectsUnresolvedPlaceholderWithoutExposingCredentialText() throws Exception {
+        Path file = tempDir.resolve("apiconfig.yaml");
+        Files.writeString(file, "API_KEY: 'sensitive-prefix-${UNDEFINED_LLM_TEST_KEY}'");
+        var loader = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(), () -> tempDir);
+
+        assertThatThrownBy(() -> loader.load(file.toString(), false))
+            .isInstanceOf(IllegalStateException.class).hasMessageContaining("API_KEY")
+            .hasMessageNotContaining("sensitive-prefix").hasMessageNotContaining("UNDEFINED_LLM_TEST_KEY")
+            .hasNoCause();
+    }
+
     @Test
     void load_readsYamlFromEnvironmentBeforeDiscoveredJson() throws Exception {
         Path file = tempDir.resolve("model.YML");

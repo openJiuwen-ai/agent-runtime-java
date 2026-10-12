@@ -233,10 +233,6 @@ final class RemoteInvocationBatchCoordinator {
         }
         RemoteInvocationBatch batch = batchMapper.restore(rawBatch, request, parentTaskId,
                 new SerialQueryStreamObserver(observer));
-        if (request.getModelName() != null && !request.getModelName().equals(batch.parentModelName)) {
-            return Optional.of(CompletableFuture.failedFuture(
-                    new IllegalArgumentException("REMOTE_BATCH_MODEL_SELECTION_CONFLICT")));
-        }
         if ("READY_TO_RESUME".equals(stringValue(rawBatch.get("state")))) {
             return resumeReadyBatch(batch, targetedInputs);
         }
@@ -789,14 +785,10 @@ final class RemoteInvocationBatchCoordinator {
      *                          path). Defaults to {@code true} when the interrupt payload omits it.
      * @param parentParamsMetadata business metadata to restore when re-entering the local agent
      * @param responseMetadata successful remote-response metadata keyed by toolCallId, outside tool result text
-     * @param parentModelName accepted local parent model alias; null means the deployment default
+     * @param parentModelName local model alias for this execution round; null means the deployment default
      */
     record BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
             Map<String, Object> interrupt, boolean shouldResume, Map<String, Object> parentParamsMetadata,
             Map<String, Object> responseMetadata, String parentModelName) {
-        BatchResolution(String batchId, boolean isReadyToResume, Map<String, Object> results,
-                Map<String, Object> interrupt, boolean shouldResume, Map<String, Object> parentParamsMetadata) {
-            this(batchId, isReadyToResume, results, interrupt, shouldResume, parentParamsMetadata, Map.of(), null);
-        }
     }
 }

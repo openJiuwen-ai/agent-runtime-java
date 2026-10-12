@@ -41,6 +41,7 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
@@ -957,8 +958,8 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void parentMetadataSurvivesRepeatedDirectResumeAndNextDelegation(boolean isStreaming) {
+    @CsvSource({"false, c", "true, c", "false,", "true,"})
+    void parentMetadataSurvivesRepeatedDirectResumeAndNextDelegation(boolean isStreaming, String currentModel) {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
                 "test-agent", 16, 256, 30);
@@ -973,12 +974,14 @@ class A2AEnabledServeOrchestratorTest {
         initial.setModelName("b");
         runMetadataRequest(initial, isStreaming);
         ServeRequest second = metadataRequest(Map.of("header", Map.of("trace", "second"),
-                "secondOnly", true, "model_name", "b"), isStreaming, "answer-2");
+                "secondOnly", true), isStreaming, "answer-2");
+        second.setModelName("a");
         runMetadataRequest(second, isStreaming);
         assertThat(localRequests).hasSize(1);
         restoreMetadataShadow(parentMetadata);
         ServeRequest third = metadataRequest(Map.of("body", Map.of("answer", "third"),
                 "thirdOnly", true), isStreaming, "answer-3");
+        third.setModelName(currentModel);
         third.getMetadata().put("runtime.remoteToolInputs", Map.of("call-a", "answer-3"));
         third.getMetadata().put("_interrupt", Map.of("message", "current interrupt"));
         runMetadataRequest(third, isStreaming);
@@ -1028,7 +1031,7 @@ class A2AEnabledServeOrchestratorTest {
         Task shadow = taskStore.get("shadow:test-agent:metadata-parent");
         Map<?, ?> batch = (Map<?, ?>) shadow.metadata().get("_remote_batch");
         assertThat(((Map<?, ?>) batch.get("request")).get("metadata")).isEqualTo(parentMetadata);
-        assertThat(((Map<?, ?>) batch.get("request")).get("modelName")).isEqualTo("b");
+        assertThat(((Map<?, ?>) batch.get("request")).get("modelName")).isEqualTo("a");
         Task restored = JsonUtil.OBJECT_MAPPER.fromJson(
                 JsonUtil.OBJECT_MAPPER.toJson(shadow), Task.class);
         taskStore.save(restored, true);
@@ -1049,11 +1052,10 @@ class A2AEnabledServeOrchestratorTest {
         assertThat(calls.get(3).isCallerStreaming()).isEqualTo(isStreaming);
         assertThat(localRequests).hasSize(3);
         ServeRequest resumed = localRequests.get(1);
-        // Supplemental HTTP requests continue the accepted parent task selection.
+        // Supplemental HTTP requests select afresh, while internal delegation retains this round's selection.
         assertThat(localRequests.get(0).getModelName()).isEqualTo("b");
-        assertThat(resumed.getModelName()).isEqualTo("b");
-        assertThat(localRequests.get(2).getModelName()).isEqualTo("b");
-        assertThat(third.getModelName()).isNull();
+        assertThat(resumed.getModelName()).isEqualTo(third.getModelName());
+        assertThat(localRequests.get(2).getModelName()).isEqualTo(third.getModelName());
         assertThat(resumed.getMetadata()).containsAllEntriesOf(parentMetadata)
                 .containsEntry("runtime.parentTaskId", "metadata-parent")
                 .containsEntry("runtime.remoteToolResults", Map.of("call-a", "result"))
