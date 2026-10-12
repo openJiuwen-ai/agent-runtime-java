@@ -139,9 +139,8 @@ class DeepAgentTodoDefaultsTest {
             List<Object> tools = List.copyOf(agent.getRegisteredTools());
             Tool create = tools.stream().filter(Tool.class::isInstance).map(Tool.class::cast)
                     .filter(tool -> "todo_create".equals(tool.getCard().getName())).findFirst().orElseThrow();
-            Object output = create.invoke(Map.of("session_id", "file-session",
-                    "tasks", List.of(Map.of("content", "existing file task", "activeForm",
-                            "working", "description", "existing file task"))));
+            Object output = create.invoke(Map.of("tasks", List.of(Map.of("content", "existing file task", "activeForm",
+                    "working", "description", "existing file task"))), Map.of("session_id", "file-session"));
             assertThat(output).isInstanceOf(Map.class);
             assertThat(((Map<?, ?>) output).get("message")).isNotNull();
             new JiuwenCoreAgentHandler(agent).prepareAgentForExecution(agent);
@@ -150,7 +149,7 @@ class DeepAgentTodoDefaultsTest {
             assertThat(agent.getRegisteredTools()).containsExactlyElementsOf(tools);
             Tool list = tools.stream().filter(Tool.class::isInstance).map(Tool.class::cast)
                     .filter(tool -> "todo_list".equals(tool.getCard().getName())).findFirst().orElseThrow();
-            Object loaded = list.invoke(Map.of("session_id", "file-session"));
+            Object loaded = list.invoke(Map.of(), Map.of("session_id", "file-session"));
             assertThat(loaded).isInstanceOf(Map.class);
             assertThat(((Map<?, ?>) loaded).get("tasks").toString()).contains("existing file task");
         }
