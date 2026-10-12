@@ -6,7 +6,12 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -287,6 +292,30 @@ class JiuwenCoreAgentHandlerTest {
                     assertThat(failure.getDescriptor()).isEqualTo(
                             new AgentFailureDescriptor("MODEL_CALL_FAILED", 181001, false));
                 });
+    }
+
+    @Test
+    void queryRunsInlineAndPreservesErrorIdentity() {
+        var handler = spy(new JiuwenCoreAgentHandler(new InvokeEchoAgent()));
+        Thread caller = Thread.currentThread();
+        AssertionError failure = new AssertionError("fatal query failure");
+        doAnswer(invocation -> {
+            assertThat(Thread.currentThread()).isSameAs(caller);
+            throw failure;
+        }).when(handler).executeAgent(anyMap(), any());
+
+        assertThatThrownBy(() -> handler.query(request("c-fatal-error", "fail")))
+                .isSameAs(failure);
+    }
+
+    @Test
+    void legacyQueryPreservesRuntimeFailureIdentity() {
+        var handler = spy(new JiuwenCoreAgentHandler(new InvokeEchoAgent()));
+        UnsupportedOperationException failure = new UnsupportedOperationException("unsupported query");
+        doThrow(failure).when(handler).executeAgent(anyMap(), any());
+
+        assertThatThrownBy(() -> handler.query(request("c-runtime-error", "fail")))
+                .isSameAs(failure);
     }
 
     @Test

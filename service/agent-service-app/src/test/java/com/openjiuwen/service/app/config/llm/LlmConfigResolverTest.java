@@ -154,6 +154,8 @@ class LlmConfigResolverTest {
             model.setApiBase("https://b.example/v1");
             model.setModelName("b");
             properties.setModels(List.of(model));
+        } else {
+            assertThat(mainList).isEqualTo("absent");
         }
         AtomicInteger count = new AtomicInteger();
         var resolver = resolver(properties, sceneAwareDecryptor(count, new AtomicInteger()));

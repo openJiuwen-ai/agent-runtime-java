@@ -54,6 +54,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -607,7 +609,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     @Override
     public QueryResponse query(ServeRequest request) {
-        try {
+        FutureTask<QueryResponse> execution = new FutureTask<>(() -> {
             if (supportsInvoke(agent)) {
                 Object session = runnerSession(request);
                 Object rawResult = executeAgent(buildExecutionInputs(request), session);
@@ -618,8 +620,23 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 return response;
             }
             return queryViaStreaming(request);
-        } catch (RuntimeException failure) {
-            throw structuredFailure(failure);
+        });
+        // Run inline to preserve the caller's thread context and interruption state.
+        execution.run();
+        try {
+            return execution.get();
+        } catch (ExecutionException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            if (cause instanceof RuntimeException runtimeFailure) {
+                throw structuredFailure(runtimeFailure);
+            }
+            throw new IllegalStateException("Unexpected checked query failure", cause);
+        } catch (InterruptedException failure) {
+            // Inline execution is already complete, so get() cannot wait or consume an interrupt.
+            throw new IllegalStateException("Completed query execution was interrupted", failure);
         }
     }
 
