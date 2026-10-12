@@ -331,17 +331,17 @@ class RequestModelSelectionTest {
         definitions.put("b", definition("b"));
         definitions.put("c", definition("b"));
         var resources = org.mockito.Mockito.mock(ResourceMgr.class);
-        Throwable failure = isFatal ? new AssertionError("registration unavailable")
-                : new UnsupportedOperationException("registration unavailable");
         org.mockito.Mockito.doAnswer(invocation -> {
             String id = invocation.getArgument(0);
-            if (id.endsWith(":Yw")) {
-                throw failure;
-            }
             Object model = invocation.<java.util.function.Supplier<?>>getArgument(1).get();
             org.mockito.Mockito.doReturn(CompletableFuture.completedFuture(model)).when(resources).getModel(id);
             return new Ok<>(id);
         }).when(resources).addModel(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        Throwable failure = isFatal ? new AssertionError("registration unavailable")
+                : new UnsupportedOperationException("registration unavailable");
+        org.mockito.Mockito.doThrow(failure).when(resources).addModel(
+                org.mockito.ArgumentMatchers.eq("runtime:model:aW5zdGFuY2U:Yw"),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         org.mockito.Mockito.doThrow(new AssertionError("secret-a")).when(resources)
                 .removeModelForce("runtime:model:aW5zdGFuY2U:YQ", true);
