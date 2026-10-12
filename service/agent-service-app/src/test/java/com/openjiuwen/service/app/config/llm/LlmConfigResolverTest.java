@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.mock.env.MockEnvironment;
 
 import java.nio.file.Files;
@@ -31,11 +32,10 @@ class LlmConfigResolverTest {
     private Path tempDir;
 
     @Test
-    void catalogUsesMainModelListInsteadOfFileListAndDecryptsOnce() throws Exception {
+    void catalogCombinesLegacyDefaultWithMainModelsAndDecryptsOnce() throws Exception {
         Path file = tempDir.resolve("apiconfig.json");
         Files.writeString(file, """
-            {"MODEL_ID":"file-default","API_KEY":"ENC:a","API_BASE":"https://a.example/v1",
-             "MODEL_NAME":"a","MODELS":[{"MODEL_ID":"invalid-unused-entry"}]}
+            {"API_KEY":"ENC:a","API_BASE":"https://a.example/v1","MODEL_NAME":"a"}
             """);
         LlmProperties properties = fileProperties(file);
         properties.setModelId(" main-default ");
@@ -87,22 +87,21 @@ class LlmConfigResolverTest {
     void catalogSharesDefaultSnapshotAndDecryptsEachModelOnce(String extension) throws Exception {
         Path file = tempDir.resolve("apiconfig." + extension);
         Files.writeString(file, "json".equals(extension) ? """
-            {"MODEL_ID":" a ","API_KEY":"ENC:a","API_BASE":"https://a.example/v1","MODEL_NAME":"a",
-             "MODELS":[{"MODEL_ID":" b ","API_KEY":"ENC:b","API_BASE":"https://b.example/v1",
-                        "MODEL_NAME":"b","LLM_SSL_VERIFY":false}]}
+            {"API_KEY":"ENC:a","API_BASE":"https://a.example/v1","MODEL_NAME":"a"}
             """ : """
-            MODEL_ID: ' a '
             API_KEY: 'ENC:a'
             API_BASE: https://a.example/v1
             MODEL_NAME: a
-            MODELS:
-              - MODEL_ID: ' b '
-                API_KEY: 'ENC:b'
-                API_BASE: https://b.example/v1
-                MODEL_NAME: b
-                LLM_SSL_VERIFY: false
             """);
         LlmProperties properties = fileProperties(file);
+        properties.setModelId(" a ");
+        var model = new LlmProperties.ModelProperties();
+        model.setModelId(" b ");
+        model.setApiKey("ENC:b");
+        model.setApiBase("https://b.example/v1");
+        model.setModelName("b");
+        model.setSslVerify(false);
+        properties.setModels(List.of(model));
         properties.setApiBase("https://spring.example/v1");
         properties.setTemperature(0.3);
         AtomicInteger count = new AtomicInteger();
@@ -124,23 +123,46 @@ class LlmConfigResolverTest {
         assertThatThrownBy(() -> catalog.models().clear()).isInstanceOf(UnsupportedOperationException.class);
     }
 
-    @Test
-    void catalogValidatesNewFieldsWithoutChangingLegacyResolve() throws Exception {
-        Path file = tempDir.resolve("apiconfig.json");
-        for (String extra : java.util.List.of(
-                "\"MODELS\":null", "\"MODELS\":{}", "\"MODELS\":[1]", "\"MODEL_ID\":1",
-                "\"MODELS\":[{}]", "\"MODELS\":[{\"MODEL_ID\":\"default\"}]",
-                "\"MODELS\":[{\"MODEL_ID\":\"b\",\"API_KEY\":false}]",
-                "\"MODELS\":[{\"MODEL_ID\":\"b\"}]")) {
-            Files.writeString(file, "{" + extra + "}");
-            LlmProperties properties = configuredProperties();
-            properties.setConfigFile(file.toString());
-            LlmConfigResolver resolver = resolver(properties, ciphertext -> ciphertext);
-            assertThat(resolver.resolveRequired().getModelName()).isEqualTo("spring-model");
-            assertThatThrownBy(resolver::resolveCatalog).isInstanceOf(IllegalStateException.class);
+    @ParameterizedTest
+    @CsvSource({"json, absent", "json, null", "json, empty", "json, populated",
+        "yaml, absent", "yaml, null", "yaml, empty", "yaml, populated"})
+    void catalogNeverReadsAliasesOrListsFromLegacyFile(String extension, String mainList) throws Exception {
+        Path file = tempDir.resolve("apiconfig." + extension);
+        // Retired fields are unknown legacy-file properties, including their unresolved placeholders.
+        Files.writeString(file, "json".equals(extension) ? """
+            {"API_KEY":"ENC:a","API_BASE":"https://a.example/v1","MODEL_NAME":"a",
+             "MODEL_ID":"${UNDEFINED_FILE_ALIAS}",
+             "MODELS":[{"MODEL_ID":"file-only","API_KEY":"${UNDEFINED_FILE_KEY}"}]}
+            """ : """
+            API_KEY: ENC:a
+            API_BASE: https://a.example/v1
+            MODEL_NAME: a
+            MODEL_ID: ${UNDEFINED_FILE_ALIAS}
+            MODELS:
+              - MODEL_ID: file-only
+                API_KEY: ${UNDEFINED_FILE_KEY}
+            """);
+        LlmProperties properties = fileProperties(file);
+        if ("null".equals(mainList)) {
+            properties.setModels(null);
+        } else if ("empty".equals(mainList)) {
+            properties.setModels(List.of());
+        } else if ("populated".equals(mainList)) {
+            var model = new LlmProperties.ModelProperties();
+            model.setModelId("b");
+            model.setApiKey("ENC:b");
+            model.setApiBase("https://b.example/v1");
+            model.setModelName("b");
+            properties.setModels(List.of(model));
         }
-        assertThat(resolver(configuredProperties(), ciphertext -> ciphertext).resolveCatalog().defaultId())
-            .isEqualTo("default");
+        AtomicInteger count = new AtomicInteger();
+        var resolver = resolver(properties, sceneAwareDecryptor(count, new AtomicInteger()));
+        var catalog = resolver.resolveCatalog();
+        assertThat(catalog.defaultId()).isEqualTo("default");
+        assertThat(catalog.models().keySet()).containsExactlyElementsOf(
+            "populated".equals(mainList) ? List.of("default", "b") : List.of("default"));
+        assertThat(catalog.models().get("default").apiKey()).isEqualTo("plain:a");
+        assertThat(count.get()).isEqualTo("populated".equals(mainList) ? 2 : 1);
     }
 
     @Test

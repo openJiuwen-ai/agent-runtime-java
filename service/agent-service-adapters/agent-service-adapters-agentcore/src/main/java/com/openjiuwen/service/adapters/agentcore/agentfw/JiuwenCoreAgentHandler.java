@@ -54,8 +54,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -292,19 +290,24 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return;
         }
         log.info("Starting AgentCore Runner");
-        Optional<Throwable> failure = captureStartupFailure(this::startRunner);
-        if (failure.isPresent()) {
-            RUNNER_STARTED.set(false);
-            throw propagateStartupFailure(failure.get());
-        }
-        Optional<Throwable> registrationFailure = captureStartupFailure(this::registerModels);
-        if (registrationFailure.isPresent()) {
+        boolean isStartupComplete = false;
+        try {
+            startRunner();
             try {
-                captureStartupFailure(Runner::stop).ifPresent(registrationFailure.get()::addSuppressed);
-            } finally {
+                registerModels();
+            } catch (RuntimeException | Error failure) {
+                try {
+                    Runner.stop();
+                } catch (RuntimeException | Error cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+                throw failure;
+            }
+            isStartupComplete = true;
+        } finally {
+            if (!isStartupComplete) {
                 RUNNER_STARTED.set(false);
             }
-            throw propagateStartupFailure(registrationFailure.get());
         }
     }
 
@@ -326,12 +329,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return;
         }
         List<String> added = new ArrayList<>();
-        Optional<Throwable> failure = captureStartupFailure(() -> registerCatalogModels(added));
-        if (failure.isPresent()) {
-            rollbackModels(added, failure.get());
-            throw propagateStartupFailure(failure.get());
+        try {
+            registerCatalogModels(added);
+            isModelsRegistered = true;
+        } catch (RuntimeException | Error failure) {
+            rollbackModels(added, failure);
+            throw failure;
         }
-        isModelsRegistered = true;
     }
 
     private void registerCatalogModels(List<String> added) {
@@ -351,42 +355,14 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     private static void rollbackModels(List<String> added, Throwable failure) {
         for (String id : added) {
-            captureStartupFailure(() -> Runner.resourceMgr().removeModelForce(id, true)).ifPresent(rollbackFailure -> {
+            try {
+                Runner.resourceMgr().removeModelForce(id, true);
+            } catch (RuntimeException | Error rollbackFailure) {
                 IllegalStateException diagnostic = registrationDiagnostic("rollback", id, rollbackFailure);
                 log.error("{}", diagnostic.getMessage());
                 failure.addSuppressed(diagnostic);
-            });
+            }
         }
-    }
-
-    /**
-     * Captures a startup or cleanup failure without scheduling work on another thread.
-     * FutureTask preserves the original failure, including Error, behind ExecutionException.
-     *
-     * @param operation synchronous startup or cleanup operation
-     * @return the original failure, or empty on success
-     */
-    private static Optional<Throwable> captureStartupFailure(Runnable operation) {
-        FutureTask<Void> task = new FutureTask<>(operation, null);
-        task.run();
-        try {
-            task.get();
-            return Optional.empty();
-        } catch (ExecutionException failure) {
-            return Optional.of(failure.getCause());
-        } catch (InterruptedException failure) {
-            throw new IllegalStateException("Completed startup task was interrupted", failure);
-        }
-    }
-
-    private static RuntimeException propagateStartupFailure(Throwable failure) {
-        if (failure instanceof Error error) {
-            throw error;
-        }
-        if (failure instanceof RuntimeException runtimeFailure) {
-            return runtimeFailure;
-        }
-        return new IllegalStateException("Unexpected checked startup failure", failure);
     }
 
     /**
@@ -631,7 +607,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
 
     @Override
     public QueryResponse query(ServeRequest request) {
-        FutureTask<QueryResponse> execution = new FutureTask<>(() -> {
+        try {
             if (supportsInvoke(agent)) {
                 Object session = runnerSession(request);
                 Object rawResult = executeAgent(buildExecutionInputs(request), session);
@@ -642,21 +618,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
                 return response;
             }
             return queryViaStreaming(request);
-        });
-        execution.run();
-        try {
-            return execution.get();
-        } catch (InterruptedException failure) {
-            throw new IllegalStateException("Agent-core query interrupted", failure);
-        } catch (ExecutionException failure) {
-            Throwable cause = failure.getCause();
-            if (cause instanceof RuntimeException runtimeFailure) {
-                throw structuredFailure(runtimeFailure);
-            }
-            if (cause instanceof Error error) {
-                throw error;
-            }
-            throw new IllegalStateException("Unexpected agent-core query failure", cause);
+        } catch (RuntimeException failure) {
+            throw structuredFailure(failure);
         }
     }
 

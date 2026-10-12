@@ -16,9 +16,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -26,7 +24,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * Loads the API configuration schema from JSON or explicitly selected YAML files.
+ * Loads the legacy single-model API configuration from JSON or explicitly selected YAML files.
  * Auto-discovery continues to look only for {@code apiconfig.json}.
  *
  * @since 0.1.0
@@ -47,7 +45,7 @@ final class ApiConfigLoader {
     private static final String KEY_SSL_VERIFY = "LLM_SSL_VERIFY";
 
     private static final Set<String> PLACEHOLDER_FIELDS = Set.of(KEY_PROVIDER, KEY_API_KEY, KEY_API_BASE,
-        KEY_MODEL_NAME, KEY_SSL_VERIFY, "MODEL_ID");
+        KEY_MODEL_NAME, KEY_SSL_VERIFY);
 
     private static final long MAX_FILE_SIZE_BYTES = 1024L * 1024L;
 
@@ -147,25 +145,12 @@ final class ApiConfigLoader {
                 }
             }
         }
-        if (raw.get("MODELS") instanceof List<?> entries) {
-            List<Object> models = new ArrayList<>();
-            for (Object entry : entries) {
-                if (entry instanceof Map<?, ?> map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> item = (Map<String, Object>) map;
-                    models.add(resolvePlaceholders(item));
-                } else {
-                    models.add(entry);
-                }
-            }
-            values.put("MODELS", models);
-        }
         return values;
     }
 
     private static ApiConfigValues readValues(Map<String, Object> raw) {
         return new ApiConfigValues(readText(raw, KEY_PROVIDER), readText(raw, KEY_API_KEY),
-            readText(raw, KEY_API_BASE), readText(raw, KEY_MODEL_NAME), readBoolean(raw, KEY_SSL_VERIFY), raw);
+            readText(raw, KEY_API_BASE), readText(raw, KEY_MODEL_NAME), readBoolean(raw, KEY_SSL_VERIFY));
     }
 
     private static Optional<String> readText(Map<String, Object> raw, String key) {
@@ -203,8 +188,6 @@ final class ApiConfigLoader {
     }
 
     static final class ApiConfigValues {
-        private final Map<String, Object> raw;
-
         private final Optional<String> provider;
 
         private final Optional<String> apiKey;
@@ -217,47 +200,11 @@ final class ApiConfigLoader {
 
         ApiConfigValues(Optional<String> provider, Optional<String> apiKey, Optional<String> apiBase,
             Optional<String> modelName, Optional<Boolean> shouldVerifySsl) {
-            this(provider, apiKey, apiBase, modelName, shouldVerifySsl, Map.of());
-        }
-
-        private ApiConfigValues(Optional<String> provider, Optional<String> apiKey, Optional<String> apiBase,
-            Optional<String> modelName, Optional<Boolean> shouldVerifySsl, Map<String, Object> raw) {
-            this.raw = raw;
             this.provider = provider;
             this.apiKey = apiKey;
             this.apiBase = apiBase;
             this.modelName = modelName;
             this.shouldVerifySsl = shouldVerifySsl;
-        }
-
-        String modelId(String fallback) {
-            Object value = raw.get("MODEL_ID");
-            if (value == null && fallback != null) {
-                return fallback;
-            }
-            if (!(value instanceof String text) || text.trim().isEmpty()) {
-                throw new IllegalStateException("MODEL_ID must be a non-blank string");
-            }
-            return text.trim();
-        }
-
-        List<ApiConfigValues> additionalModels() {
-            if (!raw.containsKey("MODELS")) {
-                return List.of();
-            }
-            if (!(raw.get("MODELS") instanceof List<?> entries)) {
-                throw new IllegalStateException("MODELS must be an array of objects");
-            }
-            List<ApiConfigValues> values = new ArrayList<>();
-            for (Object entry : entries) {
-                if (!(entry instanceof Map<?, ?> map)) {
-                    throw new IllegalStateException("MODELS entries must be objects");
-                }
-                @SuppressWarnings("unchecked")
-                Map<String, Object> item = (Map<String, Object>) map;
-                values.add(readValues(item));
-            }
-            return values;
         }
 
         static ApiConfigValues empty() {

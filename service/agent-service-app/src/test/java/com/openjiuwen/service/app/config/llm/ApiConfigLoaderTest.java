@@ -28,38 +28,27 @@ class ApiConfigLoaderTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"json", "yaml"})
-    void load_resolvesEnvironmentPlaceholdersInRootAndAdditionalModels(String extension) throws Exception {
+    void load_resolvesEnvironmentPlaceholdersInSingleModel(String extension) throws Exception {
         Path file = tempDir.resolve("apiconfig." + extension);
         Files.writeString(file, "json".equals(extension) ? """
-            {"MODEL_ID":"${DEFAULT_ALIAS}","API_KEY":"${MODEL_A_KEY}","LLM_SSL_VERIFY":"${VERIFY_SSL}",
-             "API_BASE":"${MODEL_A_URL}","MODEL_NAME":"${MODEL_A_NAME:a}",
-             "MODELS":[{"MODEL_ID":"${OTHER_ALIAS:b}","API_KEY":"${MODEL_B_KEY}"}]}
+            {"API_KEY":"${MODEL_A_KEY}","LLM_SSL_VERIFY":"${VERIFY_SSL}",
+             "API_BASE":"${MODEL_A_URL}","MODEL_NAME":"${MODEL_A_NAME:a}"}
             """ : """
-            MODEL_ID: ${DEFAULT_ALIAS}
             API_KEY: ${MODEL_A_KEY}
             LLM_SSL_VERIFY: ${VERIFY_SSL}
             API_BASE: ${MODEL_A_URL}
             MODEL_NAME: ${MODEL_A_NAME:a}
-            MODELS:
-              - MODEL_ID: ${OTHER_ALIAS:b}
-                API_KEY: ${MODEL_B_KEY}
             """);
-        var environment = new MockEnvironment().withProperty("DEFAULT_ALIAS", "a")
-            .withProperty("MODEL_A_KEY", "ENC:a").withProperty("MODEL_B_KEY", "ENC:b")
+        var environment = new MockEnvironment().withProperty("MODEL_A_KEY", "ENC:a")
             .withProperty("VERIFY_SSL", "false").withProperty("MODEL_A_URL", "https://a.example/v1");
         var loader = new ApiConfigLoader(new ObjectMapper(), environment, () -> tempDir);
 
         var values = loader.load(file.toString(), false).orElseThrow();
 
-        assertThat(values.modelId(null)).isEqualTo("a");
         assertThat(values.apiKey()).hasValue("ENC:a");
         assertThat(values.apiBase()).hasValue("https://a.example/v1");
         assertThat(values.modelName()).hasValue("a");
         assertThat(values.shouldVerifySsl()).hasValue(false);
-        assertThat(values.additionalModels()).singleElement().satisfies(model -> {
-            assertThat(model.modelId(null)).isEqualTo("b");
-            assertThat(model.apiKey()).hasValue("ENC:b");
-        });
     }
 
     @Test
@@ -78,16 +67,12 @@ class ApiConfigLoaderTest {
     void load_readsYamlFromEnvironmentBeforeDiscoveredJson() throws Exception {
         Path file = tempDir.resolve("model.YML");
         Files.writeString(file, """
-            # Same schema as JSON, including the deployment model list.
-            MODEL_ID: primary
+            # Legacy single-model schema, shared with JSON.
             MODEL_PROVIDER: OpenAI
             API_KEY: 'ENC:key'
             API_BASE: https://llm.internal/v1
             MODEL_NAME: model-x
             LLM_SSL_VERIFY: false
-            MODELS:
-              - MODEL_ID: secondary
-                MODEL_NAME: model-y
             """);
         writeConfig(tempDir.resolve(ApiConfigLoader.DEFAULT_FILE_NAME), "DiscoveredProvider", "true");
         var environment = new MockEnvironment().withProperty(ApiConfigLoader.API_CONFIG_ENV, file.toString());
@@ -95,12 +80,9 @@ class ApiConfigLoaderTest {
 
         var values = loader.load(null, true).orElseThrow();
 
-        assertThat(values.modelId(null)).isEqualTo("primary");
         assertThat(values.provider()).hasValue("OpenAI");
         assertThat(values.apiKey()).hasValue("ENC:key");
         assertThat(values.shouldVerifySsl()).hasValue(false);
-        assertThat(values.additionalModels()).singleElement()
-            .satisfies(model -> assertThat(model.modelId(null)).isEqualTo("secondary"));
         var discoveryOnly = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(), () -> tempDir);
         assertThat(discoveryOnly.load(null, true).orElseThrow().provider()).hasValue("DiscoveredProvider");
     }
