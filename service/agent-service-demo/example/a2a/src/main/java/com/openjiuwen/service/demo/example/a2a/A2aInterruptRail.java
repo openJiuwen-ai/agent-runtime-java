@@ -83,45 +83,6 @@ public abstract class A2aInterruptRail extends BaseInterruptRail {
         Object userInput);
 
     /**
-     * Approves the tool call without rewriting its arguments.
-     *
-     * @return approve decision keeping the original args
-     */
-    protected InterruptDecision approve() {
-        return new ApproveResult();
-    }
-
-    /**
-     * Approves the tool call and rewrites its arguments.
-     *
-     * @param newArgs new JSON-encoded arguments
-     * @return approve decision with rewritten args
-     */
-    protected InterruptDecision approve(String newArgs) {
-        return new ApproveResult(newArgs);
-    }
-
-    /**
-     * Rejects the tool call and substitutes the provided tool result.
-     *
-     * @param toolResult result returned in place of executing the tool
-     * @return reject decision carrying the substituted result
-     */
-    protected InterruptDecision reject(Object toolResult) {
-        return new RejectResult(toolResult);
-    }
-
-    /**
-     * Triggers the HITL resume flow for the current tool call.
-     *
-     * @param request interrupt request payload
-     * @return interrupt decision bound to the request
-     */
-    protected InterruptDecision interrupt(InterruptRequest request) {
-        return new InterruptResult(request);
-    }
-
-    /**
      * Builds an interrupt request, optionally carrying extra context fields.
      *
      * @param message user-facing interrupt message
