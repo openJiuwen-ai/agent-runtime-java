@@ -62,7 +62,7 @@ public class LlmAutoConfiguration {
     }
 
     /**
-     * Creates the FEAT-057 run-budget wiring inputs from the raw properties beans.
+     * Creates the run-budget wiring inputs from the raw properties beans.
      *
      * @param properties raw LLM properties
      * @param budgetProperties raw run-budget properties

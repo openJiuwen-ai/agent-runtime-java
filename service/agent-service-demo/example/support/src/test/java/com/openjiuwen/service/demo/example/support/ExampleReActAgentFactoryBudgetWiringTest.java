@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 
 /**
- * UT-C02~C05 runtime side: FEAT-057 factory wiring gating (explicit legacy max-iterations
+ * UT-C02~C05 runtime side: factory wiring gating (explicit legacy max-iterations
  * wins), the raised fallback envelope, zero-as-undeclared normalization and fail-fast
  * validation of illegal budget values.
  */

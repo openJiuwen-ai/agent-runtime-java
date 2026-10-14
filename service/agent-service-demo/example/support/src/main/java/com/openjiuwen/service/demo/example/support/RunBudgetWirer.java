@@ -13,7 +13,7 @@ import com.openjiuwen.service.app.config.runbudget.RunBudgetWiring;
 import java.util.Optional;
 
 /**
- * FEAT-057 run-budget wiring between {@link RunBudgetProperties} and the agent-core budget
+ * Run-budget wiring between {@link RunBudgetProperties} and the agent-core budget
  * rail. All gating rules live here: an explicit legacy {@code max-iterations} always wins over
  * the elastic turn budget, zero/absent optional values mean "not declared", and illegal values
  * fail fast with {@link IllegalStateException} at wiring time.

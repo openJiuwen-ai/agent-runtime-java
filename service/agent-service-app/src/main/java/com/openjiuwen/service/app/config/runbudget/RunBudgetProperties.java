@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Raw run-budget configuration bound from {@code openjiuwen.service.run-budget}.
  *
- * <p>Covers both FEAT-057 dimensions: the turn dimension (guarantee, checkpoint cadence,
+ * <p>Covers both dimensions: the turn dimension (guarantee, checkpoint cadence,
  * hard limit) and the time dimension (total wall-clock budget, near-deadline threshold).
  * A zero or absent optional value means "not declared"; negative values are rejected by the
  * consuming factory wiring.</p>

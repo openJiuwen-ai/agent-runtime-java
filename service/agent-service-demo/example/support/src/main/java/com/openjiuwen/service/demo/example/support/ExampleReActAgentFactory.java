@@ -40,7 +40,7 @@ public final class ExampleReActAgentFactory {
     }
 
     /**
-     * Builds a configured {@link ReActAgent}, optionally wiring the FEAT-057 run budget.
+     * Builds a configured {@link ReActAgent}, optionally wiring the run budget.
      *
      * <p>When {@code wiring} is present and either budget dimension is enabled, a
      * {@code RunBudgetRail} is registered on the agent; an enabled turn dimension also raises

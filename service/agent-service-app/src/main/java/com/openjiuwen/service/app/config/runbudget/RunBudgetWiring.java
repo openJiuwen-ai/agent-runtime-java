@@ -7,7 +7,7 @@ package com.openjiuwen.service.app.config.runbudget;
 import com.openjiuwen.service.app.config.llm.LlmProperties;
 
 /**
- * Inputs for FEAT-057 run-budget wiring at the agent factory boundary.
+ * Inputs for run-budget wiring at the agent factory boundary.
  *
  * <p>The raw {@link LlmProperties} is required because the resolved config normalizes
  * {@code max-iterations} to a primitive, which erases the difference between an explicit
