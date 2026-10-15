@@ -38,7 +38,7 @@ final class RunBudgetWirer {
         }
         RunBudgetProperties properties = wiring.budgetProperties();
         boolean isTurnEnabled = properties.getTurn().isEnabled() && rawMaxIterationsAbsent(wiring);
-        boolean isTimeEnabled = normalizeZero(properties.getTime().getTotalBudgetSeconds()).isPresent();
+        boolean isTimeEnabled = declaredNonZero(properties.getTime().getTotalBudgetSeconds());
         if (!isTurnEnabled && !isTimeEnabled) {
             return Optional.empty();
         }
@@ -85,20 +85,28 @@ final class RunBudgetWirer {
         RunBudgetProperties.Checkpoint checkpoint = turn.getCheckpoint();
         RunBudgetProperties.Time time = properties.getTime();
         try {
-            return RunBudgetConfig.builder()
+            RunBudgetConfig.Builder builder = RunBudgetConfig.builder()
                 .turnEnabled(isTurnEnabled)
-                .suggestedRounds(normalizeZero(turn.getSuggestedRounds()).orElse(null))
                 .defaultGuaranteedRounds(turn.getDefaultGuaranteedRounds())
-                .hardLimit(normalizeZero(turn.getHardLimit()).orElse(null))
-                .firstCheckpoint(normalizeZero(checkpoint.getFirstCheckpoint()).orElse(null))
                 .progressIntervalStep(checkpoint.getProgressIntervalStep())
                 .maxCheckpointInterval(checkpoint.getMaxInterval())
                 .stagnationEscalationThreshold(checkpoint.getStagnationEscalationThreshold())
                 .gentleReminderStartMultiplier(checkpoint.getGentleReminderStartMultiplier())
                 .gentleReminderInterval(checkpoint.getGentleReminderInterval())
-                .totalBudgetSeconds(isTimeEnabled ? normalizeZero(time.getTotalBudgetSeconds()).orElse(null) : null)
-                .nearDeadlineThresholdSeconds(time.getNearDeadlineThresholdSeconds())
-                .build();
+                .nearDeadlineThresholdSeconds(time.getNearDeadlineThresholdSeconds());
+            if (declaredNonZero(turn.getSuggestedRounds())) {
+                builder.suggestedRounds(turn.getSuggestedRounds());
+            }
+            if (declaredNonZero(turn.getHardLimit())) {
+                builder.hardLimit(turn.getHardLimit());
+            }
+            if (declaredNonZero(checkpoint.getFirstCheckpoint())) {
+                builder.firstCheckpoint(checkpoint.getFirstCheckpoint());
+            }
+            if (isTimeEnabled) {
+                builder.totalBudgetSeconds(time.getTotalBudgetSeconds());
+            }
+            return builder.build();
         } catch (IllegalArgumentException exception) {
             throw new IllegalStateException(
                     "openjiuwen.service.run-budget configuration is invalid: " + exception.getMessage(),
@@ -106,10 +114,7 @@ final class RunBudgetWirer {
         }
     }
 
-    private static Optional<Integer> normalizeZero(Integer value) {
-        if (value == null || value.intValue() == 0) {
-            return Optional.empty();
-        }
-        return Optional.of(value);
+    private static boolean declaredNonZero(Integer value) {
+        return value != null && value.intValue() != 0;
     }
 }
