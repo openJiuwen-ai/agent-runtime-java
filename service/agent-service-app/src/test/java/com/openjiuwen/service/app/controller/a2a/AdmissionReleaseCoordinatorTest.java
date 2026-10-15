@@ -40,8 +40,8 @@ class AdmissionReleaseCoordinatorTest {
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
                 mock(MainEventBus.class), null, listener, FAST);
 
-        coordinator.register("t-1", "conv-a");
-        coordinator.register("t-1", "conv-b");
+        coordinator.register("t-1", "conv-a", null);
+        coordinator.register("t-1", "conv-b", null);
 
         coordinator.consequenceLanded("t-1");
         verify(listener).onReleased("t-1", "conv-a");
@@ -54,13 +54,102 @@ class AdmissionReleaseCoordinatorTest {
     }
 
     @Test
+    void leaseListenerNotifiedOnConsequenceWithoutConstructorListener() {
+        TaskAdmissionGate gate = gate(30);
+        TaskAdmissionListener leaseListener = mock(TaskAdmissionListener.class);
+        AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
+                mock(MainEventBus.class), null, null, FAST);
+
+        coordinator.register("t-1", "conv-a", leaseListener);
+        coordinator.consequenceLanded("t-1");
+
+        verify(leaseListener).onReleased("t-1", "conv-a");
+        verify(gate).release();
+    }
+
+    @Test
+    void consequenceLandedRoutesEachLeaseToItsOwnListener() {
+        TaskAdmissionGate gate = gate(30);
+        TaskAdmissionListener listenerA = mock(TaskAdmissionListener.class);
+        TaskAdmissionListener listenerB = mock(TaskAdmissionListener.class);
+        AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
+                mock(MainEventBus.class), null, null, FAST);
+
+        coordinator.register("t-1", "conv-a", listenerA);
+        coordinator.register("t-2", "conv-b", listenerB);
+
+        coordinator.consequenceLanded("t-1");
+        verify(listenerA).onReleased("t-1", "conv-a");
+        verify(listenerB, never()).onReleased(any(), any());
+
+        coordinator.consequenceLanded("t-2");
+        verify(listenerB).onReleased("t-2", "conv-b");
+        verify(listenerA, never()).onReleased("t-2", "conv-b");
+    }
+
+    @Test
+    void ttlFallbackNotifiesLeaseListener() {
+        TaskAdmissionGate gate = gate(30);
+        TaskAdmissionListener leaseListener = mock(TaskAdmissionListener.class);
+        AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
+                mock(MainEventBus.class), provider(true), null, FAST);
+
+        coordinator.register("t-1", "conv-a", leaseListener).ifPresent(coordinator::completeRound);
+
+        awaitTrue(() -> coordinator.pendingReleaseCount() == 0, 400L);
+        verify(leaseListener).onReleased("t-1", "conv-a");
+    }
+
+    @Test
+    void leaseListenerPreferredOverConstructorListener() {
+        TaskAdmissionGate gate = gate(30);
+        TaskAdmissionListener leaseListener = mock(TaskAdmissionListener.class);
+        TaskAdmissionListener constructorListener = mock(TaskAdmissionListener.class);
+        AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
+                mock(MainEventBus.class), null, constructorListener, FAST);
+
+        coordinator.register("t-1", "conv-a", leaseListener);
+        coordinator.consequenceLanded("t-1");
+
+        verify(leaseListener).onReleased("t-1", "conv-a");
+        verify(constructorListener, never()).onReleased(any(), any());
+    }
+
+    @Test
+    void nullLeaseListenerFallsBackToConstructorListener() {
+        TaskAdmissionGate gate = gate(30);
+        TaskAdmissionListener constructorListener = mock(TaskAdmissionListener.class);
+        AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
+                mock(MainEventBus.class), null, constructorListener, FAST);
+
+        coordinator.register("t-1", "conv-a", null);
+        coordinator.consequenceLanded("t-1");
+
+        verify(constructorListener).onReleased("t-1", "conv-a");
+    }
+
+    @Test
+    void minusOnePassThroughNotifiesLeaseListener() {
+        TaskAdmissionGate gate = gate(-1);
+        when(gate.tryAcquire()).thenReturn(true);
+        TaskAdmissionListener leaseListener = mock(TaskAdmissionListener.class);
+        AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
+                mock(MainEventBus.class), null, null, FAST);
+
+        coordinator.register("t-1", "conv-a", leaseListener).ifPresent(coordinator::completeRound);
+
+        verify(gate).release();
+        verify(leaseListener).onReleased("t-1", "conv-a");
+    }
+
+    @Test
     void releaseHappensExactlyOnceWhenConsequenceAndTtlRace() {
         TaskAdmissionGate gate = gate(30);
         TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
                 mock(MainEventBus.class), provider(true), listener, FAST);
 
-        coordinator.register("t-1", "conv-a").ifPresent(coordinator::completeRound);
+        coordinator.register("t-1", "conv-a", null).ifPresent(coordinator::completeRound);
         coordinator.consequenceLanded("t-1");
         coordinator.consequenceLanded("t-1");
 
@@ -77,7 +166,7 @@ class AdmissionReleaseCoordinatorTest {
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
                 mock(MainEventBus.class), provider(true), listener, FAST);
 
-        coordinator.register("t-1", "conv-a").ifPresent(coordinator::completeRound);
+        coordinator.register("t-1", "conv-a", null).ifPresent(coordinator::completeRound);
         assertThat(coordinator.pendingReleaseCount()).isEqualTo(1);
 
         awaitTrue(() -> coordinator.pendingReleaseCount() == 0, 400L);
@@ -92,7 +181,7 @@ class AdmissionReleaseCoordinatorTest {
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
                 mock(MainEventBus.class), provider(false), listener, FAST);
 
-        coordinator.register("t-1", "conv-a").ifPresent(coordinator::completeRound);
+        coordinator.register("t-1", "conv-a", null).ifPresent(coordinator::completeRound);
 
         awaitTrue(() -> coordinator.pendingReleaseCount() == 0, 400L);
         verify(gate).release();
@@ -107,7 +196,7 @@ class AdmissionReleaseCoordinatorTest {
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate, bus,
                 provider(false), null, FAST);
 
-        coordinator.register("t-1", "conv-a").ifPresent(coordinator::completeRound);
+        coordinator.register("t-1", "conv-a", null).ifPresent(coordinator::completeRound);
 
         awaitTrue(() -> false, 150L);
         verify(gate, never()).release();
@@ -125,7 +214,7 @@ class AdmissionReleaseCoordinatorTest {
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate, bus,
                 null, null, FAST);
 
-        coordinator.register("t-1", "conv-a").ifPresent(coordinator::completeRound);
+        coordinator.register("t-1", "conv-a", null).ifPresent(coordinator::completeRound);
 
         awaitTrue(() -> false, 150L);
         verify(gate, never()).release();
@@ -162,7 +251,7 @@ class AdmissionReleaseCoordinatorTest {
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
                 mock(MainEventBus.class), provider(true), null, disabled);
 
-        coordinator.register("t-1", "conv-a").ifPresent(coordinator::completeRound);
+        coordinator.register("t-1", "conv-a", null).ifPresent(coordinator::completeRound);
 
         awaitTrue(() -> false, 300L);
         verify(gate, never()).release();
@@ -198,8 +287,8 @@ class AdmissionReleaseCoordinatorTest {
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate(30),
                 mock(MainEventBus.class), null, null, FAST);
 
-        var leaseOne = coordinator.register("t-1", "conv-a").orElseThrow();
-        coordinator.register("t-2", "conv-b");
+        var leaseOne = coordinator.register("t-1", "conv-a", null).orElseThrow();
+        coordinator.register("t-2", "conv-b", null);
         assertThat(coordinator.classifyPoolExhaustion())
                 .isEqualTo(TaskAdmissionService.BUSINESS_CODE_CONCURRENCY_LIMIT_REACHED);
 
@@ -224,7 +313,7 @@ class AdmissionReleaseCoordinatorTest {
         assertThat(coordinator.tryAcquire()).isTrue();
         assertThat(coordinator.checkEventSafety()).isEmpty();
 
-        coordinator.register("t-1", "conv-a").ifPresent(coordinator::completeRound);
+        coordinator.register("t-1", "conv-a", null).ifPresent(coordinator::completeRound);
 
         verify(gate).release();
         verify(listener).onReleased("t-1", "conv-a");
@@ -238,7 +327,7 @@ class AdmissionReleaseCoordinatorTest {
 
         assertThat(coordinator.tryAcquire()).isTrue();
         coordinator.release();
-        coordinator.register("t-1", "conv-a").ifPresent(coordinator::completeRound);
+        coordinator.register("t-1", "conv-a", null).ifPresent(coordinator::completeRound);
         coordinator.consequenceLanded("t-1");
         coordinator.heartbeat();
 
@@ -263,8 +352,8 @@ class AdmissionReleaseCoordinatorTest {
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate,
                 mock(MainEventBus.class), null, null, FAST);
 
-        var roundOne = coordinator.register("t-1", "conv-a").orElseThrow();
-        var roundTwo = coordinator.register("t-1", "conv-a").orElseThrow();
+        var roundOne = coordinator.register("t-1", "conv-a", null).orElseThrow();
+        var roundTwo = coordinator.register("t-1", "conv-a", null).orElseThrow();
 
         // Fast continuation: round two's finally runs before round one's.
         // The handle must pin the completion to round two's lease — the
