@@ -244,7 +244,8 @@ public class A2AAgentExecutor implements AgentExecutor {
             }
         }
         Optional<AdmissionReleaseCoordinator.ReleaseLease> roundLease = admissionCoordinator != null
-                ? admissionCoordinator.register(msgCtx.getTaskId(), req.getConversationId()) : Optional.empty();
+                ? admissionCoordinator.register(msgCtx.getTaskId(), req.getConversationId(), admissionListener)
+                : Optional.empty();
         try {
             if (admissionGate != null) {
                 log.info("[CONCURRENCY] task_admitted taskId={} conversationId={} currentActive={} maxConcurrent={}",

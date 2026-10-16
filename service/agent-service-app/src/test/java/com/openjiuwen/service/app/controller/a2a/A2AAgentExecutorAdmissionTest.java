@@ -172,6 +172,27 @@ class A2AAgentExecutorAdmissionTest {
     }
 
     @Test
+    void executorListenerNotifiedOnConsequenceWithoutCoordinatorListener() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        TaskAdmissionGate gate = gate(30);
+        when(gate.tryAcquire()).thenReturn(true);
+        TaskAdmissionListener listener = mock(TaskAdmissionListener.class);
+        AdmissionReleaseCoordinator coordinator = coordinator(gate, 0);
+        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false), gate, listener,
+                coordinator);
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+
+        executor.execute(context, new AgentEmitter(context, new CapturingEventQueue()));
+        verify(listener).onAdmitted("task-1", "ctx-1");
+        assertThat(coordinator.pendingReleaseCount()).isEqualTo(1);
+
+        coordinator.consequenceLanded("task-1");
+        verify(gate, times(1)).release();
+        verify(listener).onReleased("task-1", "ctx-1");
+    }
+
+    @Test
     void newTaskAndContinuationShareTheSameAdmissionPath() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
@@ -206,7 +227,7 @@ class A2AAgentExecutorAdmissionTest {
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate, mock(MainEventBus.class),
                 null, listener, NO_TTL);
         for (int index = 0; index < pendingRounds; index++) {
-            coordinator.register("other-task-" + index, "other-conv").ifPresent(coordinator::completeRound);
+            coordinator.register("other-task-" + index, "other-conv", null).ifPresent(coordinator::completeRound);
         }
         return coordinator;
     }

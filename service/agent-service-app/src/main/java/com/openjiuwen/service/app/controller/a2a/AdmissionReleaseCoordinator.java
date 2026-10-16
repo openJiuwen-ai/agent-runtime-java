@@ -130,6 +130,8 @@ public class AdmissionReleaseCoordinator implements TaskAdmissionService {
 
         final String conversationId;
 
+        final TaskAdmissionListener listener;
+
         final AtomicBoolean released = new AtomicBoolean(false);
 
         volatile boolean isPendingRelease;
@@ -138,9 +140,10 @@ public class AdmissionReleaseCoordinator implements TaskAdmissionService {
 
         volatile long executionDoneAt = -1L;
 
-        ReleaseLease(String taskId, String conversationId) {
+        ReleaseLease(String taskId, String conversationId, TaskAdmissionListener listener) {
             this.taskId = taskId;
             this.conversationId = conversationId;
+            this.listener = listener;
         }
     }
 
@@ -218,19 +221,25 @@ public class AdmissionReleaseCoordinator implements TaskAdmissionService {
      * Registers a round lease after the executor has acquired the permit.
      * The returned handle pins the round identity: {@link #completeRound(ReleaseLease)}
      * marks exactly this lease, so fast cross-round continuations cannot
-     * misattribute a completion to another round's lease.
+     * misattribute a completion to another round's lease. The lease also
+     * carries the executor's admission listener so the release path can
+     * notify exactly the listener that observed the admission — hosted
+     * assemblies bind a per-target listener the process-wide constructor
+     * listener cannot know.
      *
      * @param taskId the task identifier of the admitted round
      * @param conversationId the conversation identifier for listener fidelity
+     * @param listener the admission lifecycle listener admitted with this
+     *        round; {@code null} falls back to the constructor listener
      * @return the round lease handle; empty when nothing to track
      *         (no gate, or a null task id) — callers skip
      *         {@link #completeRound(ReleaseLease)} for an empty handle
      */
-    Optional<ReleaseLease> register(String taskId, String conversationId) {
+    Optional<ReleaseLease> register(String taskId, String conversationId, TaskAdmissionListener listener) {
         if (taskId == null || gate == null) {
             return Optional.empty();
         }
-        ReleaseLease lease = new ReleaseLease(taskId, conversationId);
+        ReleaseLease lease = new ReleaseLease(taskId, conversationId, listener);
         if (!isFullMode) {
             return Optional.of(lease);
         }
@@ -359,8 +368,9 @@ public class AdmissionReleaseCoordinator implements TaskAdmissionService {
         if (gate != null) {
             gate.release();
         }
-        if (listener != null) {
-            listener.onReleased(lease.taskId, lease.conversationId);
+        TaskAdmissionListener releaseListener = lease.listener != null ? lease.listener : listener;
+        if (releaseListener != null) {
+            releaseListener.onReleased(lease.taskId, lease.conversationId);
         }
         log.info("[CONCURRENCY] task_released taskId={} conversationId={} currentActive={} maxConcurrent={}",
                 lease.taskId, lease.conversationId, gate != null ? gate.currentCount() : -1,
