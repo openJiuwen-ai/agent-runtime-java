@@ -12,6 +12,7 @@ import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
 import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
+import com.openjiuwen.service.app.config.runbudget.RunBudgetWiring;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.demo.example.support.MemoryToolRegistrar;
 import com.openjiuwen.service.spec.spi.AgentHandler;
@@ -48,27 +49,32 @@ public class MemoryDemoApplication {
     }
 
     @Bean
-    AgentHandler agentHandler(LlmConfigResolver llmConfigResolver,
+    ReActAgent demoMemoryAgent(LlmConfigResolver llmConfigResolver,
         ObjectProvider<MemoryStore> memoryStoreProvider,
-        ObjectProvider<MemoryProvider> memoryProviderProvider,
-        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
-        ObjectProvider<MiddlewareProperties> middlewarePropertiesProvider) {
+        RunBudgetWiring runBudgetWiring) {
         MemoryStore memoryStore = memoryStoreProvider.getIfAvailable();
         ResolvedLlmConfig resolvedLlmConfig = llmConfigResolver.resolveRequired();
         ResolvedLlmConfig agentLlmConfig = memoryStore == null
             ? resolvedLlmConfig
             : withMemorySystemPrompt(resolvedLlmConfig);
+        ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Demo Memory Agent",
+            "ReAct agent with governed MemoryStore tools", agentLlmConfig, runBudgetWiring);
+        if (memoryStore != null) {
+            MemoryToolRegistrar.register(agent, memoryStore, true);
+        }
+        return agent;
+    }
+
+    @Bean
+    AgentHandler agentHandler(ReActAgent demoMemoryAgent,
+        ObjectProvider<MemoryProvider> memoryProviderProvider,
+        ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
+        ObjectProvider<MiddlewareProperties> middlewarePropertiesProvider) {
         boolean shouldUseRequestScopedSession = middlewarePropertiesProvider
             .getIfAvailable(MiddlewareProperties::new)
             .getMemory()
             .isRequestScopedSession();
-
-        ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Demo Memory Agent",
-            "ReAct agent with governed MemoryStore tools", agentLlmConfig);
-        if (memoryStore != null) {
-            MemoryToolRegistrar.register(agent, memoryStore, true);
-        }
-        AgentHandler coreHandler = new MemoryAwareJiuwenCoreAgentHandler(agent,
+        AgentHandler coreHandler = new MemoryAwareJiuwenCoreAgentHandler(demoMemoryAgent,
             externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop),
             shouldUseRequestScopedSession);
         MemoryProvider memoryProvider = memoryProviderProvider.getIfAvailable();

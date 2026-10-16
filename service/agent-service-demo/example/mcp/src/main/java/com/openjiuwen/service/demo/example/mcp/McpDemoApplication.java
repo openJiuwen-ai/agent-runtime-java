@@ -11,6 +11,7 @@ import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalPrope
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.app.config.llm.LlmConfigResolver;
 import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
+import com.openjiuwen.service.app.config.runbudget.RunBudgetWiring;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
@@ -41,10 +42,11 @@ public class McpDemoApplication {
     @Bean
     AgentHandler agentHandler(LlmConfigResolver llmConfigResolver,
         ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
-        ObjectProvider<AgentCoreExternalProperties> externalPropertiesProvider) {
+        ObjectProvider<AgentCoreExternalProperties> externalPropertiesProvider,
+        RunBudgetWiring runBudgetWiring) {
         ResolvedLlmConfig llmConfig = llmConfigResolver.resolveRequired();
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Demo MCP Agent",
-            "ReAct agent with external MCP tools", llmConfig);
+            "ReAct agent with external MCP tools", llmConfig, runBudgetWiring);
         bindMcpServers(agent, externalPropertiesProvider.getIfAvailable());
         return new JiuwenCoreAgentHandler(agent,
             externalSvcAdapterRegistrarProvider.getIfAvailable(ExternalSvcAdapterRegistrar::noop));
