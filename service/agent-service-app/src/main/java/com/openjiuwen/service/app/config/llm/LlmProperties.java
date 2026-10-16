@@ -39,6 +39,8 @@ public class LlmProperties {
     private Double temperature;
     private Double topP;
     private Duration timeout;
+    private Duration connectTimeout;
+    private Duration streamIdleSeconds;
     private Integer contextWindowLimit;
     private Integer maxIterations;
 

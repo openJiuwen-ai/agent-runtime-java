@@ -69,17 +69,21 @@ public final class ExampleReActAgentFactory {
                 config.isSslVerify())
             .configureContextEngine(null, config.getContextWindowLimit(), false);
         ModelClientConfig currentClientConfig = agentConfig.getModelClientConfig();
-        agentConfig.setModelClientConfig(ModelClientConfig.builder()
+        ModelClientConfig.ModelClientConfigBuilder clientBuilder = ModelClientConfig.builder()
             .clientId(currentClientConfig.getClientId())
             .clientProvider(currentClientConfig.getClientProvider())
             .apiKey(currentClientConfig.getApiKey())
             .apiBase(currentClientConfig.getApiBase())
-            .timeout(config.getTimeout().toMillis() / 1000.0D)
+            .connectTimeoutSeconds(config.getConnectTimeout().toMillis() / 1000.0D)
+            .streamIdleSeconds(config.getStreamIdleSeconds().toMillis() / 1000.0D)
             .maxRetries(currentClientConfig.getMaxRetries())
             .verifySsl(currentClientConfig.isVerifySsl())
             .sslCert(currentClientConfig.getSslCert())
-            .headers(currentClientConfig.getHeaders())
-            .build());
+            .headers(currentClientConfig.getHeaders());
+        if (config.isTimeoutExplicit()) {
+            clientBuilder.timeout(config.getTimeout().toMillis() / 1000.0D);
+        }
+        agentConfig.setModelClientConfig(clientBuilder.build());
         ModelRequestConfig requestConfig = agentConfig.getModelConfigObj();
         requestConfig.setTemperature(config.getTemperature());
         requestConfig.setTopP(config.getTopP());

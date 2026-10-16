@@ -18,6 +18,24 @@ import java.time.Duration;
 @Getter
 @Builder
 public final class ResolvedLlmConfig {
+    /**
+     * Default connect timeout applied when neither the resolver input nor a
+     * direct builder caller provides one (single source shared with
+     * {@link LlmConfigResolver}).
+     *
+     * @since 0.1.4
+     */
+    public static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(10);
+
+    /**
+     * Default stream idle timeout applied when neither the resolver input nor
+     * a direct builder caller provides one (single source shared with
+     * {@link LlmConfigResolver}).
+     *
+     * @since 0.1.4
+     */
+    public static final Duration DEFAULT_STREAM_IDLE_TIMEOUT = Duration.ofSeconds(600);
+
     private final String provider;
 
     private final String apiKey;
@@ -35,6 +53,14 @@ public final class ResolvedLlmConfig {
     private final double topP;
 
     private final Duration timeout;
+
+    @Builder.Default
+    private final Duration connectTimeout = DEFAULT_CONNECT_TIMEOUT;
+
+    @Builder.Default
+    private final Duration streamIdleSeconds = DEFAULT_STREAM_IDLE_TIMEOUT;
+
+    private final boolean isTimeoutExplicit;
 
     private final int contextWindowLimit;
 
