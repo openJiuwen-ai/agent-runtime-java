@@ -31,10 +31,6 @@ public final class LlmConfigResolver {
 
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
 
-    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(10);
-
-    private static final Duration DEFAULT_STREAM_IDLE_TIMEOUT = Duration.ofSeconds(600);
-
     private static final Duration MIN_CONNECT_TIMEOUT = Duration.ofSeconds(5);
 
     private static final Duration MAX_CONNECT_TIMEOUT = Duration.ofSeconds(15);
@@ -165,9 +161,9 @@ public final class LlmConfigResolver {
         double topP = valueOrDefault(properties.getTopP(), DEFAULT_TOP_P);
         Duration timeout = properties.getTimeout() != null ? properties.getTimeout() : DEFAULT_TIMEOUT;
         Duration connectTimeout = properties.getConnectTimeout() != null
-            ? properties.getConnectTimeout() : DEFAULT_CONNECT_TIMEOUT;
+            ? properties.getConnectTimeout() : ResolvedLlmConfig.DEFAULT_CONNECT_TIMEOUT;
         Duration streamIdleTimeout = properties.getStreamIdleSeconds() != null
-            ? properties.getStreamIdleSeconds() : DEFAULT_STREAM_IDLE_TIMEOUT;
+            ? properties.getStreamIdleSeconds() : ResolvedLlmConfig.DEFAULT_STREAM_IDLE_TIMEOUT;
         int contextWindowLimit = valueOrDefault(properties.getContextWindowLimit(), DEFAULT_CONTEXT_WINDOW_LIMIT);
         int maxIterations = valueOrDefault(properties.getMaxIterations(), DEFAULT_MAX_ITERATIONS);
 
