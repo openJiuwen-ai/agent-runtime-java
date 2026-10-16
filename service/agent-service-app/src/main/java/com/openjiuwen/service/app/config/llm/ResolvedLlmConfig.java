@@ -40,7 +40,7 @@ public final class ResolvedLlmConfig {
 
     private final Duration streamIdleSeconds;
 
-    private final boolean timeoutExplicit;
+    private final boolean isTimeoutExplicit;
 
     private final int contextWindowLimit;
 

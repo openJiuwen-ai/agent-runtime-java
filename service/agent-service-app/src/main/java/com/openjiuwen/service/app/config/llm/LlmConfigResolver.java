@@ -161,8 +161,6 @@ public final class LlmConfigResolver {
                 Boolean.TRUE.equals(properties.getAutoDiscover()))
             .orElseGet(ApiConfigLoader.ApiConfigValues::empty);
 
-        String encryptedApiKey = firstSecret(properties.getApiKey(), fileValues.apiKey());
-        String apiKey = decryptApiKey(encryptedApiKey);
         double temperature = valueOrDefault(properties.getTemperature(), DEFAULT_TEMPERATURE);
         double topP = valueOrDefault(properties.getTopP(), DEFAULT_TOP_P);
         Duration timeout = properties.getTimeout() != null ? properties.getTimeout() : DEFAULT_TIMEOUT;
@@ -178,7 +176,7 @@ public final class LlmConfigResolver {
 
         return ResolvedLlmConfig.builder()
             .provider(firstText(properties.getProvider(), fileValues.provider(), DEFAULT_PROVIDER))
-            .apiKey(apiKey)
+            .apiKey(decryptApiKey(firstSecret(properties.getApiKey(), fileValues.apiKey())))
             .apiBase(firstText(properties.getApiBase(), fileValues.apiBase(), ""))
             .modelName(firstText(properties.getModelName(), fileValues.modelName(), ""))
             .sslVerify(resolveSslVerify(Optional.ofNullable(properties.getSslVerify()),
@@ -189,7 +187,7 @@ public final class LlmConfigResolver {
             .timeout(timeout)
             .connectTimeout(connectTimeout)
             .streamIdleSeconds(streamIdleTimeout)
-            .timeoutExplicit(properties.getTimeout() != null)
+            .isTimeoutExplicit(properties.getTimeout() != null)
             .contextWindowLimit(contextWindowLimit)
             .maxIterations(maxIterations)
             .build();

@@ -92,7 +92,7 @@ public class ConcurrencyDemoLlmSupport {
             .timeout(base.getTimeout())
             .connectTimeout(base.getConnectTimeout())
             .streamIdleSeconds(base.getStreamIdleSeconds())
-            .timeoutExplicit(base.isTimeoutExplicit())
+            .isTimeoutExplicit(base.isTimeoutExplicit())
             .contextWindowLimit(base.getContextWindowLimit())
             .maxIterations(base.getMaxIterations())
             .build();
