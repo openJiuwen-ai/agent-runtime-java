@@ -153,10 +153,6 @@ public final class LlmConfigResolver {
     }
 
     private ResolvedLlmConfig doResolve() {
-        ApiConfigLoader.ApiConfigValues fileValues = apiConfigLoader.load(properties.getConfigFile(),
-                Boolean.TRUE.equals(properties.getAutoDiscover()))
-            .orElseGet(ApiConfigLoader.ApiConfigValues::empty);
-
         double temperature = valueOrDefault(properties.getTemperature(), DEFAULT_TEMPERATURE);
         double topP = valueOrDefault(properties.getTopP(), DEFAULT_TOP_P);
         Duration timeout = properties.getTimeout() != null ? properties.getTimeout() : DEFAULT_TIMEOUT;
@@ -170,9 +166,14 @@ public final class LlmConfigResolver {
         validateRuntimeValues(temperature, topP, timeout, contextWindowLimit, maxIterations);
         validateTimeoutTiering(connectTimeout, streamIdleTimeout);
 
+        ApiConfigLoader.ApiConfigValues fileValues = apiConfigLoader.load(properties.getConfigFile(),
+                Boolean.TRUE.equals(properties.getAutoDiscover()))
+            .orElseGet(ApiConfigLoader.ApiConfigValues::empty);
+        String apiKey = decryptApiKey(firstSecret(properties.getApiKey(), fileValues.apiKey()));
+
         return ResolvedLlmConfig.builder()
             .provider(firstText(properties.getProvider(), fileValues.provider(), DEFAULT_PROVIDER))
-            .apiKey(decryptApiKey(firstSecret(properties.getApiKey(), fileValues.apiKey())))
+            .apiKey(apiKey)
             .apiBase(firstText(properties.getApiBase(), fileValues.apiBase(), ""))
             .modelName(firstText(properties.getModelName(), fileValues.modelName(), ""))
             .sslVerify(resolveSslVerify(Optional.ofNullable(properties.getSslVerify()),
