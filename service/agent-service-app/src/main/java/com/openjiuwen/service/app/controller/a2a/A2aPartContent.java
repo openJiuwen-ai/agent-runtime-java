@@ -125,7 +125,7 @@ public final class A2aPartContent {
         }
         try {
             return Objects.requireNonNull(hook.extract(task), "RemoteTaskResultHook must not return null");
-        } catch (RuntimeException cause) { // NOSONAR: java:S2221 - classify arbitrary hook failures, preserve cause.
+        } catch (RuntimeException cause) {
             throw new ResultHookException("Remote task result extraction failed", cause);
         }
     }

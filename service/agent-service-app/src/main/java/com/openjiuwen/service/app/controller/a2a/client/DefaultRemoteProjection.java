@@ -66,7 +66,12 @@ public class DefaultRemoteProjection implements RemoteProjectionHook {
                 .build();
     }
 
-    /** Shared state text used by Status projection and its Parts fallback. */
+    /**
+     * Normalizes a TaskState to the lowercase text used in Status projection and Parts fallback.
+     *
+     * @param state Task state to normalize
+     * @return lowercase state name without the {@code TASK_STATE_} prefix
+     */
     private static String normalizeState(TaskState state) {
         return state.name().replaceFirst("^TASK_STATE_", "").toLowerCase(Locale.ROOT);
     }
