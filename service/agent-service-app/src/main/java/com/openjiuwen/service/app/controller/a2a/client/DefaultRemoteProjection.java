@@ -10,6 +10,8 @@ import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
+import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 
@@ -48,10 +50,8 @@ public class DefaultRemoteProjection implements RemoteProjectionHook {
     }
 
     private static Artifact projectStatus(TaskStatusUpdateEvent update, RemoteProjectionContext context) {
-        String normalized = update.status().state().name().replaceFirst("^TASK_STATE_", "").toLowerCase(Locale.ROOT);
-        List<Part<?>> parts = update.status().message() == null || update.status().message().parts() == null
-                || update.status().message().parts().isEmpty()
-                        ? List.of(new TextPart(normalized)) : update.status().message().parts();
+        String normalized = normalizeState(update.status().state());
+        List<Part<?>> parts = statusParts(update.status());
         return Artifact.builder()
                 .artifactId("status:" + context.remoteAgentName() + ":" + update.taskId() + ":"
                         + java.util.UUID.randomUUID())
@@ -60,6 +60,19 @@ public class DefaultRemoteProjection implements RemoteProjectionHook {
                         Map.of("type", "status", "source", agentRef(context.remoteAgentName(), update.taskId()),
                                 "state", normalized)))
                 .build();
+    }
+
+    /** Shared state text used by Status projection and its Parts fallback. */
+    private static String normalizeState(TaskState state) {
+        return state.name().replaceFirst("^TASK_STATE_", "").toLowerCase(Locale.ROOT);
+    }
+
+    /** Shared Parts fallback used by Status projection and de-duplication. */
+    public static List<Part<?>> statusParts(TaskStatus status) {
+        if (status.message() == null || status.message().parts() == null || status.message().parts().isEmpty()) {
+            return List.of(new TextPart(normalizeState(status.state())));
+        }
+        return status.message().parts();
     }
 
     private static Map<String, Object> agentRef(String agentId, String taskId) {

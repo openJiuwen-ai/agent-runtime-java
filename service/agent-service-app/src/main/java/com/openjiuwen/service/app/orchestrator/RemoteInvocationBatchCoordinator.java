@@ -44,7 +44,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -601,11 +600,7 @@ final class RemoteInvocationBatchCoordinator {
                 return;
             }
             TaskState currentStatus = event.status().state();
-            String normalized = normalizeState(currentStatus);
-            List<Part<?>> parts = event.status().message() == null || event.status().message().parts() == null
-                    || event.status().message().parts().isEmpty()
-                            ? List.of(new TextPart(normalized))
-                            : event.status().message().parts();
+            List<Part<?>> parts = DefaultRemoteProjection.statusParts(event.status());
             if (lastStatus != null && (lastStatus.isFinal()
                     || currentStatus == lastStatus && parts.equals(lastStatusParts))) {
                 return;
@@ -678,10 +673,6 @@ final class RemoteInvocationBatchCoordinator {
 
     private static Map<String, Object> agentRef(String agentId, String taskId) {
         return Map.of("agentId", agentId, "taskId", taskId);
-    }
-
-    private static String normalizeState(TaskState state) {
-        return state.name().replaceFirst("^TASK_STATE_", "").toLowerCase(Locale.ROOT);
     }
 
     private void startNextQueuedAfterReleasedSlot() {
