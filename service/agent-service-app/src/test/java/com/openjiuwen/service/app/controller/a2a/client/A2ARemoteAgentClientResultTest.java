@@ -80,7 +80,7 @@ class A2ARemoteAgentClientResultTest {
     }
 
     @Test
-    void customResultHookReceivesCompletedTaskAndOverridesDefaultExtraction() throws Exception {
+    void customHookReceivesTaskAndOverridesDefaultResult() throws Exception {
         RemoteTaskResultHook hook = task -> {
             assertThat(task.id()).isEqualTo("remote-task");
             assertThat(task.status().state()).isEqualTo(TaskState.TASK_STATE_COMPLETED);

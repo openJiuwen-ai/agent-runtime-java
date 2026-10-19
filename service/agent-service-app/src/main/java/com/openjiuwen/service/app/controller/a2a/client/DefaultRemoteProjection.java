@@ -20,7 +20,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Existing Runtime presentation projection, exposed for explicit delegation by custom hooks. */
+/**
+ * Existing Runtime presentation projection, exposed for explicit delegation by custom hooks.
+ *
+ * @since 0.1.4
+ */
 public class DefaultRemoteProjection implements RemoteProjectionHook {
     @Override
     public Artifact project(StreamingEventKind event, RemoteProjectionContext context) {
@@ -67,7 +71,12 @@ public class DefaultRemoteProjection implements RemoteProjectionHook {
         return state.name().replaceFirst("^TASK_STATE_", "").toLowerCase(Locale.ROOT);
     }
 
-    /** Shared Parts fallback used by Status projection and de-duplication. */
+    /**
+     * Returns Status parts with the shared projection and de-duplication fallback.
+     *
+     * @param status original remote status
+     * @return message parts, or normalized state text when message parts are absent
+     */
     public static List<Part<?>> statusParts(TaskStatus status) {
         if (status.message() == null || status.message().parts() == null || status.message().parts().isEmpty()) {
             return List.of(new TextPart(normalizeState(status.state())));

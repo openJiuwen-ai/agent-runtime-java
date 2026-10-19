@@ -16,6 +16,11 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+/**
+ * Verifies default and custom remote Task result selection.
+ *
+ * @since 0.1.4
+ */
 class A2aPartContentTest {
     @Test
     void absentHookPreservesArtifactSelectionAndStatusFallback() {
@@ -43,7 +48,7 @@ class A2aPartContentTest {
         assertThatThrownBy(() -> A2aPartContent.extractTaskResult(answer, "status", current -> null))
                 .isInstanceOf(A2aPartContent.ResultHookException.class)
                 .hasCauseInstanceOf(NullPointerException.class);
-        RuntimeException cause = new IllegalArgumentException("429 rate limit malformed protocol");
+        IllegalArgumentException cause = new IllegalArgumentException("429 rate limit malformed protocol");
         assertThatThrownBy(() -> A2aPartContent.extractTaskResult(answer, "status", current -> {
             throw cause;
         })).isInstanceOf(A2aPartContent.ResultHookException.class)

@@ -197,7 +197,7 @@ class RemoteInvocationBatchCoordinatorTest {
     }
 
     @Test
-    void customProjectionReceivesDelegationStatusAndArtifactAndOwnsTheOutput() {
+    void customProjectionReceivesEventsAndControlsOutput() {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
         AtomicReference<EventObserver> remoteObserver = new AtomicReference<>();
@@ -235,9 +235,8 @@ class RemoteInvocationBatchCoordinatorTest {
         result.join();
 
         assertThat(seen).hasSize(4);
-        assertThat(seen.get(0)).isInstanceOf(TaskArtifactUpdateEvent.class)
-                .satisfies(event -> assertThat(((TaskArtifactUpdateEvent) event).artifact().artifactId())
-                        .startsWith("delegation:"));
+        assertThat(seen.get(0)).isInstanceOfSatisfying(TaskArtifactUpdateEvent.class,
+                event -> assertThat(event.artifact().artifactId()).startsWith("delegation:"));
         assertThat(seen.get(1)).isInstanceOf(TaskStatusUpdateEvent.class);
         assertThat(seen.get(2)).isInstanceOf(TaskArtifactUpdateEvent.class);
         assertThat(seen.get(3)).isInstanceOf(TaskStatusUpdateEvent.class);
@@ -839,7 +838,12 @@ class RemoteInvocationBatchCoordinatorTest {
                         case "empty" -> "";
                         case "null" -> null;
                         case "throw" -> throw new IllegalStateException("429 malformed json-rpc protocol");
-                        default -> ((TextPart) task.status().message().parts().get(0)).text();
+                        default -> {
+                            if (task.status().message().parts().get(0) instanceof TextPart textPart) {
+                                yield textPart.text();
+                            }
+                            throw new IllegalStateException("Expected a text Status part in the callback fixture");
+                        }
                     };
                 });
         var initial = coordinator.execute(batch("callback-hook", "call-a", "call-b"),

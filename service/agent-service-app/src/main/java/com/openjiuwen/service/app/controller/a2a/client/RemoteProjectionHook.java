@@ -14,6 +14,8 @@ import org.a2aproject.sdk.spec.StreamingEventKind;
  * original event and its aggregated Task remain unchanged. Implementations must
  * treat the input as read-only, including nested collections and metadata, and
  * create independent presentation data when editing it.</p>
+ *
+ * @since 0.1.4
  */
 @FunctionalInterface
 public interface RemoteProjectionHook {

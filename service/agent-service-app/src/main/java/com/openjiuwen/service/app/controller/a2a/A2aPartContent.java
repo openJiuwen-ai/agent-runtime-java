@@ -117,6 +117,7 @@ public final class A2aPartContent {
      * @param hook optional custom result hook
      * @return selected result
      */
+    @SuppressWarnings("java:S2221") // Extension boundary: custom hooks may throw any runtime exception.
     public static String extractTaskResult(Task task, String statusText, RemoteTaskResultHook hook) {
         if (hook == null) {
             String taskText = extractTaskResult(task);
@@ -124,7 +125,7 @@ public final class A2aPartContent {
         }
         try {
             return Objects.requireNonNull(hook.extract(task), "RemoteTaskResultHook must not return null");
-        } catch (RuntimeException cause) {
+        } catch (RuntimeException cause) { // NOSONAR: java:S2221 - classify arbitrary hook failures, preserve cause.
             throw new ResultHookException("Remote task result extraction failed", cause);
         }
     }
