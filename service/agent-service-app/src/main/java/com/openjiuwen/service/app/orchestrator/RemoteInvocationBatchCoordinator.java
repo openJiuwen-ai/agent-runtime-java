@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.app.controller.a2a.client.DefaultRemoteProjection;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller.EventObserver;
@@ -12,7 +13,6 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionContext;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
-import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultSupport;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationCoordinatorState.Dispatch;
@@ -289,7 +289,7 @@ final class RemoteInvocationBatchCoordinator {
         }
         try {
             batchMapper.applyOutcome(member, batchMapper.callbackOutcome(task), null);
-        } catch (RemoteTaskResultSupport.ResultHookException error) {
+        } catch (A2aPartContent.ResultHookException error) {
             batchMapper.applyOutcome(member, null, error);
         }
         String shadowState = batchMapper.shadowState(batch);

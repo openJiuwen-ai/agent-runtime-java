@@ -2,7 +2,7 @@
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
 
-package com.openjiuwen.service.app.controller.a2a.client;
+package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -16,21 +16,21 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-class RemoteTaskResultSupportTest {
+class A2aPartContentTest {
     @Test
     void absentHookPreservesArtifactSelectionAndStatusFallback() {
         Task answer = task("answer");
         Task blank = task("  ");
 
-        assertThat(RemoteTaskResultSupport.extract(answer, "status", null)).isEqualTo("answer");
-        assertThat(RemoteTaskResultSupport.extract(blank, "status", null)).isEqualTo("status");
+        assertThat(A2aPartContent.extractTaskResult(answer, "status", null)).isEqualTo("answer");
+        assertThat(A2aPartContent.extractTaskResult(blank, "status", null)).isEqualTo("status");
     }
 
     @Test
     void customResultIsUsedExactlyIncludingEmptyAndWhitespace() {
         Task answer = task("default");
         for (String selected : List.of("", "  ", "custom")) {
-            assertThat(RemoteTaskResultSupport.extract(answer, "status", current -> {
+            assertThat(A2aPartContent.extractTaskResult(answer, "status", current -> {
                 assertThat(current).isSameAs(answer);
                 return selected;
             })).isEqualTo(selected);
@@ -40,13 +40,13 @@ class RemoteTaskResultSupportTest {
     @Test
     void nullAndExceptionsAreLocalHookErrorsWithoutDefaultFallback() {
         Task answer = task("default");
-        assertThatThrownBy(() -> RemoteTaskResultSupport.extract(answer, "status", current -> null))
-                .isInstanceOf(RemoteTaskResultSupport.ResultHookException.class)
+        assertThatThrownBy(() -> A2aPartContent.extractTaskResult(answer, "status", current -> null))
+                .isInstanceOf(A2aPartContent.ResultHookException.class)
                 .hasCauseInstanceOf(NullPointerException.class);
         RuntimeException cause = new IllegalArgumentException("429 rate limit malformed protocol");
-        assertThatThrownBy(() -> RemoteTaskResultSupport.extract(answer, "status", current -> {
+        assertThatThrownBy(() -> A2aPartContent.extractTaskResult(answer, "status", current -> {
             throw cause;
-        })).isInstanceOf(RemoteTaskResultSupport.ResultHookException.class)
+        })).isInstanceOf(A2aPartContent.ResultHookException.class)
                 .hasMessage("Remote task result extraction failed").hasCause(cause);
     }
 

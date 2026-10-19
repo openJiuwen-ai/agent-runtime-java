@@ -7,7 +7,6 @@ package com.openjiuwen.service.app.orchestrator;
 import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
-import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultSupport;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
@@ -148,7 +147,7 @@ final class RemoteInvocationBatchMapper {
         member.completedAt = Instant.now();
         if (error != null) {
             Throwable cause = unwrap(error);
-            if (cause instanceof RemoteTaskResultSupport.ResultHookException) {
+            if (cause instanceof A2aPartContent.ResultHookException) {
                 member.fail(MemberState.FAILED, "REMOTE_RESULT_HOOK_ERROR", safeMessage(cause));
             } else if (cause instanceof TimeoutException) {
                 member.fail(MemberState.TIMED_OUT, "REMOTE_TIMEOUT", "Remote invocation timed out");
@@ -204,7 +203,7 @@ final class RemoteInvocationBatchMapper {
             return new RemoteCallOutcome(task.id(), state, resultCategory(state), null, inputPrompt);
         }
         String resultText = state == TaskState.TASK_STATE_COMPLETED
-                ? RemoteTaskResultSupport.extract(task, statusText, taskResultHook)
+                ? A2aPartContent.extractTaskResult(task, statusText, taskResultHook)
                 : (statusText.isBlank() ? taskText : statusText);
         AgentFailureDescriptor remoteFailure = status == null || status.message() == null ? null
                 : A2aErrorMetadata.decode(status.message().metadata()).orElse(null);

@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.a2a;
 
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -17,6 +18,7 @@ import org.a2aproject.sdk.spec.TextPart;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -108,6 +110,26 @@ public final class A2aPartContent {
     }
 
     /**
+     * Applies a configured result hook, or the existing Task/Status fallback when absent.
+     *
+     * @param task original aggregated Task
+     * @param statusText current Status text from the existing outcome path
+     * @param hook optional custom result hook
+     * @return selected result
+     */
+    public static String extractTaskResult(Task task, String statusText, RemoteTaskResultHook hook) {
+        if (hook == null) {
+            String taskText = extractTaskResult(task);
+            return taskText.isBlank() ? Objects.requireNonNullElse(statusText, "") : taskText;
+        }
+        try {
+            return Objects.requireNonNull(hook.extract(task), "RemoteTaskResultHook must not return null");
+        } catch (RuntimeException cause) {
+            throw new ResultHookException("Remote task result extraction failed", cause);
+        }
+    }
+
+    /**
      * Extracts response metadata from the task-level metadata of a successfully completed task.
      *
      * <p>Response metadata is deliberately kept outside business text and is
@@ -138,6 +160,13 @@ public final class A2aPartContent {
         Map<String, Object> metadata = new LinkedHashMap<>();
         map.forEach((key, value) -> metadata.put(String.valueOf(key), copyValue(value)));
         return metadata;
+    }
+
+    /** Internal marker allowing the batch mapper to classify hook failures before remote errors. */
+    public static final class ResultHookException extends RuntimeException {
+        private ResultHookException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 
     private static Object copyValue(Object value) {
