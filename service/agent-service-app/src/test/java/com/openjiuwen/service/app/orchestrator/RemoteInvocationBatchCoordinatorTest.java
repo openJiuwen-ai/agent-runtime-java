@@ -20,7 +20,6 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller.EventObserver;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
-import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionContext;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -73,23 +72,24 @@ class RemoteInvocationBatchCoordinatorTest {
         "1, 0, 0, queueTimeoutSeconds must be greater than zero",
         "1, 0, -1, queueTimeoutSeconds must be greater than zero"
     })
-    void legacyConstructorPreservesDispatchValidation(int maxConcurrency, int maxQueueSize,
+    void dispatchConstructorPreservesValidation(int maxConcurrency, int maxQueueSize,
             long queueTimeoutSeconds, String message) {
         TaskStore store = new InMemoryTaskStore();
         RemoteAgentCaller client = mock(RemoteAgentCaller.class);
         assertThatThrownBy(() -> new RemoteInvocationBatchCoordinator(store, client, "test-agent",
-                maxConcurrency, maxQueueSize, queueTimeoutSeconds))
+                maxConcurrency, maxQueueSize, queueTimeoutSeconds, request -> { }, null, null))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage(message);
     }
 
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {" ", "\t"})
-    void legacyConstructorUsesFallbackAgentIdForShadowTasks(String agentId) {
+    void dispatchConstructorUsesFallbackAgentIdForShadowTasks(String agentId) {
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteAgentCaller client = (call, observer) ->
                 CompletableFuture.completedFuture(inputRequired("remote-a", "input-a"));
-        var coordinator = new RemoteInvocationBatchCoordinator(store, client, agentId, 1, 0, 30);
+        var coordinator = new RemoteInvocationBatchCoordinator(store, client, agentId, 1, 0, 30,
+                request -> { }, null, null);
 
         var resolution = coordinator.execute(batch("batch-fallback", "call-a"),
                 request("parent-fallback", Map.of()), mock(QueryStreamObserver.class)).join();
@@ -405,7 +405,7 @@ class RemoteInvocationBatchCoordinatorTest {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(new InMemoryTaskStore(),
-            client, "test-agent", 1, 10, 1);
+            client, "test-agent", 1, 10, 1, request -> { }, null, null);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-queue-timeout", "call-a", "call-b"), request("parent-queue-timeout", Map.of()),
             mock(QueryStreamObserver.class));
@@ -422,7 +422,7 @@ class RemoteInvocationBatchCoordinatorTest {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(new InMemoryTaskStore(),
-            client, "test-agent", 1, 0, 30);
+            client, "test-agent", 1, 0, 30, request -> { }, null, null);
 
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-queue-full", "call-a", "call-b"), request("parent-queue-full", Map.of()),
@@ -462,7 +462,7 @@ class RemoteInvocationBatchCoordinatorTest {
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
-            "test-agent", 3, 10, 30);
+            "test-agent", 3, 10, 30, request -> { }, null, null);
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
 
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
@@ -495,7 +495,7 @@ class RemoteInvocationBatchCoordinatorTest {
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
-            "test-agent", 3, 10, 30);
+            "test-agent", 3, 10, 30, request -> { }, null, null);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> initial = coordinator.execute(
             batch("batch-resume", "call-a", "call-b", "call-c"), request("parent-resume", Map.of()),
             mock(QueryStreamObserver.class));
@@ -678,7 +678,7 @@ class RemoteInvocationBatchCoordinatorTest {
         CompletableFuture<RemoteCallOutcome> outcome = new CompletableFuture<>();
         when(client.callOutcome(any(), any())).thenReturn(outcome);
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(
-            new InMemoryTaskStore(), client, "test-agent", 1, 10, 30);
+            new InMemoryTaskStore(), client, "test-agent", 1, 10, 30, request -> { }, null, null);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-timeout", "call-a"), request("parent-timeout", Map.of()), mock(QueryStreamObserver.class));
 
@@ -697,7 +697,7 @@ class RemoteInvocationBatchCoordinatorTest {
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
-            "test-agent", 1, 10, 30);
+            "test-agent", 1, 10, 30, request -> { }, null, null);
         ServeRequest request = request("parent-ready", Map.of());
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-ready", "call-a"), request, mock(QueryStreamObserver.class));
@@ -723,7 +723,7 @@ class RemoteInvocationBatchCoordinatorTest {
         InMemoryTaskStore store = new InMemoryTaskStore();
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
-            "test-agent", 1, 10, 30);
+            "test-agent", 1, 10, 30, request -> { }, null, null);
         store.save(Task.builder().id("shadow:test-agent:parent-stale-complete").contextId("conversation-1")
             .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
             .metadata(Map.of("_remote_batch", Map.of(
@@ -744,7 +744,7 @@ class RemoteInvocationBatchCoordinatorTest {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(
-            new InMemoryTaskStore(), client, "test-agent", 3, 10, 30);
+            new InMemoryTaskStore(), client, "test-agent", 3, 10, 30, request -> { }, null, null);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> initial = coordinator.execute(
             batch("batch-ready-stale", "call-a", "call-b", "call-c"),
             request("parent-ready-stale", Map.of()), mock(QueryStreamObserver.class));
@@ -796,7 +796,7 @@ class RemoteInvocationBatchCoordinatorTest {
                 "test-agent", 1, 10, 30, request -> {
                     continuationRequest.set(request);
                     continuations.incrementAndGet();
-                });
+                }, null, null);
         ServeRequest initial = request("parent-callback", Map.of("model_name", "b"));
         initial.setModelName("b");
         coordinator.execute(batch("batch-callback", "call-a"), initial,
@@ -920,7 +920,7 @@ class RemoteInvocationBatchCoordinatorTest {
                 isReady ? completed("remote-a", "done") : inputRequired("remote-a", "answer?")));
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
-                "test-agent", 1, 10, 30);
+                "test-agent", 1, 10, 30, request -> { }, null, null);
         ServeRequest initial = request("parent-selection", Map.of());
         initial.setModelName(parentModel);
         coordinator.execute(batch("batch-selection", "call-a"), initial, mock(QueryStreamObserver.class)).join();
@@ -947,7 +947,7 @@ class RemoteInvocationBatchCoordinatorTest {
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
-            "test-agent", 2, 10, 30);
+            "test-agent", 2, 10, 30, request -> { }, null, null);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> initial = coordinator.execute(
             batch("batch-failed-snapshot", "call-a", "call-b"), request("parent-failed-snapshot", Map.of()),
             mock(QueryStreamObserver.class));
@@ -1027,7 +1027,7 @@ class RemoteInvocationBatchCoordinatorTest {
         A2ARemoteAgentClient client = mock(A2ARemoteAgentClient.class);
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
-                "test-agent", 1, 10, 30);
+                "test-agent", 1, 10, 30, request -> { }, null, null);
         CompletableFuture<RemoteCallOutcome> first = new CompletableFuture<>();
         when(client.callOutcome(any(), any())).thenReturn(first);
 
@@ -1073,7 +1073,7 @@ class RemoteInvocationBatchCoordinatorTest {
         when(client.callOutcome(any(), any()))
             .thenReturn(CompletableFuture.completedFuture(inputRequired("remote-a", "input-a")));
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
-            "test-agent", 1, 10, 30);
+            "test-agent", 1, 10, 30, request -> { }, null, null);
 
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> result = coordinator.execute(
             batch("batch-store-failure", "call-a"), request("parent-store-failure", Map.of()),
@@ -1089,7 +1089,7 @@ class RemoteInvocationBatchCoordinatorTest {
         assertThat(outcomes).containsKeys("call-a", "call-b", "call-c");
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
-            "test-agent", 3, 10, 30);
+            "test-agent", 3, 10, 30, request -> { }, null, null);
 
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> initial = coordinator.execute(
             batch("batch-context", "call-a", "call-b", "call-c"), request("parent-context", Map.of()),
@@ -1098,7 +1098,7 @@ class RemoteInvocationBatchCoordinatorTest {
         Map<String, String> initialContexts = captureInitialContexts(client);
         assertInitialContexts(initialContexts);
 
-        RemoteInvocationBatchMapper mapper = new RemoteInvocationBatchMapper();
+        RemoteInvocationBatchMapper mapper = new RemoteInvocationBatchMapper(null);
         outcomes.get("call-a").complete(mapper.callbackOutcome(inputRequiredTask("remote-a", "input-a")));
         outcomes.get("call-b").complete(mapper.callbackOutcome(inputRequiredTask("remote-b", "input-b")));
         outcomes.get("call-c").complete(mapper.callbackOutcome(inputRequiredTask("remote-c", "input-c")));
@@ -1163,7 +1163,7 @@ class RemoteInvocationBatchCoordinatorTest {
 
     private static RemoteInvocationBatchCoordinator coordinator(A2ARemoteAgentClient client, int maxConcurrency) {
         return new RemoteInvocationBatchCoordinator(new InMemoryTaskStore(), client, "test-agent", maxConcurrency,
-            10, 30);
+            10, 30, request -> { }, null, null);
     }
 
     private static void emitConcurrentOutputs(EventObserver observer) {
@@ -1235,7 +1235,7 @@ class RemoteInvocationBatchCoordinatorTest {
         Map<String, CompletableFuture<RemoteCallOutcome>> outcomes = outcomeFutures(client);
         InMemoryTaskStore store = new InMemoryTaskStore();
         RemoteInvocationBatchCoordinator coordinator = new RemoteInvocationBatchCoordinator(store, client,
-            "test-agent", 3, 10, 30);
+            "test-agent", 3, 10, 30, request -> { }, null, null);
         CompletableFuture<RemoteInvocationBatchCoordinator.BatchResolution> initial = coordinator.execute(
             batch("batch-" + parentTaskId, "call-a", "call-b", "call-c"), request(parentTaskId, Map.of()),
             mock(QueryStreamObserver.class));

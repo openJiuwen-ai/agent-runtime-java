@@ -31,16 +31,13 @@ public final class RemoteTaskResultSupport {
         try {
             return Objects.requireNonNull(hook.extract(task), "RemoteTaskResultHook must not return null");
         } catch (RuntimeException cause) {
-            if (cause instanceof ResultHookException exception) {
-                throw exception;
-            }
             throw new ResultHookException("Remote task result extraction failed", cause);
         }
     }
 
     /** Internal marker allowing the batch mapper to classify hook failures before remote errors. */
     public static final class ResultHookException extends RuntimeException {
-        public ResultHookException(String message, Throwable cause) {
+        private ResultHookException(String message, Throwable cause) {
             super(message, cause);
         }
     }

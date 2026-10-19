@@ -4,14 +4,15 @@
 
 package com.openjiuwen.service.app.orchestrator;
 
+import com.openjiuwen.service.app.controller.a2a.client.DefaultRemoteProjection;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller.EventObserver;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
-import com.openjiuwen.service.app.controller.a2a.client.DefaultRemoteProjection;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionContext;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultSupport;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationCoordinatorState.Dispatch;
@@ -26,12 +27,12 @@ import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Part;
+import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
-import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.TextPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -122,30 +123,16 @@ final class RemoteInvocationBatchCoordinator {
      * @param maxConcurrency maximum running remote members
      * @param maxQueueSize maximum queued remote members
      * @param queueTimeoutSeconds maximum queue wait in seconds
+     * @param continuation parent request continuation
+     * @param projectionHook optional presentation projection
+     * @param taskResultHook optional successful Task result extractor
      */
-    RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId, int maxConcurrency,
-            int maxQueueSize, long queueTimeoutSeconds) {
-        this(taskStore, client, agentId, maxConcurrency, maxQueueSize, queueTimeoutSeconds, request -> {
-        });
-    }
-
-    RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId, int maxConcurrency,
-            int maxQueueSize, long queueTimeoutSeconds, Consumer<ServeRequest> continuation) {
-        this(taskStore, client, agentId == null || agentId.isBlank() ? "agent" : agentId,
-                createDispatcher(maxConcurrency, maxQueueSize, queueTimeoutSeconds), continuation, null, null);
-    }
-
     RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId, int maxConcurrency,
             int maxQueueSize, long queueTimeoutSeconds, Consumer<ServeRequest> continuation,
             RemoteProjectionHook projectionHook, RemoteTaskResultHook taskResultHook) {
         this(taskStore, client, agentId == null || agentId.isBlank() ? "agent" : agentId,
                 createDispatcher(maxConcurrency, maxQueueSize, queueTimeoutSeconds), continuation,
                 projectionHook, taskResultHook);
-    }
-
-    RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId,
-            RemoteInvocationDispatcher dispatcher, Consumer<ServeRequest> continuation) {
-        this(taskStore, client, agentId, dispatcher, continuation, null, null);
     }
 
     RemoteInvocationBatchCoordinator(TaskStore taskStore, RemoteAgentCaller client, String agentId,
@@ -302,7 +289,7 @@ final class RemoteInvocationBatchCoordinator {
         }
         try {
             batchMapper.applyOutcome(member, batchMapper.callbackOutcome(task), null);
-        } catch (RuntimeException error) {
+        } catch (RemoteTaskResultSupport.ResultHookException error) {
             batchMapper.applyOutcome(member, null, error);
         }
         String shadowState = batchMapper.shadowState(batch);

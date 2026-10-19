@@ -733,12 +733,11 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         if (!outcome.state().isFinal()) {
             return;
         }
-        String taskText;
         String resultText;
         if (outcome.state() == TaskState.TASK_STATE_COMPLETED) {
             resultText = RemoteTaskResultSupport.extract(outcome.task(), outcome.statusText(), taskResultHook);
         } else {
-            taskText = outcome.task() == null ? "" : A2aPartContent.extractTaskResult(outcome.task());
+            String taskText = outcome.task() == null ? "" : A2aPartContent.extractTaskResult(outcome.task());
             resultText = outcome.statusText().isBlank() ? taskText : outcome.statusText();
         }
         result.complete(new RemoteCallOutcome(outcome.taskId(), outcome.state(), resultCategory(outcome.state()),

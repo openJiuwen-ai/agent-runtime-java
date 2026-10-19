@@ -57,10 +57,6 @@ final class RemoteInvocationBatchMapper {
 
     private final RemoteTaskResultHook taskResultHook;
 
-    RemoteInvocationBatchMapper() {
-        this(null);
-    }
-
     RemoteInvocationBatchMapper(RemoteTaskResultHook taskResultHook) {
         this.taskResultHook = taskResultHook;
     }
@@ -199,7 +195,7 @@ final class RemoteInvocationBatchMapper {
         TaskStatus status = task.status();
         TaskState state = status == null ? null : status.state();
         String statusText = status == null || status.message() == null ? "" : extractText(status.message().parts());
-        String taskText = A2aPartContent.extractTaskResult(task);
+        String taskText = state == TaskState.TASK_STATE_COMPLETED ? "" : A2aPartContent.extractTaskResult(task);
         if (isResultBearingNonTerminalState(state) && (!taskText.isBlank() || !statusText.isBlank())) {
             state = TaskState.TASK_STATE_COMPLETED;
         }
