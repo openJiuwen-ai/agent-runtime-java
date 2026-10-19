@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultSupport;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
@@ -496,6 +497,55 @@ class RemoteInvocationBatchMapperTest {
 
                 assertThat(outcome.remoteState()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
                 assertThat(outcome.result()).isEqualTo("status result");
+        }
+
+        @Test
+        void callbackResultHookCanSelectStatusAndEmptyStringIsPreserved() {
+                Message message = Message.builder().role(Message.Role.ROLE_AGENT).parts(new TextPart("status result"))
+                                .build();
+                Task task = Task.builder().id("remote-task").contextId("remote-context")
+                                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED, message, null))
+                                .artifacts(List.of(Artifact.builder().artifactId("answer")
+                                                .parts(new TextPart("artifact result")).build()))
+                                .build();
+                RemoteInvocationBatchMapper custom = new RemoteInvocationBatchMapper(
+                                current -> current.status().message().parts().get(0) instanceof TextPart text
+                                                ? text.text() : "");
+
+                assertThat(custom.callbackOutcome(task).result()).isEqualTo("status result");
+                assertThat(new RemoteInvocationBatchMapper(ignored -> "").callbackOutcome(task).result()).isEmpty();
+        }
+
+        @Test
+        void resultHookNullIsClassifiedAsLocalHookFailure() {
+                Task task = Task.builder().id("remote-task").contextId("remote-context")
+                                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of()).build();
+                RemoteInvocationBatchMapper custom = new RemoteInvocationBatchMapper(ignored -> null);
+                Member member = member("call-a");
+                RuntimeException failure = org.assertj.core.api.Assertions.catchThrowableOfType(
+                                () -> custom.callbackOutcome(task), RuntimeException.class);
+
+                custom.applyOutcome(member, null, failure);
+
+                assertThat(member.state).isEqualTo(MemberState.FAILED);
+                assertThat(member.resultCategory).isEqualTo("REMOTE_RESULT_HOOK_ERROR");
+        }
+
+        @Test
+        void resultHookExceptionIsNotMisclassifiedByRemoteErrorKeywords() {
+                Task task = Task.builder().id("remote-task").contextId("remote-context")
+                                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+                RemoteInvocationBatchMapper custom = new RemoteInvocationBatchMapper(ignored -> {
+                        throw new IllegalArgumentException("429 rate limit malformed json-rpc protocol");
+                });
+                Member member = member("call-a");
+                RuntimeException failure = org.assertj.core.api.Assertions.catchThrowableOfType(
+                                () -> custom.callbackOutcome(task), RuntimeException.class);
+
+                custom.applyOutcome(member, null, new java.util.concurrent.CompletionException(failure));
+
+                assertThat(member.state).isEqualTo(MemberState.FAILED);
+                assertThat(member.resultCategory).isEqualTo("REMOTE_RESULT_HOOK_ERROR");
         }
 
         @Test

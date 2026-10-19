@@ -11,6 +11,8 @@ import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteAgentCatalogChangedEvent;
 import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
+import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
@@ -37,6 +39,16 @@ class A2AAutoConfigurationTest {
             .withConfiguration(AutoConfigurations.of(A2AAutoConfiguration.class))
             .withBean(ServeOrchestrator.class, () -> mock(ServeOrchestrator.class))
             .withBean(RequestHandler.class, () -> mock(RequestHandler.class));
+
+    @Test
+    void injectsOptionalResultHookIntoDefaultCaller() {
+        RemoteTaskResultHook hook = task -> "custom-result";
+        contextRunner.withBean(RemoteTaskResultHook.class, () -> hook).run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(org.springframework.test.util.ReflectionTestUtils.getField(
+                    context.getBean(A2ARemoteAgentClient.class), "taskResultHook")).isSameAs(hook);
+        });
+    }
 
     @Test
     void internalA2aExecutorsAreNotPublishedByType() {

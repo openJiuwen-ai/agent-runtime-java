@@ -50,7 +50,8 @@ public final class QuerySseSupport {
     private static Map<String, Object> remoteEventData(TaskArtifactUpdateEvent update) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put(RemoteAgentCaller.AGENT_EVENT_METADATA,
-                update.artifact().metadata().get(RemoteAgentCaller.AGENT_EVENT_METADATA));
+                update.artifact().metadata() == null ? null
+                        : update.artifact().metadata().get(RemoteAgentCaller.AGENT_EVENT_METADATA));
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("content", content(update.artifact().parts()));
         data.put("metadata", metadata);
