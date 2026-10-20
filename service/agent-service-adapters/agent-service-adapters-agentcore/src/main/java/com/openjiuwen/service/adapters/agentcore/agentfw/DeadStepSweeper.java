@@ -12,8 +12,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -55,11 +55,15 @@ public class DeadStepSweeper {
         this.checkpointer = checkpointer;
         this.hook = hook;
         this.intervalSeconds = Math.max(1L, intervalSeconds);
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, runnable -> {
             Thread thread = new Thread(runnable, "dead-step-sweeper");
             thread.setDaemon(true);
+            thread.setUncaughtExceptionHandler((threadRef, throwable) ->
+                    log.error("DeadStepSweeper thread {} died unexpectedly", threadRef.getName(), throwable));
             return thread;
         });
+        executor.setRemoveOnCancelPolicy(true);
+        this.scheduler = executor;
     }
 
     /**

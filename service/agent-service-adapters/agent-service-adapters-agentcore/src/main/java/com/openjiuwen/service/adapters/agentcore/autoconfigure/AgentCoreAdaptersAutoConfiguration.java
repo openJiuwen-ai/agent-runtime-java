@@ -183,13 +183,18 @@ public class AgentCoreAdaptersAutoConfiguration {
      * @param hook optional business recovery hook
      * @return started sweeper; the bean is absent entirely when disabled
      */
+    /**
+     * The sweep interval in seconds; a fixed default keeps the surface small
+     * until a tuning need shows up.
+     */
+    private static final long STEP_SWEEPER_INTERVAL_SECONDS = 60L;
+
     @Bean(destroyMethod = "stop")
     @ConditionalOnProperty(prefix = "openjiuwen.step-sweeper", name = "enabled", havingValue = "true")
     @ConditionalOnMissingBean(DeadStepSweeper.class)
     public DeadStepSweeper deadStepSweeper(Checkpointer checkpointer,
             @Autowired(required = false) StepRecoveryHook hook) {
-        DeadStepSweeper sweeper = new DeadStepSweeper(checkpointer, hook,
-                /* intervalSeconds */ 60L);
+        DeadStepSweeper sweeper = new DeadStepSweeper(checkpointer, hook, STEP_SWEEPER_INTERVAL_SECONDS);
         sweeper.start();
         return sweeper;
     }
