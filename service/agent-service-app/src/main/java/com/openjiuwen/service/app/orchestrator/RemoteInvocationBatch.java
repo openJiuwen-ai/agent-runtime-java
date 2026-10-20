@@ -8,6 +8,8 @@ import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -111,7 +113,7 @@ final class RemoteInvocationBatch {
             this.toolName = toolName;
             this.agentName = agentName;
             this.message = message;
-            this.requestMetadata = Map.copyOf(requestMetadata);
+            this.requestMetadata = Collections.unmodifiableMap(new LinkedHashMap<>(requestMetadata));
         }
 
         void fail(MemberState failedState, String category, String failureMessage) {

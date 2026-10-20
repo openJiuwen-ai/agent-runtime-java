@@ -27,6 +27,7 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
@@ -40,6 +41,31 @@ import java.util.concurrent.TimeoutException;
  */
 class RemoteInvocationBatchMapperTest {
         private final RemoteInvocationBatchMapper mapper = new RemoteInvocationBatchMapper();
+
+        @Test
+        void nullableContextMetadataSurvivesSnapshotAndRemainsReadOnly() {
+            Map<String, Object> context = new LinkedHashMap<>();
+            context.put("_interrupt_kind", "a2a_delegate");
+            context.put("agentName", "agent-a");
+            context.put("selectedCard", null);
+            context.put("channel", "app");
+            Map<String, Object> item = Map.of("toolCallId", "call-a", "message", "query", "context", context);
+
+            RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(item)), request(), "parent-1", observer());
+            Map<String, Object> metadata = batch.members.get(0).requestMetadata;
+            assertThat(metadata).containsEntry("selectedCard", null).containsEntry("channel", "app");
+            assertThatThrownBy(() -> metadata.put("channel", "changed"))
+                    .isInstanceOf(UnsupportedOperationException.class);
+            context.put("channel", "changed");
+            assertThat(metadata).containsEntry("channel", "app");
+
+            RemoteInvocationBatch restored = mapper.restore(mapper.snapshot(batch, "RUNNING"), request(),
+                    "parent-1", observer());
+            assertThat(restored.members.get(0).requestMetadata)
+                    .containsEntry("selectedCard", null).containsEntry("channel", "app");
+            assertThatThrownBy(() -> restored.members.get(0).requestMetadata.clear())
+                    .isInstanceOf(UnsupportedOperationException.class);
+        }
 
         @Test
         void metadataFromNonSuccessfulOutcomeIsNotKept() {
