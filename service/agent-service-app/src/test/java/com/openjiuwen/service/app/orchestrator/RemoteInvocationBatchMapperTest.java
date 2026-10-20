@@ -51,7 +51,8 @@ class RemoteInvocationBatchMapperTest {
             context.put("channel", "app");
             Map<String, Object> item = Map.of("toolCallId", "call-a", "message", "query", "context", context);
 
-            RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(item)), request(), "parent-1", observer());
+            RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(item)), request(), "parent-1",
+                    observer());
             Map<String, Object> metadata = batch.members.get(0).requestMetadata;
             assertThat(metadata).containsEntry("selectedCard", null).containsEntry("channel", "app");
             assertThatThrownBy(() -> metadata.put("channel", "changed"))
