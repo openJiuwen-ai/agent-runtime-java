@@ -10,6 +10,7 @@ import com.openjiuwen.core.session.checkpointer.step.StepRecoveryHook;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
@@ -55,13 +56,17 @@ public class DeadStepSweeper {
         this.checkpointer = checkpointer;
         this.hook = hook;
         this.intervalSeconds = Math.max(1L, intervalSeconds);
-        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, runnable -> {
-            Thread thread = new Thread(runnable, "dead-step-sweeper");
-            thread.setDaemon(true);
-            thread.setUncaughtExceptionHandler((threadRef, throwable) ->
-                    log.error("DeadStepSweeper thread {} died unexpectedly", threadRef.getName(), throwable));
-            return thread;
-        });
+        Thread.UncaughtExceptionHandler uncaughtHandler = (threadRef, throwable) ->
+                log.error("DeadStepSweeper thread {} died unexpectedly", threadRef.getName(), throwable);
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1,
+                new CustomizableThreadFactory("dead-step-sweeper-") {
+                    @Override
+                    public Thread newThread(Runnable runnable) {
+                        Thread thread = super.newThread(runnable);
+                        thread.setUncaughtExceptionHandler(uncaughtHandler);
+                        return thread;
+                    }
+                });
         executor.setRemoveOnCancelPolicy(true);
         this.scheduler = executor;
     }
