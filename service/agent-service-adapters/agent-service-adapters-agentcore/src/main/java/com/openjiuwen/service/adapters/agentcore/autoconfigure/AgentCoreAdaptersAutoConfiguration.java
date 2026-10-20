@@ -6,7 +6,10 @@ package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 
 import com.openjiuwen.core.foundation.tool.mcp.McpClientProvider;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientProvider;
+import com.openjiuwen.core.session.checkpointer.Checkpointer;
+import com.openjiuwen.core.session.checkpointer.step.StepRecoveryHook;
 import com.openjiuwen.service.adapters.agentcore.agentfw.CoreRunnerLifecycleCoordinator;
+import com.openjiuwen.service.adapters.agentcore.agentfw.DeadStepSweeper;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalProperties;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreMcpClientDecoratorFactory;
@@ -47,6 +50,12 @@ import org.springframework.context.annotation.Import;
 @Import(ExternalSecurityAutoConfiguration.class)
 @EnableConfigurationProperties(AgentCoreExternalProperties.class)
 public class AgentCoreAdaptersAutoConfiguration {
+    /**
+     * The dead-step sweeper interval in seconds; a fixed default keeps the
+     * surface small until a tuning need shows up.
+     */
+    private static final long STEP_SWEEPER_INTERVAL_SECONDS = 60L;
+
     /**
      * Creates the default MCP client decorator factory.
      *
@@ -166,5 +175,27 @@ public class AgentCoreAdaptersAutoConfiguration {
             ObjectProvider<MiddlewareAdapterRegistrar> middleware,
             ExternalSvcAdapterRegistrar external) {
         return new CoreRunnerLifecycleCoordinator(middleware.getIfAvailable(), external);
+    }
+
+    /**
+     * Creates the dead-step sweeper when step recovery is explicitly enabled.
+     *
+     * <p>The sweeper scans the checkpointer for RUNNING step cursors left by
+     * crashed processes and walks the shared recovery pipeline (hook first,
+     * markLost fallback). Off by default; enable via
+     * {@code openjiuwen.step-sweeper.enabled=true}.</p>
+     *
+     * @param checkpointer checkpointer bean, required for the scan
+     * @param hook optional business recovery hook
+     * @return started sweeper; the bean is absent entirely when disabled
+     */
+    @Bean(destroyMethod = "stop")
+    @ConditionalOnProperty(prefix = "openjiuwen.step-sweeper", name = "enabled", havingValue = "true")
+    @ConditionalOnMissingBean(DeadStepSweeper.class)
+    public DeadStepSweeper deadStepSweeper(Checkpointer checkpointer,
+            @Autowired(required = false) StepRecoveryHook hook) {
+        DeadStepSweeper sweeper = new DeadStepSweeper(checkpointer, hook, STEP_SWEEPER_INTERVAL_SECONDS);
+        sweeper.start();
+        return sweeper;
     }
 }
