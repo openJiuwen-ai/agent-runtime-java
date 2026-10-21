@@ -128,6 +128,19 @@ class QueryMvcControllerTest {
         assertThat(QuerySseSupport.toJson(local, objectMapper)).isEqualTo("{\"content\":\"local\"}");
     }
 
+    @Test
+    void restSseAcceptsRemoteArtifactWithoutMetadata() throws Exception {
+        Artifact artifact = Artifact.builder().artifactId("remote-artifact").parts(new TextPart("remote text")).build();
+        QueryChunk remote = new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT,
+                new TaskArtifactUpdateEvent("task-b", artifact, "context-b", false, true, Map.of()));
+
+        var payload = objectMapper.readTree(QuerySseSupport.toJson(remote, objectMapper));
+
+        assertThat(payload.path("content").asText()).isEqualTo("remote text");
+        assertThat(payload.path("metadata").has("agentEvent")).isTrue();
+        assertThat(payload.path("metadata").path("agentEvent").isNull()).isTrue();
+    }
+
     private static ServeOrchestrator failingOrchestrator(RuntimeException failure) {
         return new ServeOrchestrator() {
             @Override

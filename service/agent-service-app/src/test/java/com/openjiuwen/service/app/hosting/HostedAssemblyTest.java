@@ -20,6 +20,9 @@ import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHand
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
+import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamInterruptor;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleHooks;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
@@ -86,6 +89,34 @@ class HostedAssemblyTest {
                 MainEventBus.class, MainEventBusProcessor.class, QueueManager.class, A2AAgentExecutor.class,
                 A2ATaskContinuation.class, A2aPushNotificationCallbackStore.class,
                 A2aPushNotificationCallbackHandler.class);
+    }
+
+    @Test
+    void passesSelectedHooksToEachHostedExecutionGraph() {
+        RemoteProjectionHook projection = (event, context) -> null;
+        RemoteTaskResultHook result = task -> "custom-result";
+        runner.withBean(RemoteProjectionHook.class, () -> projection)
+                .withBean(RemoteTaskResultHook.class, () -> result).run(context -> {
+                    assertThat(context).hasNotFailed();
+                    var lifecycle = context.getBean(HostedLifecycleCoordinator.class);
+                    lifecycle.runInitPhase();
+                    try {
+                        assertThat(org.springframework.test.util.ReflectionTestUtils.getField(
+                                context.getBean(A2ARemoteAgentClient.class), "taskResultHook")).isSameAs(result);
+                        for (var runtime : context.getBean(HostedRuntimeCatalog.class).instances()) {
+                            Object coordinator = org.springframework.test.util.ReflectionTestUtils.getField(
+                                    runtime.orchestrator(), "batchCoordinator");
+                            assertThat(org.springframework.test.util.ReflectionTestUtils.getField(
+                                    coordinator, "projectionHook")).isSameAs(projection);
+                            Object mapper = org.springframework.test.util.ReflectionTestUtils.getField(
+                                    coordinator, "batchMapper");
+                            assertThat(org.springframework.test.util.ReflectionTestUtils.getField(
+                                    mapper, "taskResultHook")).isSameAs(result);
+                        }
+                    } finally {
+                        lifecycle.runShutdownPhase();
+                    }
+                });
     }
 
     @Test

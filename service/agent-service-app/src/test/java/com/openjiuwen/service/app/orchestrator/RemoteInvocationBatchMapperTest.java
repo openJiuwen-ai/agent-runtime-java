@@ -40,7 +40,7 @@ import java.util.concurrent.TimeoutException;
  * @since 0.1.0
  */
 class RemoteInvocationBatchMapperTest {
-        private final RemoteInvocationBatchMapper mapper = new RemoteInvocationBatchMapper();
+        private final RemoteInvocationBatchMapper mapper = new RemoteInvocationBatchMapper(null);
 
         @Test
         void nullableContextMetadataSurvivesSnapshotAndRemainsReadOnly() {

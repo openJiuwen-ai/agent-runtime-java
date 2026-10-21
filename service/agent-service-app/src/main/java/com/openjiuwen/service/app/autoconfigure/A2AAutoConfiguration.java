@@ -29,6 +29,8 @@ import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
@@ -112,6 +114,12 @@ public class A2AAutoConfiguration {
      */
     @Autowired
     private ObjectProvider<RemoteAgentCaller> remoteCallerProvider;
+
+    @Autowired
+    private ObjectProvider<RemoteProjectionHook> remoteProjectionHookProvider;
+
+    @Autowired
+    private ObjectProvider<RemoteTaskResultHook> remoteTaskResultHookProvider;
 
     /**
      * Active stream registry provider. Field-injected so the
@@ -459,7 +467,7 @@ public class A2AAutoConfiguration {
     public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props,
             ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider) {
         return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency(),
-                securitySupportProvider.getIfAvailable());
+                securitySupportProvider.getIfAvailable(), remoteTaskResultHookProvider.getIfAvailable());
     }
 
     /**
@@ -498,7 +506,8 @@ public class A2AAutoConfiguration {
         A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteCallerProvider.getObject(),
                 streamRegistryProvider.getObject(), agentId,
-                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds(), continuation);
+                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds(), continuation,
+                remoteProjectionHookProvider.getIfAvailable(), remoteTaskResultHookProvider.getIfAvailable());
     }
 
     /**
