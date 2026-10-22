@@ -86,7 +86,7 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
         MemorySearchRequest request = new MemorySearchRequest(resolveScope(kwargs), query, DEFAULT_PREFETCH_TOP_K,
             memory.isRerank(), options("prefetch", kwargs));
         List<MemoryRecord> records = memoryStore.search(request);
-        return CompletableFuture.completedFuture(formatPrefetch(records));
+        return CompletableFuture.completedFuture(formatPrefetch(applyRelevanceFloor(records)));
     }
 
     @Override
@@ -125,6 +125,50 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
             return "";
         }
         return "## Long-term Memory\n" + String.join("\n", lines);
+    }
+
+    /**
+     * Drops scored records below the relative relevance floor ({@code ratio × top score})
+     * so low-relevance memories are not injected into the prompt — and re-written back by
+     * the following turn's sync, which would amplify the noise. The ratio is relative to
+     * the top hit, so it is independent of the provider's score scale; unscored records
+     * cannot be judged and are kept; {@code 0} disables the floor entirely.
+     *
+     * @param records the search results, may be null
+     * @return the records at or above the floor, or all records when none carries a score
+     */
+    private List<MemoryRecord> applyRelevanceFloor(List<MemoryRecord> records) {
+        double ratio = memory.getPrefetchMinScoreRatio();
+        if (ratio <= 0 || records == null || records.isEmpty()) {
+            return records;
+        }
+        Double topScore = null;
+        for (MemoryRecord record : records) {
+            if (record == null) {
+                continue;
+            }
+            Double score = scoreOf(record);
+            if (score != null && (topScore == null || score > topScore)) {
+                topScore = score;
+            }
+        }
+        if (topScore == null) {
+            return records;
+        }
+        double floor = topScore * ratio;
+        List<MemoryRecord> kept = new ArrayList<>();
+        for (MemoryRecord record : records) {
+            Double score = record == null ? null : scoreOf(record);
+            if (score == null || score >= floor) {
+                kept.add(record);
+            }
+        }
+        return kept;
+    }
+
+    private static Double scoreOf(MemoryRecord record) {
+        Object score = record.metadata() != null ? record.metadata().get("score") : null;
+        return score instanceof Number number ? number.doubleValue() : null;
     }
 
     private MemoryScope resolveScope(Map<String, Object> kwargs) {

@@ -229,6 +229,12 @@ public class MiddlewareProperties {
 
         private boolean shouldUseRequestScopedSession = false;
 
+        /**
+         * Requests server-side reranking on search. Only the mem0 provider surfaces a
+         * rerank parameter — the jiuwen2 (agent-memory 2.0) search contract has none, so
+         * this flag is inert there; jiuwen2 recall quality is tuned via
+         * {@link #prefetchMinScoreRatio} instead.
+         */
         private boolean shouldRerank = false;
 
         private String authHeaderMode = "token";
@@ -238,6 +244,13 @@ public class MiddlewareProperties {
         private String scopeOrg = "";
 
         private String scopeUser = "";
+
+        /**
+         * Relative relevance floor for memory prefetch, as a ratio of the top hit's score:
+         * records below {@code ratio × topScore} are dropped from the prompt block. The
+         * ratio is score-scale-free; {@code 0} disables the floor (inject everything).
+         */
+        private double prefetchMinScoreRatio = 0.2;
 
         private int timeoutMs = 3000;
 
@@ -325,6 +338,14 @@ public class MiddlewareProperties {
 
         public void setScopeUser(String scopeUser) {
             this.scopeUser = scopeUser != null ? scopeUser.trim() : "";
+        }
+
+        public double getPrefetchMinScoreRatio() {
+            return prefetchMinScoreRatio;
+        }
+
+        public void setPrefetchMinScoreRatio(double prefetchMinScoreRatio) {
+            this.prefetchMinScoreRatio = prefetchMinScoreRatio;
         }
 
         @Override
