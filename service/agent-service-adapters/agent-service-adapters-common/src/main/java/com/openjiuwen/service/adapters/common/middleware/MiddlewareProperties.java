@@ -248,7 +248,8 @@ public class MiddlewareProperties {
         /**
          * Relative relevance floor for memory prefetch, as a ratio of the top hit's score:
          * records below {@code ratio × topScore} are dropped from the prompt block. The
-         * ratio is score-scale-free; {@code 0} disables the floor (inject everything).
+         * ratio is score-scale-free; {@code 0} (or any negative value) disables the floor
+         * (inject everything).
          */
         private double prefetchMinScoreRatio = 0.2;
 

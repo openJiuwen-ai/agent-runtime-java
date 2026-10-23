@@ -157,6 +157,37 @@ class MemoryStoreMemoryProviderTest {
             .doesNotContain("无关记忆：今天是周五");
     }
 
+    @Test
+    void prefetchDropsRecordsBelowFloorWhenScoreIsInRaw() throws Exception {
+        // 评审修复（P2）：mem0 把 score 放在原始记录顶层（raw），provider metadata
+        // 里没有——scoreOf 需在 metadata 未命中时回落 raw，否则默认 provider 上限空转
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "相关记忆：用户喜欢拿铁", Map.of(), Map.of("score", 0.9)),
+            new MemoryRecord("m-3", "无关记忆：今天是周五", Map.of(), Map.of("score", 0.15))));
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, new MiddlewareProperties.Memory());
+
+        String block = provider.prefetch("饮品偏好", Map.of("user_id", "u")).join();
+
+        assertThat(block)
+            .contains("相关记忆：用户喜欢拿铁")
+            .doesNotContain("无关记忆：今天是周五");
+    }
+
+    @Test
+    void prefetchAppliesFloorAcrossMetadataAndRawScoreShapes() throws Exception {
+        // 混合形状：top1 取分要跨 metadata/raw 两种摆放，漏读任一形状都算错下限
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "相关记忆：用户喜欢拿铁", Map.of("score", 0.9), Map.of()),
+            new MemoryRecord("m-3", "无关记忆：今天是周五", Map.of(), Map.of("score", 0.15))));
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, new MiddlewareProperties.Memory());
+
+        String block = provider.prefetch("饮品偏好", Map.of("user_id", "u")).join();
+
+        assertThat(block)
+            .contains("相关记忆：用户喜欢拿铁")
+            .doesNotContain("无关记忆：今天是周五");
+    }
+
     private static final class RecordingMemoryStore implements MemoryStore {
         private final List<MemoryRecord> records;
         private final List<MemorySearchRequest> searchRequests = new ArrayList<>();

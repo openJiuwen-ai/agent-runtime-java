@@ -133,7 +133,8 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
      * Drops scored records below the relative relevance floor ({@code ratio × top score})
      * so low-relevance memories are not injected into the prompt — and re-written back by
      * the following turn's sync, which would amplify the noise. The ratio is relative to
-     * the top hit, so it is independent of the provider's score scale; unscored records
+     * the top hit, so it is independent of the provider's score scale (scores are
+     * resolved across provider shapes, see {@link #scoreOf}); unscored records
      * cannot be judged and are kept; {@code 0} disables the floor entirely. The floor
      * comparison runs on {@link BigDecimal} per G.TYP.04 (scores are irrelevant to
      * precision here, but the gate forbids floating-point arithmetic).
@@ -185,8 +186,20 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
         return score.isEmpty() || BigDecimal.valueOf(score.getAsDouble()).compareTo(floor) >= 0;
     }
 
+    /**
+     * Resolves a record's relevance score across provider shapes: the modeled
+     * {@code metadata} map first, falling back to the raw provider record — mem0
+     * reports the score only at the raw top level, while jiuwen/jiuwen2 mirror it
+     * into metadata. Returns {@code empty} when neither carries a numeric score.
+     *
+     * @param record the search result
+     * @return the score, or an empty OptionalDouble when the record is unscored
+     */
     private static OptionalDouble scoreOf(MemoryRecord record) {
         Object score = record.metadata() != null ? record.metadata().get("score") : null;
+        if (!(score instanceof Number)) {
+            score = record.raw() != null ? record.raw().get("score") : null;
+        }
         return score instanceof Number number ? OptionalDouble.of(number.doubleValue()) : OptionalDouble.empty();
     }
 
