@@ -59,6 +59,23 @@ class DefaultAgentCoreSandboxClientFactoryTest {
     }
 
     @Test
+    void configFor_prefixNotConfigured_defaultsPrefixToServerId() {
+        AgentCoreExternalProperties properties = properties();
+        AgentCoreExternalProperties.SandboxServer second = new AgentCoreExternalProperties.SandboxServer();
+        second.setServerId("box-b");
+        second.setServiceUrl("http://localhost:18091");
+        second.setSandboxType("jiuwenbox");
+        properties.getSandbox().setServers(java.util.List.of(properties.getSandbox().getServers().get(0), second));
+        DefaultAgentCoreSandboxClientFactory factory = new DefaultAgentCoreSandboxClientFactory(properties);
+
+        SandboxGatewayConfig first = factory.configFor("default");
+        SandboxGatewayConfig other = factory.configFor("box-b");
+
+        assertThat(first.getIsolation().getPrefix()).isEqualTo("default");
+        assertThat(other.getIsolation().getPrefix()).isEqualTo("box-b");
+    }
+
+    @Test
     void createReturnsVendorCoreSandboxClient() {
         DefaultAgentCoreSandboxClientFactory factory = new DefaultAgentCoreSandboxClientFactory(properties());
 

@@ -88,9 +88,10 @@ public class DefaultAgentCoreSandboxClientFactory implements AgentCoreSandboxCli
             .extraParams(new LinkedHashMap<>(server.getExtraParams()))
             .build();
 
+        // Default the prefix to server-id so that servers of the same sandbox type get distinct isolation keys.
         SandboxIsolationConfig isolationConfig = SandboxIsolationConfig.builder()
             .customId(nonBlankText(server.getIsolationKey()).orElse(null))
-            .prefix(nonBlankText(server.getIsolationPrefix()).orElse(null))
+            .prefix(nonBlankText(server.getIsolationPrefix()).orElse(server.getServerId()))
             .containerScope(server.getContainerScope())
             .build();
 
