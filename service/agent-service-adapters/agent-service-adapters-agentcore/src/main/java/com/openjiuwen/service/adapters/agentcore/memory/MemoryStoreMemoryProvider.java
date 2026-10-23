@@ -13,10 +13,13 @@ import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -132,7 +135,9 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
      * so low-relevance memories are not injected into the prompt — and re-written back by
      * the following turn's sync, which would amplify the noise. The ratio is relative to
      * the top hit, so it is independent of the provider's score scale; unscored records
-     * cannot be judged and are kept; {@code 0} disables the floor entirely.
+     * cannot be judged and are kept; {@code 0} disables the floor entirely. The floor
+     * comparison runs on {@link BigDecimal} per G.TYP.04 (scores are irrelevant to
+     * precision here, but the gate forbids floating-point arithmetic).
      *
      * @param records the search results, may be null
      * @return the records at or above the floor, or all records when none carries a score
@@ -142,33 +147,33 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
         if (ratio <= 0 || records == null || records.isEmpty()) {
             return records;
         }
-        Double topScore = null;
-        for (MemoryRecord record : records) {
-            if (record == null) {
-                continue;
-            }
-            Double score = scoreOf(record);
-            if (score != null && (topScore == null || score > topScore)) {
-                topScore = score;
-            }
-        }
-        if (topScore == null) {
+        Optional<Double> topScore = records.stream()
+            .filter(Objects::nonNull)
+            .map(MemoryStoreMemoryProvider::scoreOf)
+            .flatMap(Optional::stream)
+            .max(Double::compare);
+        if (topScore.isEmpty()) {
             return records;
         }
-        double floor = topScore * ratio;
+        BigDecimal floor = BigDecimal.valueOf(topScore.get()).multiply(BigDecimal.valueOf(ratio));
         List<MemoryRecord> kept = new ArrayList<>();
         for (MemoryRecord record : records) {
-            Double score = record == null ? null : scoreOf(record);
-            if (score == null || score >= floor) {
+            if (isAtOrAboveFloor(record, floor)) {
                 kept.add(record);
             }
         }
         return kept;
     }
 
-    private static Double scoreOf(MemoryRecord record) {
+    private static boolean isAtOrAboveFloor(MemoryRecord record, BigDecimal floor) {
+        return record == null || scoreOf(record)
+            .map(score -> BigDecimal.valueOf(score).compareTo(floor) >= 0)
+            .orElse(true);
+    }
+
+    private static Optional<Double> scoreOf(MemoryRecord record) {
         Object score = record.metadata() != null ? record.metadata().get("score") : null;
-        return score instanceof Number number ? number.doubleValue() : null;
+        return score instanceof Number number ? Optional.of(number.doubleValue()) : Optional.empty();
     }
 
     private MemoryScope resolveScope(Map<String, Object> kwargs) {
