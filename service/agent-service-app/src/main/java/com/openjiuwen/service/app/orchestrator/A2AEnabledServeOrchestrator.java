@@ -8,6 +8,8 @@ import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallback;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.lifecycle.StreamCancellationHandle;
 import com.openjiuwen.service.spec.dto.QueryChunk;
@@ -120,12 +122,20 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
         RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
         int maxConcurrency, int maxQueueSize, long queueTimeoutSeconds, A2ATaskContinuation continuation) {
+        this(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId, maxConcurrency, maxQueueSize,
+                queueTimeoutSeconds, continuation, null, null);
+    }
+
+    public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
+        RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
+        int maxConcurrency, int maxQueueSize, long queueTimeoutSeconds, A2ATaskContinuation continuation,
+        RemoteProjectionHook projectionHook, RemoteTaskResultHook taskResultHook) {
         this.agentHandler = agentHandler;
         this.taskStore = taskStore;
         this.streamRegistry = streamRegistry;
         this.batchCoordinator = new RemoteInvocationBatchCoordinator(taskStore, remoteAgentCaller, agentId,
             maxConcurrency, maxQueueSize, queueTimeoutSeconds,
-            continuation == null ? request -> { } : continuation::submit);
+            continuation == null ? request -> { } : continuation::submit, projectionHook, taskResultHook);
     }
 
     /**
@@ -142,11 +152,18 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
             RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
             RemoteInvocationDispatcher dispatcher, A2ATaskContinuation continuation) {
+        this(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId, dispatcher, continuation, null, null);
+    }
+
+    public A2AEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
+            RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry, String agentId,
+            RemoteInvocationDispatcher dispatcher, A2ATaskContinuation continuation,
+            RemoteProjectionHook projectionHook, RemoteTaskResultHook taskResultHook) {
         this.agentHandler = agentHandler;
         this.taskStore = taskStore;
         this.streamRegistry = streamRegistry;
         this.batchCoordinator = new RemoteInvocationBatchCoordinator(taskStore, remoteAgentCaller, agentId,
-                dispatcher, continuation::submit);
+                dispatcher, continuation::submit, projectionHook, taskResultHook);
     }
 
     /**

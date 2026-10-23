@@ -17,6 +17,8 @@ import com.openjiuwen.service.app.controller.a2a.HttpPushNotificationSender;
 import com.openjiuwen.service.app.controller.a2a.InMemoryA2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationDispatcher;
@@ -124,7 +126,8 @@ public final class HostedRuntimeAssembler {
         }
         var streams = new ActiveStreamRegistry();
         var orchestrator = new A2AEnabledServeOrchestrator(assembly.handler(), store, caller, streams,
-                assembly.agentId(), dependencies.dispatcher(), continuation);
+                assembly.agentId(), dependencies.dispatcher(), continuation, dependencies.remoteProjectionHook(),
+                dependencies.remoteTaskResultHook());
         assembly.onClose(orchestrator::stopDispatching);
         var listener = assembly.component(TaskAdmissionListener.class).orElse(null);
         var executor = new A2AAgentExecutor(orchestrator, dependencies.protocol(),
@@ -184,7 +187,16 @@ public final class HostedRuntimeAssembler {
             RuntimeRedisClient redisClient, RemoteAgentCaller remoteCaller, A2AProtocolAdapter protocol,
             TaskAdmissionGate admissionGate, HostedResources resources, RemoteInvocationDispatcher dispatcher,
             HostedAgentCardFactory cards, AutowireCapableBeanFactory beanFactory, HttpClient httpClient,
-            AdmissionReleaseCoordinator admissionCoordinator) {
+            AdmissionReleaseCoordinator admissionCoordinator, RemoteProjectionHook remoteProjectionHook,
+            RemoteTaskResultHook remoteTaskResultHook) {
+        public Dependencies(A2AProperties properties, MiddlewareProperties middleware,
+                RuntimeRedisClient redisClient, RemoteAgentCaller remoteCaller, A2AProtocolAdapter protocol,
+                TaskAdmissionGate admissionGate, HostedResources resources, RemoteInvocationDispatcher dispatcher,
+                HostedAgentCardFactory cards, AutowireCapableBeanFactory beanFactory, HttpClient httpClient,
+                AdmissionReleaseCoordinator admissionCoordinator) {
+            this(properties, middleware, redisClient, remoteCaller, protocol, admissionGate, resources, dispatcher,
+                    cards, beanFactory, httpClient, admissionCoordinator, null, null);
+        }
     }
 
     /**

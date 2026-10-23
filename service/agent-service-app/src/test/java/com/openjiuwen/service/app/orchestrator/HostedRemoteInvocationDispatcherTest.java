@@ -106,7 +106,8 @@ class HostedRemoteInvocationDispatcherTest {
             started.add(id);
             return outcome;
         };
-        var coordinator = new RemoteInvocationBatchCoordinator(store, caller, id, dispatcher, request -> { });
+        var coordinator = new RemoteInvocationBatchCoordinator(store, caller, id, dispatcher,
+                request -> { }, null, null);
         return new Target(coordinator, store, outcome);
     }
 

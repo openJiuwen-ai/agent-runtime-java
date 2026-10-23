@@ -107,6 +107,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
     private final ExternalOutboundSecuritySupport securitySupport;
 
+    private final RemoteTaskResultHook taskResultHook;
+
     private final Map<ClientCacheKey, Client> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final ExecutorService ioExecutor;
@@ -155,6 +157,22 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      */
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency,
             ExternalOutboundSecuritySupport securitySupport, CandidateSelector candidateSelector) {
+        this(registry, ioConcurrency, securitySupport, candidateSelector, null);
+    }
+
+    /**
+     * Constructs a remote client with an explicit candidate selection strategy
+     * and an optional remote task result hook.
+     *
+     * @param registry the remote agent card registry
+     * @param ioConcurrency maximum concurrent blocking SDK calls on JDK 17
+     * @param securitySupport outbound security support, or null for defaults
+     * @param candidateSelector the instance candidate selection strategy
+     * @param taskResultHook the remote task result hook, or null for default extraction
+     */
+    public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency,
+            ExternalOutboundSecuritySupport securitySupport, CandidateSelector candidateSelector,
+            RemoteTaskResultHook taskResultHook) {
         if (ioConcurrency <= 0) {
             throw new IllegalArgumentException("ioConcurrency must be greater than zero");
         }
@@ -162,6 +180,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         this.securitySupport = securitySupport;
         this.candidateSelector = java.util.Objects.requireNonNull(candidateSelector,
                 "candidateSelector must not be null");
+        this.taskResultHook = taskResultHook;
         this.ioExecutor = newIoExecutor(ioConcurrency);
     }
 
@@ -916,7 +935,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 remoteFailure(task.status().message()).orElse(null)), result, isCallbackMode);
     }
 
-    private static void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
+    private void completeTaskOutcome(TaskOutcome outcome, CompletableFuture<RemoteCallOutcome> result,
             boolean isCallbackMode) {
         if (result.isDone()) {
             return;
@@ -935,10 +954,13 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         if (!outcome.state().isFinal()) {
             return;
         }
-        String taskText = outcome.task() == null ? "" : A2aPartContent.extractTaskResult(outcome.task());
-        String resultText = outcome.state() == TaskState.TASK_STATE_COMPLETED
-                ? (taskText.isBlank() ? outcome.statusText() : taskText)
-                : (outcome.statusText().isBlank() ? taskText : outcome.statusText());
+        String resultText;
+        if (outcome.state() == TaskState.TASK_STATE_COMPLETED) {
+            resultText = A2aPartContent.extractTaskResult(outcome.task(), outcome.statusText(), taskResultHook);
+        } else {
+            String taskText = outcome.task() == null ? "" : A2aPartContent.extractTaskResult(outcome.task());
+            resultText = outcome.statusText().isBlank() ? taskText : outcome.statusText();
+        }
         result.complete(new RemoteCallOutcome(outcome.taskId(), outcome.state(), resultCategory(outcome.state()),
                 resultText, null, outcome.remoteFailure(), outcome.state() == TaskState.TASK_STATE_COMPLETED
                         ? A2aPartContent.extractTaskResponseMetadata(outcome.task()) : Map.of()));

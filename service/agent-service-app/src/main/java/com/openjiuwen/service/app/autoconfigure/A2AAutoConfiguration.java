@@ -33,8 +33,6 @@ import com.openjiuwen.service.app.controller.a2a.InMemoryA2aPushNotificationCall
 import com.openjiuwen.service.app.controller.a2a.NoOpA2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
 import com.openjiuwen.service.app.controller.a2a.ResilientMainEventBusProcessor;
-import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
-import com.openjiuwen.service.app.controller.a2a.ResilientMainEventBusProcessor;
 import com.openjiuwen.service.app.controller.a2a.StandardAgentCardFactory;
 import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
@@ -42,6 +40,8 @@ import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.controller.a2a.client.CandidateSelector;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.controller.a2a.client.WeightedRandomCandidateSelector;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
@@ -128,6 +128,12 @@ public class A2AAutoConfiguration {
      */
     @Autowired
     private ObjectProvider<RemoteAgentCaller> remoteCallerProvider;
+
+    @Autowired
+    private ObjectProvider<RemoteProjectionHook> remoteProjectionHookProvider;
+
+    @Autowired
+    private ObjectProvider<RemoteTaskResultHook> remoteTaskResultHookProvider;
 
     /**
      * Active stream registry provider. Field-injected so the
@@ -468,6 +474,7 @@ public class A2AAutoConfiguration {
      * @param registry the remote agent card registry
      * @param props A2A runtime properties
      * @param securitySupportProvider provider for optional outbound security support
+     * @param candidateSelector the instance candidate selection strategy
      * @return the default remote agent caller
      */
     @Bean
@@ -476,7 +483,8 @@ public class A2AAutoConfiguration {
             ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider,
             CandidateSelector candidateSelector) {
         return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency(),
-                securitySupportProvider.getIfAvailable(), candidateSelector);
+                securitySupportProvider.getIfAvailable(), candidateSelector,
+                remoteTaskResultHookProvider.getIfAvailable());
     }
 
     /**
@@ -602,7 +610,8 @@ public class A2AAutoConfiguration {
         A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteCallerProvider.getObject(),
                 streamRegistryProvider.getObject(), agentId,
-                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds(), continuation);
+                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds(), continuation,
+                remoteProjectionHookProvider.getIfAvailable(), remoteTaskResultHookProvider.getIfAvailable());
     }
 
     /**

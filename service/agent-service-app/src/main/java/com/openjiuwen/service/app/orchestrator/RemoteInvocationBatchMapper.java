@@ -6,6 +6,7 @@ package com.openjiuwen.service.app.orchestrator;
 
 import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.Member;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationBatch.MemberState;
@@ -52,6 +53,12 @@ final class RemoteInvocationBatchMapper {
             "runtime.remoteToolInputs",
             "runtime.remoteBatchId",
             "runtime.remoteToolResults");
+
+    private final RemoteTaskResultHook taskResultHook;
+
+    RemoteInvocationBatchMapper(RemoteTaskResultHook taskResultHook) {
+        this.taskResultHook = taskResultHook;
+    }
 
     RemoteInvocationBatch parse(Map<String, Object> interrupt, ServeRequest request, String parentTaskId,
             SerialQueryStreamObserver observer) {
@@ -140,7 +147,9 @@ final class RemoteInvocationBatchMapper {
         member.completedAt = Instant.now();
         if (error != null) {
             Throwable cause = unwrap(error);
-            if (cause instanceof TimeoutException) {
+            if (cause instanceof A2aPartContent.ResultHookException) {
+                member.fail(MemberState.FAILED, "REMOTE_RESULT_HOOK_ERROR", safeMessage(cause));
+            } else if (cause instanceof TimeoutException) {
                 member.fail(MemberState.TIMED_OUT, "REMOTE_TIMEOUT", "Remote invocation timed out");
             } else if (cause instanceof RejectedExecutionException) {
                 member.fail(MemberState.FAILED, "REMOTE_OVERLOADED", safeMessage(cause));
@@ -185,7 +194,7 @@ final class RemoteInvocationBatchMapper {
         TaskStatus status = task.status();
         TaskState state = status == null ? null : status.state();
         String statusText = status == null || status.message() == null ? "" : extractText(status.message().parts());
-        String taskText = A2aPartContent.extractTaskResult(task);
+        String taskText = state == TaskState.TASK_STATE_COMPLETED ? "" : A2aPartContent.extractTaskResult(task);
         if (isResultBearingNonTerminalState(state) && (!taskText.isBlank() || !statusText.isBlank())) {
             state = TaskState.TASK_STATE_COMPLETED;
         }
@@ -193,7 +202,8 @@ final class RemoteInvocationBatchMapper {
             String inputPrompt = statusText.isBlank() ? "Remote agent requires input" : statusText;
             return new RemoteCallOutcome(task.id(), state, resultCategory(state), null, inputPrompt);
         }
-        String resultText = state == TaskState.TASK_STATE_COMPLETED ? (taskText.isBlank() ? statusText : taskText)
+        String resultText = state == TaskState.TASK_STATE_COMPLETED
+                ? A2aPartContent.extractTaskResult(task, statusText, taskResultHook)
                 : (statusText.isBlank() ? taskText : statusText);
         AgentFailureDescriptor remoteFailure = status == null || status.message() == null ? null
                 : A2aErrorMetadata.decode(status.message().metadata()).orElse(null);
