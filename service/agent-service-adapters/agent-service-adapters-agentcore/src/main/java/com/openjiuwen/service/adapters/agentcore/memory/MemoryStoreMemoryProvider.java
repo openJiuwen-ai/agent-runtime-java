@@ -18,8 +18,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -147,15 +146,11 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
         if (ratio <= 0 || records == null || records.isEmpty()) {
             return records;
         }
-        Optional<Double> topScore = records.stream()
-            .filter(Objects::nonNull)
-            .map(MemoryStoreMemoryProvider::scoreOf)
-            .flatMap(Optional::stream)
-            .max(Double::compare);
+        OptionalDouble topScore = topScoreOf(records);
         if (topScore.isEmpty()) {
             return records;
         }
-        BigDecimal floor = BigDecimal.valueOf(topScore.get()).multiply(BigDecimal.valueOf(ratio));
+        BigDecimal floor = BigDecimal.valueOf(topScore.getAsDouble()).multiply(BigDecimal.valueOf(ratio));
         List<MemoryRecord> kept = new ArrayList<>();
         for (MemoryRecord record : records) {
             if (isAtOrAboveFloor(record, floor)) {
@@ -165,15 +160,34 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
         return kept;
     }
 
-    private static boolean isAtOrAboveFloor(MemoryRecord record, BigDecimal floor) {
-        return record == null || scoreOf(record)
-            .map(score -> BigDecimal.valueOf(score).compareTo(floor) >= 0)
-            .orElse(true);
+    /**
+     * Resolves the highest score across the records ({@code empty} when none carries one).
+     *
+     * @param records the search results
+     * @return the top score, or an empty OptionalDouble when no record is scored
+     */
+    private static OptionalDouble topScoreOf(List<MemoryRecord> records) {
+        OptionalDouble topScore = OptionalDouble.empty();
+        for (MemoryRecord record : records) {
+            if (record == null) {
+                continue;
+            }
+            OptionalDouble score = scoreOf(record);
+            if (score.isPresent() && (topScore.isEmpty() || score.getAsDouble() > topScore.getAsDouble())) {
+                topScore = score;
+            }
+        }
+        return topScore;
     }
 
-    private static Optional<Double> scoreOf(MemoryRecord record) {
+    private static boolean isAtOrAboveFloor(MemoryRecord record, BigDecimal floor) {
+        OptionalDouble score = record == null ? OptionalDouble.empty() : scoreOf(record);
+        return score.isEmpty() || BigDecimal.valueOf(score.getAsDouble()).compareTo(floor) >= 0;
+    }
+
+    private static OptionalDouble scoreOf(MemoryRecord record) {
         Object score = record.metadata() != null ? record.metadata().get("score") : null;
-        return score instanceof Number number ? Optional.of(number.doubleValue()) : Optional.empty();
+        return score instanceof Number number ? OptionalDouble.of(number.doubleValue()) : OptionalDouble.empty();
     }
 
     private MemoryScope resolveScope(Map<String, Object> kwargs) {
