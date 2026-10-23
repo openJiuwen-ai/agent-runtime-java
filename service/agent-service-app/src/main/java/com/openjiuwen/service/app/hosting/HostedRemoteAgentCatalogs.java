@@ -15,6 +15,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -64,7 +65,7 @@ public final class HostedRemoteAgentCatalogs {
                 }
             });
             catalogs.put(entry.agentId(), catalog);
-            copyInherited(entry.agentId(), snapshot.entries());
+            alignInherited(entry.agentId(), snapshot.entries());
         }
     }
 
@@ -102,7 +103,9 @@ public final class HostedRemoteAgentCatalogs {
     }
 
     /**
-     * Propagates global discovery/retry updates without overwriting local names.
+     * Aligns inherited entries with the global snapshot: upserts changed entries
+     * (keeping instance candidates), and removes inherited entries the global
+     * catalog no longer carries, without ever touching local names.
      *
      * @param event global or instance directory update
      */
@@ -113,16 +116,26 @@ public final class HostedRemoteAgentCatalogs {
         }
         globalVersion = event.snapshot().version();
         for (String agentId : localConfigurations.keySet()) {
-            copyInherited(agentId, event.snapshot().entries());
+            alignInherited(agentId, event.snapshot().entries());
         }
     }
 
-    private void copyInherited(String agentId, List<RemoteAgentEntry> entries) {
+    private void alignInherited(String agentId, List<RemoteAgentEntry> entries) {
         var catalog = catalogs.get(agentId);
+        Set<String> snapshotNames = new LinkedHashSet<>();
         for (var entry : entries) {
-            if (!localNames.get(agentId).contains(entry.name())
-                    && catalog.get(entry.name()).filter(entry::equals).isEmpty()) {
-                catalog.register(entry.name(), entry.card(), entry.timeoutSeconds(), entry.isStreaming(), entry.tls());
+            snapshotNames.add(entry.name());
+            if (localNames.get(agentId).contains(entry.name())) {
+                continue;
+            }
+            if (catalog.get(entry.name()).filter(entry::equals).isEmpty()) {
+                catalog.register(entry.name(), entry.card(), entry.timeoutSeconds(), entry.isStreaming(), entry.tls(),
+                        entry.candidates());
+            }
+        }
+        for (var existing : catalog.snapshot().entries()) {
+            if (!snapshotNames.contains(existing.name()) && !localNames.get(agentId).contains(existing.name())) {
+                catalog.remove(existing.name());
             }
         }
     }

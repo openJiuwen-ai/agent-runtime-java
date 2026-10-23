@@ -5,6 +5,7 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogSource;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
 import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
@@ -15,6 +16,7 @@ import jakarta.annotation.PreDestroy;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
@@ -63,6 +65,8 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
 
     private final HostedRemoteAgentCatalogs hostedCatalogs;
 
+    private final ObjectProvider<RemoteCatalogSource> catalogSource;
+
     private final RestClient restClient;
 
     private final ScheduledExecutorService retryExecutor;
@@ -88,9 +92,27 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
      */
     public A2AAgentCardDiscovery(A2AProperties properties, A2ARemoteAgentCardRegistry registry,
             HostedRemoteAgentCatalogs hostedCatalogs) {
+        this(properties, registry, hostedCatalogs, null);
+    }
+
+    /**
+     * Creates discovery with optional instance-local directories, one shared
+     * retry scheduler, and an optional unified catalog source that bypasses
+     * global static discovery.
+     *
+     * @param properties global configuration
+     * @param registry global directory
+     * @param hostedCatalogs hosted directories, or null for legacy mode
+     * @param catalogSource unified remote catalog source provider; when a source
+     *        bean is present the TTL refresher owns the global catalog and only
+     *        hosted instance-local discovery still runs here
+     */
+    public A2AAgentCardDiscovery(A2AProperties properties, A2ARemoteAgentCardRegistry registry,
+            HostedRemoteAgentCatalogs hostedCatalogs, ObjectProvider<RemoteCatalogSource> catalogSource) {
         this.properties = properties;
         this.registry = registry;
         this.hostedCatalogs = hostedCatalogs;
+        this.catalogSource = catalogSource;
         this.restClient = RestClient.create();
         ThreadFactory defaultThreadFactory = Executors.defaultThreadFactory();
         this.retryExecutor = new ScheduledThreadPoolExecutor(1, runnable -> {
@@ -108,6 +130,11 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
      */
     @EventListener(ApplicationReadyEvent.class)
     public void discoverAll() {
+        if (catalogSource != null && catalogSource.getIfAvailable() != null) {
+            log.info("Unified remote catalog source present; global static discovery is bypassed");
+            discoverHostedLocalOnly();
+            return;
+        }
         validateRemoteAgents(properties.getRemoteAgents(), REMOTE_AGENTS_PROPERTY);
         if (hostedCatalogs != null) {
             hostedCatalogs.localConfigurations().forEach((agentId, remotes) -> validateRemoteAgents(remotes,
@@ -117,10 +144,17 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
         for (var remote : properties.getRemoteAgents()) {
             tryDiscover(remote, registry, null);
         }
-        if (hostedCatalogs != null) {
-            hostedCatalogs.localConfigurations().forEach((agentId, remotes) -> remotes.forEach(remote ->
-                    tryDiscover(remote, hostedCatalogs.catalog(agentId), agentId)));
+        discoverHostedLocalOnly();
+    }
+
+    private void discoverHostedLocalOnly() {
+        if (hostedCatalogs == null) {
+            return;
         }
+        hostedCatalogs.localConfigurations().forEach((agentId, remotes) -> {
+            validateRemoteAgents(remotes, "openjiuwen.service.a2a.agents." + agentId + ".remote-agents");
+            remotes.forEach(remote -> tryDiscover(remote, hostedCatalogs.catalog(agentId), agentId));
+        });
     }
 
     private static void validateRemoteAgents(List<RemoteAgentProperties> remotes, String prefix) {

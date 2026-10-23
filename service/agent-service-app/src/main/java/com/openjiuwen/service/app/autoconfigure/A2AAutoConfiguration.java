@@ -9,8 +9,17 @@ import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
 import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogProperties;
+import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogRefresher;
+import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogSource;
+import com.openjiuwen.service.app.hosting.HostedAgentCardFactory;
+import com.openjiuwen.service.app.hosting.HostedInstanceCatalog;
 import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
+import com.openjiuwen.service.app.hosting.HostedRuntimeCatalog;
+import com.openjiuwen.service.app.hosting.InstanceCatalog;
+import com.openjiuwen.service.app.hosting.StandardInstanceCatalog;
 import com.openjiuwen.service.app.config.A2AProperties;
+import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
@@ -25,15 +34,21 @@ import com.openjiuwen.service.app.controller.a2a.NoOpA2aPushNotificationCallback
 import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
 import com.openjiuwen.service.app.controller.a2a.ResilientMainEventBusProcessor;
 import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
+import com.openjiuwen.service.app.controller.a2a.ResilientMainEventBusProcessor;
+import com.openjiuwen.service.app.controller.a2a.StandardAgentCardFactory;
+import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.client.CandidateSelector;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
+import com.openjiuwen.service.app.controller.a2a.client.WeightedRandomCandidateSelector;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
+import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -69,6 +84,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
@@ -91,7 +107,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @AutoConfiguration(after = {AgentServiceAutoConfiguration.class, RedisMiddlewareAutoConfiguration.class})
 @ConditionalOnClass(AgentExecutor.class)
-@EnableConfigurationProperties(A2AProperties.class)
+@EnableConfigurationProperties({A2AProperties.class, RemoteCatalogProperties.class})
 public class A2AAutoConfiguration {
     private static final Logger log = LoggerFactory.getLogger(A2AAutoConfiguration.class);
 
@@ -457,9 +473,10 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCaller.class)
     public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props,
-            ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider) {
+            ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider,
+            CandidateSelector candidateSelector) {
         return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency(),
-                securitySupportProvider.getIfAvailable());
+                securitySupportProvider.getIfAvailable(), candidateSelector);
     }
 
     /**
@@ -476,8 +493,95 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCardResolver.class)
     public A2AAgentCardDiscovery a2aAgentCardDiscovery(A2AProperties props, A2ARemoteAgentCardRegistry registry,
-            ObjectProvider<HostedRemoteAgentCatalogs> hostedCatalogs) {
-        return new A2AAgentCardDiscovery(props, registry, hostedCatalogs.getIfAvailable());
+            ObjectProvider<HostedRemoteAgentCatalogs> hostedCatalogs,
+            ObjectProvider<RemoteCatalogSource> catalogSource) {
+        return new A2AAgentCardDiscovery(props, registry, hostedCatalogs.getIfAvailable(), catalogSource);
+    }
+
+    /**
+     * Creates the instance candidate selection strategy for multi-instance
+     * weighted routing and failover. Deployments may override with a custom
+     * {@link CandidateSelector}.
+     *
+     * @return the weighted random candidate selector
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CandidateSelector a2aCandidateSelector() {
+        return new WeightedRandomCandidateSelector();
+    }
+
+    /**
+     * Creates the TTL refresher pulling unified catalog snapshots from the
+     * remote catalog source into the registry. The refresher resolves the
+     * source at start time and stays idle when no source bean is defined, so
+     * static discovery remains the sole catalog owner in that case.
+     *
+     * @param registry the remote agent card registry
+     * @param properties the refresh configuration
+     * @param sourceProvider the remote catalog source provider
+     * @return the remote catalog refresher
+     */
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean
+    public RemoteCatalogRefresher remoteCatalogRefresher(A2ARemoteAgentCardRegistry registry,
+            RemoteCatalogProperties properties, ObjectProvider<RemoteCatalogSource> sourceProvider) {
+        return new RemoteCatalogRefresher(sourceProvider, registry, properties);
+    }
+
+    /**
+     * Creates the standard card factory shared by the standard instance
+     * catalog. The well-known card endpoint builds its own equal factory from
+     * the same immutable configuration, so the served card and the registered
+     * card are always the same fact. Lazily instantiated: minimal
+     * applications that never consume the instance catalog must not need the
+     * identity and capability beans it depends on.
+     *
+     * @param properties the A2A configuration properties
+     * @param identity the agent service identity
+     * @param serviceProperties the service properties
+     * @param pushNotificationCapabilityGate the push notification capability gate
+     * @return the standard card factory
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    public StandardAgentCardFactory standardAgentCardFactory(A2AProperties properties, AgentServiceIdentity identity,
+            ServiceProperties serviceProperties, A2aPushNotificationCapabilityGate pushNotificationCapabilityGate) {
+        return new StandardAgentCardFactory(properties, identity, serviceProperties, pushNotificationCapabilityGate);
+    }
+
+    /**
+     * Creates the instance catalog describing what this process publishes for
+     * unified-registry registration: every hosted registration in hosted mode,
+     * the single standard instance otherwise. Lazily instantiated: only the
+     * registration extension consumes it, so minimal applications must not
+     * need the identity beans it depends on.
+     *
+     * @param standardCards the standard card factory
+     * @param identity the agent service identity
+     * @param properties the A2A configuration properties
+     * @param hostedCatalogProvider the hosted runtime catalog provider (hosted mode)
+     * @param hostedCardsProvider the hosted card factory provider (hosted mode)
+     * @return the instance catalog
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean(InstanceCatalog.class)
+    public InstanceCatalog instanceCatalog(StandardAgentCardFactory standardCards, AgentServiceIdentity identity,
+            A2AProperties properties, ObjectProvider<HostedRuntimeCatalog> hostedCatalogProvider,
+            ObjectProvider<HostedAgentCardFactory> hostedCardsProvider) {
+        HostedRuntimeCatalog hostedCatalog = hostedCatalogProvider.getIfAvailable();
+        HostedAgentCardFactory hostedCards = hostedCardsProvider.getIfAvailable();
+        if (hostedCatalog == null ^ hostedCards == null) {
+            throw new IllegalStateException(
+                    "Hosted instance wiring is inconsistent: runtime catalog and card factory must "
+                            + "be provided together");
+        }
+        if (hostedCatalog != null) {
+            return new HostedInstanceCatalog(hostedCatalog, hostedCards);
+        }
+        return new StandardInstanceCatalog(standardCards, identity, properties.getJsonRpcPath());
     }
 
     /**
