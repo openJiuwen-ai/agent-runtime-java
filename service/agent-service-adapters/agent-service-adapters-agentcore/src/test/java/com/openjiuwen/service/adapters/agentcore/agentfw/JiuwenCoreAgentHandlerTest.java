@@ -100,7 +100,7 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     @Test
-    void legacyStreamPreservesOriginalErrorFieldsAndTerminatesOnce() {
+    void legacyStreamErrorChunkEmitsNormalizedErrorEventAndTerminatesOnce() {
         Map<String, Object> error = Map.of("type", "error", "error", "failed",
                 "code", "ORIGINAL_CODE", "retryable", true);
         var handler = legacyStreamHandler(List.of(error, Map.of("content", "must not be emitted")));
@@ -111,13 +111,16 @@ class JiuwenCoreAgentHandlerTest {
         var chunk = org.mockito.ArgumentCaptor.forClass(QueryChunk.class);
         verify(observer).onNext(chunk.capture());
         assertThat(chunk.getValue().getType()).isEqualTo(QueryChunk.TYPE_ERROR);
-        assertThat(chunk.getValue().getData()).isEqualTo(error);
+        assertThat(chunk.getValue().getData()).isInstanceOfSatisfying(Map.class, data -> {
+            assertThat(data).containsEntry("type", "error");
+            assertThat(data).containsKey("error");
+        });
         verify(observer).onError(org.mockito.ArgumentMatchers.any(IllegalStateException.class));
         verify(observer, org.mockito.Mockito.never()).onComplete();
     }
 
     @Test
-    void legacyStreamDoesNotReclassifyResultTypeOrAnswerPayload() {
+    void legacyStreamReclassifiesErrorResultsAsFailure() {
         List<Object> chunks = List.of(Map.of("result_type", "error", "output", "business result"),
                 new OutputSchema("answer", 0, Map.of("result_type", "error", "output", "legacy answer")));
         var handler = legacyStreamHandler(chunks);
@@ -126,12 +129,89 @@ class JiuwenCoreAgentHandlerTest {
         handler.streamQuery(request("legacy-result", "hello"), observer);
 
         var captured = org.mockito.ArgumentCaptor.forClass(QueryChunk.class);
-        verify(observer, org.mockito.Mockito.times(2)).onNext(captured.capture());
-        assertThat(captured.getAllValues()).allSatisfy(chunk ->
-                assertThat(chunk.getType()).isEqualTo(QueryChunk.TYPE_CHUNK));
-        verify(observer).onComplete();
-        verify(observer, org.mockito.Mockito.never()).onError(org.mockito.ArgumentMatchers.any());
-        assertThat(handler.query(request("legacy-sync-fallback", "hello")).getResult()).isNotNull();
+        verify(observer).onNext(captured.capture());
+        assertThat(captured.getValue().getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+        assertThat(captured.getValue().getData()).isInstanceOfSatisfying(Map.class, data -> {
+            assertThat(data).containsEntry("type", "error");
+            assertThat(data).containsEntry("error", "business result");
+        });
+        verify(observer).onError(org.mockito.ArgumentMatchers.argThat(
+                failure -> failure instanceof IllegalStateException
+                        && "business result".equals(failure.getMessage())));
+        verify(observer, org.mockito.Mockito.never()).onComplete();
+        assertThatThrownBy(() -> handler.query(request("legacy-sync-fallback", "hello")))
+                .isInstanceOf(IllegalStateException.class).hasMessage("business result");
+    }
+
+    @Test
+    void streamErrorPayloadWithFailureFieldsYieldsDescriptor() {
+        Map<String, Object> payload = new LinkedHashMap<>(Map.of(
+                "result_type", "error",
+                "output", "ModelError: model call timeout",
+                "failure", Map.of("code", "MODEL_CALL_TIMEOUT", "numericCode", 181008, "retryable", true)
+        ));
+        var handler = legacyStreamHandler(List.of(new OutputSchema("answer", 0, payload)));
+        var observer = mock(QueryStreamObserver.class);
+
+        handler.streamQuery(request("stream-failure", "hello"), observer);
+
+        var chunk = org.mockito.ArgumentCaptor.forClass(QueryChunk.class);
+        verify(observer).onNext(chunk.capture());
+        assertThat(chunk.getValue().getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+        assertThat(chunk.getValue().getData()).isInstanceOfSatisfying(Map.class, data -> {
+            assertThat(data).containsEntry("type", "error");
+            assertThat(data).containsEntry("error", "ModelError: model call timeout");
+            assertThat(data).containsEntry("failure",
+                    new AgentFailureDescriptor("MODEL_CALL_TIMEOUT", 181008, true));
+        });
+        var failure = org.mockito.ArgumentCaptor.forClass(Throwable.class);
+        verify(observer).onError(failure.capture());
+        assertThat(failure.getValue()).isInstanceOfSatisfying(AgentExecutionException.class, error -> {
+            assertThat(error.getDescriptor()).isEqualTo(
+                    new AgentFailureDescriptor("MODEL_CALL_TIMEOUT", 181008, true));
+            assertThat(error).hasMessage("ModelError: model call timeout");
+        });
+        verify(observer, org.mockito.Mockito.never()).onComplete();
+    }
+
+    @Test
+    void streamErrorChunkWithTopLevelFailureFieldsYieldsDescriptor() {
+        Map<String, Object> error = Map.of("type", "error", "output", "rate limited",
+                "failure", Map.of("code", "MODEL_CALL_RATE_LIMITED", "numericCode", 181009, "retryable", true));
+        var handler = legacyStreamHandler(List.of(error));
+        var observer = mock(QueryStreamObserver.class);
+
+        handler.streamQuery(request("stream-top-failure", "hello"), observer);
+
+        var failure = org.mockito.ArgumentCaptor.forClass(Throwable.class);
+        verify(observer).onError(failure.capture());
+        assertThat(failure.getValue()).isInstanceOfSatisfying(AgentExecutionException.class, thrown ->
+                assertThat(thrown.getDescriptor()).isEqualTo(
+                        new AgentFailureDescriptor("MODEL_CALL_RATE_LIMITED", 181009, true)));
+    }
+
+    @Test
+    void syncQueryAnswerPayloadErrorIsRejectedAsFailure() {
+        var handler = new JiuwenCoreAgentHandler("unused");
+        Map<String, Object> answerError = Map.of("type", "answer",
+                "payload", Map.of("result_type", "error", "output", "sync answer failure"));
+
+        assertThatThrownBy(() -> handler.toQueryResponse(answerError, "sync-answer-error"))
+                .isInstanceOf(IllegalStateException.class).hasMessage("sync answer failure");
+    }
+
+    @Test
+    void syncQueryAnswerPayloadFailureFieldsYieldDescriptor() {
+        var handler = new JiuwenCoreAgentHandler("unused");
+        Map<String, Object> answerError = Map.of("type", "answer",
+                "payload", Map.of("result_type", "error", "output", "sync timeout",
+                        "failure", Map.of("code", "MODEL_CALL_TIMEOUT", "numericCode", 181008,
+                                "retryable", true)));
+
+        assertThatThrownBy(() -> handler.toQueryResponse(answerError, "sync-answer-failure"))
+                .isInstanceOfSatisfying(AgentExecutionException.class, failure ->
+                        assertThat(failure.getDescriptor()).isEqualTo(
+                                new AgentFailureDescriptor("MODEL_CALL_TIMEOUT", 181008, true)));
     }
 
     @Test
