@@ -18,7 +18,6 @@ import java.util.List;
  * @since 0.1.4
  */
 public interface InstanceCatalog {
-
     /**
      * Returns the instances this process publishes.
      *

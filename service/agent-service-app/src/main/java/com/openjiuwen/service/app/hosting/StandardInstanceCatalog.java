@@ -21,7 +21,6 @@ import java.util.List;
  * @since 0.1.4
  */
 public class StandardInstanceCatalog implements InstanceCatalog {
-
     private final StandardAgentCardFactory cardFactory;
 
     private final AgentServiceIdentity identity;

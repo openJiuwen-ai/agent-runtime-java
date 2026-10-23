@@ -4,13 +4,13 @@
 
 package com.openjiuwen.service.app.a2a.catalog;
 
+import jakarta.annotation.PreDestroy;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-
-import jakarta.annotation.PreDestroy;
 
 import java.util.Objects;
 import java.util.concurrent.Executors;
@@ -39,7 +39,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 0.1.4
  */
 public class RemoteCatalogRefresher {
-
     private static final Logger log = LoggerFactory.getLogger(RemoteCatalogRefresher.class);
 
     private static final long MIN_REFRESH_TTL_MS = 1000L;

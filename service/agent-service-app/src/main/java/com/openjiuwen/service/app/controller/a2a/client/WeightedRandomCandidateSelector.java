@@ -24,7 +24,6 @@ import java.util.concurrent.ThreadLocalRandom;
  * @since 0.1.4
  */
 public class WeightedRandomCandidateSelector implements CandidateSelector {
-
     /** Equal weight applied to candidates with a non-positive weight. */
     private static final int EQUAL_WEIGHT = 1;
 

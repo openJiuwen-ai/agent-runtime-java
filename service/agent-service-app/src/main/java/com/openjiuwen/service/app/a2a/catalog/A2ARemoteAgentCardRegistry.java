@@ -162,34 +162,29 @@ public class A2ARemoteAgentCardRegistry {
      */
     public void register(String name, AgentCard card, int timeoutSeconds, boolean isStreaming,
             ExternalTlsConfig tls) {
-        register(name, card, timeoutSeconds, isStreaming, tls, null);
+        register(new RemoteAgentEntry(name, card, timeoutSeconds, isStreaming, tls));
     }
 
     /**
      * Registers a remote agent card with timeout, streaming, TLS settings, and
      * explicit instance candidates.
      *
-     * @param name the agent name
-     * @param card the agent card
-     * @param timeoutSeconds remote call timeout in seconds
-     * @param isStreaming whether Runtime should prefer streaming invocation
-     * @param tls target-specific outbound TLS configuration
-     * @param instances instance candidates; null derives the single candidate
-     *        from the card's first JSON-RPC interface
+     * @param entry the registration entry carrying the agent name, card,
+     *        timeout, streaming preference, TLS configuration, and instance
+     *        candidates
      */
-    public void register(String name, AgentCard card, int timeoutSeconds, boolean isStreaming, ExternalTlsConfig tls,
-            List<RemoteInstanceCandidate> instances) {
+    public void register(RemoteAgentEntry entry) {
         RemoteAgentCatalogSnapshot updatedSnapshot;
         updateLock.lock();
         try {
-            entries.put(name, new RemoteAgentEntry(name, card, timeoutSeconds, isStreaming, tls, instances));
+            entries.put(entry.name(), entry);
             version++;
             updatedSnapshot = createSnapshot();
         } finally {
             updateLock.unlock();
         }
-        log.info("Registered remote A2A Agent Card agentName={} catalogVersion={} catalogSize={} streaming={}", name,
-                updatedSnapshot.version(), updatedSnapshot.entries().size(), isStreaming);
+        log.info("Registered remote A2A Agent Card agentName={} catalogVersion={} catalogSize={} streaming={}",
+                entry.name(), updatedSnapshot.version(), updatedSnapshot.entries().size(), entry.isStreaming());
         publishCatalogChanged(updatedSnapshot);
     }
 

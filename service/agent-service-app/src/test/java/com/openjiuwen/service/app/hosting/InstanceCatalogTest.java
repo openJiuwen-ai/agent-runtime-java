@@ -32,7 +32,6 @@ import java.util.Map;
  * @since 0.1.4
  */
 class InstanceCatalogTest {
-
     @Test
     void standardCatalogExposesTheSingleJsonRpcInstance() {
         StandardAgentCardFactory cardFactory = mock(StandardAgentCardFactory.class);

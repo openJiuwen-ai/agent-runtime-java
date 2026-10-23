@@ -18,7 +18,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @ConfigurationProperties(prefix = "openjiuwen.service.a2a.remote-catalog")
 public class RemoteCatalogProperties {
-
     /** Default refresh TTL: five seconds. */
     private static final long DEFAULT_REFRESH_TTL_MS = 5000L;
 

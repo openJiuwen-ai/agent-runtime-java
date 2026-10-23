@@ -496,6 +496,8 @@ public class A2AAutoConfiguration {
      * @param props the A2A properties
      * @param registry the remote agent card registry
      * @param hostedCatalogs optional hosted remote directories
+     * @param catalogSource optional dynamic catalog source; its presence makes
+     *        static discovery step aside in favor of the refresher
      * @return the agent card discovery
      */
     @Bean
@@ -581,7 +583,7 @@ public class A2AAutoConfiguration {
             ObjectProvider<HostedAgentCardFactory> hostedCardsProvider) {
         HostedRuntimeCatalog hostedCatalog = hostedCatalogProvider.getIfAvailable();
         HostedAgentCardFactory hostedCards = hostedCardsProvider.getIfAvailable();
-        if (hostedCatalog == null ^ hostedCards == null) {
+        if ((hostedCatalog == null) ^ (hostedCards == null)) {
             throw new IllegalStateException(
                     "Hosted instance wiring is inconsistent: runtime catalog and card factory must "
                             + "be provided together");

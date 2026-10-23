@@ -16,7 +16,6 @@ package com.openjiuwen.service.app.a2a.catalog;
  * @since 0.1.4
  */
 public class RemoteCatalogLoadException extends RuntimeException {
-
     /**
      * Creates an exception with a detail message.
      *

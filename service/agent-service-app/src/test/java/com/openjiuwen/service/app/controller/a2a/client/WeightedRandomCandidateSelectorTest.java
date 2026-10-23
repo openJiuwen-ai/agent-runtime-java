@@ -24,7 +24,6 @@ import java.util.stream.IntStream;
  * @since 0.1.4
  */
 class WeightedRandomCandidateSelectorTest {
-
     private final WeightedRandomCandidateSelector selector = new WeightedRandomCandidateSelector();
 
     @Test

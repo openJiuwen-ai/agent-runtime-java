@@ -24,7 +24,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * @since 0.1.4
  */
 class A2ARemoteAgentCardRegistryReplaceAllTest {
-
     private final List<RemoteAgentCatalogChangedEvent> events = new CopyOnWriteArrayList<>();
 
     @Test

@@ -27,7 +27,6 @@ import java.util.stream.Stream;
  * @since 0.1.4
  */
 class RuntimeRegistryDependencyArchTest {
-
     private static final String FORBIDDEN_UNIFIED_REGISTRY_PACKAGE = "com.openjiuwen.agent.registry";
 
     private static final String FORBIDDEN_EXT_PACKAGE = "com.openjiuwen.service.app.directregistry";
@@ -36,7 +35,7 @@ class RuntimeRegistryDependencyArchTest {
             "agent-registry", "direct-registry");
 
     @Test
-    void runtimeMainSourcesNeverReferenceTheUnifiedRegistryApiOrTheExtensionModule() throws IOException {
+    void runtimeSourcesNeverReferenceRegistryClientOrExtension() throws IOException {
         List<Path> offenders = new ArrayList<>();
         for (Path sourceRoot : mainSourceRoots()) {
             try (Stream<Path> sources = Files.walk(sourceRoot)) {
@@ -50,7 +49,7 @@ class RuntimeRegistryDependencyArchTest {
     }
 
     @Test
-    void runtimePomsNeverDeclareTheUnifiedRegistryClientOrExtensionArtifacts() throws IOException {
+    void runtimePomsNeverDeclareRegistryClientArtifacts() throws IOException {
         List<String> offendingPoms = new ArrayList<>();
         for (Path pom : pomFiles()) {
             String content = Files.readString(pom);
@@ -100,6 +99,8 @@ class RuntimeRegistryDependencyArchTest {
      * Walks up from the test working directory (the module basedir) to the
      * repository root — the last directory whose parent still holds a POM —
      * then collects every directory of the repository holding a POM.
+     *
+     * @return every repository directory holding a POM
      */
     private static List<Path> moduleRoots() {
         Path directory = Paths.get("").toAbsolutePath();

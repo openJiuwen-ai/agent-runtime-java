@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteInstanceCandidate;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -47,7 +48,6 @@ import java.util.concurrent.TimeoutException;
  * @since 0.1.4
  */
 class A2ARemoteAgentClientFailoverTest {
-
     private static final byte[] TASK_REPLY = """
             {"jsonrpc":"2.0","id":"request","result":{"task":{"id":"remote-task",
             "contextId":"same","status":{"state":"TASK_STATE_COMPLETED"},
@@ -131,7 +131,7 @@ class A2ARemoteAgentClientFailoverTest {
     }
 
     @Test
-    void exhaustedTransientFailuresCompleteExceptionallyAfterTheRetryBudget() throws Exception {
+    void transientFailuresExhaustRetryBudgetThenFailExceptionally() throws Exception {
         startServer();
         A2ARemoteAgentCardRegistry registry = registry("remote", 20, url("/fail"), url("/fail"));
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry, 4, null, FIXED_FIRST);
@@ -153,7 +153,7 @@ class A2ARemoteAgentClientFailoverTest {
     void noLiveCandidateRejectsTheCallWithoutNetwork() throws Exception {
         startServer();
         A2ARemoteAgentCardRegistry registry = registry("remote", 20, url("/ok"));
-        registry.register("remote", card("remote", url("/ok")), 20, false, null, List.of());
+        registry.register(new RemoteAgentEntry("remote", card("remote", url("/ok")), 20, false, null, List.of()));
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry, 4, null, FIXED_FIRST);
         try {
             assertThatThrownBy(() -> client.callOutcome(new RemoteCall("remote", "hello", "same", null, Map.of()),
@@ -229,7 +229,7 @@ class A2ARemoteAgentClientFailoverTest {
         for (int i = 0; i < endpoints.length; i++) {
             candidates.add(new RemoteInstanceCandidate("i-" + (i + 1), endpoints[i], 0));
         }
-        registry.register(name, card(name, endpoints[0]), timeoutSeconds, false, null, candidates);
+        registry.register(new RemoteAgentEntry(name, card(name, endpoints[0]), timeoutSeconds, false, null, candidates));
         return registry;
     }
 

@@ -43,7 +43,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * @since 0.1.4
  */
 class A2AAgentCardDiscoveryBypassTest {
-
     private final List<String> requestPaths = new CopyOnWriteArrayList<>();
 
     private HttpServer server;

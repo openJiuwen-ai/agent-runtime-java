@@ -16,7 +16,6 @@ import java.util.List;
  * @since 0.1.4
  */
 public interface CandidateSelector {
-
     /**
      * Picks one candidate from the given list.
      *

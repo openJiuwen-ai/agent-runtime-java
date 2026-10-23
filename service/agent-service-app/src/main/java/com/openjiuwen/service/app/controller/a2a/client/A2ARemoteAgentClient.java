@@ -393,20 +393,10 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     /**
-     * Creates or retrieves a cached SDK {@link Client} for the given card and
-     * streaming mode.
-     * Authentication headers are prepared on cache creation, not on every request.
-     *
-     * @param catalog directory owning the transport configuration and cache entry
-     * @param entry the registered remote agent entry
-     * @param isStreaming
-     *            whether the client should be in streaming mode
-     * @return the SDK client
-     */
-    /**
      * Preserves the package-level test and extension hook for the default
      * client path: creates or retrieves the SDK client for the entry's first
-     * instance candidate.
+     * instance candidate. Authentication headers are prepared on cache
+     * creation, not on every request.
      *
      * @param catalog directory owning the transport configuration and cache entry
      * @param entry the registered remote agent entry
@@ -679,11 +669,11 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             round++;
             RuntimeException failure = null;
             for (RemoteInstanceCandidate candidate : rotationOrder(ctx.candidates(), selector)) {
-                RuntimeException candidateFailure = tryCandidate(ctx, candidate, isStreaming);
-                if (candidateFailure == null || ctx.result().isDone()) {
+                Optional<RuntimeException> candidateFailure = tryCandidate(ctx, candidate, isStreaming);
+                if (candidateFailure.isEmpty() || ctx.result().isDone()) {
                     return;
                 }
-                failure = candidateFailure;
+                failure = candidateFailure.orElseThrow();
             }
             if (round > MAX_RETRY_ATTEMPTS || !awaitRetryBackoff(
                     new RetryContext(ctx.call(), isStreaming, ctx.setup().contextId(), ctx.result()), round, failure)) {
@@ -698,16 +688,16 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
     /**
      * Sends once to one candidate. Returns the retryable failure to move on to
-     * the next candidate, or null when the invocation is settled (completed
+     * the next candidate, or empty when the invocation is settled (completed
      * through events, failed terminally, or aborted after the first-event lock
      * — the result future is completed inside in those cases).
      *
      * @param ctx the invocation coordinates
      * @param candidate the instance candidate to send to
      * @param isStreaming whether the invocation runs in streaming mode
-     * @return the retryable failure, or null when settled
+     * @return the retryable failure, or empty when settled
      */
-    private RuntimeException tryCandidate(InvocationContext ctx, RemoteInstanceCandidate candidate,
+    private Optional<RuntimeException> tryCandidate(InvocationContext ctx, RemoteInstanceCandidate candidate,
             boolean isStreaming) {
         try {
             Client client = clientFor(ctx, candidate, isStreaming);
@@ -716,7 +706,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                         error -> completeOutcomeOnStreamEnd(ctx.call().agentName(), ctx.result(), error), null);
                 return null;
             });
-            return null;
+            return Optional.empty();
         } catch (Error error) {
             logRemoteError("call", ctx.call(), isStreaming, ctx.setup().contextId(), error);
             ctx.result().completeExceptionally(error);
@@ -726,29 +716,29 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         }
     }
 
-    private RuntimeException classifyFailure(InvocationContext ctx, RemoteInstanceCandidate candidate,
+    private Optional<RuntimeException> classifyFailure(InvocationContext ctx, RemoteInstanceCandidate candidate,
             RuntimeException failure, boolean isStreaming) {
         if (ctx.result().isDone()) {
-            return null;
+            return Optional.empty();
         }
         if (ctx.firstEventSeen().get()) {
             log.error("A2A remote call failed on engaged instance agent={} instance={} streaming={} taskId={} "
                     + "contextId={}", ctx.call().agentName(), candidate.instanceId(), isStreaming,
                     taskIdOf(ctx.call()), ctx.setup().contextId(), failure);
             ctx.result().completeExceptionally(failure);
-            return null;
+            return Optional.empty();
         }
         if (!isRetryableTransportFailure(failure)) {
             log.error("A2A remote call failed permanently agent={} instance={} streaming={} taskId={} contextId={}",
                     ctx.call().agentName(), candidate.instanceId(), isStreaming, taskIdOf(ctx.call()),
                     ctx.setup().contextId(), failure);
             ctx.result().completeExceptionally(failure);
-            return null;
+            return Optional.empty();
         }
         log.warn("A2A remote instance failed transiently agent={} instance={} url={} taskId={} contextId={}",
                 ctx.call().agentName(), candidate.instanceId(), candidate.url(), taskIdOf(ctx.call()),
                 ctx.setup().contextId(), failure);
-        return failure;
+        return Optional.of(failure);
     }
 
     /**

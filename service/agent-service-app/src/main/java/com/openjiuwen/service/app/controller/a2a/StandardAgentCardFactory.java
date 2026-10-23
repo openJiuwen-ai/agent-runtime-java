@@ -25,7 +25,6 @@ import java.util.Map;
  * @since 0.1.4
  */
 public class StandardAgentCardFactory {
-
     private final A2AProperties a2aProperties;
 
     private final AgentServiceIdentity identity;

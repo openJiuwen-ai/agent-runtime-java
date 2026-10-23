@@ -30,7 +30,6 @@ import java.util.concurrent.ScheduledExecutorService;
  * @since 0.1.4
  */
 class RemoteCatalogRefresherTest {
-
     @Test
     void rejectsTtlsOutsideTheConfiguredBounds() {
         assertThatThrownBy(() -> refresher(absentProvider(), 999)).isInstanceOf(IllegalArgumentException.class)

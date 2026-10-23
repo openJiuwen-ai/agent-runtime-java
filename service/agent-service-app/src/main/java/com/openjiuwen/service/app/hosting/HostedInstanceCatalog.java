@@ -22,7 +22,6 @@ import java.util.List;
  * @since 0.1.4
  */
 public class HostedInstanceCatalog implements InstanceCatalog {
-
     private final HostedRuntimeCatalog catalog;
 
     private final HostedAgentCardFactory cardFactory;

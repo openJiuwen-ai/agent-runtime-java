@@ -38,7 +38,6 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 0.1.4
  */
 class HostedRemoteAgentCatalogsAlignmentTest {
-
     @Test
     void inheritedEntriesTrackTheGlobalSnapshotIncludingCandidates() {
         Context context = context(propertiesWithLocalTool(), "a");
@@ -47,7 +46,9 @@ class HostedRemoteAgentCatalogsAlignmentTest {
 
         List<RemoteInstanceCandidate> candidates = List.of(new RemoteInstanceCandidate("i-9",
                 "http://10.0.0.9:8080/a2a", 50));
-        context.global().register("weather", card("weather", "http://10.0.0.9:8080/a2a"), 77, true, null, candidates);
+        context.global()
+                .register(new RemoteAgentEntry("weather", card("weather", "http://10.0.0.9:8080/a2a"), 77, true, null,
+                        candidates));
 
         RemoteAgentEntry updated = context.hosted().catalog("a").get("weather").orElseThrow();
         assertThat(updated.timeoutSeconds()).isEqualTo(77);

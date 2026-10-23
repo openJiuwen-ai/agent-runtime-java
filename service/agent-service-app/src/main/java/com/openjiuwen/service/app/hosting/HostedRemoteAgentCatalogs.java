@@ -129,8 +129,7 @@ public final class HostedRemoteAgentCatalogs {
                 continue;
             }
             if (catalog.get(entry.name()).filter(entry::equals).isEmpty()) {
-                catalog.register(entry.name(), entry.card(), entry.timeoutSeconds(), entry.isStreaming(), entry.tls(),
-                        entry.candidates());
+                catalog.register(entry);
             }
         }
         for (var existing : catalog.snapshot().entries()) {
