@@ -185,16 +185,17 @@ public class Jiuwen2MemoryStore implements MemoryStore {
     /**
      * Maps the {@code infer} add option onto the 2.0 derive trigger. The 2.0 write path
      * only treats the string {@code "true"} as truthy ({@code _truthy_metadata}), so the
-     * boolean option is forwarded as that literal; absent/false options omit the field
-     * entirely and keep the direct-store path. Mirrors the mem0 provider's option parsing.
+     * boolean option is forwarded as that literal; absent/false options yield an empty
+     * map and omit the field entirely, keeping the direct-store path. Mirrors the mem0
+     * provider's option parsing.
      *
      * @param options the provider-specific add options, may be null
-     * @return {@code {infer: "true"}} when infer is requested, {@code null} otherwise
+     * @return {@code {infer: "true"}} when infer is requested, empty otherwise
      */
     private static Map<String, Object> inferSystemMetadata(Map<String, Object> options) {
         Object inferOption = options != null ? options.get("infer") : null;
         boolean shouldInfer = inferOption != null && Boolean.parseBoolean(String.valueOf(inferOption));
-        return shouldInfer ? Map.of("infer", "true") : null;
+        return shouldInfer ? Map.of("infer", "true") : Map.of();
     }
 
     /**
