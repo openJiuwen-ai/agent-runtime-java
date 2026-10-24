@@ -15,11 +15,7 @@ import com.openjiuwen.service.spec.security.AuthorizedResource;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.a2aproject.sdk.spec.AgentCapabilities;
 import org.a2aproject.sdk.spec.AgentCard;
-import org.a2aproject.sdk.spec.AgentInterface;
-import org.a2aproject.sdk.spec.AgentProvider;
-import org.a2aproject.sdk.spec.AgentSkill;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,20 +26,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Serves the A2A-standard Agent Card on well-known paths. All fields are driven by {@link A2AProperties}
- * configuration.
+ * Serves the A2A-standard Agent Card on well-known paths. Hosted mode resolves
+ * per-registration cards through the hosted resolver; standard mode delegates
+ * to {@link StandardAgentCardFactory}, which is the same factory the instance
+ * catalog registers with — the served card and the registered card are always
+ * the same fact.
  *
  * @since 0.1.0
  */
 @RestController
 public class AgentCardController {
-    private final A2AProperties a2aProperties;
-
-    private final AgentServiceIdentity identity;
-
-    private final ServiceProperties serviceProperties;
-
-    private final A2aPushNotificationCapabilityGate pushNotificationCapabilityGate;
+    private final StandardAgentCardFactory standardCards;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private HostedIngressResolver hostedResolver;
@@ -64,10 +57,8 @@ public class AgentCardController {
      */
     public AgentCardController(A2AProperties a2aProperties, AgentServiceIdentity identity,
         ServiceProperties serviceProperties, A2aPushNotificationCapabilityGate pushNotificationCapabilityGate) {
-        this.a2aProperties = a2aProperties;
-        this.identity = identity;
-        this.serviceProperties = serviceProperties;
-        this.pushNotificationCapabilityGate = pushNotificationCapabilityGate;
+        this.standardCards = new StandardAgentCardFactory(a2aProperties, identity, serviceProperties,
+            pushNotificationCapabilityGate);
     }
 
     /**
@@ -98,32 +89,8 @@ public class AgentCardController {
         if (hostedResolver != null) {
             return hostedCard(null, request, true);
         }
-        String baseUrl = (a2aProperties.getPublicUrl() != null && !a2aProperties.getPublicUrl().isBlank())
-            ? a2aProperties.getPublicUrl()
-            : request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
-
-        String jsonRpcUrl = baseUrl.replaceAll("/$", "") + a2aProperties.getJsonRpcPath();
-
-        List<AgentSkill> skills = a2aProperties.getSkills()
-            .stream()
-            .map(s -> new AgentSkill(s.getId(), s.getName(), s.getDescription(), s.getTags(), s.getExamples(),
-                s.getInputModes(), s.getOutputModes(), List.of()))
-            .toList();
-
-        String providerOrg = a2aProperties.getProviderOrganization() != null
-            ? a2aProperties.getProviderOrganization()
-            : "";
-        String providerUrl = a2aProperties.getProviderUrl() != null ? a2aProperties.getProviderUrl() : "";
-
-        return new AgentCard(identity.getAppName(), a2aProperties.getAgentDescription(),
-            new AgentProvider(providerOrg, providerUrl), serviceProperties.getVersion(),
-            a2aProperties.getDocumentationUrl(),
-            new AgentCapabilities(a2aProperties.isStreaming(),
-                pushNotificationCapabilityGate.isPushNotificationsEnabled(), a2aProperties.isExtendedAgentCard(),
-                List.of()), a2aProperties.getDefaultInputModes(),
-            a2aProperties.getDefaultOutputModes(), skills, Map.of(), List.of(), a2aProperties.getIconUrl(),
-            List.of(new AgentInterface("JSONRPC", jsonRpcUrl, null, "1.0")), List.of(), jsonRpcUrl, "JSONRPC",
-            List.of());
+        return standardCards.card(request.getScheme() + "://" + request.getServerName() + ":"
+            + request.getServerPort());
     }
 
     /**
