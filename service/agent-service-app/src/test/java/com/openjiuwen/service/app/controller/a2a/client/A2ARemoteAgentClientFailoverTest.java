@@ -229,7 +229,7 @@ class A2ARemoteAgentClientFailoverTest {
         for (int i = 0; i < endpoints.length; i++) {
             candidates.add(new RemoteInstanceCandidate("i-" + (i + 1), endpoints[i], 0));
         }
-        registry.register(new RemoteAgentEntry(name, card(name, endpoints[0]), timeoutSeconds, 
+        registry.register(new RemoteAgentEntry(name, card(name, endpoints[0]), timeoutSeconds,
             false, null, candidates));
         return registry;
     }
