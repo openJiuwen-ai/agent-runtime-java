@@ -107,6 +107,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private static final List<String> STREAM_CONTENT_KEYS = List.of("content", "delta", "output", "response", "result",
             "data", "payload");
 
+    private static final List<String> ERROR_CONTENT_KEYS = List.of("error", "message");
+
     private final Object agent;
 
     private final MiddlewareAdapterRegistrar middlewareAdapterRegistrar;
@@ -703,8 +705,16 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (rawResult instanceof WorkflowOutput workflowOutput) {
             return toQueryResponse(workflowOutput.getResult(), conversationId);
         }
-        if (modelCatalog != null && rawResult instanceof OutputSchema output) {
-            return toQueryResponse(normalizeChunk(output), conversationId);
+        if (rawResult instanceof OutputSchema output) {
+            // Error envelopes are recognized regardless of catalog presence; only the
+            // content normalization of non-error results stays catalog-scoped.
+            Object normalizedOutput = normalizeChunk(output);
+            if (normalizedOutput instanceof Map<?, ?> normalizedMap && isErrorResult(normalizedMap)) {
+                throw toStructuredStreamException(normalizedOutput);
+            }
+            if (modelCatalog != null) {
+                return toQueryResponse(normalizedOutput, conversationId);
+            }
         }
         result.put("content", stringify(rawResult));
         return new QueryResponse(result, conversationId);
@@ -735,7 +745,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (data instanceof List<?> items) {
             for (Object item : items) {
                 Object payload = normalizeChunk(item);
-                if (modelCatalog != null && QueryChunk.TYPE_ERROR.equals(mapToQueryChunkType(payload))) {
+                if (QueryChunk.TYPE_ERROR.equals(mapToQueryChunkType(payload))) {
                     throw toStructuredStreamException(payload);
                 }
                 lastPayload = payload;
@@ -1122,7 +1132,10 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private static String streamErrorMessage(Object normalized) {
-        return extractContent(normalized, STREAM_CONTENT_KEYS, false).filter(content -> !content.isBlank())
+        return extractContent(normalized, STREAM_CONTENT_KEYS, false)
+                .filter(content -> !content.isBlank())
+                .or(() -> extractContent(normalized, ERROR_CONTENT_KEYS, false)
+                        .filter(content -> !content.isBlank()))
                 .orElse("AgentCore streaming execution failed");
     }
 

@@ -113,17 +113,19 @@ class JiuwenCoreAgentHandlerTest {
         assertThat(chunk.getValue().getType()).isEqualTo(QueryChunk.TYPE_ERROR);
         assertThat(chunk.getValue().getData()).isInstanceOfSatisfying(Map.class, data -> {
             assertThat(data).containsEntry("type", "error");
-            assertThat(data).containsKey("error");
+            assertThat(data).containsEntry("error", "failed");
         });
-        verify(observer).onError(org.mockito.ArgumentMatchers.any(IllegalStateException.class));
+        verify(observer).onError(org.mockito.ArgumentMatchers.argThat(
+                failure -> failure instanceof IllegalStateException
+                        && "failed".equals(failure.getMessage())));
         verify(observer, org.mockito.Mockito.never()).onComplete();
     }
 
     @Test
-    void legacyStreamReclassifiesErrorResultsAsFailure() {
-        List<Object> chunks = List.of(Map.of("result_type", "error", "output", "business result"),
-                new OutputSchema("answer", 0, Map.of("result_type", "error", "output", "legacy answer")));
-        var handler = legacyStreamHandler(chunks);
+    void legacyStreamReclassifiesResultTypeErrorMapAsFailure() {
+        var handler = legacyStreamHandler(List.of(
+                Map.of("result_type", "error", "output", "business result"),
+                Map.of("content", "must not be emitted")));
         var observer = mock(QueryStreamObserver.class);
 
         handler.streamQuery(request("legacy-result", "hello"), observer);
@@ -141,6 +143,28 @@ class JiuwenCoreAgentHandlerTest {
         verify(observer, org.mockito.Mockito.never()).onComplete();
         assertThatThrownBy(() -> handler.query(request("legacy-sync-fallback", "hello")))
                 .isInstanceOf(IllegalStateException.class).hasMessage("business result");
+    }
+
+    @Test
+    void legacyStreamReclassifiesAnswerPayloadErrorAsFailure() {
+        var handler = legacyStreamHandler(List.of(
+                new OutputSchema("answer", 0, Map.of("result_type", "error", "output", "legacy answer")),
+                Map.of("content", "must not be emitted")));
+        var observer = mock(QueryStreamObserver.class);
+
+        handler.streamQuery(request("legacy-answer-error", "hello"), observer);
+
+        var captured = org.mockito.ArgumentCaptor.forClass(QueryChunk.class);
+        verify(observer).onNext(captured.capture());
+        assertThat(captured.getValue().getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+        assertThat(captured.getValue().getData()).isInstanceOfSatisfying(Map.class, data -> {
+            assertThat(data).containsEntry("type", "error");
+            assertThat(data).containsEntry("error", "legacy answer");
+        });
+        verify(observer).onError(org.mockito.ArgumentMatchers.argThat(
+                failure -> failure instanceof IllegalStateException
+                        && "legacy answer".equals(failure.getMessage())));
+        verify(observer, org.mockito.Mockito.never()).onComplete();
     }
 
     @Test
@@ -215,15 +239,32 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     @Test
-    void legacyControllerOutputListKeepsExistingConversion() {
+    void legacyControllerOutputErrorItemIsRejectedAsFailure() {
         var handler = new JiuwenCoreAgentHandler("unused");
         var output = new ControllerOutput("task_completion", List.of(
                 Map.of("type", "error", "content", "legacy content")));
-        assertThat(handler.toQueryResponse(output, "legacy-controller").getResult().toString())
-                .contains("legacy content");
+        // Error items inside a controller output list are failures regardless of catalog.
+        assertThatThrownBy(() -> handler.toQueryResponse(output, "legacy-controller"))
+                .isInstanceOf(IllegalStateException.class).hasMessage("legacy content");
         // Direct synchronous errors were already failures before model selection was introduced.
         assertThatThrownBy(() -> handler.toQueryResponse(Map.of("result_type", "error"), "legacy-direct"))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void syncInvokeAnswerErrorEnvelopeIsRejectedAsFailure() {
+        var handler = spy(new JiuwenCoreAgentHandler(new InvokeEchoAgent()));
+        OutputSchema answerError = new OutputSchema("answer", 0, Map.of(
+                "result_type", "error",
+                "output", "invoke answer failure",
+                "failure", Map.of("code", "MODEL_CALL_TIMEOUT", "numericCode", 181008,
+                        "retryable", true)));
+        doAnswer(invocation -> answerError).when(handler).executeAgent(anyMap(), any());
+
+        assertThatThrownBy(() -> handler.query(request("sync-envelope-error", "hello")))
+                .isInstanceOfSatisfying(AgentExecutionException.class, failure ->
+                        assertThat(failure.getDescriptor()).isEqualTo(
+                                new AgentFailureDescriptor("MODEL_CALL_TIMEOUT", 181008, true)));
     }
 
     private static JiuwenCoreAgentHandler legacyStreamHandler(List<Object> chunks) {
