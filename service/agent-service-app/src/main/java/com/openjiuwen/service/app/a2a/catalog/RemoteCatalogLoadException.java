@@ -17,19 +17,20 @@ package com.openjiuwen.service.app.a2a.catalog;
  */
 public class RemoteCatalogLoadException extends RuntimeException {
     /**
-     * Creates an exception with a detail message.
+     * Builds the degradation signal for one failed catalog load cycle.
      *
-     * @param message the detail message
+     * @param message the failure detail naming the source and the reason
      */
     public RemoteCatalogLoadException(String message) {
-        super(message);
+        this(message, null);
     }
 
     /**
-     * Creates an exception with a detail message and a cause.
+     * Builds the degradation signal, chaining the original load failure for
+     * diagnosis.
      *
-     * @param message the detail message
-     * @param cause the underlying failure
+     * @param message the failure detail naming the source and the reason
+     * @param cause the original load failure to chain
      */
     public RemoteCatalogLoadException(String message, Throwable cause) {
         super(message, cause);
