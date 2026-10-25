@@ -1117,7 +1117,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (failureMap.get("numericCode") instanceof Number number) {
             numericCode = number.intValue();
         }
-        boolean isRetryable = failureMap.get("retryable") instanceof Boolean retryable && retryable;
+        boolean isRetryable = Boolean.TRUE.equals(failureMap.get("retryable"));
         return Optional.of(new AgentFailureDescriptor(code, numericCode, isRetryable));
     }
 
