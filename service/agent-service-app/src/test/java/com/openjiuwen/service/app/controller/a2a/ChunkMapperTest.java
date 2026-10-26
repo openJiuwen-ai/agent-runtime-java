@@ -15,6 +15,7 @@ import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -57,7 +58,7 @@ class ChunkMapperTest {
     }
 
     private static class NullablePayload {
-        private final Object[] values = {null, LocalDateTime.parse("2026-10-26T11:47:05")};
+        private final List<Object> values = Arrays.asList(null, LocalDateTime.parse("2026-10-26T11:47:05"));
     }
 
     @Test
