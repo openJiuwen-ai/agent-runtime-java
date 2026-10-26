@@ -872,6 +872,79 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
+    void streamCompletionWaitsForTaskRelease() {
+        Optional<Object> token = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(token);
+        List<String> events = new java.util.ArrayList<>();
+        doAnswer(invocation -> {
+            events.add("handler");
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onComplete(new QueryResponse(Map.of("content", "done"), "c-release-order"));
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        doAnswer(invocation -> {
+            events.add("release");
+            return null;
+        }).when(agentHandler).completeTask(token);
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> {
+            events.add("done");
+            return null;
+        }).when(observer).onComplete(any(QueryResponse.class));
+
+        orchestrator.streamQuery(req("c-release-order"), observer);
+
+        assertThat(events).containsExactly("handler", "release", "done");
+        verify(agentHandler).completeTask(token);
+    }
+
+    @Test
+    void streamResumeReleasesOnceBeforeFinalCompletion() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        Optional<Object> token = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(token);
+        when(a2aClient.callOutcome(any(), any())).thenReturn(CompletableFuture.completedFuture(
+                new RemoteCallOutcome("remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "remote-done",
+                        null, null, Map.of())));
+        AtomicInteger releases = new AtomicInteger();
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            releases.incrementAndGet();
+            return null;
+        }).when(agentHandler).completeTask(token);
+        doAnswer(invocation -> {
+            assertThat(releases.get()).isZero();
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (localRuns.getAndIncrement() == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                        "type", "__interaction__", "toolCallId", "call-1", "toolName", "a2a_delegate",
+                        "message", "go", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                                "agentName", "remote-agent"))));
+                observer.onComplete();
+            } else {
+                observer.onComplete(new QueryResponse(Map.of("content", "done"), "c-release-resume"));
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> {
+            assertThat(releases.get()).isEqualTo(1);
+            return null;
+        }).when(observer).onComplete(any(QueryResponse.class));
+
+        orchestrator.streamQuery(req("c-release-resume"), observer);
+
+        assertThat(localRuns.get()).isEqualTo(2);
+        verify(agentHandler).prepareTask(any());
+        verify(agentHandler).completeTask(token);
+        verify(observer).onComplete(any(QueryResponse.class));
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onError(any());
+    }
+
+    @Test
     void streamQuery_prepareTaskThrows_unregistersAndCompletes() {
         ActiveStreamRegistry realRegistry = new ActiveStreamRegistry();
         A2AEnabledServeOrchestrator orchestratorWithRealRegistry = new A2AEnabledServeOrchestrator(agentHandler,

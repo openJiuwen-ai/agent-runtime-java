@@ -30,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A2A-aware orchestrator with interrupt-resume chain.
@@ -226,23 +228,24 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         log.info("Orchestrator streamQuery START conversationId={}", request.getConversationId());
         var handle = streamRegistry.register(request.getConversationId());
+        TerminalQueryStreamObserver terminalObserver = new TerminalQueryStreamObserver(observer);
         ServeRequest current = request;
         Optional<Object> taskToken = Optional.empty();
         try {
             taskToken = agentHandler.prepareTask(request);
-            while (!handle.isCancelled() && !observer.isCancelled()) {
-                Optional<ServeRequest> opt = tryResumePending(current, observer);
+            while (!handle.isCancelled() && !terminalObserver.isCancelled()) {
+                Optional<ServeRequest> opt = tryResumePending(current, terminalObserver);
                 if (opt.isEmpty()) {
                     return;
                 }
                 current = opt.get();
 
-                Optional<QueryChunk> interrupt = runAgentAndCaptureInterrupt(current, observer, handle);
+                Optional<QueryChunk> interrupt = runAgentAndCaptureInterrupt(current, terminalObserver, handle);
                 if (interrupt.isEmpty()) {
                     return;
                 }
 
-                Optional<ServeRequest> interruptResult = handleInterrupt(interrupt.get(), current, observer);
+                Optional<ServeRequest> interruptResult = handleInterrupt(interrupt.get(), current, terminalObserver);
                 if (interruptResult.isEmpty()) {
                     return;
                 }
@@ -253,9 +256,13 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
             // rejection) — completeTask must not disturb the other task.
             try {
                 agentHandler.completeTask(taskToken);
-                batchCoordinator.abortResume(current);
+                terminalObserver.releaseTerminal();
             } finally {
-                streamRegistry.unregister(request.getConversationId(), handle);
+                try {
+                    batchCoordinator.abortResume(current);
+                } finally {
+                    streamRegistry.unregister(request.getConversationId(), handle);
+                }
             }
         }
     }
@@ -757,5 +764,64 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         result.put("role", "assistant");
         result.put("_interrupt", Map.of("message", "Remote agent requires input"));
         return new QueryResponse(result, convId);
+    }
+
+    /**
+     * Holds terminal callbacks until request-scoped resources have been released.
+     */
+    private static final class TerminalQueryStreamObserver implements QueryStreamObserver {
+        private final QueryStreamObserver delegate;
+
+        private final AtomicReference<Runnable> terminal = new AtomicReference<>();
+
+        private final AtomicBoolean released = new AtomicBoolean();
+
+        private TerminalQueryStreamObserver(QueryStreamObserver delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void onNext(QueryChunk chunk) {
+            delegate.onNext(chunk);
+        }
+
+        @Override
+        public void onComplete() {
+            deferTerminal(delegate::onComplete);
+        }
+
+        @Override
+        public void onComplete(QueryResponse response) {
+            deferTerminal(() -> delegate.onComplete(response));
+        }
+
+        @Override
+        public void onError(Throwable error) {
+            deferTerminal(() -> delegate.onError(error));
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return delegate.isCancelled();
+        }
+
+        private void deferTerminal(Runnable callback) {
+            terminal.set(callback);
+            if (released.get()) {
+                dispatchTerminal();
+            }
+        }
+
+        private void releaseTerminal() {
+            released.set(true);
+            dispatchTerminal();
+        }
+
+        private void dispatchTerminal() {
+            Runnable callback = terminal.getAndSet(null);
+            if (callback != null) {
+                callback.run();
+            }
+        }
     }
 }
