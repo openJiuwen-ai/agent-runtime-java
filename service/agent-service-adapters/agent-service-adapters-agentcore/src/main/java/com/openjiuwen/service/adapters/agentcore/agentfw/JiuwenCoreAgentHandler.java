@@ -107,6 +107,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private static final List<String> STREAM_CONTENT_KEYS = List.of("content", "delta", "output", "response", "result",
             "data", "payload");
 
+    private static final List<String> ERROR_CONTENT_KEYS = List.of("error", "message");
+
     private final Object agent;
 
     private final MiddlewareAdapterRegistrar middlewareAdapterRegistrar;
@@ -520,9 +522,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         try {
             List<Map<String, Object>> interrupts = new ArrayList<>();
             Object session = runnerSession(request);
-            if (!forwardStream(request, observer, session, interrupts, () -> isTerminal[0] = true)) {
-                return;
-            }
+            forwardStream(request, observer, session, interrupts);
             finishStream(observer, session, interrupts, convId, () -> isTerminal[0] = true);
         } catch (CancellationException ex) {
             if (!isTerminal[0]) {
@@ -545,43 +545,30 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
     }
 
-    private boolean forwardStream(ServeRequest request, QueryStreamObserver observer, Object session,
-            List<Map<String, Object>> interrupts, Runnable markTerminal) {
+    private void forwardStream(ServeRequest request, QueryStreamObserver observer, Object session,
+            List<Map<String, Object>> interrupts) {
         Iterator<Object> source = executeAgentStreaming(buildExecutionInputs(request), session,
                 List.of(StreamMode.OUTPUT));
         while (!observer.isCancelled() && source.hasNext()) {
             if (Thread.currentThread().isInterrupted() || observer.isCancelled()) {
-                return true;
+                return;
             }
             Object normalized = normalizeChunk(source.next());
-            if (!forwardChunk(normalized, observer, interrupts, markTerminal)) {
-                return false;
-            }
+            forwardChunk(normalized, observer, interrupts);
         }
-        return true;
     }
 
-    private boolean forwardChunk(Object normalized, QueryStreamObserver observer,
-            List<Map<String, Object>> interrupts, Runnable markTerminal) {
+    private void forwardChunk(Object normalized, QueryStreamObserver observer,
+            List<Map<String, Object>> interrupts) {
         String chunkType = mapToQueryChunkType(normalized);
         if (QueryChunk.TYPE_ERROR.equals(chunkType)) {
-            if (modelCatalog == null) {
-                markTerminal.run();
-                try {
-                    observer.onNext(new QueryChunk(QueryChunk.TYPE_ERROR, normalized));
-                } finally {
-                    observer.onError(toStreamException(normalized));
-                }
-                return false;
-            }
-            throw toStreamException(normalized);
+            throw toStructuredStreamException(normalized);
         }
         if (QueryChunk.TYPE_INTERRUPT.equals(chunkType) && normalized instanceof Map<?, ?> map) {
             interrupts.add(copyStringMap(map));
         } else {
             observer.onNext(new QueryChunk(chunkType, normalized));
         }
-        return true;
     }
 
     private void finishStream(QueryStreamObserver observer, Object session,
@@ -652,7 +639,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         while (source.hasNext()) {
             Object payload = normalizeChunk(source.next());
             if (QueryChunk.TYPE_ERROR.equals(mapToQueryChunkType(payload))) {
-                throw toStreamException(payload);
+                throw toStructuredStreamException(payload);
             }
             lastPayload = payload;
             if (isCoreInteraction(payload) && payload instanceof Map<?, ?> map) {
@@ -699,7 +686,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) rawMap;
             if (isErrorResult(map)) {
-                throw toStreamException(map);
+                throw toStructuredStreamException(map);
             }
             Optional<QueryResponse> result1 = getQueryResponse(conversationId, map);
             if (result1.isPresent()) {
@@ -718,8 +705,16 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (rawResult instanceof WorkflowOutput workflowOutput) {
             return toQueryResponse(workflowOutput.getResult(), conversationId);
         }
-        if (modelCatalog != null && rawResult instanceof OutputSchema output) {
-            return toQueryResponse(normalizeChunk(output), conversationId);
+        if (rawResult instanceof OutputSchema output) {
+            // Error envelopes are recognized regardless of catalog presence; only the
+            // content normalization of non-error results stays catalog-scoped.
+            Object normalizedOutput = normalizeChunk(output);
+            if (normalizedOutput instanceof Map<?, ?> normalizedMap && isErrorResult(normalizedMap)) {
+                throw toStructuredStreamException(normalizedOutput);
+            }
+            if (modelCatalog != null) {
+                return toQueryResponse(normalizedOutput, conversationId);
+            }
         }
         result.put("content", stringify(rawResult));
         return new QueryResponse(result, conversationId);
@@ -750,8 +745,8 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (data instanceof List<?> items) {
             for (Object item : items) {
                 Object payload = normalizeChunk(item);
-                if (modelCatalog != null && QueryChunk.TYPE_ERROR.equals(mapToQueryChunkType(payload))) {
-                    throw toStreamException(payload);
+                if (QueryChunk.TYPE_ERROR.equals(mapToQueryChunkType(payload))) {
+                    throw toStructuredStreamException(payload);
                 }
                 lastPayload = payload;
                 if (isCoreInteraction(payload) && payload instanceof Map<?, ?> map) {
@@ -1061,8 +1056,7 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (INTERACTION_TYPE.equals(m.get("type"))) {
             return QueryChunk.TYPE_INTERRUPT;
         }
-        if (QueryChunk.TYPE_ERROR.equals(m.get("type"))
-                || modelCatalog != null && isErrorResult(m)) {
+        if (QueryChunk.TYPE_ERROR.equals(m.get("type")) || isErrorResult(m)) {
             return QueryChunk.TYPE_ERROR;
         }
         return QueryChunk.TYPE_CHUNK;
@@ -1071,9 +1065,6 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private boolean isErrorResult(Map<?, ?> result) {
         if (QueryChunk.TYPE_ERROR.equals(result.get("type")) || "error".equals(result.get("result_type"))) {
             return true;
-        }
-        if (modelCatalog == null) {
-            return false;
         }
         if ("answer".equals(result.get("type")) && result.get("payload") instanceof Map<?, ?> payload) {
             return "error".equals(payload.get("result_type"))
@@ -1093,9 +1084,59 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     private static RuntimeException toStreamException(Object normalized) {
-        String message = extractContent(normalized, STREAM_CONTENT_KEYS, false).filter(content -> !content.isBlank())
+        return new IllegalStateException(streamErrorMessage(normalized));
+    }
+
+    /**
+     * Builds the exception thrown for an error chunk, reconstructing a structured failure
+     * descriptor when the agent framework attached failure fields to the chunk payload.
+     *
+     * @param normalized normalized error chunk
+     * @return structured execution exception when the chunk carries failure fields, otherwise a
+     *         plain stream exception
+     */
+    private static RuntimeException toStructuredStreamException(Object normalized) {
+        Optional<AgentFailureDescriptor> descriptor = extractFailureDescriptor(normalized);
+        if (descriptor.isEmpty()) {
+            return toStreamException(normalized);
+        }
+        return new AgentExecutionException(streamErrorMessage(normalized), descriptor.get(), null);
+    }
+
+    /**
+     * Extracts a failure descriptor from a normalized error chunk. The agent framework attaches
+     * {@code {code, numericCode, retryable}} under the answer payload's {@code failure} key; a
+     * top-level {@code failure} entry is accepted as well.
+     *
+     * @param normalized normalized error chunk
+     * @return failure descriptor, or empty when the chunk carries no complete failure fields
+     */
+    private static Optional<AgentFailureDescriptor> extractFailureDescriptor(Object normalized) {
+        if (!(normalized instanceof Map<?, ?> map)) {
+            return Optional.empty();
+        }
+        Object failure = map.get("failure");
+        if (failure == null && map.get("payload") instanceof Map<?, ?> payload) {
+            failure = payload.get("failure");
+        }
+        if (!(failure instanceof Map<?, ?> failureMap)
+                || !(failureMap.get("code") instanceof String code) || code.isBlank()) {
+            return Optional.empty();
+        }
+        Integer numericCode = null;
+        if (failureMap.get("numericCode") instanceof Number number) {
+            numericCode = number.intValue();
+        }
+        boolean isRetryable = Boolean.TRUE.equals(failureMap.get("retryable"));
+        return Optional.of(new AgentFailureDescriptor(code, numericCode, isRetryable));
+    }
+
+    private static String streamErrorMessage(Object normalized) {
+        return extractContent(normalized, STREAM_CONTENT_KEYS, false)
+                .filter(content -> !content.isBlank())
+                .or(() -> extractContent(normalized, ERROR_CONTENT_KEYS, false)
+                        .filter(content -> !content.isBlank()))
                 .orElse("AgentCore streaming execution failed");
-        return new IllegalStateException(message);
     }
 
     private RuntimeException structuredFailure(RuntimeException failure) {

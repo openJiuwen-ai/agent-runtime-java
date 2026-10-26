@@ -74,6 +74,7 @@ import org.a2aproject.sdk.spec.Event;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -88,7 +89,9 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -142,6 +145,24 @@ public class A2AAutoConfiguration {
      */
     @Autowired
     private ObjectProvider<ActiveStreamRegistry> streamRegistryProvider;
+
+    /**
+     * Resolves an optional response hook without implicit name or primary selection.
+     *
+     * @param provider available hook candidates
+     * @param hookType response hook interface
+     * @param <T> hook type
+     * @return the only hook, or an empty Optional when none is registered
+     * @throws NoUniqueBeanDefinitionException when multiple hooks are registered
+     */
+    static <T> Optional<T> resolveResponseHook(ObjectProvider<T> provider, Class<T> hookType) {
+        List<T> candidates = provider.stream().toList();
+        if (candidates.size() > 1) {
+            throw new NoUniqueBeanDefinitionException(hookType, candidates.size(),
+                    "At most one response hook is allowed");
+        }
+        return candidates.stream().findFirst();
+    }
 
     /**
      * Creates the SDK main event bus bean.
@@ -484,7 +505,7 @@ public class A2AAutoConfiguration {
             CandidateSelector candidateSelector) {
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency(),
                 securitySupportProvider.getIfAvailable(), candidateSelector,
-                remoteTaskResultHookProvider.getIfAvailable());
+                resolveResponseHook(remoteTaskResultHookProvider, RemoteTaskResultHook.class).orElse(null));
         client.setOutboundHeaders(props.getOutboundHeaders());
         return client;
     }
@@ -615,7 +636,8 @@ public class A2AAutoConfiguration {
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteCallerProvider.getObject(),
                 streamRegistryProvider.getObject(), agentId,
                 limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds(), continuation,
-                remoteProjectionHookProvider.getIfAvailable(), remoteTaskResultHookProvider.getIfAvailable());
+                resolveResponseHook(remoteProjectionHookProvider, RemoteProjectionHook.class).orElse(null),
+                resolveResponseHook(remoteTaskResultHookProvider, RemoteTaskResultHook.class).orElse(null));
     }
 
     /**

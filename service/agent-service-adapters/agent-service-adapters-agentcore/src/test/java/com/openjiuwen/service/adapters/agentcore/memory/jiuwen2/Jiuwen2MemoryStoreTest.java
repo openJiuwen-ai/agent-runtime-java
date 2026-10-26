@@ -104,6 +104,42 @@ class Jiuwen2MemoryStoreTest {
     }
 
     @Test
+    void addForwardsInferOptionAsSystemMetadataTrue() {
+        server = LocalJiuwen2Server.start();
+        Jiuwen2MemoryStore store = newStore();
+
+        store.add(new MemoryAddRequest(MemoryScope.empty(),
+            List.of(new MemoryMessage("user", "我今天中午吃了麦当劳")), Map.of("infer", true)));
+
+        // 2.0 的抽取链路（矛盾更新/supersede）由 system_metadata["infer"]="true" 触发，
+        // 写入路径只认字符串 "true"（_truthy_metadata）；boolean option 必须转成该字符串
+        // 下发，否则 derive 上下文传不到引擎，旧事实压过新事实（issue #124）。
+        assertThat(server.lastAddSystemMetadata()).containsEntry("infer", "true");
+    }
+
+    @Test
+    void addWithoutInferOptionOmitsSystemMetadata() {
+        server = LocalJiuwen2Server.start();
+        Jiuwen2MemoryStore store = newStore();
+
+        store.add(new MemoryAddRequest(MemoryScope.empty(),
+            List.of(new MemoryMessage("user", "普通记录")), Map.of()));
+
+        assertThat(server.lastAddBody()).doesNotContainKey("system_metadata");
+    }
+
+    @Test
+    void addWithFalseInferOptionOmitsSystemMetadata() {
+        server = LocalJiuwen2Server.start();
+        Jiuwen2MemoryStore store = newStore();
+
+        store.add(new MemoryAddRequest(MemoryScope.empty(),
+            List.of(new MemoryMessage("user", "普通记录")), Map.of("infer", false)));
+
+        assertThat(server.lastAddBody()).doesNotContainKey("system_metadata");
+    }
+
+    @Test
     void searchSendsExplicitL2DisclosureAndContextScope() {
         server = LocalJiuwen2Server.start();
         Jiuwen2MemoryStore store = newStore();
@@ -252,6 +288,12 @@ class Jiuwen2MemoryStoreTest {
         @SuppressWarnings("unchecked")
         private Map<String, Object> lastAddUserMetadata() {
             Object metadata = lastAddBody.get().get("user_metadata");
+            return metadata instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+        }
+
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> lastAddSystemMetadata() {
+            Object metadata = lastAddBody.get().get("system_metadata");
             return metadata instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
         }
 

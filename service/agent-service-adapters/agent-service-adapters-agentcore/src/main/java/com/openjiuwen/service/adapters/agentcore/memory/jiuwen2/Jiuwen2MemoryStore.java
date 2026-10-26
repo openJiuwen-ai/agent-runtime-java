@@ -28,7 +28,9 @@ import java.util.Optional;
  * <ul>
  *   <li>{@code add} → {@code POST /v1/add} — the turn's messages are merged into a
  *       single content with {@code [user]}/{@code [assistant]} markers (turn-level
- *       ingestion, mirroring the mem0 best practice)</li>
+ *       ingestion, mirroring the mem0 best practice); the {@code infer} add option maps
+ *       to {@code system_metadata["infer"]="true"} — the 2.0 derive-path trigger that
+ *       routes the turn through extraction/supersede instead of direct store</li>
  *   <li>{@code search} → {@code POST /v1/search} with explicit {@code disclosure=l2}
  *       (the 2.0 default l0 returns abstracts only)</li>
  *   <li>{@code get} → {@code POST /v1/get}; 404 maps to empty</li>
@@ -88,7 +90,8 @@ public class Jiuwen2MemoryStore implements MemoryStore {
         MemoryScope scope = normalized.scope();
         Map<String, Object> responseScope = requestScope(scope);
         Map<String, Object> userMetadata = businessMetadata(scope);
-        List<Map<String, Object>> units = api.add(baseUrl, content, responseScope, userMetadata);
+        List<Map<String, Object>> units = api.add(baseUrl, content, responseScope, userMetadata,
+            inferSystemMetadata(normalized.options()));
         return new MemoryWriteResult(toRecords(units, "id"), Map.of());
     }
 
@@ -177,6 +180,22 @@ public class Jiuwen2MemoryStore implements MemoryStore {
         if (value != null && !value.isBlank()) {
             target.put(key, value);
         }
+    }
+
+    /**
+     * Maps the {@code infer} add option onto the 2.0 derive trigger. The 2.0 write path
+     * only treats the string {@code "true"} as truthy ({@code _truthy_metadata}), so the
+     * boolean option is forwarded as that literal; absent/false options yield an empty
+     * map and omit the field entirely, keeping the direct-store path. Mirrors the mem0
+     * provider's option parsing.
+     *
+     * @param options the provider-specific add options, may be null
+     * @return {@code {infer: "true"}} when infer is requested, empty otherwise
+     */
+    private static Map<String, Object> inferSystemMetadata(Map<String, Object> options) {
+        Object inferOption = options != null ? options.get("infer") : null;
+        boolean shouldInfer = inferOption != null && Boolean.parseBoolean(String.valueOf(inferOption));
+        return shouldInfer ? Map.of("infer", "true") : Map.of();
     }
 
     /**

@@ -31,7 +31,7 @@ cleanup() {
   if [ -n "$AGENT_B_PID" ]; then kill "$AGENT_B_PID" 2>/dev/null || true; fi
   if [ -n "$AGENT_C_PID" ]; then kill "$AGENT_C_PID" 2>/dev/null || true; fi
   if [ -n "$AGENT_D_PID" ]; then kill "$AGENT_D_PID" 2>/dev/null || true; fi
-  if [ "$status" -eq 0 ]; then
+  if [ "$status" -eq 0 ] && [ "${A2A_KEEP_EVIDENCE:-0}" != "1" ]; then
     rm -rf "$TMP_DIR"
   else
     printf '\nLogs and responses retained in %s\n' "$TMP_DIR" >&2
@@ -168,6 +168,8 @@ if not events:
 states = []
 task_ids = []
 for event in events:
+    if event.get("error"):
+        raise SystemExit(f"JSON-RPC error: {event['error']}")
     result = event.get("result") or {}
     update = result.get("statusUpdate") or result.get("artifactUpdate") or {}
     task_id = update.get("taskId")
@@ -176,7 +178,7 @@ for event in events:
     status = (result.get("statusUpdate") or {}).get("status") or {}
     if status.get("state"):
         states.append(status["state"])
-if expected_state not in states:
+if not states or states[-1] != expected_state:
     print(json.dumps(events, ensure_ascii=False)[:4000], file=sys.stderr)
     raise SystemExit(f"SSE response did not reach {expected_state}; states={states}")
 if not task_ids or len(set(task_ids)) != 1:
@@ -244,10 +246,11 @@ PY
 assert_plain_terminal_artifacts() {
   local response_file="$1"
   local response_kind="$2"
-  "$PYTHON" - "$response_file" "$response_kind" <<'PY'
+  local claim_id="$3"
+  "$PYTHON" - "$response_file" "$response_kind" "$claim_id" <<'PY'
 import json, sys
 
-response_file, response_kind = sys.argv[1:]
+response_file, response_kind, claim_id = sys.argv[1:]
 with open(response_file, encoding="utf-8") as stream:
     raw = stream.read()
 if "\\u003d" in raw.lower():
@@ -265,11 +268,18 @@ else:
     task = ((response.get("result") or {}).get("task") or {})
     artifacts = task.get("artifacts") or []
 
+# Only terminal business output counts; prompts/history and intermediate traces
+# may mention approval even when the remote task ultimately fails.
+import re
+if re.search(r"REMOTE_(?:UNAVAILABLE|TIMEOUT|ERROR)|ok\s*[=:]\s*false", raw, re.I):
+    raise SystemExit("remote failure found despite parent completion")
+terminal_parts = []
 has_terminal_artifact = False
 for artifact in artifacts:
     metadata = artifact.get("metadata") or {}
     if metadata.get("_agentcore_terminal") is True:
         has_terminal_artifact = True
+        terminal_parts.extend(artifact.get("parts") or [])
     for part in artifact.get("parts") or []:
         text = part.get("text")
         if not isinstance(text, str):
@@ -283,6 +293,22 @@ for artifact in artifacts:
             raise SystemExit("AgentCore terminal envelope leaked into parts.text")
 if not has_terminal_artifact:
     raise SystemExit("response did not contain an artifact marked as the AgentCore terminal result")
+business = json.dumps(terminal_parts, ensure_ascii=False).lower()
+for expected in (claim_id, "approved", "3000", "600"):
+    if expected.lower() not in business:
+        raise SystemExit(f"terminal expense result missing {expected}")
+if response_kind == "sse":
+    # D's structured final output must survive both remote projections. A/B's
+    # LLM summary alone cannot prove that D actually produced a report.
+    reports = [part.get("data") for artifact in artifacts
+               if ((artifact.get("metadata") or {}).get("agentEvent") or {}).get("source", {}).get("agentId")
+               == "agentd-streaming" for part in artifact.get("parts") or []]
+    if not any(isinstance(report, dict) and report.get("claim_id") == claim_id
+               and report.get("manual_decision") == "approved"
+               and report.get("policy_status") == "OVER_LIMIT"
+               and isinstance(report.get("llm_report"), str) and report["llm_report"].strip()
+               for report in reports):
+        raise SystemExit("missing Agent D structured approval result and LLM report")
 PY
 }
 
@@ -489,7 +515,7 @@ curl -sS -N --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/"
   -H 'Content-Type: application/json' \
   -H 'Accept: text/event-stream' --data-binary "@$d_stream_request2" >"$d_stream_response2"
 d_stream_resumed_task_id="$(assert_sse_task "$d_stream_response2" "TASK_STATE_COMPLETED")"
-assert_plain_terminal_artifacts "$d_stream_response2" "sse"
+assert_plain_terminal_artifacts "$d_stream_response2" "sse" "$D_STREAM_CLAIM"
 if [ "$d_stream_resumed_task_id" != "$d_stream_task_id" ]; then
   fail "Agent D streaming resume changed taskId from $d_stream_task_id to $d_stream_resumed_task_id"
 fi
@@ -520,7 +546,7 @@ curl -sS --max-time "$A2A_REQUEST_TIMEOUT_SECONDS" -X POST "$BASE_URL_A/a2a/" \
   -H 'Content-Type: application/json' \
   --data-binary "@$d_nonstream_request2" >"$d_nonstream_response2"
 d_nonstream_resumed_task_id="$(assert_sync_task "$d_nonstream_response2" "TASK_STATE_COMPLETED")"
-assert_plain_terminal_artifacts "$d_nonstream_response2" "sync"
+assert_plain_terminal_artifacts "$d_nonstream_response2" "sync" "$D_NONSTREAM_CLAIM"
 if [ "$d_nonstream_resumed_task_id" != "$d_nonstream_task_id" ]; then
   fail "Agent D non-streaming resume changed taskId from $d_nonstream_task_id to $d_nonstream_resumed_task_id"
 fi
