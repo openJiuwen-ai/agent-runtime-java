@@ -8,11 +8,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.openjiuwen.service.spec.dto.QueryChunk;
 
+import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -20,6 +23,53 @@ import java.util.Map;
  */
 class ChunkMapperTest {
     private final ChunkMapper mapper = new ChunkMapper();
+
+    @Test
+    void preservesGsonPayloadFieldsAndBinaryRepresentation() {
+        LegacyPayload payload = new LegacyPayload();
+        Part<?> nested = partValue(new QueryChunk(QueryChunk.TYPE_CHUNK, Map.of("payload", payload)));
+        String json = JsonUtil.OBJECT_MAPPER.toJson(nested, Part.class);
+        assertThat(json).contains("\"wire_name\":\"legacy\"", "\"bytes\":[1,2]", "9007199254740993")
+                .doesNotContain("computed", "javaName");
+        assertThat(((TextPart) partValue(new QueryChunk(QueryChunk.TYPE_CHUNK, payload))).text())
+                .isEqualTo(new com.google.gson.Gson().toJson(payload));
+    }
+
+    private static class LegacyPayload {
+        @com.google.gson.annotations.SerializedName("wire_name")
+        private final String javaName = "legacy";
+        private final byte[] bytes = {1, 2};
+        private final long id = 9007199254740993L;
+
+        public String getComputed() {
+            return "derived";
+        }
+    }
+
+    @Test
+    void nestedTraceTimesCanBeSerializedByTheA2aSdk() {
+        TracePayload trace = new TracePayload(LocalDateTime.parse("2026-10-26T11:47:05"), "success");
+        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_CHUNK,
+                Map.of("type", "tracer_workflow", "payload", Map.of("spans", List.of(trace))));
+
+        Part<?> part = partValue(chunk);
+        String json = JsonUtil.OBJECT_MAPPER.toJson(part, Part.class);
+
+        assertThat(json).contains("2026-10-26T11:47:05", "success", "tracer_workflow");
+        assertThat(data(chunk)).isEqualTo(Map.of("type", "tracer_workflow", "payload",
+                Map.of("spans", List.of(Map.of("startTime", "2026-10-26T11:47:05", "status", "success")))));
+        assertThat(trace.startTime()).isEqualTo(LocalDateTime.parse("2026-10-26T11:47:05"));
+    }
+
+    @Test
+    void terminalResultsNormalizeDatesAndPreserveBusinessValues() {
+        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_CHUNK, envelope("workflow_final", Map.of("output",
+                Map.of("approvedAt", LocalDateTime.parse("2026-10-26T11:47:05"), "amount", 3000, "approved", true))));
+
+        assertThat(data(chunk))
+                .isEqualTo(Map.of("approvedAt", "2026-10-26T11:47:05", "amount", 3000, "approved", true));
+        assertThat(mapper.isTerminalResult(chunk)).isTrue();
+    }
 
     @Test
     void answerEnvelopeIsMappedToPlainBusinessText() {
@@ -92,5 +142,8 @@ class ChunkMapperTest {
 
     private static Map<String, Object> envelope(String type, Map<String, Object> payload) {
         return Map.of("type", type, "index", 0, "payload", payload);
+    }
+
+    private record TracePayload(LocalDateTime startTime, String status) {
     }
 }

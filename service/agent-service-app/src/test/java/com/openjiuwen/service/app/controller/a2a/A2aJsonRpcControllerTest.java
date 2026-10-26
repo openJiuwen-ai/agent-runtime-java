@@ -15,17 +15,20 @@ import static org.mockito.Mockito.when;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.openjiuwen.service.app.config.A2AProperties;
+import com.openjiuwen.service.spec.dto.QueryChunk;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
 import org.a2aproject.sdk.spec.A2AMethods;
+import org.a2aproject.sdk.spec.Artifact;
 import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.InvalidParamsError;
 import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.Part;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TaskIdParams;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
@@ -38,6 +41,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.concurrent.Flow;
 import java.util.concurrent.RejectedExecutionException;
@@ -49,8 +53,7 @@ import java.util.concurrent.RejectedExecutionException;
  */
 class A2aJsonRpcControllerTest {
     private static final String[] UNSUPPORTED_PUSH_CRUD_METHODS = {"CreateTaskPushNotificationConfig",
-            "GetTaskPushNotificationConfig", "ListTaskPushNotificationConfigs",
-            "DeleteTaskPushNotificationConfig"};
+            "GetTaskPushNotificationConfig", "ListTaskPushNotificationConfigs", "DeleteTaskPushNotificationConfig"};
 
     @Test
     void malformedSelectionFailsBeforeTaskOrStream() {
@@ -69,8 +72,9 @@ class A2aJsonRpcControllerTest {
                 if (!(response.getBody() instanceof String body)) {
                     throw new AssertionError("Expected a JSON-RPC error body");
                 }
-                assertThat(JsonParser.parseString(body).getAsJsonObject()
-                        .getAsJsonObject("error").get("code").getAsInt()).isEqualTo(-32602);
+                assertThat(
+                        JsonParser.parseString(body).getAsJsonObject().getAsJsonObject("error").get("code").getAsInt())
+                        .isEqualTo(-32602);
             }
         }
         verifyNoInteractions(handler);
@@ -83,13 +87,11 @@ class A2aJsonRpcControllerTest {
         A2AProperties properties = new A2AProperties();
         properties.setMaxMessageBytes(1024);
         controller.setA2aProperties(properties);
-        jakarta.servlet.http.HttpServletRequest servletRequest = mock(
-                jakarta.servlet.http.HttpServletRequest.class);
+        jakarta.servlet.http.HttpServletRequest servletRequest = mock(jakarta.servlet.http.HttpServletRequest.class);
         when(servletRequest.getContentLengthLong()).thenReturn(2048L);
 
         ResponseEntity<?> response = controller.handleJsonRpc(
-                "{\"jsonrpc\":\"2.0\",\"id\":\"req-1\",\"method\":\"SendMessage\",\"params\":{}}",
-                servletRequest);
+                "{\"jsonrpc\":\"2.0\",\"id\":\"req-1\",\"method\":\"SendMessage\",\"params\":{}}", servletRequest);
 
         assertThat(response.getStatusCode().value()).isEqualTo(413);
         assertThat(response.getBody()).isNull();
@@ -103,13 +105,11 @@ class A2aJsonRpcControllerTest {
         A2AProperties properties = new A2AProperties();
         properties.setMaxMessageBytes(1024);
         controller.setA2aProperties(properties);
-        jakarta.servlet.http.HttpServletRequest servletRequest = mock(
-                jakarta.servlet.http.HttpServletRequest.class);
+        jakarta.servlet.http.HttpServletRequest servletRequest = mock(jakarta.servlet.http.HttpServletRequest.class);
         when(servletRequest.getContentLengthLong()).thenReturn(-1L);
 
         ResponseEntity<?> response = controller.handleJsonRpc(
-                "{\"jsonrpc\":\"2.0\",\"id\":\"req-1\",\"method\":\"SendMessage\",\"params\":{}}",
-                servletRequest);
+                "{\"jsonrpc\":\"2.0\",\"id\":\"req-1\",\"method\":\"SendMessage\",\"params\":{}}", servletRequest);
 
         assertThat(response.getStatusCode().value()).isEqualTo(413);
         verifyNoInteractions(requestHandler);
@@ -153,8 +153,8 @@ class A2aJsonRpcControllerTest {
         MessageSendParams params = A2aJsonRpcParamsParser.parseMessageSendParams(request);
 
         assertThat(params.metadata()).containsExactlyEntriesOf(Map.of("request-scope", "params"));
-        assertThat(params.message().metadata()).containsEntry("request-scope", "message")
-                .containsEntry("trace-id", "trace-1");
+        assertThat(params.message().metadata()).containsEntry("request-scope", "message").containsEntry("trace-id",
+                "trace-1");
     }
 
     @Test
@@ -187,23 +187,21 @@ class A2aJsonRpcControllerTest {
     @Test
     void routesSubscribeToTaskToRequestHandlerAndReturnsSse() {
         RequestHandler requestHandler = mock(RequestHandler.class);
-        Flow.Publisher<StreamingEventKind> publisher = subscriber -> subscriber
-                .onSubscribe(new Flow.Subscription() {
-                    @Override
-                    public void request(long numberOfItems) {
-                        // no event is needed to verify protocol routing
-                    }
+        Flow.Publisher<StreamingEventKind> publisher = subscriber -> subscriber.onSubscribe(new Flow.Subscription() {
+            @Override
+            public void request(long numberOfItems) {
+                // no event is needed to verify protocol routing
+            }
 
-                    @Override
-                    public void cancel() {
-                        // no resource is held by this test publisher
-                    }
-                });
+            @Override
+            public void cancel() {
+                // no resource is held by this test publisher
+            }
+        });
         when(requestHandler.onSubscribeToTask(any(TaskIdParams.class), any())).thenReturn(publisher);
         A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
-        String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\""
-                + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
+        String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\"" + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
                 + "\",\"params\":{\"id\":\"task-1\",\"tenant\":\"tenant-1\"}}";
         servletRequest.setContent(request.getBytes(StandardCharsets.UTF_8));
 
@@ -228,8 +226,7 @@ class A2aJsonRpcControllerTest {
         when(requestHandler.onSubscribeToTask(any(TaskIdParams.class), any())).thenReturn(publisher);
         A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
-        String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\""
-                + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
+        String request = "{\"jsonrpc\":\"2.0\",\"id\":\"request-1\",\"method\":\"" + A2AMethods.SUBSCRIBE_TO_TASK_METHOD
                 + "\",\"params\":{\"id\":\"task-1\",\"tenant\":\"tenant-1\"}}";
         // the /a2a endpoint pre-checks Content-Length before JSON
         // parsing; mirror a well-formed client by setting the request body (which
@@ -240,7 +237,8 @@ class A2aJsonRpcControllerTest {
         ResponseEntity<?> response = controller.handleJsonRpc(request, servletRequest);
 
         assertThat(response.getBody()).isInstanceOf(SseEmitter.class);
-        SseEmitter emitter = response.getBody() instanceof SseEmitter sseEmitter ? sseEmitter
+        SseEmitter emitter = response.getBody() instanceof SseEmitter sseEmitter
+                ? sseEmitter
                 : throwEmitterTypeMismatch();
         // The completion callback runs asynchronously on commonPool; wait until the
         // whenComplete handler has marked the emitter complete (bounded wait).
@@ -264,6 +262,19 @@ class A2aJsonRpcControllerTest {
     }
 
     @Test
+    void serializesMappedTraceEventWithoutRedis() throws Exception {
+        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_CHUNK, Map.of("type", "tracer_workflow", "payload",
+                Map.of("startTime", LocalDateTime.parse("2026-10-26T11:47:05"))));
+        Artifact artifact = Artifact.builder().artifactId("trace").parts(new ChunkMapper().toParts(chunk)).build();
+        TaskArtifactUpdateEvent event = new TaskArtifactUpdateEvent("task", artifact, "context", false, false,
+                Map.of());
+
+        String json = A2aJsonRpcController.serializeA2aJson(event);
+
+        assertThat(json).contains("artifactUpdate", "2026-10-26T11:47:05", "tracer_workflow");
+    }
+
+    @Test
     void serializesTextWithoutHtmlSafeUnicodeEscapes() throws Exception {
         String json = A2aJsonRpcController.serializeA2aJson(new TextPart("claim=WF-001; decision=approved"));
 
@@ -272,8 +283,8 @@ class A2aJsonRpcControllerTest {
 
     @Test
     void serializesStructuredChunksAsJsonDataInsteadOfEscapedText() throws Exception {
-        String json = A2aJsonRpcController.serializeA2aJson(
-                new DataPart(Map.of("type", "llm_output", "payload", Map.of("content", "working"))));
+        String json = A2aJsonRpcController
+                .serializeA2aJson(new DataPart(Map.of("type", "llm_output", "payload", Map.of("content", "working"))));
         JsonObject part = JsonParser.parseString(json).getAsJsonObject();
 
         assertThat(part.has("text")).isFalse();
@@ -284,8 +295,8 @@ class A2aJsonRpcControllerTest {
 
     @Test
     void structuredPartRoundTripsThroughStandardA2aSdkJsonMapper() throws Exception {
-        String json = A2aJsonRpcController.serializeA2aJson(
-                new DataPart(Map.of("type", "llm_output", "payload", Map.of("content", "working"))));
+        String json = A2aJsonRpcController
+                .serializeA2aJson(new DataPart(Map.of("type", "llm_output", "payload", Map.of("content", "working"))));
 
         Part<?> decoded = JsonUtil.fromJson(json, Part.class);
 
@@ -322,7 +333,7 @@ class A2aJsonRpcControllerTest {
                 org.mockito.ArgumentMatchers.any(ServerCallContext.class))).thenReturn(completedTask());
         A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
-        servletRequest.setContent(new byte[] {'{', '}'});
+        servletRequest.setContent(new byte[]{'{', '}'});
 
         controller.handleJsonRpc("""
                 {
@@ -353,7 +364,7 @@ class A2aJsonRpcControllerTest {
         RequestHandler requestHandler = mock(RequestHandler.class);
         A2aJsonRpcController controller = new A2aJsonRpcController(requestHandler);
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/a2a");
-        servletRequest.setContent(new byte[] {'{', '}'});
+        servletRequest.setContent(new byte[]{'{', '}'});
 
         ResponseEntity<?> response = controller.handleJsonRpc("""
                 {
@@ -459,8 +470,7 @@ class A2aJsonRpcControllerTest {
     private static JsonObject requestWithMetadata(String paramsMetadata, String messageMetadata) {
         String json = "{\"params\":{\"metadata\":" + paramsMetadata + ",\"message\":{"
                 + "\"role\":\"ROLE_USER\",\"messageId\":\"msg-1\",\"contextId\":\"ctx-1\","
-                + "\"parts\":[{\"kind\":\"text\",\"text\":\"hello\"}],\"metadata\":" + messageMetadata
-                + "}}}";
+                + "\"parts\":[{\"kind\":\"text\",\"text\":\"hello\"}],\"metadata\":" + messageMetadata + "}}}";
         return JsonParser.parseString(json).getAsJsonObject();
     }
 
@@ -473,7 +483,7 @@ class A2aJsonRpcControllerTest {
     }
 
     private static Task completedTask() {
-        return Task.builder().id("task-1").contextId("ctx-1")
-                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+        return Task.builder().id("task-1").contextId("ctx-1").status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
+                .build();
     }
 }

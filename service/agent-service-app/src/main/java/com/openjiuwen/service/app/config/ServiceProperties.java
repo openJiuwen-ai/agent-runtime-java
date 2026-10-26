@@ -4,9 +4,9 @@
 
 package com.openjiuwen.service.app.config;
 
-import lombok.Data;
-
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import lombok.Data;
 
 /**
  * Agent Service runtime configuration.
@@ -25,5 +25,5 @@ public class ServiceProperties {
     /**
      * Version reported by the Agent Service health probe.
      */
-    private String version = "0.1.1.post1";
+    private String version = "0.1.4";
 }
