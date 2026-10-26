@@ -18,6 +18,11 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 import java.util.Map;
 
+/**
+ * Verifies Core trace payloads across the A2A SDK serialization boundary.
+ *
+ * @since 2026-10-26
+ */
 class WorkflowTraceSerializationTest {
     @Test
     void coreTraceUsesIsoDatesAndOmitsPrivateLlmData() {
@@ -34,6 +39,8 @@ class WorkflowTraceSerializationTest {
         assertThat(restored).isInstanceOf(DataPart.class);
         assertThat(json).contains("2026-10-26T11:47:05", "2026-10-26T11:47:06", "tracer_workflow")
                 .doesNotContain("llmInvokeData", "private-prompt");
-        assertThat(((DataPart) restored).data()).isEqualTo(((DataPart) part).data());
+        assertThat(part).isInstanceOfSatisfying(DataPart.class,
+                original -> assertThat(restored).isInstanceOfSatisfying(DataPart.class,
+                        actual -> assertThat(actual.data()).isEqualTo(original.data())));
     }
 }

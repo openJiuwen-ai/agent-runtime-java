@@ -56,8 +56,9 @@ class RedisTaskStoreTest {
         assertThat(restored.id()).isEqualTo(task.id());
         assertThat(restored.status()).isEqualTo(task.status());
         assertThat(restored.artifacts()).hasSize(1);
-        assertThat(((DataPart) restored.artifacts().get(0).parts().get(0)).data())
-                .isEqualTo(((DataPart) artifact.parts().get(0)).data());
+        assertThat(artifact.parts().get(0)).isInstanceOfSatisfying(DataPart.class,
+                original -> assertThat(restored.artifacts().get(0).parts().get(0)).isInstanceOfSatisfying(
+                        DataPart.class, actual -> assertThat(actual.data()).isEqualTo(original.data())));
         assertThat(JsonUtil.OBJECT_MAPPER.toJson(store.get("trace-task"))).contains("2026-10-26T11:47:05",
                 "tracer_workflow");
     }

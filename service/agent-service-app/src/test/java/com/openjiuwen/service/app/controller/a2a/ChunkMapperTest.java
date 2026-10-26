@@ -31,8 +31,8 @@ class ChunkMapperTest {
         String json = JsonUtil.OBJECT_MAPPER.toJson(nested, Part.class);
         assertThat(json).contains("\"wire_name\":\"legacy\"", "\"bytes\":[1,2]", "9007199254740993")
                 .doesNotContain("computed", "javaName");
-        assertThat(((TextPart) partValue(new QueryChunk(QueryChunk.TYPE_CHUNK, payload))).text())
-                .isEqualTo(new com.google.gson.Gson().toJson(payload));
+        assertThat(partValue(new QueryChunk(QueryChunk.TYPE_CHUNK, payload))).isInstanceOfSatisfying(TextPart.class,
+                text -> assertThat(text.text()).isEqualTo(new com.google.gson.Gson().toJson(payload)));
     }
 
     private static class LegacyPayload {
@@ -44,6 +44,20 @@ class ChunkMapperTest {
         public String getComputed() {
             return "derived";
         }
+    }
+
+    @Test
+    void preservesNullElementsInNestedJavaPayloads() {
+        NullablePayload payload = new NullablePayload();
+        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_CHUNK, Map.of("payload", payload));
+
+        String json = JsonUtil.OBJECT_MAPPER.toJson(partValue(chunk), Part.class);
+
+        assertThat(json).contains("\"values\":[null,\"2026-10-26T11:47:05\"]");
+    }
+
+    private static class NullablePayload {
+        private final Object[] values = {null, LocalDateTime.parse("2026-10-26T11:47:05")};
     }
 
     @Test

@@ -432,14 +432,23 @@ function Stop-Agent {
     if ($null -eq $AgentRun) {
         return
     }
-    $AgentRun.Process.Refresh()
-    if ($AgentRun.Process.HasExited) {
-        return
-    }
-    if ($env:OS -eq "Windows_NT" -and (Get-Command taskkill -ErrorAction SilentlyContinue)) {
-        & taskkill /PID $AgentRun.Process.Id /T /F *> $null
-    } else {
-        $AgentRun.Process.Kill($true)
+    try {
+        $AgentRun.Process.Refresh()
+        if ($AgentRun.Process.HasExited) {
+            return
+        }
+        if ($env:OS -eq "Windows_NT" -and (Get-Command taskkill -ErrorAction SilentlyContinue)) {
+            & taskkill /PID $AgentRun.Process.Id /T /F *> $null
+        } elseif ([System.Diagnostics.Process].GetMethod("Kill", [type[]]@([bool]))) {
+            $AgentRun.Process.Kill($true)
+        } else {
+            # Windows PowerShell 5.1 has no Process.Kill(bool) overload.
+            Stop-Process -Id $AgentRun.Process.Id -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        # The process may exit between HasExited and Kill. Cleanup must continue
+        # for the remaining agents and must not mask the original smoke result.
+        Write-Warning "Could not stop $($AgentRun.Label): $($_.Exception.Message)"
     }
 }
 

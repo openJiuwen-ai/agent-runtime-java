@@ -63,6 +63,33 @@ Assert-PlainTerminalArtifacts $items $raw $Claim -Streaming:($Streaming -eq "sse
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, expected_success, result.stderr)
 
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required")
+    def test_cleanup_tolerates_process_exit_race(self):
+        command = r'''param($Script)
+$ErrorActionPreference = "Stop"
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Script, [ref]$null, [ref]$null)
+$function = $ast.Find({ param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq "Stop-Agent"
+}, $true)
+Invoke-Expression $function.Extent.Text
+$process = [pscustomobject]@{ HasExited = $false; Id = -1 }
+$process | Add-Member ScriptMethod Refresh { }
+$process | Add-Member ScriptMethod Kill {
+    param($EntireTree)
+    throw [System.InvalidOperationException]::new("Process exited during cleanup")
+}
+$env:OS = "test"
+Stop-Agent ([pscustomobject]@{ Process = $process; Label = "race" })
+Stop-Agent $null
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "cleanup.ps1"
+            script.write_text(command, encoding="utf-8")
+            result = subprocess.run(["pwsh", "-NoProfile", "-File", str(script),
+                                     str(ROOT / "smoke-a2a.ps1")], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_real_result_passes_both_transports(self):
         self.validate(artifacts(), True)
         self.validate(artifacts()[:1], True, streaming=False)

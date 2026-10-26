@@ -4,9 +4,9 @@
 
 package com.openjiuwen.service.app.config;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
 import lombok.Data;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Agent Service runtime configuration.

@@ -44,6 +44,7 @@ import java.util.Optional;
 public class ChunkMapper {
     private static final ObjectMapper JAVA_TIME = JsonMapper.builder().addModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS).build();
+
     // Keep Gson field semantics for existing business objects. Only java.time
     // values use Jackson; fields marked @JsonIgnore are omitted from Core traces.
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping()
@@ -61,7 +62,7 @@ public class ChunkMapper {
             }).registerTypeAdapterFactory(new TypeAdapterFactory() {
                 @Override
                 public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-                    if (!type.getRawType().getPackageName().equals("java.time")) {
+                    if (!"java.time".equals(type.getRawType().getPackageName())) {
                         return null;
                     }
                     TypeAdapter<JsonElement> json = gson.getAdapter(JsonElement.class);
@@ -143,27 +144,30 @@ public class ChunkMapper {
         if (value == null || value instanceof String || value instanceof Number || value instanceof Boolean) {
             return value;
         }
-        return jsonValue(GSON.toJsonTree(value));
+        return jsonValue(GSON.toJsonTree(value)).orElse(null);
     }
 
     // Preserve numeric values rather than round-tripping through Object.class,
     // whose Gson default converts numbers to doubles (including large IDs).
-    private static Object jsonValue(JsonElement json) {
+    private static Optional<Object> jsonValue(JsonElement json) {
         if (json.isJsonNull()) {
-            return null;
+            return Optional.empty();
         }
         if (json.isJsonObject()) {
             Map<String, Object> values = new LinkedHashMap<>();
-            json.getAsJsonObject().entrySet().forEach(entry -> values.put(entry.getKey(), jsonValue(entry.getValue())));
-            return values;
+            json.getAsJsonObject().entrySet()
+                    .forEach(entry -> values.put(entry.getKey(), jsonValue(entry.getValue()).orElse(null)));
+            return Optional.of(values);
         }
         if (json.isJsonArray()) {
             List<Object> values = new ArrayList<>();
-            json.getAsJsonArray().forEach(value -> values.add(jsonValue(value)));
-            return values;
+            json.getAsJsonArray().forEach(value -> values.add(jsonValue(value).orElse(null)));
+            return Optional.of(values);
         }
         JsonPrimitive value = json.getAsJsonPrimitive();
-        return value.isBoolean() ? value.getAsBoolean() : value.isNumber() ? value.getAsNumber() : value.getAsString();
+        return Optional.of(value.isBoolean()
+                ? value.getAsBoolean()
+                : value.isNumber() ? value.getAsNumber() : value.getAsString());
     }
 
     private static Optional<Object> parseStructuredJson(String text) {
