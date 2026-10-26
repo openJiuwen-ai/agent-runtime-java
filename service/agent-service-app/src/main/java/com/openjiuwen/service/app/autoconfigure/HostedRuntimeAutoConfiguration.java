@@ -243,7 +243,9 @@ public class HostedRuntimeAutoConfiguration {
                 beanFactory.getBean(A2AProtocolAdapter.class),
                 gate, resources, dispatcher, cards, beanFactory,
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build(), admissionCoordinator,
-                remoteProjectionHook.getIfAvailable(), remoteTaskResultHook.getIfAvailable());
+                A2AAutoConfiguration.resolveResponseHook(remoteProjectionHook, RemoteProjectionHook.class).orElse(null),
+                A2AAutoConfiguration.resolveResponseHook(remoteTaskResultHook, RemoteTaskResultHook.class)
+                        .orElse(null));
         return new HostedRuntimeAssembler(dependencies, extensions.orderedStream().toList(),
                 beanFactory.getBean(HostedRemoteAgentCatalogs.class));
     }
