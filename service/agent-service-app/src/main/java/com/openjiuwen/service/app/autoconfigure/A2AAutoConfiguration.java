@@ -482,9 +482,11 @@ public class A2AAutoConfiguration {
     public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props,
             ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider,
             CandidateSelector candidateSelector) {
-        return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency(),
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency(),
                 securitySupportProvider.getIfAvailable(), candidateSelector,
                 remoteTaskResultHookProvider.getIfAvailable());
+        client.setOutboundHeaders(props.getOutboundHeaders());
+        return client;
     }
 
     /**

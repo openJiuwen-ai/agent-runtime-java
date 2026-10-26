@@ -116,6 +116,23 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private final CandidateSelector candidateSelector;
 
     /**
+     * Fixed headers injected into every outbound remote call, merged under the
+     * prepared authentication headers. Empty by default; set from
+     * {@code openjiuwen.service.a2a.outbound-headers} at assembly time.
+     */
+    private volatile Map<String, String> outboundHeaders = Map.of();
+
+    /**
+     * Installs the fixed outbound headers merged into every remote call.
+     *
+     * @param headers header name/value pairs injected into outbound calls,
+     *        never null; empty clears the injection
+     */
+    public void setOutboundHeaders(Map<String, String> headers) {
+        this.outboundHeaders = headers == null || headers.isEmpty() ? Map.of() : Map.copyOf(headers);
+    }
+
+    /**
      * Base delay for outbound transient-failure retries
      * (exponential backoff, {@value #MAX_RETRY_ATTEMPTS} retries). Doubles per attempt;
      * tests shrink it via reflection to keep the suite fast.
@@ -470,7 +487,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      */
     A2AHttpClient createHttpClient(RemoteAgentEntry entry, String targetEndpoint) {
         if (securitySupport == null) {
-            return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create());
+            return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create(), outboundHeaders);
         }
         ExternalTargetRef target = new ExternalTargetRef("A2A", entry.name(), targetEndpoint, 11);
         ExternalOutboundSecuritySupport.PreparedOutboundSecurity prepared = securitySupport.prepare(target, entry.tls(),
@@ -480,7 +497,10 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         }
         A2AHttpClient base = prepared.jdkHttpClient() == null ? A2AHttpClientFactory.create()
                 : new JdkA2AHttpClient(prepared.jdkHttpClient());
-        Map<String, String> headers = prepared.authMaterial() == null ? Map.of() : prepared.authMaterial().headers();
+        Map<String, String> headers = new java.util.LinkedHashMap<>(outboundHeaders);
+        if (prepared.authMaterial() != null) {
+            headers.putAll(prepared.authMaterial().headers());
+        }
         return new HeaderInjectingA2AHttpClient(base, headers);
     }
 
