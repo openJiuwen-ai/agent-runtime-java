@@ -255,8 +255,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
             // Empty token means prepareTask acquired nothing (e.g. busy
             // rejection) — completeTask must not disturb the other task.
             try {
-                agentHandler.completeTask(taskToken);
-                terminalObserver.releaseTerminal();
+                completeTaskAndRelease(taskToken, terminalObserver);
             } finally {
                 try {
                     batchCoordinator.abortResume(current);
@@ -265,6 +264,22 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                 }
             }
         }
+    }
+
+    private void completeTaskAndRelease(Optional<Object> taskToken, TerminalQueryStreamObserver observer) {
+        try {
+            agentHandler.completeTask(taskToken);
+        } catch (RuntimeException | Error failure) {
+            try {
+                observer.releaseTerminalOnFailure(failure);
+            } catch (RuntimeException | Error callbackFailure) {
+                if (callbackFailure != failure) {
+                    failure.addSuppressed(callbackFailure);
+                }
+            }
+            throw failure;
+        }
+        observer.releaseTerminal();
     }
 
     /**
@@ -767,12 +782,14 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     }
 
     /**
-     * Holds terminal callbacks until request-scoped resources have been released.
+     * Holds terminal callbacks until request-scoped resources have been released or release has failed.
      */
     private static final class TerminalQueryStreamObserver implements QueryStreamObserver {
         private final QueryStreamObserver delegate;
 
-        private final AtomicReference<Runnable> terminal = new AtomicReference<>();
+        private final AtomicReference<TerminalCallback> terminal = new AtomicReference<>();
+
+        private final AtomicReference<Throwable> releaseFailure = new AtomicReference<>();
 
         private final AtomicBoolean released = new AtomicBoolean();
 
@@ -787,17 +804,17 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
 
         @Override
         public void onComplete() {
-            deferTerminal(delegate::onComplete);
+            deferTerminal(new TerminalCallback(delegate::onComplete, false));
         }
 
         @Override
         public void onComplete(QueryResponse response) {
-            deferTerminal(() -> delegate.onComplete(response));
+            deferTerminal(new TerminalCallback(() -> delegate.onComplete(response), false));
         }
 
         @Override
         public void onError(Throwable error) {
-            deferTerminal(() -> delegate.onError(error));
+            deferTerminal(new TerminalCallback(() -> delegate.onError(error), true));
         }
 
         @Override
@@ -805,7 +822,7 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
             return delegate.isCancelled();
         }
 
-        private void deferTerminal(Runnable callback) {
+        private void deferTerminal(TerminalCallback callback) {
             terminal.set(callback);
             if (released.get()) {
                 dispatchTerminal();
@@ -817,11 +834,26 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
             dispatchTerminal();
         }
 
+        private void releaseTerminalOnFailure(Throwable failure) {
+            releaseFailure.set(failure);
+            released.set(true);
+            dispatchTerminal();
+        }
+
         private void dispatchTerminal() {
-            Runnable callback = terminal.getAndSet(null);
-            if (callback != null) {
-                callback.run();
+            TerminalCallback callback = terminal.getAndSet(null);
+            if (callback == null) {
+                return;
             }
+            Throwable failure = releaseFailure.get();
+            if (failure != null && !callback.error()) {
+                delegate.onError(failure);
+                return;
+            }
+            callback.action().run();
+        }
+
+        private record TerminalCallback(Runnable action, boolean error) {
         }
     }
 }
