@@ -27,6 +27,7 @@ import com.openjiuwen.harness.schema.config.DeepAgentConfig;
 import com.openjiuwen.harness.workspace.Workspace;
 import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog;
 import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog.ModelDefinition;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.exception.AgentExecutionException;
@@ -381,9 +382,29 @@ class RequestModelSelectionTest {
         assertThat(observer.chunks.get(1).getData().toString()).contains("error").doesNotContain("secret-b");
     }
 
+    @Test
+    void catalogStreamErrorPayloadFailureFieldsSurviveRewrap() {
+        Object answer = new OutputSchema("answer", 1, Map.of("result_type", "error",
+                "output", "ModelError: model call timeout",
+                "failure", Map.of("code", "MODEL_CALL_TIMEOUT", "numericCode", 181008,
+                        "retryable", true)));
+        var handler = finalResultStreamHandler(false, catalog(), answer);
+        var observer = new Observer();
+        handler.streamQuery(request("b"), observer);
+        assertThat(observer.errors).singleElement().isInstanceOfSatisfying(AgentExecutionException.class,
+                error -> {
+                    assertThat(error).hasMessage("Agent execution failed");
+                    assertThat(error.getDescriptor()).isEqualTo(
+                            new AgentFailureDescriptor("MODEL_CALL_TIMEOUT", 181008, true));
+                });
+        assertThat(observer.completions).isZero();
+        assertThat(observer.chunks).hasSize(2);
+        assertThat(observer.chunks.get(1).getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+    }
+
     @ParameterizedTest
     @CsvSource({"true,true", "false,true", "true,false"})
-    void finalStreamRecognitionPreservesBusinessResultsAndLegacyBehavior(boolean isDeep, boolean isEnabled) {
+    void finalStreamRecognitionClassifiesByAgentShapeNotCatalog(boolean isDeep, boolean isEnabled) {
         Map<String, Object> finalResult = isDeep && isEnabled
                 ? Map.of("result_type", "answer", "output", "recovered", "error", "business-field")
                 : Map.of("error", "business-field");
@@ -393,6 +414,16 @@ class RequestModelSelectionTest {
         var handler = finalResultStreamHandler(isDeep, isEnabled ? catalog() : null, answer);
         var observer = new Observer();
         handler.streamQuery(request(isEnabled ? "b" : null), observer);
+        if (isDeep && !isEnabled) {
+            // Error recognition no longer depends on the model catalog: a DeepAgent task-loop
+            // failure terminates the stream with a normalized error event even without one.
+            assertThat(observer.errors).singleElement().isInstanceOf(IllegalStateException.class);
+            assertThat(observer.completions).isZero();
+            assertThat(observer.chunks).hasSize(2);
+            assertThat(observer.chunks.get(0).getType()).isEqualTo(QueryChunk.TYPE_CHUNK);
+            assertThat(observer.chunks.get(1).getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+            return;
+        }
         assertThat(observer.errors).isEmpty();
         assertThat(observer.completions).isOne();
         assertThat(observer.chunks).hasSize(3).allSatisfy(chunk ->
