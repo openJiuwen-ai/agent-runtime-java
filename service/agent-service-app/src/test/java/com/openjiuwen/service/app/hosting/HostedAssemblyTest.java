@@ -50,7 +50,9 @@ import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -73,6 +75,28 @@ class HostedAssemblyTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(HostedRuntimeAutoConfiguration.class, A2AAutoConfiguration.class))
             .withUserConfiguration(Handlers.class).withPropertyValues("spring.application.name=hosted-test");
+
+    @ParameterizedTest
+    @MethodSource("duplicateResponseHooks")
+    <T> void rejectsDuplicateHooksDespiteMatchingFieldNameOrPrimary(Class<T> hookType, boolean isPrimary) {
+        String beanName = hookType == RemoteProjectionHook.class ? "remoteProjectionHook" : "remoteTaskResultHook";
+        RemoteAgentCaller caller = (call, observer) -> CompletableFuture.completedFuture(null);
+        runner.withBean(RemoteAgentCaller.class, () -> caller)
+                .withBean(beanName, hookType, () -> org.mockito.Mockito.mock(hookType),
+                        definition -> definition.setPrimary(isPrimary))
+                .withBean("secondHook", hookType, () -> org.mockito.Mockito.mock(hookType)).run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(NoUniqueBeanDefinitionException.class)
+                            .hasStackTraceContaining(hookType.getName());
+                });
+    }
+
+    private static List<Arguments> duplicateResponseHooks() {
+        return List.of(Arguments.of(RemoteProjectionHook.class, false),
+                Arguments.of(RemoteProjectionHook.class, true), Arguments.of(RemoteTaskResultHook.class, false),
+                Arguments.of(RemoteTaskResultHook.class, true));
+    }
 
     @ParameterizedTest
     @MethodSource("unsupportedGlobalComponents")
