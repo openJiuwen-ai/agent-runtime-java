@@ -6,7 +6,8 @@ param(
     [string]$BaseUrlD = "http://localhost:18093",
     [ValidateRange(1, 2147483647)]
     [int]$A2aRequestTimeoutSec = 300,
-    [string]$ConvId = ""
+    [string]$ConvId = "",
+    [switch]$KeepEvidence
 )
 
 $ErrorActionPreference = "Stop"
@@ -186,6 +187,7 @@ function Read-SseTask {
     $states = @()
     $taskIds = @()
     foreach ($event in $events) {
+        if ($event.error) { throw "JSON-RPC error in SSE response" }
         if ($event.result.statusUpdate) {
             $states += [string]$event.result.statusUpdate.status.state
             $taskIds += [string]$event.result.statusUpdate.taskId
@@ -193,7 +195,7 @@ function Read-SseTask {
             $taskIds += [string]$event.result.artifactUpdate.taskId
         }
     }
-    if ($states -notcontains $ExpectedState) {
+    if ($states.Count -eq 0 -or $states[-1] -ne $ExpectedState) {
         throw "SSE response did not reach $ExpectedState; states=$($states -join ',')"
     }
     $stableTaskIds = @($taskIds | Where-Object { $_ } | Select-Object -Unique)
@@ -253,11 +255,17 @@ function Read-SyncTask {
 function Assert-PlainTerminalArtifacts {
     param(
         [object[]]$Artifacts,
-        [string]$RawResponse = ""
+        [string]$RawResponse,
+        [string]$ClaimId,
+        [switch]$Streaming
     )
     if ($RawResponse.Contains("\u003d")) {
         throw "response contains HTML-escaped equals signs (\u003d)"
     }
+    if ($RawResponse -match 'REMOTE_(UNAVAILABLE|TIMEOUT|ERROR)|ok\s*[=:]\s*false') {
+        throw "remote failure found despite parent completion"
+    }
+    $terminalParts = @()
     $hasTerminalArtifact = $false
     foreach ($artifact in $Artifacts) {
         $metadataProperty = $artifact.PSObject.Properties["metadata"]
@@ -265,6 +273,7 @@ function Assert-PlainTerminalArtifacts {
             $terminalProperty = $metadataProperty.Value.PSObject.Properties["_agentcore_terminal"]
             if ($null -ne $terminalProperty -and $terminalProperty.Value -eq $true) {
                 $hasTerminalArtifact = $true
+                $terminalParts += @($artifact.parts)
             }
         }
         foreach ($part in @($artifact.parts)) {
@@ -285,6 +294,23 @@ function Assert-PlainTerminalArtifacts {
     }
     if (-not $hasTerminalArtifact) {
         throw "response did not contain an artifact marked as the AgentCore terminal result"
+    }
+    $business = ($terminalParts | ConvertTo-Json -Depth 50 -Compress).ToLowerInvariant()
+    foreach ($expected in @($ClaimId, "approved", "3000", "600")) {
+        if (-not $business.Contains($expected.ToLowerInvariant())) {
+            throw "terminal expense result missing $expected"
+        }
+    }
+    if ($Streaming) {
+        $reports = @($Artifacts | Where-Object {
+            $_.metadata.agentEvent.source.agentId -eq "agentd-streaming"
+        } | ForEach-Object { $_.parts } | ForEach-Object { $_.data } | Where-Object {
+            $_.claim_id -eq $ClaimId -and $_.manual_decision -eq "approved" -and
+            $_.policy_status -eq "OVER_LIMIT" -and -not [string]::IsNullOrWhiteSpace($_.llm_report)
+        })
+        if ($reports.Count -eq 0) {
+            throw "missing Agent D structured approval result and LLM report"
+        }
     }
 }
 
@@ -406,14 +432,23 @@ function Stop-Agent {
     if ($null -eq $AgentRun) {
         return
     }
-    $AgentRun.Process.Refresh()
-    if ($AgentRun.Process.HasExited) {
-        return
-    }
-    if ($env:OS -eq "Windows_NT" -and (Get-Command taskkill -ErrorAction SilentlyContinue)) {
-        & taskkill /PID $AgentRun.Process.Id /T /F *> $null
-    } else {
-        Stop-Process -Id $AgentRun.Process.Id -Force -ErrorAction SilentlyContinue
+    try {
+        $AgentRun.Process.Refresh()
+        if ($AgentRun.Process.HasExited) {
+            return
+        }
+        if ($env:OS -eq "Windows_NT" -and (Get-Command taskkill -ErrorAction SilentlyContinue)) {
+            & taskkill /PID $AgentRun.Process.Id /T /F *> $null
+        } elseif ([System.Diagnostics.Process].GetMethod("Kill", [type[]]@([bool]))) {
+            $AgentRun.Process.Kill($true)
+        } else {
+            # Windows PowerShell 5.1 has no Process.Kill(bool) overload.
+            Stop-Process -Id $AgentRun.Process.Id -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        # The process may exit between HasExited and Kill. Cleanup must continue
+        # for the remaining agents and must not mask the original smoke result.
+        Write-Warning "Could not stop $($AgentRun.Label): $($_.Exception.Message)"
     }
 }
 
@@ -574,7 +609,7 @@ try {
             }
         }
     )
-    Assert-PlainTerminalArtifacts $dStreamArtifacts $dStreamResponse2
+    Assert-PlainTerminalArtifacts $dStreamArtifacts $dStreamResponse2 $dStreamClaim -Streaming
     if ($dStreamTask2.TaskId -ne $dStreamTask1.TaskId) {
         throw "Agent D streaming resume changed taskId from $($dStreamTask1.TaskId) to $($dStreamTask2.TaskId)"
     }
@@ -602,7 +637,7 @@ try {
     $dNonstreamResponse2 = $dNonstreamRawResponse2 | ConvertFrom-Json
     Save-JsonResponse $dNonstreamResponse2 "d-nonstream-response-2.json"
     $dNonstreamTask2 = Read-SyncTask $dNonstreamResponse2 "TASK_STATE_COMPLETED"
-    Assert-PlainTerminalArtifacts @($dNonstreamResponse2.result.task.artifacts) $dNonstreamRawResponse2
+    Assert-PlainTerminalArtifacts @($dNonstreamResponse2.result.task.artifacts) $dNonstreamRawResponse2 $dNonstreamClaim
     if ($dNonstreamTask2.TaskId -ne $dNonstreamTask1.TaskId) {
         throw "Agent D non-streaming resume changed taskId from $($dNonstreamTask1.TaskId) to $($dNonstreamTask2.TaskId)"
     }
@@ -637,7 +672,7 @@ try {
     } else {
         Remove-Item Env:OPENJIUWEN_API_CONFIG -ErrorAction SilentlyContinue
     }
-    if ($succeeded) {
+    if ($succeeded -and -not $KeepEvidence) {
         Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
     } else {
         Write-Host "`nLogs and responses retained in $tmp" -ForegroundColor Red

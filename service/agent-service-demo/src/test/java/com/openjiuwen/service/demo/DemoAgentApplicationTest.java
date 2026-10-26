@@ -100,7 +100,7 @@ class DemoAgentApplicationTest {
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
         assertThat(json).containsEntry("status", "healthy");
         assertThat(json).containsEntry("app", "demo-agent-service");
-        assertThat(json).containsEntry("version", "0.1.1.post1");
+        assertThat(json).containsEntry("version", "0.1.4");
         assertThat(json).containsEntry("process_up", true);
         assertThat(json).containsEntry("agent_loaded", true);
     }
@@ -202,8 +202,7 @@ class DemoAgentApplicationTest {
         @Override
         public VideoGenerationResponse generateVideo(List<UserMessage> messages, String imgUrl, String audioUrl,
                 String model, String size, String resolution, int duration, boolean shouldPromptExtend,
-                boolean shouldWatermark,
-                String negativePrompt, Integer seed, Map<String, Object> kwargs) {
+                boolean shouldWatermark, String negativePrompt, Integer seed, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
     }

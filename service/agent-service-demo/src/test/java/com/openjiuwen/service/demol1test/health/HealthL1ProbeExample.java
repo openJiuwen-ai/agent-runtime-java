@@ -14,7 +14,8 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.SpringBootConfiguration;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 
@@ -25,13 +26,13 @@ import java.util.Map;
  *
  * @since 2026-07-03
  */
-@SpringBootApplication
+@SpringBootConfiguration
+@EnableAutoConfiguration
 public class HealthL1ProbeExample {
     public static void main(String[] args) {
         SpringApplication application = new SpringApplication(HealthL1ProbeExample.class);
-        application.setDefaultProperties(
-            Map.of("server.port", "8090", "spring.main.web-application-type", "servlet", "example.health.l1.mode",
-                "normal", "example.health.l1.handler", "loaded"));
+        application.setDefaultProperties(Map.of("server.port", "8090", "spring.main.web-application-type", "servlet",
+                "example.health.l1.mode", "normal", "example.health.l1.handler", "loaded"));
         application.run(args);
     }
 
@@ -76,8 +77,7 @@ public class HealthL1ProbeExample {
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "example.health.l1", name = "handler", havingValue = "loaded",
-        matchIfMissing = true)
+    @ConditionalOnProperty(name = "example.health.l1.handler", havingValue = "loaded", matchIfMissing = true)
     AgentHandler loadedHealthL1AgentHandler() {
         return queryFailingHandler();
     }
