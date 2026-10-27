@@ -6,6 +6,7 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import com.openjiuwen.core.session.checkpointer.Checkpointer;
 import com.openjiuwen.core.session.checkpointer.step.StepCheckpointRecoveryService;
+import com.openjiuwen.core.session.checkpointer.step.StepJournal;
 import com.openjiuwen.core.session.checkpointer.step.StepRecoveryHook;
 
 import org.slf4j.Logger;
@@ -33,6 +34,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * shutdown. Enabled explicitly via the {@code openjiuwen.step-sweeper.enabled}
  * property (default off); the sweep interval is configurable.</p>
  *
+ * <p>When a {@link StepJournal} and a positive retention are wired in, every
+ * sweep pass also purges journal records older than the retention deadline -
+ * audit cleanup rides the same cadence as dead-step recovery.</p>
+ *
  * @since 0.1.4
  */
 public class DeadStepSweeper {
@@ -41,6 +46,8 @@ public class DeadStepSweeper {
     private final Checkpointer checkpointer;
     private final StepRecoveryHook hook;
     private final long intervalSeconds;
+    private final StepJournal journal;
+    private final long journalRetentionMillis;
     private final ScheduledExecutorService scheduler;
     private final AtomicBoolean isSweeping = new AtomicBoolean(false);
     private volatile StepCheckpointRecoveryService recoveryService;
@@ -53,9 +60,28 @@ public class DeadStepSweeper {
      * @param intervalSeconds sweep interval in seconds, positive values only
      */
     public DeadStepSweeper(Checkpointer checkpointer, StepRecoveryHook hook, long intervalSeconds) {
+        this(checkpointer, hook, intervalSeconds, null, 0L);
+    }
+
+    /**
+     * Create a sweeper that also purges expired step-journal records on every
+     * sweep pass.
+     *
+     * @param checkpointer checkpointer providing the RUNNING cursor scan
+     * @param hook business recovery hook, may be null
+     * @param intervalSeconds sweep interval in seconds, positive values only
+     * @param journal step journal to purge, may be null to skip journal cleanup
+     * @param journalRetentionMillis journal record retention in millis; records
+     *                               older than now minus this value are removed,
+     *                               non-positive values skip the purge
+     */
+    public DeadStepSweeper(Checkpointer checkpointer, StepRecoveryHook hook, long intervalSeconds,
+                           StepJournal journal, long journalRetentionMillis) {
         this.checkpointer = checkpointer;
         this.hook = hook;
         this.intervalSeconds = Math.max(1L, intervalSeconds);
+        this.journal = journal;
+        this.journalRetentionMillis = journalRetentionMillis;
         Thread.UncaughtExceptionHandler uncaughtHandler = (threadRef, throwable) ->
                 log.error("DeadStepSweeper thread {} died unexpectedly", threadRef.getName(), throwable);
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1,
@@ -99,9 +125,24 @@ public class DeadStepSweeper {
             if (!actions.isEmpty()) {
                 log.info("Dead-step sweep processed {} leftover session(s)", actions.size());
             }
+            purgeJournal();
             return actions;
         } finally {
             isSweeping.set(false);
+        }
+    }
+
+    private void purgeJournal() {
+        if (journal == null || journalRetentionMillis <= 0L) {
+            return;
+        }
+        try {
+            int purged = journal.purgeBefore(System.currentTimeMillis() - journalRetentionMillis);
+            if (purged > 0) {
+                log.info("Step journal purged {} expired record(s)", purged);
+            }
+        } catch (RuntimeException exception) {
+            log.warn("Step journal purge failed, keeping records: {}", exception.getMessage());
         }
     }
 

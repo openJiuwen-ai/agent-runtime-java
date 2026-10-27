@@ -7,6 +7,9 @@ package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 import com.openjiuwen.core.foundation.tool.mcp.McpClientProvider;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientProvider;
 import com.openjiuwen.core.session.checkpointer.Checkpointer;
+import com.openjiuwen.core.session.checkpointer.PersistenceCheckpointer;
+import com.openjiuwen.core.session.checkpointer.step.KvStepJournal;
+import com.openjiuwen.core.session.checkpointer.step.StepJournal;
 import com.openjiuwen.core.session.checkpointer.step.StepRecoveryHook;
 import com.openjiuwen.service.adapters.agentcore.agentfw.CoreRunnerLifecycleCoordinator;
 import com.openjiuwen.service.adapters.agentcore.agentfw.DeadStepSweeper;
@@ -55,6 +58,12 @@ public class AgentCoreAdaptersAutoConfiguration {
      * surface small until a tuning need shows up.
      */
     private static final long STEP_SWEEPER_INTERVAL_SECONDS = 60L;
+
+    /**
+     * Default step-journal retention in millis: 7 days, aligned with the
+     * checkpointer TTL default.
+     */
+    private static final long DEFAULT_STEP_JOURNAL_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000;
 
     /**
      * Creates the default MCP client decorator factory.
@@ -182,19 +191,29 @@ public class AgentCoreAdaptersAutoConfiguration {
      *
      * <p>The sweeper scans the checkpointer for RUNNING step cursors left by
      * crashed processes and walks the shared recovery pipeline (hook first,
-     * markLost fallback). Off by default; enable via
+     * markLost fallback). When the checkpointer is persistence-backed, the
+     * sweep pass also purges step-journal records older than the retention
+     * deadline ({@code openjiuwen.step-journal.retention-seconds}, default 7
+     * days aligned with the checkpointer TTL; non-positive disables the
+     * purge). Off by default; enable via
      * {@code openjiuwen.step-sweeper.enabled=true}.</p>
      *
      * @param checkpointer checkpointer bean, required for the scan
      * @param hook optional business recovery hook
+     * @param journalRetentionSeconds configured journal retention in seconds
      * @return started sweeper; the bean is absent entirely when disabled
      */
     @Bean(destroyMethod = "stop")
     @ConditionalOnProperty(prefix = "openjiuwen.step-sweeper", name = "enabled", havingValue = "true")
     @ConditionalOnMissingBean(DeadStepSweeper.class)
     public DeadStepSweeper deadStepSweeper(Checkpointer checkpointer,
-            @Autowired(required = false) StepRecoveryHook hook) {
-        DeadStepSweeper sweeper = new DeadStepSweeper(checkpointer, hook, STEP_SWEEPER_INTERVAL_SECONDS);
+            @Autowired(required = false) StepRecoveryHook hook,
+            @Value("${openjiuwen.step-journal.retention-seconds:604800}") long journalRetentionSeconds) {
+        StepJournal journal = checkpointer instanceof PersistenceCheckpointer persistence
+                ? new KvStepJournal(persistence.kvStore())
+                : null;
+        DeadStepSweeper sweeper = new DeadStepSweeper(checkpointer, hook, STEP_SWEEPER_INTERVAL_SECONDS,
+                journal, journalRetentionSeconds * 1000L);
         sweeper.start();
         return sweeper;
     }
