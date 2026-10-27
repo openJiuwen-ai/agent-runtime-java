@@ -13,10 +13,12 @@ import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalDouble;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -86,7 +88,7 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
         MemorySearchRequest request = new MemorySearchRequest(resolveScope(kwargs), query, DEFAULT_PREFETCH_TOP_K,
             memory.isRerank(), options("prefetch", kwargs));
         List<MemoryRecord> records = memoryStore.search(request);
-        return CompletableFuture.completedFuture(formatPrefetch(records));
+        return CompletableFuture.completedFuture(formatPrefetch(applyRelevanceFloor(records)));
     }
 
     @Override
@@ -125,6 +127,80 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
             return "";
         }
         return "## Long-term Memory\n" + String.join("\n", lines);
+    }
+
+    /**
+     * Drops scored records below the relative relevance floor ({@code ratio × top score})
+     * so low-relevance memories are not injected into the prompt — and re-written back by
+     * the following turn's sync, which would amplify the noise. The ratio is relative to
+     * the top hit, so it is independent of the provider's score scale (scores are
+     * resolved across provider shapes, see {@link #scoreOf}); unscored records
+     * cannot be judged and are kept; {@code 0} disables the floor entirely. The floor
+     * comparison runs on {@link BigDecimal} per G.TYP.04 (scores are irrelevant to
+     * precision here, but the gate forbids floating-point arithmetic).
+     *
+     * @param records the search results, may be null
+     * @return the records at or above the floor, or all records when none carries a score
+     */
+    private List<MemoryRecord> applyRelevanceFloor(List<MemoryRecord> records) {
+        double ratio = memory.getPrefetchMinScoreRatio();
+        if (ratio <= 0 || records == null || records.isEmpty()) {
+            return records;
+        }
+        OptionalDouble topScore = topScoreOf(records);
+        if (topScore.isEmpty()) {
+            return records;
+        }
+        BigDecimal floor = BigDecimal.valueOf(topScore.getAsDouble()).multiply(BigDecimal.valueOf(ratio));
+        List<MemoryRecord> kept = new ArrayList<>();
+        for (MemoryRecord record : records) {
+            if (isAtOrAboveFloor(record, floor)) {
+                kept.add(record);
+            }
+        }
+        return kept;
+    }
+
+    /**
+     * Resolves the highest score across the records ({@code empty} when none carries one).
+     *
+     * @param records the search results
+     * @return the top score, or an empty OptionalDouble when no record is scored
+     */
+    private static OptionalDouble topScoreOf(List<MemoryRecord> records) {
+        OptionalDouble topScore = OptionalDouble.empty();
+        for (MemoryRecord record : records) {
+            if (record == null) {
+                continue;
+            }
+            OptionalDouble score = scoreOf(record);
+            if (score.isPresent() && (topScore.isEmpty() || score.getAsDouble() > topScore.getAsDouble())) {
+                topScore = score;
+            }
+        }
+        return topScore;
+    }
+
+    private static boolean isAtOrAboveFloor(MemoryRecord record, BigDecimal floor) {
+        OptionalDouble score = record == null ? OptionalDouble.empty() : scoreOf(record);
+        return score.isEmpty() || BigDecimal.valueOf(score.getAsDouble()).compareTo(floor) >= 0;
+    }
+
+    /**
+     * Resolves a record's relevance score across provider shapes: the modeled
+     * {@code metadata} map first, falling back to the raw provider record — mem0
+     * reports the score only at the raw top level, while jiuwen/jiuwen2 mirror it
+     * into metadata. Returns {@code empty} when neither carries a numeric score.
+     *
+     * @param record the search result
+     * @return the score, or an empty OptionalDouble when the record is unscored
+     */
+    private static OptionalDouble scoreOf(MemoryRecord record) {
+        Object score = record.metadata() != null ? record.metadata().get("score") : null;
+        if (!(score instanceof Number)) {
+            score = record.raw() != null ? record.raw().get("score") : null;
+        }
+        return score instanceof Number number ? OptionalDouble.of(number.doubleValue()) : OptionalDouble.empty();
     }
 
     private MemoryScope resolveScope(Map<String, Object> kwargs) {

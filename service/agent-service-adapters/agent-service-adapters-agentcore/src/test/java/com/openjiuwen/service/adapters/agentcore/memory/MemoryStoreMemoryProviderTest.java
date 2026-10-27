@@ -89,6 +89,105 @@ class MemoryStoreMemoryProviderTest {
         });
     }
 
+    @Test
+    void prefetchDropsRecordsBelowRelativeScoreFloor() throws Exception {
+        // 缺口（issue #123）：召回无相关性下限时，低分无关记忆与相关记忆一起全量注入
+        // prompt，还会经写回再次入库被放大。默认下限 = 0.2 × top1 分数。
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "相关记忆：用户喜欢拿铁", Map.of("score", 0.9), Map.of()),
+            new MemoryRecord("m-2", "边缘记忆：用户喝过一次美式", Map.of("score", 0.5), Map.of()),
+            new MemoryRecord("m-3", "无关记忆：今天是周五", Map.of("score", 0.15), Map.of())));
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, new MiddlewareProperties.Memory());
+
+        String block = provider.prefetch("饮品偏好", Map.of("user_id", "u")).join();
+
+        assertThat(block)
+            .contains("相关记忆：用户喜欢拿铁")
+            .contains("边缘记忆：用户喝过一次美式")
+            .doesNotContain("无关记忆：今天是周五");
+        // 下限在检索之后过滤，不改变检索请求本身
+        assertThat(store.searchRequests).singleElement()
+            .satisfies(request -> assertThat(request.topK()).isEqualTo(5));
+    }
+
+    @Test
+    void prefetchKeepsAllRecordsWhenFloorDisabled() throws Exception {
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "相关记忆：用户喜欢拿铁", Map.of("score", 0.9), Map.of()),
+            new MemoryRecord("m-3", "无关记忆：今天是周五", Map.of("score", 0.15), Map.of())));
+        MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
+        memory.setPrefetchMinScoreRatio(0);
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, memory);
+
+        String block = provider.prefetch("饮品偏好", Map.of("user_id", "u")).join();
+
+        assertThat(block)
+            .contains("相关记忆：用户喜欢拿铁")
+            .contains("无关记忆：今天是周五");
+    }
+
+    @Test
+    void prefetchWithoutScoresKeepsAllRecords() throws Exception {
+        // provider 不回传分数时无法判定相关性，保持原行为全量注入（fail-open）
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "无分数记忆一", Map.of(), Map.of()),
+            new MemoryRecord("m-2", "无分数记忆二", Map.of(), Map.of())));
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, new MiddlewareProperties.Memory());
+
+        String block = provider.prefetch("任意问题", Map.of("user_id", "u")).join();
+
+        assertThat(block)
+            .contains("无分数记忆一")
+            .contains("无分数记忆二");
+    }
+
+    @Test
+    void prefetchKeepsUnscoredRecordsAlongsideScoredOnes() throws Exception {
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "相关记忆：用户喜欢拿铁", Map.of("score", 0.9), Map.of()),
+            new MemoryRecord("m-3", "无关记忆：今天是周五", Map.of("score", 0.15), Map.of()),
+            new MemoryRecord("m-4", "无分数记忆", Map.of(), Map.of())));
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, new MiddlewareProperties.Memory());
+
+        String block = provider.prefetch("饮品偏好", Map.of("user_id", "u")).join();
+
+        assertThat(block)
+            .contains("相关记忆：用户喜欢拿铁")
+            .contains("无分数记忆")
+            .doesNotContain("无关记忆：今天是周五");
+    }
+
+    @Test
+    void prefetchDropsRecordsBelowFloorWhenScoreIsInRaw() throws Exception {
+        // 评审修复（P2）：mem0 把 score 放在原始记录顶层（raw），provider metadata
+        // 里没有——scoreOf 需在 metadata 未命中时回落 raw，否则默认 provider 上限空转
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "相关记忆：用户喜欢拿铁", Map.of(), Map.of("score", 0.9)),
+            new MemoryRecord("m-3", "无关记忆：今天是周五", Map.of(), Map.of("score", 0.15))));
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, new MiddlewareProperties.Memory());
+
+        String block = provider.prefetch("饮品偏好", Map.of("user_id", "u")).join();
+
+        assertThat(block)
+            .contains("相关记忆：用户喜欢拿铁")
+            .doesNotContain("无关记忆：今天是周五");
+    }
+
+    @Test
+    void prefetchAppliesFloorAcrossMetadataAndRawScoreShapes() throws Exception {
+        // 混合形状：top1 取分要跨 metadata/raw 两种摆放，漏读任一形状都算错下限
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "相关记忆：用户喜欢拿铁", Map.of("score", 0.9), Map.of()),
+            new MemoryRecord("m-3", "无关记忆：今天是周五", Map.of(), Map.of("score", 0.15))));
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, new MiddlewareProperties.Memory());
+
+        String block = provider.prefetch("饮品偏好", Map.of("user_id", "u")).join();
+
+        assertThat(block)
+            .contains("相关记忆：用户喜欢拿铁")
+            .doesNotContain("无关记忆：今天是周五");
+    }
+
     private static final class RecordingMemoryStore implements MemoryStore {
         private final List<MemoryRecord> records;
         private final List<MemorySearchRequest> searchRequests = new ArrayList<>();
