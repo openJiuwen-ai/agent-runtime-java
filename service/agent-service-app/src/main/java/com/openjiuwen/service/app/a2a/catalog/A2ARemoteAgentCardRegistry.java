@@ -11,8 +11,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -30,6 +32,11 @@ public class A2ARemoteAgentCardRegistry {
      */
     static final int DEFAULT_TIMEOUT_SECONDS = 300;
 
+    /**
+     * Sentinel applied-source version meaning no source snapshot applied yet.
+     */
+    private static final long INITIAL_SOURCE_VERSION = -1L;
+
     private static final Logger log = LoggerFactory.getLogger(A2ARemoteAgentCardRegistry.class);
 
     private final ApplicationEventPublisher eventPublisher;
@@ -37,6 +44,8 @@ public class A2ARemoteAgentCardRegistry {
     private final ReentrantLock updateLock = new ReentrantLock();
 
     private long version;
+
+    private long lastAppliedSourceVersion = INITIAL_SOURCE_VERSION;
 
     /**
      * Creates a registry without event publication.
@@ -153,18 +162,108 @@ public class A2ARemoteAgentCardRegistry {
      */
     public void register(String name, AgentCard card, int timeoutSeconds, boolean isStreaming,
             ExternalTlsConfig tls) {
+        register(new RemoteAgentEntry(name, card, timeoutSeconds, isStreaming, tls));
+    }
+
+    /**
+     * Registers a remote agent card with timeout, streaming, TLS settings, and
+     * explicit instance candidates.
+     *
+     * @param entry the registration entry carrying the agent name, card,
+     *        timeout, streaming preference, TLS configuration, and instance
+     *        candidates
+     */
+    public void register(RemoteAgentEntry entry) {
         RemoteAgentCatalogSnapshot updatedSnapshot;
         updateLock.lock();
         try {
-            entries.put(name, new RemoteAgentEntry(name, card, timeoutSeconds, isStreaming, tls));
+            entries.put(entry.name(), entry);
             version++;
             updatedSnapshot = createSnapshot();
         } finally {
             updateLock.unlock();
         }
-        log.info("Registered remote A2A Agent Card agentName={} catalogVersion={} catalogSize={} streaming={}", name,
-                updatedSnapshot.version(), updatedSnapshot.entries().size(), isStreaming);
+        log.info("Registered remote A2A Agent Card agentName={} catalogVersion={} catalogSize={} streaming={}",
+                entry.name(), updatedSnapshot.version(), updatedSnapshot.entries().size(), entry.isStreaming());
         publishCatalogChanged(updatedSnapshot);
+    }
+
+    /**
+     * Replaces the whole catalog with a unified snapshot produced by a remote
+     * catalog source.
+     *
+     * <p>Idempotent: a snapshot whose source version has already been applied is
+     * skipped. Unchanged entries keep their previous {@link RemoteAgentEntry}
+     * instance so downstream consumers can rely on reference stability. The
+     * registry version moves to at least {@code sourceVersion + 1}.</p>
+     *
+     * @param snapshot the merged catalog snapshot from the source
+     */
+    public void replaceAll(RemoteCatalogSnapshot snapshot) {
+        RemoteAgentCatalogSnapshot updatedSnapshot;
+        updateLock.lock();
+        try {
+            if (snapshot.version() == lastAppliedSourceVersion) {
+                log.debug("Skipped remote catalog replacement, sourceVersion={} already applied", snapshot.version());
+                return;
+            }
+            Map<String, RemoteAgentEntry> next = new LinkedHashMap<>();
+            for (RemoteCatalogEntry catalogEntry : snapshot.entries()) {
+                next.put(catalogEntry.agentId(), registryEntryFor(catalogEntry));
+            }
+            entries.clear();
+            entries.putAll(next);
+            version = Math.max(version + 1, snapshot.version());
+            lastAppliedSourceVersion = snapshot.version();
+            updatedSnapshot = createSnapshot();
+        } finally {
+            updateLock.unlock();
+        }
+        log.info("Replaced remote A2A catalog from source sourceVersion={} catalogVersion={} catalogSize={}",
+                snapshot.version(), updatedSnapshot.version(), updatedSnapshot.entries().size());
+        publishCatalogChanged(updatedSnapshot);
+    }
+
+    /**
+     * Removes a remote agent from the catalog.
+     *
+     * @param name the agent name
+     * @return true when the agent was present and has been removed
+     */
+    public boolean remove(String name) {
+        RemoteAgentCatalogSnapshot updatedSnapshot;
+        updateLock.lock();
+        try {
+            if (entries.remove(name) == null) {
+                return false;
+            }
+            version++;
+            updatedSnapshot = createSnapshot();
+        } finally {
+            updateLock.unlock();
+        }
+        log.info("Removed remote A2A Agent Card agentName={} catalogVersion={} catalogSize={}", name,
+                updatedSnapshot.version(), updatedSnapshot.entries().size());
+        publishCatalogChanged(updatedSnapshot);
+        return true;
+    }
+
+    private RemoteAgentEntry registryEntryFor(RemoteCatalogEntry catalogEntry) {
+        RemoteAgentEntry candidate = new RemoteAgentEntry(catalogEntry.agentId(), catalogEntry.card(),
+                catalogEntry.timeoutSeconds(), catalogEntry.isStreaming(), catalogEntry.tls(),
+                catalogEntry.instances());
+        RemoteAgentEntry existing = entries.get(catalogEntry.agentId());
+        if (existing != null && sameRoutingView(existing, candidate)) {
+            return existing;
+        }
+        return candidate;
+    }
+
+    private boolean sameRoutingView(RemoteAgentEntry current, RemoteAgentEntry next) {
+        return current.timeoutSeconds() == next.timeoutSeconds()
+                && current.isStreaming() == next.isStreaming()
+                && Objects.equals(current.tls(), next.tls())
+                && Objects.equals(current.candidates(), next.candidates());
     }
 
     private RemoteAgentCatalogSnapshot createSnapshot() {
