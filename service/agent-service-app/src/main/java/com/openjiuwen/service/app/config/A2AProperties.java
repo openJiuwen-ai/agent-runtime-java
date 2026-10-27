@@ -66,6 +66,15 @@ public class A2AProperties {
 
     private List<RemoteAgentProperties> remoteAgents = List.of();
 
+    /**
+     * Fixed headers injected into every outbound remote A2A call, merged under
+     * the prepared authentication headers. Intended for deployments whose
+     * remote entries point at an agent-gateway path address that enforces
+     * bearer authentication (L2 §8.3 discipline #1); leave empty for direct
+     * runtime-to-runtime calls.
+     */
+    private Map<String, String> outboundHeaders = new LinkedHashMap<>();
+
     /** Instance Card and remote-agent configuration keyed by HostedAgentDefinitions identifiers. */
     private Map<String, HostedCardProperties> agents = new LinkedHashMap<>();
 

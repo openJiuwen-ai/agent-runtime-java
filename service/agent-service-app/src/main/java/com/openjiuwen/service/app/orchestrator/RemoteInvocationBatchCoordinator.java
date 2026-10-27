@@ -410,6 +410,12 @@ final class RemoteInvocationBatchCoordinator {
         metadata.putAll(member.requestMetadata);
         // Also filter member metadata and restored batches: remote model selection is not supported.
         metadata.remove("model_name");
+
+        // The inbound target declaration (v0830 params.metadata.agentId) names the
+        // current agent and must not leak into outbound calls: the downstream target
+        // is member.agentName, and a stale declared agentId fails the gateway
+        // path-entry consistency check (G3 VALIDATION_AGENT_ID) on gateway legs.
+        metadata.remove("agentId");
         String userId = batch.request.getUserId();
         if (userId != null && !userId.isBlank() && !metadata.containsKey("userId")) {
             metadata.put("userId", userId);

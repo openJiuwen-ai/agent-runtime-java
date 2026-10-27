@@ -9,6 +9,7 @@ import com.openjiuwen.service.adapters.common.security.ExternalAuthProperties;
 import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
+import com.openjiuwen.service.app.a2a.catalog.RemoteInstanceCandidate;
 import com.openjiuwen.service.app.controller.a2a.A2aErrorMetadata;
 import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
@@ -32,6 +33,7 @@ import org.a2aproject.sdk.spec.A2AClientHTTPError;
 import org.a2aproject.sdk.spec.A2AException;
 import org.a2aproject.sdk.spec.A2AServerException;
 import org.a2aproject.sdk.spec.AgentCard;
+import org.a2aproject.sdk.spec.AgentInterface;
 import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.FilePart;
 import org.a2aproject.sdk.spec.FileWithBytes;
@@ -65,6 +67,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
@@ -110,6 +113,15 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
     private final ExecutorService ioExecutor;
 
+    private final CandidateSelector candidateSelector;
+
+    /**
+     * Fixed headers injected into every outbound remote call, merged under the
+     * prepared authentication headers. Empty by default; set from
+     * {@code openjiuwen.service.a2a.outbound-headers} at assembly time.
+     */
+    private volatile Map<String, String> outboundHeaders = Map.of();
+
     /**
      * Base delay for outbound transient-failure retries
      * (exponential backoff, {@value #MAX_RETRY_ATTEMPTS} retries). Doubles per attempt;
@@ -138,18 +150,55 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
 
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency,
             ExternalOutboundSecuritySupport securitySupport) {
-        this(registry, ioConcurrency, securitySupport, null);
+        this(registry, ioConcurrency, securitySupport, new WeightedRandomCandidateSelector());
     }
 
+    /**
+     * Constructs a remote client with an explicit candidate selection strategy
+     * for multi-instance weighted routing and failover.
+     *
+     * @param registry the remote agent card registry
+     * @param ioConcurrency maximum concurrent blocking SDK calls on JDK 17
+     * @param securitySupport outbound security support, or null for defaults
+     * @param candidateSelector the instance candidate selection strategy
+     */
     public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency,
-            ExternalOutboundSecuritySupport securitySupport, RemoteTaskResultHook taskResultHook) {
+            ExternalOutboundSecuritySupport securitySupport, CandidateSelector candidateSelector) {
+        this(registry, ioConcurrency, securitySupport, candidateSelector, null);
+    }
+
+    /**
+     * Constructs a remote client with an explicit candidate selection strategy
+     * and an optional remote task result hook.
+     *
+     * @param registry the remote agent card registry
+     * @param ioConcurrency maximum concurrent blocking SDK calls on JDK 17
+     * @param securitySupport outbound security support, or null for defaults
+     * @param candidateSelector the instance candidate selection strategy
+     * @param taskResultHook the remote task result hook, or null for default extraction
+     */
+    public A2ARemoteAgentClient(A2ARemoteAgentCardRegistry registry, int ioConcurrency,
+            ExternalOutboundSecuritySupport securitySupport, CandidateSelector candidateSelector,
+            RemoteTaskResultHook taskResultHook) {
         if (ioConcurrency <= 0) {
             throw new IllegalArgumentException("ioConcurrency must be greater than zero");
         }
         this.registry = registry;
         this.securitySupport = securitySupport;
+        this.candidateSelector = java.util.Objects.requireNonNull(candidateSelector,
+                "candidateSelector must not be null");
         this.taskResultHook = taskResultHook;
         this.ioExecutor = newIoExecutor(ioConcurrency);
+    }
+
+    /**
+     * Installs the fixed outbound headers merged into every remote call.
+     *
+     * @param headers header name/value pairs injected into outbound calls,
+     *        never null; empty clears the injection
+     */
+    public void setOutboundHeaders(Map<String, String> headers) {
+        this.outboundHeaders = headers == null || headers.isEmpty() ? Map.of() : Map.copyOf(headers);
     }
 
     private static ExecutorService newIoExecutor(int ioConcurrency) {
@@ -178,6 +227,23 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      *            the context/conversation ID
      */
     private record RemoteCallSetup(RemoteAgentEntry entry, MessageSendParams params, String contextId) {
+    }
+
+    /**
+     * Parameter object bundling one invocation's coordinates for candidate
+     * rotation.
+     *
+     * @param catalog the directory the entry came from
+     * @param call the remote call coordinates
+     * @param setup the prepared call setup
+     * @param candidates the live instance candidates
+     * @param firstEventSeen set once the first remote event arrives; locks rotation
+     * @param eventConsumer the event consumer shared by all candidates
+     * @param result the outcome future
+     */
+    private record InvocationContext(A2ARemoteAgentCardRegistry catalog, RemoteCall call, RemoteCallSetup setup,
+            List<RemoteInstanceCandidate> candidates, AtomicBoolean firstEventSeen,
+            BiConsumer<ClientEvent, AgentCard> eventConsumer, CompletableFuture<RemoteCallOutcome> result) {
     }
 
     private record TaskOutcome(String taskId, TaskState state, String statusText, Task task,
@@ -344,24 +410,55 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     /**
-     * Creates or retrieves a cached SDK {@link Client} for the given card and
-     * streaming mode.
-     * Authentication headers are prepared on cache creation, not on every request.
+     * Preserves the package-level test and extension hook for the default
+     * client path: creates or retrieves the SDK client for the entry's first
+     * instance candidate. Authentication headers are prepared on cache
+     * creation, not on every request.
      *
      * @param catalog directory owning the transport configuration and cache entry
      * @param entry the registered remote agent entry
-     * @param isStreaming
-     *            whether the client should be in streaming mode
+     * @param isStreaming whether the client should be in streaming mode
      * @return the SDK client
      */
-    private Client createClient(A2ARemoteAgentCardRegistry catalog, RemoteAgentEntry entry, boolean isStreaming) {
-        AgentCard card = entry.card();
-        ClientCacheKey key = new ClientCacheKey(catalog, entry.name(), endpoint(card), isStreaming);
+    Client createClient(A2ARemoteAgentCardRegistry catalog, RemoteAgentEntry entry, boolean isStreaming) {
+        return createClient(catalog, entry, isStreaming, entry.candidates().get(0));
+    }
+
+    private Client createClient(A2ARemoteAgentCardRegistry catalog, RemoteAgentEntry entry, boolean isStreaming,
+            RemoteInstanceCandidate candidate) {
+        AgentCard card = projectedCard(entry, candidate);
+        ClientCacheKey key = new ClientCacheKey(catalog, entry.name(), candidate.url(), isStreaming,
+                candidate.instanceId());
         return withApplicationClassLoader(() -> clientCache.computeIfAbsent(key,
                 ignored -> Client.builder(card)
                         .clientConfig(new ClientConfig.Builder().setStreaming(isStreaming).build())
-                        .withTransport(JSONRPCTransport.class, new JSONRPCTransportConfig(createHttpClient(entry)))
+                        .withTransport(JSONRPCTransport.class,
+                                new JSONRPCTransportConfig(createHttpClient(entry, candidate.url())))
                         .build()));
+    }
+
+    /**
+     * Projects the entry card onto one instance candidate so the SDK client
+     * targets the candidate's physical endpoint: both the legacy URL field and
+     * the supported-interfaces list are rewritten to the candidate URL. When
+     * the candidate already matches the card's own address the original card is
+     * reused, keeping the cached-client identity stable for the static path.
+     *
+     * @param entry the registered remote agent entry
+     * @param candidate the instance candidate to project onto
+     * @return the card as seen by the SDK client for this candidate
+     */
+    private static AgentCard projectedCard(RemoteAgentEntry entry, RemoteInstanceCandidate candidate) {
+        AgentCard card = entry.card();
+        List<AgentInterface> interfaces = card.supportedInterfaces();
+        if (interfaces != null && interfaces.size() == 1 && candidate.url().equals(interfaces.get(0).url())
+                && candidate.url().equals(card.url())) {
+            return card;
+        }
+        return AgentCard.builder(card).url(candidate.url())
+                .supportedInterfaces(List.of(new AgentInterface(TransportProtocol.JSONRPC.asString(), candidate.url(),
+                        null, "1.0")))
+                .build();
     }
 
     /**
@@ -374,10 +471,25 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * @return the HTTP client to back the JSON-RPC transport
      */
     A2AHttpClient createHttpClient(RemoteAgentEntry entry) {
+        return createHttpClient(entry, endpoint(entry.card()));
+    }
+
+    /**
+     * Builds the HTTP client for outbound A2A calls to one target endpoint.
+     * Without target TLS, preserves the SDK provider mechanism
+     * ({@link A2AHttpClientFactory#create()}); with target TLS, adapts the
+     * prepared JDK client. Both paths inject propagation headers and the fixed
+     * authentication headers supplied when the client is created.
+     *
+     * @param entry registered remote agent entry
+     * @param targetEndpoint the physical JSON-RPC endpoint the call targets
+     * @return the HTTP client to back the JSON-RPC transport
+     */
+    A2AHttpClient createHttpClient(RemoteAgentEntry entry, String targetEndpoint) {
         if (securitySupport == null) {
-            return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create());
+            return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create(), outboundHeaders);
         }
-        ExternalTargetRef target = new ExternalTargetRef("A2A", entry.name(), endpoint(entry.card()), 11);
+        ExternalTargetRef target = new ExternalTargetRef("A2A", entry.name(), targetEndpoint, 11);
         ExternalOutboundSecuritySupport.PreparedOutboundSecurity prepared = securitySupport.prepare(target, entry.tls(),
                 new ExternalAuthProperties(), java.time.Duration.ofSeconds(Math.max(1, entry.timeoutSeconds())));
         if (prepared.authMaterial() != null && !prepared.authMaterial().queryParams().isEmpty()) {
@@ -385,7 +497,10 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         }
         A2AHttpClient base = prepared.jdkHttpClient() == null ? A2AHttpClientFactory.create()
                 : new JdkA2AHttpClient(prepared.jdkHttpClient());
-        Map<String, String> headers = prepared.authMaterial() == null ? Map.of() : prepared.authMaterial().headers();
+        Map<String, String> headers = new java.util.LinkedHashMap<>(outboundHeaders);
+        if (prepared.authMaterial() != null) {
+            headers.putAll(prepared.authMaterial().headers());
+        }
         return new HeaderInjectingA2AHttpClient(base, headers);
     }
 
@@ -452,6 +567,15 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         try {
             entry = catalog.get(call.agentName())
                     .orElseThrow(() -> new IllegalStateException("Unknown remote agent: " + call.agentName()));
+            if (entry.candidates().isEmpty()) {
+                if (entry.hasDerivedCandidates()) {
+                    // Static-compat view: the card itself carries no compatible transport;
+                    // endpoint() always throws with the baseline error surface in that case.
+                    endpoint(entry.card());
+                }
+                throw new IllegalStateException(
+                        "Remote agent '" + call.agentName() + "' has no live instance candidate");
+            }
         } catch (RuntimeException ex) {
             log.error("A2A remote call preparation failed agent={} streaming={} taskId={} contextId={}",
                     call.agentName(), call.isCallerStreaming(), call.taskId() != null ? call.taskId() : "new",
@@ -478,26 +602,15 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             logRemoteError("call preparation", call, isStreaming, call.contextId(), error);
             throw error;
         }
-        log.info("A2A call agent={} streaming={} taskId={} contextId={} textLen={}", call.agentName(), isStreaming,
-                call.taskId() != null ? call.taskId() : "new", setup.contextId,
-                call.message() != null ? call.message().length() : 0);
+        log.info("A2A call agent={} streaming={} taskId={} contextId={} textLen={} candidates={}", call.agentName(),
+                isStreaming, call.taskId() != null ? call.taskId() : "new", setup.contextId,
+                call.message() != null ? call.message().length() : 0, entry.candidates().size());
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
         result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
-        Client client;
-        try {
-            client = createClient(catalog, setup.entry, isStreaming);
-        } catch (RuntimeException ex) {
-            log.error("A2A remote client creation failed agent={} streaming={} taskId={} contextId={}",
-                    call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new", setup.contextId, ex);
-            throw ex;
-        } catch (LinkageError error) {
-            logRemoteError("client creation", call, isStreaming, setup.contextId, error);
-            throw error;
-        } catch (Error error) {
-            logRemoteError("client creation", call, isStreaming, setup.contextId, error);
-            throw error;
-        }
-        submitInvocation(call, setup, client, (event, ignoredCard) -> {
+        createPrimaryClient(catalog, call, setup, isStreaming);
+        AtomicBoolean firstEventSeen = new AtomicBoolean();
+        BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> {
+            firstEventSeen.set(true);
             try {
                 handleClientEvent(event, result, eventObserver, hasTaskPushConfig(setup.params), isStreaming);
             } catch (RuntimeException ex) {
@@ -509,57 +622,175 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 result.completeExceptionally(error);
                 throw error;
             }
-        }, result);
+        };
+        submitInvocation(
+                new InvocationContext(catalog, call, setup, entry.candidates(), firstEventSeen, eventConsumer, result));
         return result;
     }
 
-    private void submitInvocation(RemoteCall call, RemoteCallSetup setup, Client client,
-            BiConsumer<ClientEvent, AgentCard> eventConsumer, CompletableFuture<RemoteCallOutcome> result) {
-        boolean isStreaming = setup.entry.isStreaming() && call.isCallerStreaming();
+    /**
+     * Pre-creates the first-candidate SDK client on the calling thread so
+     * client-creation failures surface synchronously like the single-candidate
+     * baseline, and the first send reuses the warmed client cache.
+     *
+     * @param catalog directory owning the transport configuration and cache entry
+     * @param call remote call coordinates
+     * @param setup the prepared call setup
+     * @param isStreaming whether the client should be in streaming mode
+     */
+    private void createPrimaryClient(A2ARemoteAgentCardRegistry catalog, RemoteCall call, RemoteCallSetup setup,
+            boolean isStreaming) {
+        try {
+            createClient(catalog, setup.entry(), isStreaming);
+        } catch (RuntimeException ex) {
+            log.error("A2A remote client creation failed agent={} streaming={} taskId={} contextId={}",
+                    call.agentName(), isStreaming, taskIdOf(call), setup.contextId(), ex);
+            throw ex;
+        } catch (LinkageError error) {
+            logRemoteError("client creation", call, isStreaming, setup.contextId(), error);
+            throw error;
+        } catch (Error error) {
+            logRemoteError("client creation", call, isStreaming, setup.contextId(), error);
+            throw error;
+        }
+    }
+
+    private void submitInvocation(InvocationContext ctx) {
+        boolean isStreaming = ctx.setup().entry().isStreaming() && ctx.call().isCallerStreaming();
         try {
             AtomicReference<Future<?>> invocationTask = new AtomicReference<>(ioExecutor.submit(
                     A2APropagationHeaderRegistry.captureInvocation(() -> {
-                // Only failures classified as transient transport failures by
-                // isRetryableTransportFailure (connection failures, remote 5xx) are
-                // replayed with exponential backoff, capped at MAX_RETRY_ATTEMPTS;
-                // the send params (including multimodal parts) are re-sent verbatim,
-                // so the remote sees the identical payload per retry. Permanent
-                // failures (4xx, argument/JSON errors, server-side business failures)
-                // fail fast without a re-send.
-                int attempt = 0;
-                while (true) {
-                    try {
-                        withApplicationClassLoader(() -> {
-                            client.sendMessage(setup.params, List.of(eventConsumer),
-                                    error -> completeOutcomeOnStreamEnd(call.agentName(), result, error), null);
-                            return null;
-                        });
+                        runInvocation(ctx, candidateSelector, isStreaming);
                         return null;
-                    } catch (Error error) {
-                        logRemoteError("call", call, isStreaming, setup.contextId(), error);
-                        result.completeExceptionally(error);
-                        throw error;
-                    } catch (RuntimeException ex) {
-                        attempt++;
-                        if (result.isDone() || attempt > MAX_RETRY_ATTEMPTS || !isRetryableTransportFailure(ex)
-                                || !awaitRetryBackoff(new RetryContext(call, isStreaming, setup.contextId(), result),
-                                        attempt, ex)) {
-                            log.error("A2A remote call failed agent={} streaming={} taskId={} contextId={} attempts={}",
-                                    call.agentName(), isStreaming, call.taskId() != null ? call.taskId() : "new",
-                                    setup.contextId(), attempt, ex);
-                            result.completeExceptionally(ex);
-                            return null;
-                        }
-                    }
-                }
-            })));
-            if (result.isDone()) {
+                    })));
+            if (ctx.result().isDone()) {
                 invocationTask.get().cancel(true);
             }
-            cancelInvocationOnCompletion(result, invocationTask);
+            cancelInvocationOnCompletion(ctx.result(), invocationTask);
         } catch (RejectedExecutionException ex) {
-            result.completeExceptionally(ex);
+            ctx.result().completeExceptionally(ex);
         }
+    }
+
+    /**
+     * Runs one invocation to completion: sweeps the instance candidates once per
+     * round — every candidate gets one send per round, retryable failures move
+     * on to the next candidate, an exhausted sweep backs off exponentially
+     * before the next round — and never rotates after the first remote event,
+     * because the task state is then bound to the engaged instance.
+     *
+     * @param ctx the invocation coordinates
+     * @param selector the candidate selection strategy
+     * @param isStreaming whether the invocation runs in streaming mode
+     */
+    private void runInvocation(InvocationContext ctx, CandidateSelector selector, boolean isStreaming) {
+        int round = 0;
+        while (true) {
+            round++;
+            RuntimeException failure = null;
+            for (RemoteInstanceCandidate candidate : rotationOrder(ctx.candidates(), selector)) {
+                Optional<RuntimeException> candidateFailure = tryCandidate(ctx, candidate, isStreaming);
+                if (candidateFailure.isEmpty() || ctx.result().isDone()) {
+                    return;
+                }
+                failure = candidateFailure.orElseThrow();
+            }
+            if (round > MAX_RETRY_ATTEMPTS || !awaitRetryBackoff(
+                    new RetryContext(ctx.call(), isStreaming, ctx.setup().contextId(), ctx.result()), round, failure)) {
+                log.error("A2A remote call failed agent={} streaming={} taskId={} contextId={} rounds={}",
+                        ctx.call().agentName(), isStreaming, taskIdOf(ctx.call()), ctx.setup().contextId(), round,
+                        failure);
+                ctx.result().completeExceptionally(failure);
+                return;
+            }
+        }
+    }
+
+    /**
+     * Sends once to one candidate. Returns the retryable failure to move on to
+     * the next candidate, or empty when the invocation is settled (completed
+     * through events, failed terminally, or aborted after the first-event lock
+     * — the result future is completed inside in those cases).
+     *
+     * @param ctx the invocation coordinates
+     * @param candidate the instance candidate to send to
+     * @param isStreaming whether the invocation runs in streaming mode
+     * @return the retryable failure, or empty when settled
+     */
+    private Optional<RuntimeException> tryCandidate(InvocationContext ctx, RemoteInstanceCandidate candidate,
+            boolean isStreaming) {
+        try {
+            Client client = clientFor(ctx, candidate, isStreaming);
+            withApplicationClassLoader(() -> {
+                client.sendMessage(ctx.setup().params(), List.of(ctx.eventConsumer()),
+                        error -> completeOutcomeOnStreamEnd(ctx.call().agentName(), ctx.result(), error), null);
+                return null;
+            });
+            return Optional.empty();
+        } catch (Error error) {
+            logRemoteError("call", ctx.call(), isStreaming, ctx.setup().contextId(), error);
+            ctx.result().completeExceptionally(error);
+            throw error;
+        } catch (RuntimeException ex) {
+            return classifyFailure(ctx, candidate, ex, isStreaming);
+        }
+    }
+
+    private Optional<RuntimeException> classifyFailure(InvocationContext ctx, RemoteInstanceCandidate candidate,
+            RuntimeException failure, boolean isStreaming) {
+        if (ctx.result().isDone()) {
+            return Optional.empty();
+        }
+        if (ctx.firstEventSeen().get()) {
+            log.error("A2A remote call failed on engaged instance agent={} instance={} streaming={} taskId={} "
+                    + "contextId={}", ctx.call().agentName(), candidate.instanceId(), isStreaming,
+                    taskIdOf(ctx.call()), ctx.setup().contextId(), failure);
+            ctx.result().completeExceptionally(failure);
+            return Optional.empty();
+        }
+        if (!isRetryableTransportFailure(failure)) {
+            log.error("A2A remote call failed permanently agent={} instance={} streaming={} taskId={} contextId={}",
+                    ctx.call().agentName(), candidate.instanceId(), isStreaming, taskIdOf(ctx.call()),
+                    ctx.setup().contextId(), failure);
+            ctx.result().completeExceptionally(failure);
+            return Optional.empty();
+        }
+        log.warn("A2A remote instance failed transiently agent={} instance={} url={} taskId={} contextId={}",
+                ctx.call().agentName(), candidate.instanceId(), candidate.url(), taskIdOf(ctx.call()),
+                ctx.setup().contextId(), failure);
+        return Optional.of(failure);
+    }
+
+    /**
+     * Builds the per-round candidate order: a fresh weighted draw for the first
+     * position, then the remaining candidates in catalog order.
+     *
+     * @param candidates the live candidates
+     * @param selector the candidate selection strategy
+     * @return the candidate order for one round
+     */
+    private static List<RemoteInstanceCandidate> rotationOrder(List<RemoteInstanceCandidate> candidates,
+            CandidateSelector selector) {
+        if (candidates.size() == 1) {
+            return candidates;
+        }
+        RemoteInstanceCandidate first = selector.select(candidates);
+        List<RemoteInstanceCandidate> order = new ArrayList<>(candidates.size());
+        order.add(first);
+        for (RemoteInstanceCandidate candidate : candidates) {
+            if (candidate != first) {
+                order.add(candidate);
+            }
+        }
+        return order;
+    }
+
+    private Client clientFor(InvocationContext ctx, RemoteInstanceCandidate candidate, boolean isStreaming) {
+        return createClient(ctx.catalog(), ctx.setup().entry(), isStreaming, candidate);
+    }
+
+    private static String taskIdOf(RemoteCall call) {
+        return call.taskId() != null ? call.taskId() : "new";
     }
 
     /** Retry-time coordinates shared by the backoff sleeper and its callers (for logging/completion). */
@@ -773,7 +1004,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     }
 
     private record ClientCacheKey(A2ARemoteAgentCardRegistry catalog, String agentName, String endpoint,
-            boolean isStreaming) {
+            boolean isStreaming, String instanceId) {
     }
 
     static String resultCategory(TaskState state) {

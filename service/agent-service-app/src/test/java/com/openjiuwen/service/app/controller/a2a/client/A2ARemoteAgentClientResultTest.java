@@ -87,7 +87,8 @@ class A2ARemoteAgentClientResultTest {
             assertThat(task.artifacts()).hasSize(1);
             return "hook-result";
         };
-        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class), 1, null, hook);
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class), 1, null,
+                new WeightedRandomCandidateSelector(), hook);
         Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
                 TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class,
                 RemoteAgentCaller.EventObserver.class, boolean.class);
@@ -113,7 +114,8 @@ class A2ARemoteAgentClientResultTest {
             throws Exception {
         RemoteTaskResultHook hook = mock(RemoteTaskResultHook.class);
         org.mockito.Mockito.when(hook.extract(any())).thenReturn("");
-        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class), 1, null, hook);
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class), 1, null,
+                new WeightedRandomCandidateSelector(), hook);
         TaskState state = TaskState.valueOf("TASK_STATE_" + stateName);
         Task task = Task.builder().id("remote-task").contextId("remote-context")
                 .status(new TaskStatus(state)).build();
