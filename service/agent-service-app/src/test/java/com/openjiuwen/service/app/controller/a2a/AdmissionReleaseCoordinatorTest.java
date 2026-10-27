@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -97,7 +98,7 @@ class AdmissionReleaseCoordinatorTest {
         coordinator.register("t-1", "conv-a", leaseListener).ifPresent(coordinator::completeRound);
 
         awaitTrue(() -> coordinator.pendingReleaseCount() == 0, 400L);
-        verify(leaseListener).onReleased("t-1", "conv-a");
+        verify(leaseListener, timeout(400)).onReleased("t-1", "conv-a");
     }
 
     @Test
@@ -170,8 +171,8 @@ class AdmissionReleaseCoordinatorTest {
         assertThat(coordinator.pendingReleaseCount()).isEqualTo(1);
 
         awaitTrue(() -> coordinator.pendingReleaseCount() == 0, 400L);
-        verify(gate).release();
-        verify(listener).onReleased("t-1", "conv-a");
+        verify(gate, timeout(400)).release();
+        verify(listener, timeout(400)).onReleased("t-1", "conv-a");
     }
 
     @Test
@@ -184,8 +185,8 @@ class AdmissionReleaseCoordinatorTest {
         coordinator.register("t-1", "conv-a", null).ifPresent(coordinator::completeRound);
 
         awaitTrue(() -> coordinator.pendingReleaseCount() == 0, 400L);
-        verify(gate).release();
-        verify(listener).onReleased("t-1", "conv-a");
+        verify(gate, timeout(400)).release();
+        verify(listener, timeout(400)).onReleased("t-1", "conv-a");
     }
 
     @Test
@@ -203,7 +204,7 @@ class AdmissionReleaseCoordinatorTest {
         assertThat(coordinator.pendingReleaseCount()).isEqualTo(1);
 
         awaitTrue(() -> coordinator.pendingReleaseCount() == 0, 600L);
-        verify(gate).release();
+        verify(gate, timeout(400)).release();
     }
 
     @Test
@@ -221,7 +222,7 @@ class AdmissionReleaseCoordinatorTest {
 
         when(bus.size()).thenReturn(0);
         awaitTrue(() -> coordinator.pendingReleaseCount() == 0, 600L);
-        verify(gate).release();
+        verify(gate, timeout(400)).release();
     }
 
     @Test
