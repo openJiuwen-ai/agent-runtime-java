@@ -26,11 +26,15 @@ import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Tests MVC query controller behavior.
@@ -42,7 +46,7 @@ class QueryMvcControllerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void errorChunkIsWrittenAsActualSseDataBeforeErrorTermination() throws Exception {
+    void errorChunkIsWrittenAsActualSseDataBeforeNormalCompletion() throws Exception {
         var orchestrator = org.mockito.Mockito.mock(ServeOrchestrator.class);
         var failure = new IllegalStateException("Agent execution failed");
         org.mockito.Mockito.doAnswer(invocation -> {
@@ -61,7 +65,7 @@ class QueryMvcControllerTest {
                 .content("{\"conversation_id\":\"sse-model\",\"message\":\"hello\","
                         + "\"stream\":true,\"model_name\":\"b\"}"))
                 .andExpect(request().asyncStarted()).andReturn();
-        assertThat(result.getAsyncResult(5000)).isSameAs(failure);
+        assertThat(result.getAsyncResult(5000)).isNull();
         String wire = result.getResponse().getContentAsString();
         assertThat(wire).contains("data:", "\"type\":\"error\"", "Agent execution failed", "partial")
                 .doesNotContain("result_type", "secret");
@@ -88,7 +92,7 @@ class QueryMvcControllerTest {
     }
 
     @Test
-    void streamingQueryOnErrorPropagatesFailureAndLogsConversationId(CapturedOutput output) throws Exception {
+    void streamingQueryOnErrorWritesSseErrorAndLogsConversationId(CapturedOutput output) throws Exception {
         IllegalStateException failure = new IllegalStateException("stream failed");
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
         beanFactory.registerSingleton("serveOrchestrator", failingOrchestrator(failure));
@@ -105,9 +109,29 @@ class QueryMvcControllerTest {
                 .andReturn();
         Object asyncResult = result.getAsyncResult(5000L);
 
-        assertThat(asyncResult).isSameAs(failure);
+        assertThat(asyncResult).isNull();
+        assertThat(result.getResponse().getContentAsString())
+                .contains("\"type\":\"error\"", "\"error\":\"stream failed\"");
         assertThat(output).contains("Stream query failed for conversation_id=conversation-mvc-error")
                 .contains("java.lang.IllegalStateException: stream failed");
+    }
+
+    @Test
+    void terminalErrorSendFailureCompletesEmitter() throws Exception {
+        IllegalStateException failure = new IllegalStateException("stream failed");
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        beanFactory.registerSingleton("serveOrchestrator", failingOrchestrator(failure));
+        QueryMvcController controller = new QueryMvcController(beanFactory.getBeanProvider(ServeOrchestrator.class),
+                beanFactory.getBeanProvider(AgentReadiness.class), objectMapper);
+        SseEmitter emitter = org.mockito.Mockito.mock(SseEmitter.class);
+        org.mockito.Mockito.doThrow(new IOException("closed")).when(emitter)
+                .send(org.mockito.ArgumentMatchers.any(SseEmitter.SseEventBuilder.class));
+
+        ReflectionTestUtils.invokeMethod(controller, "streamToEmitter",
+                beanFactory.getBean(ServeOrchestrator.class), org.mockito.Mockito.mock(ServeRequest.class), emitter,
+                new AtomicBoolean(false));
+
+        org.mockito.Mockito.verify(emitter).complete();
     }
 
     @Test
