@@ -28,10 +28,13 @@ import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegi
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.autoconfigure.ExternalSecurityAutoConfiguration;
 import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog;
+import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,6 +56,8 @@ import org.springframework.context.annotation.Import;
 @Import(ExternalSecurityAutoConfiguration.class)
 @EnableConfigurationProperties(AgentCoreExternalProperties.class)
 public class AgentCoreAdaptersAutoConfiguration {
+    private static final Logger log = LoggerFactory.getLogger(AgentCoreAdaptersAutoConfiguration.class);
+
     /**
      * The dead-step sweeper interval in seconds; a fixed default keeps the
      * surface small until a tuning need shows up.
@@ -60,10 +65,11 @@ public class AgentCoreAdaptersAutoConfiguration {
     private static final long STEP_SWEEPER_INTERVAL_SECONDS = 60L;
 
     /**
-     * Default step-journal retention in millis: 7 days, aligned with the
-     * checkpointer TTL default.
+     * Sentinel for {@code openjiuwen.step-journal.retention-seconds} meaning
+     * "derive the journal retention from the checkpointer TTL" - the default,
+     * so audit records never outlive the resumable state they describe.
      */
-    private static final long DEFAULT_STEP_JOURNAL_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000;
+    private static final long RETENTION_FOLLOW_CHECKPOINTER_TTL = -1L;
 
     /**
      * Creates the default MCP client decorator factory.
@@ -193,14 +199,20 @@ public class AgentCoreAdaptersAutoConfiguration {
      * crashed processes and walks the shared recovery pipeline (hook first,
      * markLost fallback). When the checkpointer is persistence-backed, the
      * sweep pass also purges step-journal records older than the retention
-     * deadline ({@code openjiuwen.step-journal.retention-seconds}, default 7
-     * days aligned with the checkpointer TTL; non-positive disables the
-     * purge). Off by default; enable via
+     * deadline. The retention defaults to the checkpointer TTL
+     * ({@code openjiuwen.service.middleware.checkpointer.ttl-seconds}) so the
+     * journal never expires before the resumable state; an explicit
+     * {@code openjiuwen.step-journal.retention-seconds} overrides it, with a
+     * warning when it is shorter than the TTL. Non-positive values other than
+     * the default sentinel disable the purge. Off by default; enable via
      * {@code openjiuwen.step-sweeper.enabled=true}.</p>
      *
      * @param checkpointer checkpointer bean, required for the scan
      * @param hook optional business recovery hook
-     * @param journalRetentionSeconds configured journal retention in seconds
+     * @param middleware middleware properties providing the checkpointer TTL
+     * @param journalRetentionSeconds explicit journal retention in seconds;
+     *                                {@value #RETENTION_FOLLOW_CHECKPOINTER_TTL}
+     *                                follows the checkpointer TTL
      * @return started sweeper; the bean is absent entirely when disabled
      */
     @Bean(destroyMethod = "stop")
@@ -208,13 +220,38 @@ public class AgentCoreAdaptersAutoConfiguration {
     @ConditionalOnMissingBean(DeadStepSweeper.class)
     public DeadStepSweeper deadStepSweeper(Checkpointer checkpointer,
             @Autowired(required = false) StepRecoveryHook hook,
-            @Value("${openjiuwen.step-journal.retention-seconds:604800}") long journalRetentionSeconds) {
+            ObjectProvider<MiddlewareProperties> middleware,
+            @Value("${openjiuwen.step-journal.retention-seconds:-1}") long journalRetentionSeconds) {
         StepJournal journal = checkpointer instanceof PersistenceCheckpointer persistence
                 ? new KvStepJournal(persistence.kvStore())
                 : null;
+        long checkpointerTtlSeconds = resolveCheckpointerTtlSeconds(middleware);
+        long retentionSeconds = resolveJournalRetentionSeconds(journalRetentionSeconds, checkpointerTtlSeconds);
         DeadStepSweeper sweeper = new DeadStepSweeper(checkpointer, hook, STEP_SWEEPER_INTERVAL_SECONDS,
-                journal, journalRetentionSeconds * 1000L);
+                journal, retentionSeconds * 1000L);
         sweeper.start();
         return sweeper;
+    }
+
+    private static long resolveCheckpointerTtlSeconds(ObjectProvider<MiddlewareProperties> middleware) {
+        MiddlewareProperties properties = middleware.getIfAvailable();
+        return properties == null
+                ? MiddlewareProperties.Checkpointer.DEFAULT_TTL_SECONDS
+                : properties.getCheckpointer().getTtlSeconds();
+    }
+
+    private static long resolveJournalRetentionSeconds(long configured, long checkpointerTtlSeconds) {
+        if (configured == RETENTION_FOLLOW_CHECKPOINTER_TTL) {
+            return checkpointerTtlSeconds;
+        }
+        if (configured <= 0) {
+            return configured;
+        }
+        if (configured < checkpointerTtlSeconds) {
+            log.warn("Step journal retention {}s is shorter than the checkpointer TTL {}s: audit records "
+                            + "may expire before the resumable state they describe", configured,
+                    checkpointerTtlSeconds);
+        }
+        return configured;
     }
 }
