@@ -52,6 +52,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Unit tests for the A2A-enabled serve orchestrator.
@@ -872,6 +873,79 @@ class A2AEnabledServeOrchestratorTest {
     }
 
     @Test
+    void streamCompletionWaitsForTaskRelease() {
+        Optional<Object> token = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(token);
+        List<String> events = new java.util.ArrayList<>();
+        doAnswer(invocation -> {
+            events.add("handler");
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onComplete(new QueryResponse(Map.of("content", "done"), "c-release-order"));
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        doAnswer(invocation -> {
+            events.add("release");
+            return null;
+        }).when(agentHandler).completeTask(token);
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> {
+            events.add("done");
+            return null;
+        }).when(observer).onComplete(any(QueryResponse.class));
+
+        orchestrator.streamQuery(req("c-release-order"), observer);
+
+        assertThat(events).containsExactly("handler", "release", "done");
+        verify(agentHandler).completeTask(token);
+    }
+
+    @Test
+    void streamResumeReleasesOnceBeforeFinalCompletion() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        Optional<Object> token = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(token);
+        when(a2aClient.callOutcome(any(), any())).thenReturn(CompletableFuture.completedFuture(
+                new RemoteCallOutcome("remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "remote-done",
+                        null, null, Map.of())));
+        AtomicInteger releases = new AtomicInteger();
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            releases.incrementAndGet();
+            return null;
+        }).when(agentHandler).completeTask(token);
+        doAnswer(invocation -> {
+            assertThat(releases.get()).isZero();
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (localRuns.getAndIncrement() == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                        "type", "__interaction__", "toolCallId", "call-1", "toolName", "a2a_delegate",
+                        "message", "go", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                                "agentName", "remote-agent"))));
+                observer.onComplete();
+            } else {
+                observer.onComplete(new QueryResponse(Map.of("content", "done"), "c-release-resume"));
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> {
+            assertThat(releases.get()).isEqualTo(1);
+            return null;
+        }).when(observer).onComplete(any(QueryResponse.class));
+
+        orchestrator.streamQuery(req("c-release-resume"), observer);
+
+        assertThat(localRuns.get()).isEqualTo(2);
+        verify(agentHandler).prepareTask(any());
+        verify(agentHandler).completeTask(token);
+        verify(observer).onComplete(any(QueryResponse.class));
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onError(any());
+    }
+
+    @Test
     void streamQuery_prepareTaskThrows_unregistersAndCompletes() {
         ActiveStreamRegistry realRegistry = new ActiveStreamRegistry();
         A2AEnabledServeOrchestrator orchestratorWithRealRegistry = new A2AEnabledServeOrchestrator(agentHandler,
@@ -1154,10 +1228,92 @@ class A2AEnabledServeOrchestratorTest {
             observer.onComplete();
             return null;
         }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
 
-        assertThatThrownBy(() -> realOrchestrator.streamQuery(req("cleanup-failure"),
-                mock(QueryStreamObserver.class))).isSameAs(failure);
+        assertThatThrownBy(() -> realOrchestrator.streamQuery(req("cleanup-failure"), observer))
+                .isSameAs(failure);
         assertThat(realRegistry.activeCount()).isZero();
         assertThat(realRegistry.awaitDrain(0L)).isTrue();
+        verify(observer).onError(failure);
+        verify(observer, times(1)).onError(any());
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onComplete(any(QueryResponse.class));
+    }
+
+    @Test
+    void streamCleanupFailureKeepsOriginalError() {
+        Optional<Object> taskToken = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(taskToken);
+        IllegalStateException cleanupFailure = new IllegalStateException("resource cleanup failed");
+        IllegalStateException originalFailure = new IllegalStateException("agent failed");
+        doThrow(cleanupFailure).when(agentHandler).completeTask(taskToken);
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onError(originalFailure);
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        assertThatThrownBy(() -> orchestrator.streamQuery(req("cleanup-original-error"), observer))
+                .isSameAs(cleanupFailure);
+
+        verify(observer).onError(originalFailure);
+        verify(observer, times(1)).onError(any());
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onComplete(any(QueryResponse.class));
+    }
+
+    @Test
+    void streamCleanupFailureConvertsLateCompletion() {
+        Optional<Object> taskToken = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(taskToken);
+        IllegalStateException failure = new IllegalStateException("resource cleanup failed");
+        doThrow(failure).when(agentHandler).completeTask(taskToken);
+        AtomicReference<QueryStreamObserver> agentObserver = new AtomicReference<>();
+        doAnswer(invocation -> {
+            agentObserver.set(invocation.getArgument(1));
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        assertThatThrownBy(() -> orchestrator.streamQuery(req("cleanup-late-completion"), observer))
+                .isSameAs(failure);
+        agentObserver.get().onComplete();
+
+        verify(observer).onError(failure);
+        verify(observer, times(1)).onError(any());
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onComplete(any(QueryResponse.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void streamCleanupFailureSurvivesTerminalCallbackFailure(boolean isOriginalError) {
+        Optional<Object> taskToken = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(taskToken);
+        IllegalStateException cleanupFailure = new IllegalStateException("resource cleanup failed");
+        IllegalStateException agentFailure = new IllegalStateException("agent failed");
+        doThrow(cleanupFailure).when(agentHandler).completeTask(taskToken);
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (isOriginalError) {
+                observer.onError(agentFailure);
+            } else {
+                observer.onComplete();
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        IllegalStateException callbackFailure = new IllegalStateException("downstream callback failed");
+        doThrow(callbackFailure).when(observer).onError(any());
+
+        assertThatThrownBy(() -> orchestrator.streamQuery(req("cleanup-callback-failure"), observer))
+                .isSameAs(cleanupFailure)
+                .hasSuppressedException(callbackFailure);
+
+        verify(observer).onError(isOriginalError ? agentFailure : cleanupFailure);
+        verify(observer, times(1)).onError(any());
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onComplete(any(QueryResponse.class));
     }
 }
