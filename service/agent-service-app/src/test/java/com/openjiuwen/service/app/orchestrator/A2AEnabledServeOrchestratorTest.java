@@ -1288,16 +1288,15 @@ class A2AEnabledServeOrchestratorTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void streamCleanupFailureSurvivesTerminalCallbackFailure(boolean originalError) {
+    void streamCleanupFailureSurvivesTerminalCallbackFailure(boolean isOriginalError) {
         Optional<Object> taskToken = Optional.of(TASK_TOKEN);
         when(agentHandler.prepareTask(any())).thenReturn(taskToken);
         IllegalStateException cleanupFailure = new IllegalStateException("resource cleanup failed");
-        IllegalStateException callbackFailure = new IllegalStateException("downstream callback failed");
         IllegalStateException agentFailure = new IllegalStateException("agent failed");
         doThrow(cleanupFailure).when(agentHandler).completeTask(taskToken);
         doAnswer(invocation -> {
             QueryStreamObserver observer = invocation.getArgument(1);
-            if (originalError) {
+            if (isOriginalError) {
                 observer.onError(agentFailure);
             } else {
                 observer.onComplete();
@@ -1305,13 +1304,14 @@ class A2AEnabledServeOrchestratorTest {
             return null;
         }).when(agentHandler).streamQuery(any(), any());
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        IllegalStateException callbackFailure = new IllegalStateException("downstream callback failed");
         doThrow(callbackFailure).when(observer).onError(any());
 
         assertThatThrownBy(() -> orchestrator.streamQuery(req("cleanup-callback-failure"), observer))
                 .isSameAs(cleanupFailure)
                 .hasSuppressedException(callbackFailure);
 
-        verify(observer).onError(originalError ? agentFailure : cleanupFailure);
+        verify(observer).onError(isOriginalError ? agentFailure : cleanupFailure);
         verify(observer, times(1)).onError(any());
         verify(observer, never()).onComplete();
         verify(observer, never()).onComplete(any(QueryResponse.class));

@@ -846,14 +846,14 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
                 return;
             }
             Throwable failure = releaseFailure.get();
-            if (failure != null && !callback.error()) {
+            if (failure != null && !callback.isError()) {
                 delegate.onError(failure);
                 return;
             }
             callback.action().run();
         }
 
-        private record TerminalCallback(Runnable action, boolean error) {
+        private record TerminalCallback(Runnable action, boolean isError) {
         }
     }
 }
