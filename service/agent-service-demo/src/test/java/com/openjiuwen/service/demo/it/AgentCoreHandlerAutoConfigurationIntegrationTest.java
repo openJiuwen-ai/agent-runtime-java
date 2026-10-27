@@ -51,14 +51,6 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
 
     private static final String CONVERSATION_ID = "c-agent-id-it";
 
-    @BeforeAll
-    static void registerAgentInResourceMgr() {
-        // agent 只在请求处理期（query）从 ResourceMgr 查询，注册在测试方法前完成即可。
-        // 与 @AfterAll removeAgent 对称，保证同一 JVM 内重复执行时重新注册（幂等）。
-        Runner.resourceMgr()
-            .addAgent(AgentCard.builder().id(AGENT_ID).name(AGENT_ID).build(), SessionEchoAgent::new, null);
-    }
-
     @Autowired
     private ApplicationContext context;
 
@@ -66,6 +58,14 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
     private TestRestTemplate rest;
 
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @BeforeAll
+    static void registerAgentInResourceMgr() {
+        // agent 只在请求处理期（query）从 ResourceMgr 查询，注册在测试方法前完成即可。
+        // 与 @AfterAll removeAgent 对称，保证同一 JVM 内重复执行时重新注册（幂等）。
+        Runner.resourceMgr()
+            .addAgent(AgentCard.builder().id(AGENT_ID).name(AGENT_ID).build(), SessionEchoAgent::new, null);
+    }
 
     @BeforeEach
     void clearConversation() {
