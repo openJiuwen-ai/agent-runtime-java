@@ -59,8 +59,11 @@ class SseErrorTerminalIntegrationTest {
 
         List<Map<String, Object>> events = errorEvents(body);
         assertThat(events).hasSize(1);
-        assertThat(events.get(0)).containsEntry("type", "error");
-        assertThat(events.get(0).get("error").toString()).contains("uncovered boom");
+        assertThat(events.get(0)).containsEntry("type", "error")
+                .containsEntry("code", "AGENT_EXECUTION_FAILED")
+                .containsEntry("error", "agent execution failed")
+                .containsEntry("conversation_id", "c-uncovered");
+        assertThat(body).doesNotContain("uncovered boom");
     }
 
     private String postAndRead(String query) throws Exception {

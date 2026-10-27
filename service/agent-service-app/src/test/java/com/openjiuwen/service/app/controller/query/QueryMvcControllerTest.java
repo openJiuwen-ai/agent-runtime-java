@@ -111,7 +111,10 @@ class QueryMvcControllerTest {
 
         assertThat(asyncResult).isNull();
         assertThat(result.getResponse().getContentAsString())
-                .contains("\"type\":\"error\"", "\"error\":\"stream failed\"");
+                .contains("\"type\":\"error\"", "\"code\":\"AGENT_EXECUTION_FAILED\"",
+                        "\"error\":\"agent execution failed\"",
+                        "\"conversation_id\":\"conversation-mvc-error\"")
+                .doesNotContain("stream failed");
         assertThat(output).contains("Stream query failed for conversation_id=conversation-mvc-error")
                 .contains("java.lang.IllegalStateException: stream failed");
     }

@@ -209,7 +209,7 @@ public class QueryMvcController {
                 }
                 log.error("Stream query failed for conversation_id={}", serveRequest.getConversationId(), error);
                 if (!errorEventSent.get()) {
-                    sendTerminalError(emitter, error, serveRequest.getConversationId(), cancelled);
+                    sendTerminalError(emitter, serveRequest.getConversationId(), cancelled);
                 }
                 emitter.complete();
             }
@@ -228,11 +228,9 @@ public class QueryMvcController {
         });
     }
 
-    private void sendTerminalError(SseEmitter emitter, Throwable error, String conversationId,
-            AtomicBoolean cancelled) {
-        String message = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+    private void sendTerminalError(SseEmitter emitter, String conversationId, AtomicBoolean cancelled) {
         QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_ERROR,
-                Map.of("type", QueryChunk.TYPE_ERROR, "error", message));
+                QueryIngressSupport.agentExecutionFailed(conversationId));
         try {
             emitter.send(SseEmitter.event().data(QuerySseSupport.toSseData(chunk, objectMapper)));
         } catch (IOException | IllegalStateException ex) {
