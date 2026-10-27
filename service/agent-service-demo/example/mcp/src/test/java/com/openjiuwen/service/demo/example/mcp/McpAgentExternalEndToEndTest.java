@@ -24,7 +24,6 @@ import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -100,6 +99,15 @@ class McpAgentExternalEndToEndTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    static {
+        // 注册必须在 Spring 上下文加载之前完成：@SpringBootTest 的上下文加载
+        // 先于 @BeforeAll，若 factory 晚注册，上下文加载期创建的 LLM client
+        // 会走到真实 provider 而非本测试的 mock factory。
+        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
+            Model.registerFactory(new ToolCallingModelFactory());
+        }
+    }
+
     @Autowired
     private TestRestTemplate rest;
 
@@ -122,13 +130,6 @@ class McpAgentExternalEndToEndTest {
         registry.add("openjiuwen.service.external.mcp.servers[0].server-path",
             () -> System.getProperty(SERVER_PATH_PROPERTY));
         registry.add("openjiuwen.service.external.mcp.servers[0].client-type", () -> "streamable-http");
-    }
-
-    @BeforeAll
-    static void registerModelFactory() {
-        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
-            Model.registerFactory(new ToolCallingModelFactory());
-        }
     }
 
     @AfterAll

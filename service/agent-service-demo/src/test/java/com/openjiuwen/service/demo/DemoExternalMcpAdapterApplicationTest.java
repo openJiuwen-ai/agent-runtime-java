@@ -46,7 +46,8 @@ class DemoExternalMcpAdapterApplicationTest {
     private RecordingExternalSvcAdapterRegistrar registrar;
 
     @BeforeAll
-    static void resetRunnerBeforeContextStarts() {
+    static void resetRunnerBeforeTest() {
+        // 清掉前序测试可能残留的 Runner 状态，确保本测试的 agentHandler.start() 能重新启动 Runner。
         new JiuwenCoreAgentHandler("demo-reset").stop();
         Runner.stop();
     }
