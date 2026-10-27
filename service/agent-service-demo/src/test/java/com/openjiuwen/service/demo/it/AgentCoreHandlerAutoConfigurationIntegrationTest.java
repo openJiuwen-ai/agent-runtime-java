@@ -16,6 +16,7 @@ import com.openjiuwen.service.demo.it.support.SessionEchoAgent;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,9 +51,10 @@ class AgentCoreHandlerAutoConfigurationIntegrationTest {
 
     private static final String CONVERSATION_ID = "c-agent-id-it";
 
-    static {
-        // 注册必须在 Spring 上下文加载之前完成：@SpringBootTest 的上下文加载先于
-        // @BeforeAll，若 agent 注册过晚，上下文加载期可能查不到 ResourceMgr 中的 agent。
+    @BeforeAll
+    static void registerAgentInResourceMgr() {
+        // agent 只在请求处理期（query）从 ResourceMgr 查询，注册在测试方法前完成即可。
+        // 与 @AfterAll removeAgent 对称，保证同一 JVM 内重复执行时重新注册（幂等）。
         Runner.resourceMgr()
             .addAgent(AgentCard.builder().id(AGENT_ID).name(AGENT_ID).build(), SessionEchoAgent::new, null);
     }
