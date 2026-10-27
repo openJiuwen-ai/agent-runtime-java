@@ -130,16 +130,6 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private volatile long retryBackoffBaseMillis = 200L;
 
     /**
-     * Installs the fixed outbound headers merged into every remote call.
-     *
-     * @param headers header name/value pairs injected into outbound calls,
-     *        never null; empty clears the injection
-     */
-    public void setOutboundHeaders(Map<String, String> headers) {
-        this.outboundHeaders = headers == null || headers.isEmpty() ? Map.of() : Map.copyOf(headers);
-    }
-
-    /**
      * Constructs the remote agent client with the default I/O concurrency.
      *
      * @param registry the remote agent card registry
@@ -199,6 +189,16 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 "candidateSelector must not be null");
         this.taskResultHook = taskResultHook;
         this.ioExecutor = newIoExecutor(ioConcurrency);
+    }
+
+    /**
+     * Installs the fixed outbound headers merged into every remote call.
+     *
+     * @param headers header name/value pairs injected into outbound calls,
+     *        never null; empty clears the injection
+     */
+    public void setOutboundHeaders(Map<String, String> headers) {
+        this.outboundHeaders = headers == null || headers.isEmpty() ? Map.of() : Map.copyOf(headers);
     }
 
     private static ExecutorService newIoExecutor(int ioConcurrency) {
