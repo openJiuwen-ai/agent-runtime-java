@@ -123,6 +123,13 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private volatile Map<String, String> outboundHeaders = Map.of();
 
     /**
+     * Base delay for outbound transient-failure retries
+     * (exponential backoff, {@value #MAX_RETRY_ATTEMPTS} retries). Doubles per attempt;
+     * tests shrink it via reflection to keep the suite fast.
+     */
+    private volatile long retryBackoffBaseMillis = 200L;
+
+    /**
      * Installs the fixed outbound headers merged into every remote call.
      *
      * @param headers header name/value pairs injected into outbound calls,
@@ -131,13 +138,6 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     public void setOutboundHeaders(Map<String, String> headers) {
         this.outboundHeaders = headers == null || headers.isEmpty() ? Map.of() : Map.copyOf(headers);
     }
-
-    /**
-     * Base delay for outbound transient-failure retries
-     * (exponential backoff, {@value #MAX_RETRY_ATTEMPTS} retries). Doubles per attempt;
-     * tests shrink it via reflection to keep the suite fast.
-     */
-    private volatile long retryBackoffBaseMillis = 200L;
 
     /**
      * Constructs the remote agent client with the default I/O concurrency.
