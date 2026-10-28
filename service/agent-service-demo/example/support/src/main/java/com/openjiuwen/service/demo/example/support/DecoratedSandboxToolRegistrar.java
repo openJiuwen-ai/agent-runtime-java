@@ -20,6 +20,7 @@ import com.openjiuwen.service.adapters.agentcore.external.AgentCoreSandboxClient
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.OptionalInt;
 
@@ -138,17 +139,23 @@ public final class DecoratedSandboxToolRegistrar {
     }
 
     private static ToolCard toolCard(List<ToolCard> cards, String serverId, String operation, String method) {
+        // Core 生成的工具卡名是 snake_case（read_file/execute_cmd/execute_code），
+        // 对外派发名统一用驼峰，因此匹配时做归一化对齐，避免大小写与下划线风格耦合。
         ToolCard source = cards.stream()
-                .filter(card -> method.equals(card.getName()))
+                .filter(card -> normalizeName(card.getName()).equals(normalizeName(method)))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Sandbox tool not found: " + method));
         return ToolCard.builder()
                 .id(toolId(serverId, operation, method))
-                .name(source.getName())
+                .name(method)
                 .description(source.getDescription())
                 .inputParams(source.getInputParams())
                 .properties(source.getProperties())
                 .build();
+    }
+
+    private static String normalizeName(String name) {
+        return name == null ? "" : name.replace("_", "").toLowerCase(Locale.ROOT);
     }
 
     private static String toolId(String serverId, String operation, String method) {
