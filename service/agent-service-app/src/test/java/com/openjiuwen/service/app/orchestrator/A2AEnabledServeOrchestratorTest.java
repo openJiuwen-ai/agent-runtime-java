@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -19,6 +20,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
@@ -34,7 +36,9 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
+import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
 import org.a2aproject.sdk.server.tasks.TaskStore;
+import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
@@ -42,8 +46,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -53,6 +59,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 /**
  * Unit tests for the A2A-enabled serve orchestrator.
@@ -870,6 +877,177 @@ class A2AEnabledServeOrchestratorTest {
 
         verify(agentHandler).clearSession("c-empty");
         verify(taskStore, never()).delete(any());
+    }
+
+    @ParameterizedTest
+    @MethodSource("resetTaskCounts")
+    void resetConversationCleansEveryPage(int taskCount) {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        for (int index = 0; index < taskCount; index++) {
+            taskStore.save(Task.builder().id("reset-task-" + index).contextId("c-reset")
+                    .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build(), true);
+        }
+        Task unrelated = Task.builder().id("unrelated").contextId("c-other")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+        taskStore.save(unrelated, true);
+
+        orchestrator.resetConversation("c-reset");
+
+        for (int index = 0; index < taskCount; index++) {
+            assertThat(taskStore.get("reset-task-" + index)).as("task %s", index).isNull();
+        }
+        assertThat(taskStore.get("unrelated")).isEqualTo(unrelated);
+        orchestrator.resetConversation("c-reset");
+        assertThat(taskStore.get("unrelated")).isEqualTo(unrelated);
+        verify(streamRegistry, times(2)).cancel("c-reset");
+        verify(agentHandler, times(2)).clearSession("c-reset");
+    }
+
+    @Test
+    void resetCollectsAllPagesBeforeDeletingAndDeduplicatesIds() {
+        Task parent = resetTask("parent");
+        Task shadow = Task.builder().id("shadow:parent").contextId("c-reset")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
+                .metadata(Map.of("_remote_batch", Map.of("parentTaskId", "parent"))).build();
+        when(taskStore.list(any())).thenReturn(
+                new ListTasksResult(List.of(parent), 2, 1, " opaque token "),
+                new ListTasksResult(List.of(), 2, 0, "next"),
+                new ListTasksResult(List.of(parent, shadow), 2, 2, null));
+
+        orchestrator.resetConversation("c-reset");
+
+        var order = inOrder(streamRegistry, agentHandler, taskStore);
+        order.verify(streamRegistry).cancel("c-reset");
+        order.verify(agentHandler).clearSession("c-reset");
+        for (String token : Arrays.asList(null, " opaque token ", "next")) {
+            order.verify(taskStore).list(ListTasksParams.builder().contextId("c-reset")
+                    .pageToken(token).historyLength(0).includeArtifacts(false).build());
+        }
+        order.verify(taskStore).delete("parent");
+        order.verify(taskStore).delete("shadow:parent");
+        order.verifyNoMoreInteractions();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " \t"})
+    void resetStopsOnBlankNextPageToken(String token) {
+        when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of(resetTask("t1")), 1, 1, token));
+
+        orchestrator.resetConversation("c-reset");
+
+        verify(taskStore).list(any());
+        verify(taskStore).delete("t1");
+    }
+
+    @Test
+    void resetRejectsCyclicTokensBeforeDeletingTasks() {
+        when(taskStore.list(any())).thenReturn(
+                new ListTasksResult(List.of(resetTask("t1")), 3, 1, "a"),
+                new ListTasksResult(List.of(resetTask("t2")), 3, 1, "b"),
+                new ListTasksResult(List.of(resetTask("t3")), 3, 1, "a"));
+
+        assertThatThrownBy(() -> orchestrator.resetConversation("c-reset"))
+                .isInstanceOf(TaskPersistenceException.class).hasMessageContaining("repeated a page token");
+
+        verify(taskStore, times(3)).list(any());
+        verify(taskStore, never()).delete(any());
+    }
+
+    @Test
+    void resetPropagatesLaterPageFailureWithoutDeletingTasks() {
+        TaskPersistenceException failure = new TaskPersistenceException("list failed");
+        when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of(resetTask("t1")), 2, 1, "next"))
+                .thenThrow(failure);
+
+        assertThatThrownBy(() -> orchestrator.resetConversation("c-reset")).isSameAs(failure);
+
+        verify(taskStore, never()).delete(any());
+        verify(streamRegistry).cancel("c-reset");
+        verify(agentHandler).clearSession("c-reset");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"page", "tasks", "task", "null-id", "empty-id", "blank-id"})
+    void resetRejectsInvalidPagesBeforeDeletingTasks(String invalidPart) {
+        ListTasksResult invalidPage = invalidResetPage(invalidPart);
+        when(taskStore.list(any())).thenReturn(
+                new ListTasksResult(List.of(resetTask("valid")), 2, 1, "next"), invalidPage);
+
+        assertThatThrownBy(() -> orchestrator.resetConversation("c-reset"))
+                .isInstanceOf(TaskPersistenceException.class).hasMessageContaining("invalid");
+
+        verify(taskStore, never()).delete(any());
+    }
+
+    @Test
+    void resetPropagatesDeleteFailureAndStopsDeleting() {
+        when(taskStore.list(any())).thenReturn(
+                new ListTasksResult(List.of(resetTask("t1"), resetTask("t2"), resetTask("t3"))));
+        TaskPersistenceException failure = new TaskPersistenceException("delete failed");
+        doThrow(failure).when(taskStore).delete("t2");
+
+        assertThatThrownBy(() -> orchestrator.resetConversation("c-reset")).isSameAs(failure);
+
+        verify(taskStore).delete("t1");
+        verify(taskStore).delete("t2");
+        verify(taskStore, never()).delete("t3");
+    }
+
+    @Test
+    void resetCleansAllPagesThroughWriteThrottlingDecorator() {
+        int taskCount = 2 * ListTasksParams.builder().build().getEffectivePageSize() + 1;
+        TaskStore delegate = new InMemoryTaskStore();
+        taskStore = new WriteThrottlingTaskStore(delegate, Long.MAX_VALUE);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        for (int index = 0; index < taskCount; index++) {
+            Task task = Task.builder().id("cached-" + index).contextId("c-reset")
+                    .status(new TaskStatus(TaskState.TASK_STATE_WORKING)).build();
+            taskStore.save(task, true);
+            taskStore.save(task, true);
+        }
+
+        orchestrator.resetConversation("c-reset");
+
+        for (int index = 0; index < taskCount; index++) {
+            assertThat(taskStore.get("cached-" + index)).isNull();
+            assertThat(delegate.get("cached-" + index)).isNull();
+        }
+        assertThat(taskStore.list(ListTasksParams.builder().contextId("c-reset").build()).tasks()).isEmpty();
+        assertThat(delegate.list(ListTasksParams.builder().contextId("c-reset").build()).tasks()).isEmpty();
+    }
+
+    private static IntStream resetTaskCounts() {
+        int defaultPageSize = ListTasksParams.builder().build().getEffectivePageSize();
+        return IntStream.of(0, defaultPageSize - 1, defaultPageSize, defaultPageSize + 1, 2 * defaultPageSize + 1);
+    }
+
+    private static Task resetTask(String id) {
+        return Task.builder().id(id).contextId("c-reset")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+    }
+
+    private static ListTasksResult invalidResetPage(String invalidPart) {
+        if ("page".equals(invalidPart)) {
+            return null;
+        }
+        ListTasksResult page = mock(ListTasksResult.class);
+        if ("tasks".equals(invalidPart)) {
+            when(page.tasks()).thenReturn(null);
+            return page;
+        }
+        Task task = mock(Task.class);
+        switch (invalidPart) {
+            case "task" -> task = null;
+            case "null-id" -> when(task.id()).thenReturn(null);
+            case "empty-id" -> when(task.id()).thenReturn("");
+            case "blank-id" -> when(task.id()).thenReturn(" \t");
+            default -> throw new IllegalArgumentException("Unexpected invalid part: " + invalidPart);
+        }
+        when(page.tasks()).thenReturn(Arrays.asList(task));
+        return page;
     }
 
     @Test

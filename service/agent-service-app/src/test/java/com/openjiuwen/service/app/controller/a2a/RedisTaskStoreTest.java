@@ -6,8 +6,13 @@ package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
+import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
+import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.dto.QueryChunk;
+import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import redis.clients.jedis.exceptions.JedisConnectionException;
@@ -88,6 +93,31 @@ class RedisTaskStoreTest {
         assertThat(listed.tasks()).extracting(Task::id).containsExactly("task-1");
         assertThat(store.get("task-1")).isNull();
         assertThat(store.get("task-2")).isNotNull();
+    }
+
+    @Test
+    void resetConversationDeletesEveryPageAndItsContextIndex() {
+        int taskCount = 2 * ListTasksParams.builder().build().getEffectivePageSize() + 1;
+        InMemoryRuntimeRedisClient redisClient = new InMemoryRuntimeRedisClient();
+        RedisTaskStore store = new RedisTaskStore(redisClient, 3600L);
+        Task unrelated = task("unrelated", "ctx-other", TaskState.TASK_STATE_COMPLETED);
+        store.save(unrelated, false);
+        store.list(ListTasksParams.builder().contextId("ctx-other").build());
+        var unrelatedKeys = new LinkedHashSet<>(redisClient.values.keySet());
+        for (int index = 0; index < taskCount; index++) {
+            store.save(task("reset-" + index, "ctx-reset", TaskState.TASK_STATE_COMPLETED), false);
+        }
+        A2AEnabledServeOrchestrator orchestrator = new A2AEnabledServeOrchestrator(mock(AgentHandler.class),
+                store, mock(RemoteAgentCaller.class), mock(ActiveStreamRegistry.class), "test-agent", 16, 256, 30);
+
+        orchestrator.resetConversation("ctx-reset");
+
+        for (int index = 0; index < taskCount; index++) {
+            assertThat(store.get("reset-" + index)).isNull();
+        }
+        assertThat(store.list(ListTasksParams.builder().contextId("ctx-reset").build()).tasks()).isEmpty();
+        assertThat(store.get("unrelated")).isEqualTo(unrelated);
+        assertThat(redisClient.values.keySet()).containsExactlyInAnyOrderElementsOf(unrelatedKeys);
     }
 
     @Test
