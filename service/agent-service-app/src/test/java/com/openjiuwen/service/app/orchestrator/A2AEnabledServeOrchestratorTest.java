@@ -971,7 +971,7 @@ class A2AEnabledServeOrchestratorTest {
     @ParameterizedTest
     @ValueSource(strings = {"page", "tasks", "task", "null-id", "empty-id", "blank-id"})
     void resetRejectsInvalidPagesBeforeDeletingTasks(String invalidPart) {
-        ListTasksResult invalidPage = invalidResetPage(invalidPart);
+        ListTasksResult invalidPage = invalidResetPage(invalidPart).orElse(null);
         when(taskStore.list(any())).thenReturn(
                 new ListTasksResult(List.of(resetTask("valid")), 2, 1, "next"), invalidPage);
 
@@ -1029,14 +1029,14 @@ class A2AEnabledServeOrchestratorTest {
                 .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
     }
 
-    private static ListTasksResult invalidResetPage(String invalidPart) {
+    private static Optional<ListTasksResult> invalidResetPage(String invalidPart) {
         if ("page".equals(invalidPart)) {
-            return null;
+            return Optional.empty();
         }
         ListTasksResult page = mock(ListTasksResult.class);
         if ("tasks".equals(invalidPart)) {
             when(page.tasks()).thenReturn(null);
-            return page;
+            return Optional.of(page);
         }
         Task task = mock(Task.class);
         switch (invalidPart) {
@@ -1047,7 +1047,7 @@ class A2AEnabledServeOrchestratorTest {
             default -> throw new IllegalArgumentException("Unexpected invalid part: " + invalidPart);
         }
         when(page.tasks()).thenReturn(Arrays.asList(task));
-        return page;
+        return Optional.of(page);
     }
 
     @Test

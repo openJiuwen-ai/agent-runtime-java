@@ -112,12 +112,12 @@ class RedisTaskStoreTest {
 
         orchestrator.resetConversation("ctx-reset");
 
+        assertThat(redisClient.values.keySet()).containsExactlyInAnyOrderElementsOf(unrelatedKeys);
         for (int index = 0; index < taskCount; index++) {
             assertThat(store.get("reset-" + index)).isNull();
         }
         assertThat(store.list(ListTasksParams.builder().contextId("ctx-reset").build()).tasks()).isEmpty();
         assertThat(store.get("unrelated")).isEqualTo(unrelated);
-        assertThat(redisClient.values.keySet()).containsExactlyInAnyOrderElementsOf(unrelatedKeys);
     }
 
     @Test
