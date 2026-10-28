@@ -33,8 +33,6 @@ import java.util.Map;
 class McpGovernanceIntegrationTest {
     private static final String SERVER_PATH_PROPERTY = "demo.mcp.integration.server-path";
 
-    private static final String MCP_ACCEPT = "application/json";
-
     @Test
     void externalMcpToolErrorDoesNotTripCircuitBeforeTimeout(CapturedOutput output) throws Exception {
         McpServerConfig config = newConfig("demo-mcp-governance");
@@ -82,7 +80,6 @@ class McpGovernanceIntegrationTest {
             .serverName("demo-mcp-tools")
             .serverPath(System.getProperty(SERVER_PATH_PROPERTY))
             .clientType("streamable_http")
-            .authHeaders(Map.of("Accept", MCP_ACCEPT))
             .build();
     }
 }

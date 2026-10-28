@@ -53,10 +53,6 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
 
     private static final String STREAMABLE_HTTP = "streamable_http";
 
-    private static final String ACCEPT_HEADER = "Accept";
-
-    private static final String STREAMABLE_HTTP_ACCEPT = "application/json";
-
     private final AgentCoreExternalProperties properties;
 
     private final AgentCoreMcpClientDecoratorFactory decoratorFactory;
@@ -289,9 +285,6 @@ public class DefaultExternalSvcAdapterRegistrar implements ExternalSvcAdapterReg
         config.setServerPath(requireText(server.getServerPath(), "server-path"));
         String clientType = normalizeClientType(server.getClientType());
         config.setClientType(clientType);
-        if (STREAMABLE_HTTP.equals(clientType)) {
-            config.getAuthHeaders().put(ACCEPT_HEADER, STREAMABLE_HTTP_ACCEPT);
-        }
         Map<String, Object> params = new LinkedHashMap<>(server.getParams());
         if ("stdio".equals(clientType) && server.getTls() != null && server.getTls().isEnabled()) {
             log.warn("Ignoring MCP TLS configuration for stdio transport, serverId={}", server.getServerId());
