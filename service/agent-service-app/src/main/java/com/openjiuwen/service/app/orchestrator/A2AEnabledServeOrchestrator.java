@@ -19,6 +19,7 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
+import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Task;
@@ -26,9 +27,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -471,11 +474,39 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     public void resetConversation(String conversationId) {
         cancelActive(conversationId);
         agentHandler.clearSession(conversationId);
-        var result = taskStore.list(ListTasksParams.builder().contextId(conversationId).build());
-        for (Task t : result.tasks()) {
-            taskStore.delete(t.id());
+        Set<String> taskIds = collectResetTaskIds(conversationId);
+        for (String taskId : taskIds) {
+            taskStore.delete(taskId);
         }
-        log.info("Reset {}: {} A2A tasks cleaned", conversationId, result.tasks().size());
+        log.info("Reset {}: {} A2A tasks cleaned", conversationId, taskIds.size());
+    }
+
+    private Set<String> collectResetTaskIds(String conversationId) {
+        Set<String> taskIds = new LinkedHashSet<>();
+        Set<String> seenTokens = new LinkedHashSet<>();
+        String pageToken = null;
+        // Read every page before deleting: custom stores may use position-based cursors.
+        do {
+            var page = taskStore.list(ListTasksParams.builder().contextId(conversationId)
+                    .pageToken(pageToken)
+                    .historyLength(0).includeArtifacts(false).build());
+            if (page == null || page.tasks() == null) {
+                throw new TaskPersistenceException("TaskStore returned an invalid page during conversation reset");
+            }
+            for (Task task : page.tasks()) {
+                if (task == null || task.id() == null || task.id().isBlank()) {
+                    throw new TaskPersistenceException("TaskStore returned an invalid task during conversation reset");
+                }
+                taskIds.add(task.id());
+            }
+            pageToken = page.nextPageToken();
+            if (pageToken == null || pageToken.isBlank()) {
+                return taskIds;
+            }
+            if (!seenTokens.add(pageToken)) {
+                throw new TaskPersistenceException("TaskStore repeated a page token during conversation reset");
+            }
+        } while (true);
     }
 
     private record QueryResumeResult(Optional<ServeRequest> request, QueryResponse response) {
