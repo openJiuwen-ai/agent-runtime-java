@@ -98,9 +98,24 @@ class Jiuwen2MemoryStoreTest {
         Jiuwen2MemoryStore store = newStore();
 
         store.add(new MemoryAddRequest(MemoryScope.empty(),
-            List.of(new MemoryMessage("", "第一条"), new MemoryMessage("assistant", "  ")), Map.of()));
+            List.of(new MemoryMessage("", "第一条"), new MemoryMessage("assistant", "  "),
+                new MemoryMessage("assistant", "第二条")),
+            Map.of()));
 
-        assertThat(server.lastAddBody()).containsEntry("content", "[user] 第一条");
+        assertThat(server.lastAddBody()).containsEntry("content", "[user] 第一条\n[assistant] 第二条");
+    }
+
+    @Test
+    void addSingleMessageKeepsContentVerbatim() {
+        server = LocalJiuwen2Server.start();
+        Jiuwen2MemoryStore store = newStore();
+
+        // 单条消息（例如 memory_add 工具写入）不需要角色标记：标记会写进正文、进
+        // embedding 与后续注入块，属于无意义污染。
+        store.add(new MemoryAddRequest(MemoryScope.empty(),
+            List.of(new MemoryMessage("user", "用户下周三去北京出差")), Map.of()));
+
+        assertThat(server.lastAddBody()).containsEntry("content", "用户下周三去北京出差");
     }
 
     @Test

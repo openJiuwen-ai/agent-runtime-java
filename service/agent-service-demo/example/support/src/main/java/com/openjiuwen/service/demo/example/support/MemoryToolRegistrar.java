@@ -205,8 +205,23 @@ public final class MemoryToolRegistrar {
         MemoryWriteResult result = memoryStore.add(new MemoryAddRequest(
             scope,
             List.of(new MemoryMessage("user", content)),
-            Map.of("infer", false)));
+            addOptions()));
         return Map.of("result", "Fact stored.", "count", result.records().size());
+    }
+
+    /**
+     * Add options shared by every tool-driven write.
+     *
+     * <p>{@code infer=true} routes the write through the provider's derive path: agent-memory 2.0
+     * extracts facts and applies dedup/supersede, mem0 runs its own inference. Writing directly
+     * ({@code infer=false}) stores the raw text without dedup, so contradictory units coexist and
+     * the older fact can still outrank the correction on retrieval (issue #124). The turn-level
+     * sync uses the same option, so both write paths now share one semantic.
+     *
+     * @return the add options passed to {@link MemoryStore#add}
+     */
+    static Map<String, Object> addOptions() {
+        return Map.of("infer", true);
     }
 
     private static Map<String, Object> invokeGet(MemoryStore memoryStore, Map<String, Object> inputs,
