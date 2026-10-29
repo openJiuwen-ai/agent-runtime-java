@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.concurrent.CompletableFuture;
 
@@ -130,35 +131,70 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
     }
 
     /**
-     * Drops scored records below the relative relevance floor ({@code ratio × top score})
-     * so low-relevance memories are not injected into the prompt — and re-written back by
-     * the following turn's sync, which would amplify the noise. The ratio is relative to
-     * the top hit, so it is independent of the provider's score scale (scores are
-     * resolved across provider shapes, see {@link #scoreOf}); unscored records
-     * cannot be judged and are kept; {@code 0} disables the floor entirely. The floor
-     * comparison runs on {@link BigDecimal} per G.TYP.04 (scores are irrelevant to
-     * precision here, but the gate forbids floating-point arithmetic).
+     * Drops records below the relevance floors so low-relevance memories are not injected
+     * into the prompt — and re-written back by the following turn's sync, which would
+     * amplify the noise. Two independent floors apply:
+     *
+     * <ul>
+     *   <li>relative ({@code ratio × top score}): score-scale-free, so it works for any
+     *       provider; it trims the tail but by construction always keeps the top hit;</li>
+     *   <li>absolute ({@code prefetchMinScore}): score-scale-specific, so it is disabled by
+     *       default. It is the only floor that can drop the <em>top</em> hit, which is what
+     *       "ask something unrelated to every memory" needs.</li>
+     * </ul>
+     *
+     * <p>Unscored records cannot be judged and are kept; either floor set to {@code 0}
+     * disables that floor. Both comparisons run on {@link BigDecimal} per G.TYP.04 (scores
+     * are irrelevant to precision here, but the gate forbids floating-point arithmetic).
      *
      * @param records the search results, may be null
-     * @return the records at or above the floor, or all records when none carries a score
+     * @return the records at or above the enabled floors, or all records when none carries
+     *     a score
      */
     private List<MemoryRecord> applyRelevanceFloor(List<MemoryRecord> records) {
-        double ratio = memory.getPrefetchMinScoreRatio();
-        if (ratio <= 0 || records == null || records.isEmpty()) {
+        if (records == null || records.isEmpty()) {
             return records;
         }
-        OptionalDouble topScore = topScoreOf(records);
-        if (topScore.isEmpty()) {
+        Optional<BigDecimal> relativeFloor = relativeFloorOf(records);
+        Optional<BigDecimal> absoluteFloor = absoluteFloor();
+        if (relativeFloor.isEmpty() && absoluteFloor.isEmpty()) {
             return records;
         }
-        BigDecimal floor = BigDecimal.valueOf(topScore.getAsDouble()).multiply(BigDecimal.valueOf(ratio));
         List<MemoryRecord> kept = new ArrayList<>();
         for (MemoryRecord record : records) {
-            if (isAtOrAboveFloor(record, floor)) {
+            if (isAtOrAboveFloors(record, relativeFloor, absoluteFloor)) {
                 kept.add(record);
             }
         }
         return kept;
+    }
+
+    /**
+     * Resolves the relative floor ({@code ratio × top score}); empty when the ratio is
+     * disabled or no record carries a score.
+     *
+     * @param records the search results
+     * @return the relative floor, or an empty Optional when it does not apply
+     */
+    private Optional<BigDecimal> relativeFloorOf(List<MemoryRecord> records) {
+        double ratio = memory.getPrefetchMinScoreRatio();
+        if (ratio <= 0) {
+            return Optional.empty();
+        }
+        OptionalDouble topScore = topScoreOf(records);
+        return topScore.isEmpty()
+            ? Optional.empty()
+            : Optional.of(BigDecimal.valueOf(topScore.getAsDouble()).multiply(BigDecimal.valueOf(ratio)));
+    }
+
+    /**
+     * Resolves the absolute floor; empty when it is disabled.
+     *
+     * @return the absolute floor, or an empty Optional when it does not apply
+     */
+    private Optional<BigDecimal> absoluteFloor() {
+        double minScore = memory.getPrefetchMinScore();
+        return minScore > 0 ? Optional.of(BigDecimal.valueOf(minScore)) : Optional.empty();
     }
 
     /**
@@ -181,9 +217,28 @@ public class MemoryStoreMemoryProvider extends MemoryProvider {
         return topScore;
     }
 
-    private static boolean isAtOrAboveFloor(MemoryRecord record, BigDecimal floor) {
+    private static boolean isAtOrAboveFloors(MemoryRecord record, Optional<BigDecimal> relativeFloor,
+        Optional<BigDecimal> absoluteFloor) {
         OptionalDouble score = record == null ? OptionalDouble.empty() : scoreOf(record);
-        return score.isEmpty() || BigDecimal.valueOf(score.getAsDouble()).compareTo(floor) >= 0;
+        if (score.isEmpty()) {
+            return true;
+        }
+        BigDecimal value = BigDecimal.valueOf(score.getAsDouble());
+        return isAtOrAbove(relativeFloor, value) && isAtOrAbove(absoluteFloor, value);
+    }
+
+    /**
+     * Checks one floor, treating an absent floor as "no constraint".
+     *
+     * @param floor the floor, empty when it does not apply
+     * @param value the record's score
+     * @return true when the value passes the floor or the floor is absent
+     */
+    private static boolean isAtOrAbove(Optional<BigDecimal> floor, BigDecimal value) {
+        if (floor.isEmpty()) {
+            return true;
+        }
+        return value.compareTo(floor.get()) >= 0;
     }
 
     /**
