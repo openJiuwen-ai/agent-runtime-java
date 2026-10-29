@@ -85,7 +85,7 @@ class A2ARemoteAgentCardRegistryReplaceAllTest {
     }
 
     @Test
-    void changedCardContentProducesAFreshEntryInstanceEvenWhenRoutingIsUnchanged() {
+    void changedCardContentYieldsFreshEntryEvenWhenRoutingUnchanged() {
         A2ARemoteAgentCardRegistry registry = registry();
         registry.replaceAll(new RemoteCatalogSnapshot(1, List.of(entry("weather", 30))));
         RemoteAgentEntry before = registry.get("weather").orElseThrow();

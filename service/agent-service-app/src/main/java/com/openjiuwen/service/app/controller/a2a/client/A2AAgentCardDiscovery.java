@@ -232,10 +232,10 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
      *         no JSON-RPC interface
      */
     private static List<RemoteInstanceCandidate> staticCandidates(RemoteAgentProperties remote, AgentCard card) {
-        boolean jsonRpcCompatible = card != null && card.supportedInterfaces() != null
+        boolean isJsonRpcCompatible = card != null && card.supportedInterfaces() != null
                 && card.supportedInterfaces().stream().anyMatch(iface ->
                         TransportProtocol.JSONRPC.asString().equals(iface.protocolBinding()));
-        if (!jsonRpcCompatible) {
+        if (!isJsonRpcCompatible) {
             return List.of();
         }
         String configured = TRAILING_SLASHES.matcher(remote.getUrl()).replaceAll("");

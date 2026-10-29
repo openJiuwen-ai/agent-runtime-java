@@ -13,6 +13,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -143,23 +144,36 @@ public class RemoteCatalogRefresher {
     }
 
     private void refreshOnce(String phase) {
-        try {
-            RemoteCatalogSnapshot snapshot = source.load();
-            registry.replaceAll(snapshot);
-        } catch (RuntimeException e) {
-            // Guard boundary (deliberate G.ERR.02 exemption): this method runs as
-            // a scheduleWithFixedDelay callback — any escaping RuntimeException
-            // would silently terminate the TTL loop forever, so every pull-side
-            // fault (the degradation signal and unexpected implementation faults
-            // alike) is converted into the degradation path. Errors still escape.
-            int failures = consecutiveFailures.incrementAndGet();
-            log.warn("Remote catalog {} pull failed failures={} ttlMs={}, keeping previous catalog", phase, failures,
-                    refreshTtlMs, e);
+        // Guard boundary: the pull runs on the calling thread (direct executor)
+        // and the completion stage converts every pull-side fault into the
+        // stage failure, so the outcome handler covers the whole fault surface
+        // (the degradation signal and unexpected implementation faults alike)
+        // without catching a base exception type. Errors are rethrown so they
+        // still escape to the scheduler instead of entering the degradation
+        // path. This method runs as a scheduleWithFixedDelay callback — any
+        // escaping RuntimeException would silently terminate the TTL loop
+        // forever, which is why every runtime fault degrades.
+        CompletableFuture.runAsync(this::pullAndApply, Runnable::run)
+                .whenComplete((unused, failure) -> handlePullOutcome(phase, failure));
+    }
+
+    private void pullAndApply() {
+        registry.replaceAll(source.load());
+    }
+
+    private void handlePullOutcome(String phase, Throwable failure) {
+        if (failure == null) {
+            int recovered = consecutiveFailures.getAndSet(0);
+            if (recovered > 0) {
+                log.info("Remote catalog {} pull recovered after {} failure(s)", phase, recovered);
+            }
             return;
         }
-        int recovered = consecutiveFailures.getAndSet(0);
-        if (recovered > 0) {
-            log.info("Remote catalog {} pull recovered after {} failure(s)", phase, recovered);
+        if (failure instanceof Error error) {
+            throw error;
         }
+        int failures = consecutiveFailures.incrementAndGet();
+        log.warn("Remote catalog {} pull failed failures={} ttlMs={}, keeping previous catalog", phase, failures,
+                refreshTtlMs, failure);
     }
 }
