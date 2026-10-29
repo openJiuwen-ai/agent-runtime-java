@@ -85,6 +85,20 @@ class A2ARemoteAgentCardRegistryReplaceAllTest {
     }
 
     @Test
+    void changedCardContentProducesAFreshEntryInstanceEvenWhenRoutingIsUnchanged() {
+        A2ARemoteAgentCardRegistry registry = registry();
+        registry.replaceAll(new RemoteCatalogSnapshot(1, List.of(entry("weather", 30))));
+        RemoteAgentEntry before = registry.get("weather").orElseThrow();
+
+        registry.replaceAll(new RemoteCatalogSnapshot(2, List.of(entryWithCard("weather", 30,
+                card("weather", "http://10.0.0.1:8080/weather", "weather-revised")))));
+
+        RemoteAgentEntry after = registry.get("weather").orElseThrow();
+        assertThat(after).isNotSameAs(before);
+        assertThat(after.card().description()).isEqualTo("weather-revised");
+    }
+
+    @Test
     void entriesMissingFromTheSnapshotAreRemoved() {
         A2ARemoteAgentCardRegistry registry = registry();
         registry.replaceAll(new RemoteCatalogSnapshot(1, List.of(entry("weather", 30), entry("travel", 20))));
@@ -125,15 +139,19 @@ class A2ARemoteAgentCardRegistryReplaceAllTest {
     }
 
     private static RemoteCatalogEntry entry(String agentId, int timeoutSeconds) {
-        RemoteInstanceCandidate candidate = new RemoteInstanceCandidate("inst-" + agentId,
-                "http://10.0.0.1:8080/" + agentId, 100);
-        return new RemoteCatalogEntry(agentId, card(agentId, "http://10.0.0.1:8080/" + agentId), timeoutSeconds, false,
-                List.of(candidate), null);
+        return entryWithCard(agentId, timeoutSeconds,
+                card(agentId, "http://10.0.0.1:8080/" + agentId, agentId));
     }
 
-    private static AgentCard card(String name, String endpoint) {
+    private static RemoteCatalogEntry entryWithCard(String agentId, int timeoutSeconds, AgentCard card) {
+        RemoteInstanceCandidate candidate = new RemoteInstanceCandidate("inst-" + agentId,
+                "http://10.0.0.1:8080/" + agentId, 100);
+        return new RemoteCatalogEntry(agentId, card, timeoutSeconds, false, List.of(candidate), null);
+    }
+
+    private static AgentCard card(String name, String endpoint, String description) {
         AgentInterface iface = new AgentInterface("JSONRPC", endpoint, null, "1.0");
-        return AgentCard.builder().name(name).description(name).version("1.0")
+        return AgentCard.builder().name(name).description(description).version("1.0")
                 .capabilities(new AgentCapabilities(true, false, false, List.of()))
                 .defaultInputModes(List.of("text")).defaultOutputModes(List.of("text")).skills(List.of())
                 .securitySchemes(Map.of()).securityRequirements(List.of())

@@ -5,7 +5,9 @@
 package com.openjiuwen.service.app.controller.a2a.client;
 
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogSource;
+import com.openjiuwen.service.app.a2a.catalog.RemoteInstanceCandidate;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.A2AProperties.RemoteAgentProperties;
 import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
@@ -14,6 +16,7 @@ import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import jakarta.annotation.PreDestroy;
 
 import org.a2aproject.sdk.spec.AgentCard;
+import org.a2aproject.sdk.spec.TransportProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -32,6 +35,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 /**
  * Fetches AgentCards from configured remote A2A servers at startup and resolves
@@ -58,6 +62,8 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
     private static final long RETRY_INTERVAL_SECONDS = 30L;
 
     private static final long SHUTDOWN_TIMEOUT_SECONDS = 5L;
+
+    private static final Pattern TRAILING_SLASHES = Pattern.compile("/+$");
 
     private final A2AProperties properties;
 
@@ -203,8 +209,41 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
 
     private void discoverAndRegister(RemoteAgentProperties remote, A2ARemoteAgentCardRegistry target) {
         AgentCard card = fetchCardInternal(remote.getUrl());
-        target.register(remote.getName(), card, remote.getTimeoutSeconds(), remote.isStreaming(), remote.getTls());
+        List<RemoteInstanceCandidate> candidates = staticCandidates(remote, card);
+        // an explicit candidate list carries the configured address; a card
+        // without a compatible transport keeps the derived static-compat view
+        // (null marker) and its baseline error surface
+        target.register(new RemoteAgentEntry(remote.getName(), card, remote.getTimeoutSeconds(),
+                remote.isStreaming(), remote.getTls(), candidates.isEmpty() ? null : candidates));
         log.info("Discovered remote agent '{}'", remote.getName());
+    }
+
+    /**
+     * Builds the explicit static candidate list from the configured remote
+     * address (Feature FEAT-062 §6: the static candidate URL only ever comes
+     * from the static configuration — a card-declared address never becomes
+     * the routing target): a bare root address gains the JSON-RPC mount path,
+     * an already path-style configured address is kept as-is, and the card
+     * only gates transport compatibility.
+     *
+     * @param remote the configured static remote agent
+     * @param card the discovered agent card (compatibility gate only)
+     * @return the one-element candidate list, or empty when the card carries
+     *         no JSON-RPC interface
+     */
+    private static List<RemoteInstanceCandidate> staticCandidates(RemoteAgentProperties remote, AgentCard card) {
+        boolean jsonRpcCompatible = card != null && card.supportedInterfaces() != null
+                && card.supportedInterfaces().stream().anyMatch(iface ->
+                        TransportProtocol.JSONRPC.asString().equals(iface.protocolBinding()));
+        if (!jsonRpcCompatible) {
+            return List.of();
+        }
+        String configured = TRAILING_SLASHES.matcher(remote.getUrl()).replaceAll("");
+        URI uri = URI.create(configured);
+        String endpoint = uri.getRawPath() == null || uri.getRawPath().isEmpty()
+                ? configured + A2AServicePaths.A2A_JSONRPC_NO_SLASH
+                : configured;
+        return List.of(new RemoteInstanceCandidate("", endpoint, 0));
     }
 
     AgentCard fetchCardInternal(String baseUrl) {

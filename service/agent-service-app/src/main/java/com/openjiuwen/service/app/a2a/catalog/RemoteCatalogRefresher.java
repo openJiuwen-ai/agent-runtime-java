@@ -30,8 +30,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * leaves the catalog empty. Steady state is a fixed-delay loop at the
  * configured TTL. Each pull applies the source snapshot through
  * {@link A2ARemoteAgentCardRegistry#replaceAll}, which is idempotent on
- * unchanged source versions. Expected load failures keep the previous catalog,
- * are counted consecutively, and reset the counter on recovery. The source is
+ * unchanged source versions. Pull faults — the {@link RemoteCatalogLoadException}
+ * degradation signal and unexpected runtime faults alike — keep the previous
+ * catalog, are counted consecutively, and reset the counter on recovery: the
+ * pull boundary runs as a scheduled callback, so an escaping exception would
+ * silently terminate the TTL loop. The source is
  * resolved from the {@link ObjectProvider} at start time, so the refresher
  * stays idle (and static discovery stays in charge) when no source bean is
  * defined — immune to auto-configuration ordering.</p>
@@ -140,16 +143,20 @@ public class RemoteCatalogRefresher {
     }
 
     private void refreshOnce(String phase) {
-        RemoteCatalogSnapshot snapshot;
         try {
-            snapshot = source.load();
-        } catch (RemoteCatalogLoadException e) {
+            RemoteCatalogSnapshot snapshot = source.load();
+            registry.replaceAll(snapshot);
+        } catch (RuntimeException e) {
+            // Guard boundary (deliberate G.ERR.02 exemption): this method runs as
+            // a scheduleWithFixedDelay callback — any escaping RuntimeException
+            // would silently terminate the TTL loop forever, so every pull-side
+            // fault (the degradation signal and unexpected implementation faults
+            // alike) is converted into the degradation path. Errors still escape.
             int failures = consecutiveFailures.incrementAndGet();
             log.warn("Remote catalog {} pull failed failures={} ttlMs={}, keeping previous catalog", phase, failures,
                     refreshTtlMs, e);
             return;
         }
-        registry.replaceAll(snapshot);
         int recovered = consecutiveFailures.getAndSet(0);
         if (recovered > 0) {
             log.info("Remote catalog {} pull recovered after {} failure(s)", phase, recovered);

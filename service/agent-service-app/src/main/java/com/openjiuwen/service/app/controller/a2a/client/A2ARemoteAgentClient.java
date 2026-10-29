@@ -53,6 +53,9 @@ import org.a2aproject.sdk.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -802,14 +805,16 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * Classifies an {@code sendMessage} failure as transient (retryable) or permanent.
      *
      * <p>Only transport-level failures that guarantee the request was not accepted by
-     * the remote are retried: connection failures ({@link A2AClientException}, e.g.
-     * connection refused/timeout before the request reached the remote) and remote
-     * 5xx responses ({@code A2AClientHTTPError} with status {@code >= 500}).</p>
+     * the remote are retried: remote 5xx responses ({@code A2AClientHTTPError} with
+     * status {@code >= 500}, bare or wrapped) and connection faults
+     * ({@code A2AClientException} whose cause chain carries a {@link ConnectException},
+     * {@link HttpTimeoutException}, or {@link SocketTimeoutException} — how the JSON-RPC
+     * transport surfaces an I/O failure).</p>
      *
      * <p>Permanent failures fail fast: remote 4xx rejections, client argument errors,
-     * JSON protocol errors, and server-side business failures
-     * ({@link A2AServerException}) — the latter because the remote already accepted
-     * and processed the request, so a re-send could duplicate the task. Unclassified
+     * JSON protocol errors, JSON-RPC error envelopes (the remote accepted and
+     * processed the send, so a re-send could duplicate the task), and server-side
+     * business failures ({@link A2AServerException}). Unclassified
      * runtime failures are treated as permanent (conservative: no side-effect risk).</p>
      *
      * <p>Failures surfacing after the send returned (stream event callbacks) never
@@ -823,9 +828,24 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         if (failure instanceof A2AClientHTTPError httpError) {
             return httpError.getCode() >= 500;
         }
-        // A2AClientException covers network/connection failures; A2AServerException
-        // and A2AClientError subclasses (InvalidArgs/JSON) are permanent.
-        return failure instanceof A2AClientException;
+        // The JSON-RPC transport wraps I/O faults, HTTP status errors, and remote
+        // JSON-RPC error envelopes alike in A2AClientException; the cause chain
+        // tells them apart.
+        return failure instanceof A2AClientException && hasTransportFaultCause(failure);
+    }
+
+    private static boolean hasTransportFaultCause(Throwable failure) {
+        for (Throwable cause = failure.getCause(); cause != null; cause = cause.getCause()) {
+            if (cause instanceof A2AClientHTTPError httpError) {
+                // the remote HTTP layer answered: its status decides
+                return httpError.getCode() >= 500;
+            }
+            if (cause instanceof ConnectException || cause instanceof HttpTimeoutException
+                    || cause instanceof SocketTimeoutException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
