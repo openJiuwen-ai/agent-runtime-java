@@ -14,6 +14,7 @@ import org.springframework.context.event.EventListener;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -169,11 +170,19 @@ public class RemoteCatalogRefresher {
             }
             return;
         }
-        if (failure instanceof Error error) {
+        Throwable fault = unwrapStageFailure(failure);
+        if (fault instanceof Error error) {
             throw error;
         }
         int failures = consecutiveFailures.incrementAndGet();
         log.warn("Remote catalog {} pull failed failures={} ttlMs={}, keeping previous catalog", phase, failures,
-                refreshTtlMs, failure);
+                refreshTtlMs, fault);
+    }
+
+    private static Throwable unwrapStageFailure(Throwable failure) {
+        if (failure instanceof CompletionException completion && completion.getCause() != null) {
+            return completion.getCause();
+        }
+        return failure;
     }
 }
