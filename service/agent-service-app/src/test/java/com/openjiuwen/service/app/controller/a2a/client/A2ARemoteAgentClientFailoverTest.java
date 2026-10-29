@@ -27,7 +27,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.ConnectException;
 import java.net.InetSocketAddress;
+import java.net.SocketTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -96,17 +99,30 @@ class A2ARemoteAgentClientFailoverTest {
     }
 
     @Test
-    void jsonRpcErrorEnvelopeRotatesLikeAnyTransportFailure() throws Exception {
+    void jsonRpcErrorEnvelopeDoesNotRotate() throws Exception {
         startServer();
         A2ARemoteAgentCardRegistry registry = registry("remote", 20, url("/error"), url("/ok"));
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry, 4, null, FIXED_FIRST);
         try {
-            RemoteCallOutcome outcome = client
+            assertThatThrownBy(() -> client
                     .callOutcome(new RemoteCall("remote", "hello", "same", null, Map.of()), null)
-                    .get(15, TimeUnit.SECONDS);
+                    .get(15, TimeUnit.SECONDS)).isInstanceOf(ExecutionException.class);
+            assertThat(observed).containsExactly("/error");
+        } finally {
+            client.shutdown();
+        }
+    }
 
-            assertThat(outcome.result()).isEqualTo("done");
-            assertThat(observed).containsExactly("/error", "/ok");
+    @Test
+    void invalidProtocolResponseDoesNotRotate() throws Exception {
+        startServer();
+        A2ARemoteAgentCardRegistry registry = registry("remote", 20, url("/invalid"), url("/ok"));
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry, 4, null, FIXED_FIRST);
+        try {
+            assertThatThrownBy(() -> client
+                    .callOutcome(new RemoteCall("remote", "hello", "same", null, Map.of()), null)
+                    .get(15, TimeUnit.SECONDS)).isInstanceOf(ExecutionException.class);
+            assertThat(observed).containsExactly("/invalid");
         } finally {
             client.shutdown();
         }
@@ -186,8 +202,19 @@ class A2ARemoteAgentClientFailoverTest {
                 (Object) null))).isTrue();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientHTTPError(400, "bad",
                 (Object) null))).isFalse();
-        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("connection refused")))
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException(
+                new A2AClientHTTPError(503, "unavailable", (Object) null)))).isTrue();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException(
+                new A2AClientHTTPError(400, "bad", (Object) null)))).isFalse();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
+                new A2AClientException("connection refused", new ConnectException("connection refused"))))
                 .isTrue();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
+                new A2AClientException(new HttpTimeoutException("timed out")))).isTrue();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
+                new A2AClientException(new SocketTimeoutException("timed out")))).isTrue();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("invalid JSON")))
+                .isFalse();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AServerException("server side"))).isFalse();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new IllegalStateException("unclassified")))
                 .isFalse();
@@ -197,6 +224,8 @@ class A2ARemoteAgentClientFailoverTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/ok", exchange -> reply(exchange, TASK_REPLY));
         server.createContext("/error", exchange -> reply(exchange, TASK_ERROR_REPLY));
+        server.createContext("/invalid", exchange -> reply(exchange,
+                "{\"jsonrpc\":\"2.0\",\"id\":\"request\",\"result\":42}".getBytes(StandardCharsets.UTF_8)));
         server.createContext("/working", exchange -> reply(exchange, TASK_WORKING_REPLY));
         server.createContext("/fail", exchange -> {
             observed.add("/fail");

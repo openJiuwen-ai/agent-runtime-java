@@ -402,7 +402,8 @@ class A2ARemoteAgentClientClassLoaderTest {
     @Test
     void onlyTransientTransportFailuresAreRetryable() {
         // 可重试：连接失败（A2AClientException）、远端 5xx
-        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("connection refused")))
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
+                new A2AClientException("connection refused", new java.net.ConnectException("connection refused"))))
                 .isTrue();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
                 new org.a2aproject.sdk.spec.A2AClientHTTPError(503, "unavailable", "body"))).isTrue();

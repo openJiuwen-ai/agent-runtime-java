@@ -53,6 +53,11 @@ import org.a2aproject.sdk.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.ConnectException;
+import java.net.NoRouteToHostException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.net.http.HttpTimeoutException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -823,9 +828,22 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         if (failure instanceof A2AClientHTTPError httpError) {
             return httpError.getCode() >= 500;
         }
-        // A2AClientException covers network/connection failures; A2AServerException
-        // and A2AClientError subclasses (InvalidArgs/JSON) are permanent.
-        return failure instanceof A2AClientException;
+        if (!(failure instanceof A2AClientException)) {
+            return false;
+        }
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof A2AClientHTTPError httpError) {
+                return httpError.getCode() >= 500;
+            }
+            if (cause instanceof ConnectException
+                    || cause instanceof HttpTimeoutException
+                    || cause instanceof SocketTimeoutException
+                    || cause instanceof UnknownHostException
+                    || cause instanceof NoRouteToHostException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
