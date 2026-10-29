@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
@@ -93,6 +94,26 @@ class A2ARemoteAgentClientFailoverTest {
             assertThat(outcome.result()).isEqualTo("done");
             assertThat(outcome.remoteState()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
             assertThat(observed).containsExactly("/fail", "/ok");
+        } finally {
+            client.shutdown();
+        }
+    }
+
+    @Test
+    void refusedConnectionFailsOverToTheNextInstance() throws Exception {
+        startServer();
+        int unusedPort;
+        try (ServerSocket socket = new ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"))) {
+            unusedPort = socket.getLocalPort();
+        }
+        A2ARemoteAgentCardRegistry registry = registry("remote", 20,
+                "http://127.0.0.1:" + unusedPort + "/unavailable", url("/ok"));
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry, 4, null, FIXED_FIRST);
+        try {
+            RemoteCallOutcome outcome = client.callOutcome(
+                    new RemoteCall("remote", "hello", "same", null, Map.of()), null).get(15, TimeUnit.SECONDS);
+            assertThat(outcome.result()).isEqualTo("done");
+            assertThat(observed).containsExactly("/ok");
         } finally {
             client.shutdown();
         }
@@ -195,7 +216,7 @@ class A2ARemoteAgentClientFailoverTest {
     }
 
     @Test
-    void onlyGuaranteedNotAcceptedTransportFailuresAreRetryable() {
+    void recognizedTransportFailuresAreRetryable() {
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientHTTPError(500, "boom",
                 (Object) null))).isTrue();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientHTTPError(503, "boom",

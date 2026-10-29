@@ -806,10 +806,9 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     /**
      * Classifies an {@code sendMessage} failure as transient (retryable) or permanent.
      *
-     * <p>Only transport-level failures that guarantee the request was not accepted by
-     * the remote are retried: connection failures ({@link A2AClientException}, e.g.
-     * connection refused/timeout before the request reached the remote) and remote
-     * 5xx responses ({@code A2AClientHTTPError} with status {@code >= 500}).</p>
+     * <p>HTTP 5xx responses and client exceptions with recognized connection or timeout
+     * causes are retried. A timeout or 5xx response does not guarantee that the remote
+     * did not process the request, so retrying may repeat work.</p>
      *
      * <p>Permanent failures fail fast: remote 4xx rejections, client argument errors,
      * JSON protocol errors, and server-side business failures
