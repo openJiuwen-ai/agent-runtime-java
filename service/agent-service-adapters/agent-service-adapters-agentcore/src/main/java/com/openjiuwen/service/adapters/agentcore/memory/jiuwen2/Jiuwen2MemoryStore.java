@@ -202,23 +202,35 @@ public class Jiuwen2MemoryStore implements MemoryStore {
      * Merges the turn's messages into a single content with role markers, matching the
      * turn-level ingestion the 2.0 single-content {@code add} contract expects.
      *
+     * <p>Role markers only disambiguate a multi-message turn; a single-message add (for
+     * example the {@code memory_add} tool) keeps the text verbatim, so stored content is
+     * not prefixed with a meaningless {@code [user]} tag that would otherwise be embedded
+     * and re-injected into later prompts.
+     *
      * @param messages the turn's messages, may be null
-     * @return the merged content with role markers, blank when no message carries text
+     * @return the merged content with role markers for multi-message turns, blank when no
+     *     message carries text
      */
     private String mergeTurnContent(List<MemoryMessage> messages) {
         if (messages == null) {
             return "";
         }
-        StringBuilder content = new StringBuilder();
+        List<MemoryMessage> present = new ArrayList<>();
         for (MemoryMessage msg : messages) {
-            if (msg == null || msg.content().isBlank()) {
-                continue;
+            if (msg != null && !msg.content().isBlank()) {
+                present.add(msg);
             }
+        }
+        boolean shouldMarkRole = present.size() > 1;
+        StringBuilder content = new StringBuilder();
+        for (MemoryMessage msg : present) {
             if (content.length() > 0) {
                 content.append('\n');
             }
-            content.append('[').append(msg.role().isBlank() ? "user" : msg.role()).append("] ")
-                .append(msg.content());
+            if (shouldMarkRole) {
+                content.append('[').append(msg.role().isBlank() ? "user" : msg.role()).append("] ");
+            }
+            content.append(msg.content());
         }
         return content.toString();
     }
