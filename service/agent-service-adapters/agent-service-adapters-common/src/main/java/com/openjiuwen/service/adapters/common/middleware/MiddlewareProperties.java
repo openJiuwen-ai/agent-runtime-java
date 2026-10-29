@@ -253,6 +253,16 @@ public class MiddlewareProperties {
          */
         private double prefetchMinScoreRatio = 0.2;
 
+        /**
+         * Absolute relevance floor for memory prefetch: records whose score is below this
+         * value are dropped from the prompt block, including the top hit, so a query that
+         * matches nothing injects nothing. Unlike {@link #prefetchMinScoreRatio} this value
+         * depends on the provider's score scale (a calibrated reranker yields scores around
+         * 0-1 while RRF yields around 0.01), so it is deployment-specific and disabled by
+         * default; {@code 0} (or any negative value) disables it. Unscored records are kept.
+         */
+        private double prefetchMinScore = 0.0;
+
         private int timeoutMs = 3000;
 
         private ExternalRetryPolicy retry = new ExternalRetryPolicy();
@@ -347,6 +357,14 @@ public class MiddlewareProperties {
 
         public void setPrefetchMinScoreRatio(double prefetchMinScoreRatio) {
             this.prefetchMinScoreRatio = prefetchMinScoreRatio;
+        }
+
+        public double getPrefetchMinScore() {
+            return prefetchMinScore;
+        }
+
+        public void setPrefetchMinScore(double prefetchMinScore) {
+            this.prefetchMinScore = prefetchMinScore;
         }
 
         @Override

@@ -127,6 +127,58 @@ class MemoryStoreMemoryProviderTest {
     }
 
     @Test
+    void prefetchDropsAllRecordsWhenTopScoreBelowAbsoluteFloor() throws Exception {
+        // 相对下限按 top1 比例设阈，结构上永远保住 top1；"提问与所有记忆都无关"这种
+        // 场景只能靠绝对下限把整块注入掐掉（issue #123）。
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "无关记忆：今天是周五", Map.of("score", 0.02), Map.of()),
+            new MemoryRecord("m-2", "无关记忆：苏州园林门票", Map.of("score", 0.01), Map.of())));
+        MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
+        memory.setPrefetchMinScoreRatio(0);
+        memory.setPrefetchMinScore(0.05);
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, memory);
+
+        String block = provider.prefetch("量子纠缠的退相干时间", Map.of("user_id", "u")).join();
+
+        assertThat(block).isEmpty();
+    }
+
+    @Test
+    void prefetchAbsoluteFloorKeepsUnscoredRecords() throws Exception {
+        // 无分数无法判定相关性，保持 fail-open；有分且低于绝对下限的才丢
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "无关记忆：今天是周五", Map.of("score", 0.02), Map.of()),
+            new MemoryRecord("m-2", "无分数记忆", Map.of(), Map.of())));
+        MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
+        memory.setPrefetchMinScoreRatio(0);
+        memory.setPrefetchMinScore(0.05);
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, memory);
+
+        String block = provider.prefetch("量子纠缠的退相干时间", Map.of("user_id", "u")).join();
+
+        assertThat(block).contains("无分数记忆").doesNotContain("无关记忆：今天是周五");
+    }
+
+    @Test
+    void prefetchCombinesAbsoluteAndRelativeFloors() throws Exception {
+        // 两个下限同时生效时取更严的一侧：0.2×0.9=0.18 与绝对值 0.3 都比 0.15 严
+        RecordingMemoryStore store = new RecordingMemoryStore(List.of(
+            new MemoryRecord("m-1", "相关记忆：用户喜欢拿铁", Map.of("score", 0.9), Map.of()),
+            new MemoryRecord("m-2", "边缘记忆：用户喝过一次美式", Map.of("score", 0.15), Map.of()),
+            new MemoryRecord("m-3", "弱相关记忆：用户喝过茶", Map.of("score", 0.32), Map.of())));
+        MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
+        memory.setPrefetchMinScore(0.3);
+        MemoryStoreMemoryProvider provider = new MemoryStoreMemoryProvider(store, memory);
+
+        String block = provider.prefetch("饮品偏好", Map.of("user_id", "u")).join();
+
+        assertThat(block)
+            .contains("相关记忆：用户喜欢拿铁")
+            .contains("弱相关记忆：用户喝过茶")
+            .doesNotContain("边缘记忆：用户喝过一次美式");
+    }
+
+    @Test
     void prefetchWithoutScoresKeepsAllRecords() throws Exception {
         // provider 不回传分数时无法判定相关性，保持原行为全量注入（fail-open）
         RecordingMemoryStore store = new RecordingMemoryStore(List.of(
