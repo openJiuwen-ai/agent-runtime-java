@@ -19,6 +19,7 @@ import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
+import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Task;
@@ -26,10 +27,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A2A-aware orchestrator with interrupt-resume chain.
@@ -226,23 +231,24 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         log.info("Orchestrator streamQuery START conversationId={}", request.getConversationId());
         var handle = streamRegistry.register(request.getConversationId());
+        TerminalQueryStreamObserver terminalObserver = new TerminalQueryStreamObserver(observer);
         ServeRequest current = request;
         Optional<Object> taskToken = Optional.empty();
         try {
             taskToken = agentHandler.prepareTask(request);
-            while (!handle.isCancelled() && !observer.isCancelled()) {
-                Optional<ServeRequest> opt = tryResumePending(current, observer);
+            while (!handle.isCancelled() && !terminalObserver.isCancelled()) {
+                Optional<ServeRequest> opt = tryResumePending(current, terminalObserver);
                 if (opt.isEmpty()) {
                     return;
                 }
                 current = opt.get();
 
-                Optional<QueryChunk> interrupt = runAgentAndCaptureInterrupt(current, observer, handle);
+                Optional<QueryChunk> interrupt = runAgentAndCaptureInterrupt(current, terminalObserver, handle);
                 if (interrupt.isEmpty()) {
                     return;
                 }
 
-                Optional<ServeRequest> interruptResult = handleInterrupt(interrupt.get(), current, observer);
+                Optional<ServeRequest> interruptResult = handleInterrupt(interrupt.get(), current, terminalObserver);
                 if (interruptResult.isEmpty()) {
                     return;
                 }
@@ -252,12 +258,31 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
             // Empty token means prepareTask acquired nothing (e.g. busy
             // rejection) — completeTask must not disturb the other task.
             try {
-                agentHandler.completeTask(taskToken);
-                batchCoordinator.abortResume(current);
+                completeTaskAndRelease(taskToken, terminalObserver);
             } finally {
-                streamRegistry.unregister(request.getConversationId(), handle);
+                try {
+                    batchCoordinator.abortResume(current);
+                } finally {
+                    streamRegistry.unregister(request.getConversationId(), handle);
+                }
             }
         }
+    }
+
+    private void completeTaskAndRelease(Optional<Object> taskToken, TerminalQueryStreamObserver observer) {
+        try {
+            agentHandler.completeTask(taskToken);
+        } catch (RuntimeException | Error failure) {
+            try {
+                observer.releaseTerminalOnFailure(failure);
+            } catch (RuntimeException | Error callbackFailure) {
+                if (callbackFailure != failure) {
+                    failure.addSuppressed(callbackFailure);
+                }
+            }
+            throw failure;
+        }
+        observer.releaseTerminal();
     }
 
     /**
@@ -449,11 +474,39 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
     public void resetConversation(String conversationId) {
         cancelActive(conversationId);
         agentHandler.clearSession(conversationId);
-        var result = taskStore.list(ListTasksParams.builder().contextId(conversationId).build());
-        for (Task t : result.tasks()) {
-            taskStore.delete(t.id());
+        Set<String> taskIds = collectResetTaskIds(conversationId);
+        for (String taskId : taskIds) {
+            taskStore.delete(taskId);
         }
-        log.info("Reset {}: {} A2A tasks cleaned", conversationId, result.tasks().size());
+        log.info("Reset {}: {} A2A tasks cleaned", conversationId, taskIds.size());
+    }
+
+    private Set<String> collectResetTaskIds(String conversationId) {
+        Set<String> taskIds = new LinkedHashSet<>();
+        Set<String> seenTokens = new LinkedHashSet<>();
+        String pageToken = null;
+        // Read every page before deleting: custom stores may use position-based cursors.
+        do {
+            var page = taskStore.list(ListTasksParams.builder().contextId(conversationId)
+                    .pageToken(pageToken)
+                    .historyLength(0).includeArtifacts(false).build());
+            if (page == null || page.tasks() == null) {
+                throw new TaskPersistenceException("TaskStore returned an invalid page during conversation reset");
+            }
+            for (Task task : page.tasks()) {
+                if (task == null || task.id() == null || task.id().isBlank()) {
+                    throw new TaskPersistenceException("TaskStore returned an invalid task during conversation reset");
+                }
+                taskIds.add(task.id());
+            }
+            pageToken = page.nextPageToken();
+            if (pageToken == null || pageToken.isBlank()) {
+                return taskIds;
+            }
+            if (!seenTokens.add(pageToken)) {
+                throw new TaskPersistenceException("TaskStore repeated a page token during conversation reset");
+            }
+        } while (true);
     }
 
     private record QueryResumeResult(Optional<ServeRequest> request, QueryResponse response) {
@@ -757,5 +810,81 @@ public class A2AEnabledServeOrchestrator implements ServeOrchestrator, A2aPushNo
         result.put("role", "assistant");
         result.put("_interrupt", Map.of("message", "Remote agent requires input"));
         return new QueryResponse(result, convId);
+    }
+
+    /**
+     * Holds terminal callbacks until request-scoped resources have been released or release has failed.
+     */
+    private static final class TerminalQueryStreamObserver implements QueryStreamObserver {
+        private final QueryStreamObserver delegate;
+
+        private final AtomicReference<TerminalCallback> terminal = new AtomicReference<>();
+
+        private final AtomicReference<Throwable> releaseFailure = new AtomicReference<>();
+
+        private final AtomicBoolean released = new AtomicBoolean();
+
+        private TerminalQueryStreamObserver(QueryStreamObserver delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void onNext(QueryChunk chunk) {
+            delegate.onNext(chunk);
+        }
+
+        @Override
+        public void onComplete() {
+            deferTerminal(new TerminalCallback(delegate::onComplete, false));
+        }
+
+        @Override
+        public void onComplete(QueryResponse response) {
+            deferTerminal(new TerminalCallback(() -> delegate.onComplete(response), false));
+        }
+
+        @Override
+        public void onError(Throwable error) {
+            deferTerminal(new TerminalCallback(() -> delegate.onError(error), true));
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return delegate.isCancelled();
+        }
+
+        private void deferTerminal(TerminalCallback callback) {
+            terminal.set(callback);
+            if (released.get()) {
+                dispatchTerminal();
+            }
+        }
+
+        private void releaseTerminal() {
+            released.set(true);
+            dispatchTerminal();
+        }
+
+        private void releaseTerminalOnFailure(Throwable failure) {
+            releaseFailure.set(failure);
+            released.set(true);
+            dispatchTerminal();
+        }
+
+        private void dispatchTerminal() {
+            TerminalCallback callback = terminal.getAndSet(null);
+            if (callback == null) {
+                return;
+            }
+            Throwable failure = releaseFailure.get();
+            if (failure != null && !callback.isError()) {
+                delegate.onError(failure);
+                return;
+            }
+            callback.action().run();
+        }
+
+        private record TerminalCallback(Runnable action, boolean isError) {
+        }
     }
 }

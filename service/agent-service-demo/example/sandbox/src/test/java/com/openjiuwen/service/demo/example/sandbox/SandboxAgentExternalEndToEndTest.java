@@ -30,7 +30,6 @@ import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterExcepti
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -103,6 +102,15 @@ class SandboxAgentExternalEndToEndTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    static {
+        // 注册必须在 Spring 上下文加载之前完成：@SpringBootTest 的上下文加载
+        // 先于 @BeforeAll，若 factory 晚注册，上下文加载期创建的 LLM client
+        // 会走到真实 provider 而非本测试的 mock factory。
+        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
+            Model.registerFactory(new SandboxToolCallingModelFactory());
+        }
+    }
+
     @Autowired
     private TestRestTemplate rest;
 
@@ -132,13 +140,6 @@ class SandboxAgentExternalEndToEndTest {
         registry.add("openjiuwen.service.external.sandbox.servers[0].sandbox-type", () -> "jiuwenbox");
         registry.add("openjiuwen.service.external.sandbox.servers[0].launcher-type", () -> "pre_deploy");
         registry.add("openjiuwen.service.external.sandbox.servers[0].root-path", () -> ".");
-    }
-
-    @BeforeAll
-    static void registerModelFactory() {
-        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
-            Model.registerFactory(new SandboxToolCallingModelFactory());
-        }
     }
 
     @AfterAll

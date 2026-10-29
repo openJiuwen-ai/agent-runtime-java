@@ -20,11 +20,11 @@ import com.openjiuwen.core.foundation.llm.schema.ModelRequestConfig;
 import com.openjiuwen.core.foundation.llm.schema.ToolCall;
 import com.openjiuwen.core.foundation.llm.schema.UserMessage;
 import com.openjiuwen.core.foundation.llm.schema.VideoGenerationResponse;
+import com.openjiuwen.core.foundation.tool.schema.ToolInfo;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -100,6 +100,15 @@ class McpAgentExternalEndToEndTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    static {
+        // 注册必须在 Spring 上下文加载之前完成：@SpringBootTest 的上下文加载
+        // 先于 @BeforeAll，若 factory 晚注册，上下文加载期创建的 LLM client
+        // 会走到真实 provider 而非本测试的 mock factory。
+        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
+            Model.registerFactory(new ToolCallingModelFactory());
+        }
+    }
+
     @Autowired
     private TestRestTemplate rest;
 
@@ -122,13 +131,6 @@ class McpAgentExternalEndToEndTest {
         registry.add("openjiuwen.service.external.mcp.servers[0].server-path",
             () -> System.getProperty(SERVER_PATH_PROPERTY));
         registry.add("openjiuwen.service.external.mcp.servers[0].client-type", () -> "streamable-http");
-    }
-
-    @BeforeAll
-    static void registerModelFactory() {
-        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
-            Model.registerFactory(new ToolCallingModelFactory());
-        }
     }
 
     @AfterAll
@@ -154,7 +156,7 @@ class McpAgentExternalEndToEndTest {
         assertThat(MODEL_TOOL_LISTS).isNotEmpty();
         assertThat(MODEL_TOOL_LISTS.get(0)).contains(toolName());
         assertThat(MODEL_TOOL_CALLS.get()).isGreaterThanOrEqualTo(1);
-        assertThat(MODEL_TOOL_NAME.get()).isEqualTo(toolName());
+        assertThat(MODEL_TOOL_NAME.get()).endsWith("_" + toolName());
         assertThat(MODEL_TOOL_ARGUMENTS.get()).isEqualTo(toolArguments());
 
         assertThat(output).contains("EXTERNAL_CALL_AUDIT")
@@ -222,7 +224,6 @@ class McpAgentExternalEndToEndTest {
         @Override
         public AssistantMessage invoke(Object messages, Object tools, Float temperature, Float topP, String model,
             Integer maxTokens, String stop, BaseOutputParser outputParser, Float timeout, Map<String, Object> kwargs) {
-            MODEL_TOOL_LISTS.add(serializeTools(tools));
             List<Map<String, Object>> converted = new ArrayList<>(convertMessagesToDict(messages));
             String toolResult = converted.stream()
                 .filter(message -> "tool".equals(String.valueOf(message.get("role"))))
@@ -233,17 +234,40 @@ class McpAgentExternalEndToEndTest {
                 return new AssistantMessage("MCP 工具返回: " + toolResult);
             }
 
+            MODEL_TOOL_LISTS.add(serializeTools(tools));
             MODEL_TOOL_CALLS.incrementAndGet();
-            MODEL_TOOL_NAME.set(toolName());
+            MODEL_TOOL_NAME.set(exposedToolName(tools));
             MODEL_TOOL_ARGUMENTS.set(toolArguments());
             ToolCall toolCall = ToolCall.builder()
                 .id("mcp-call-1")
                 .type("function")
-                .name(toolName())
+                .name(exposedToolName(tools))
                 .arguments(toolArguments())
                 .index(0)
                 .build();
             return AssistantMessage.builder().role("assistant").content("").toolCalls(List.of(toolCall)).build();
+        }
+
+        /**
+         * 模拟真实 LLM 契约：工具调用名必须从请求下发的工具列表中回选，
+         * MCP 工具的暴露名为 mcp_${serverName}_${originalName}，按后缀解析。
+         *
+         * @param tools 模型请求下发的工具描述列表（ToolInfo 或 OpenAI 风格 map）
+         * @return 下发列表中与目标工具匹配的暴露名
+         */
+        private static String exposedToolName(Object tools) {
+            String suffix = "_" + toolName();
+            if (tools instanceof List<?> list) {
+                for (Object item : list) {
+                    String name = item instanceof ToolInfo toolInfo ? toolInfo.getName()
+                        : item instanceof Map<?, ?> map ? String.valueOf(map.get("name"))
+                        : null;
+                    if (name != null && (name.equals(toolName()) || name.endsWith(suffix))) {
+                        return name;
+                    }
+                }
+            }
+            throw new IllegalStateException("MCP tool not exposed to model: " + toolName());
         }
 
         @Override
