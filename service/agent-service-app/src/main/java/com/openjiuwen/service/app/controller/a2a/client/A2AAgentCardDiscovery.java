@@ -16,6 +16,7 @@ import com.openjiuwen.service.spec.paths.A2AServicePaths;
 import jakarta.annotation.PreDestroy;
 
 import org.a2aproject.sdk.spec.AgentCard;
+import org.a2aproject.sdk.spec.AgentInterface;
 import org.a2aproject.sdk.spec.TransportProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -220,14 +221,15 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
 
     /**
      * Builds the explicit static candidate list from the configured remote
-     * address (Feature FEAT-062 §6: the static candidate URL only ever comes
-     * from the static configuration — a card-declared address never becomes
-     * the routing target): a bare root address gains the JSON-RPC mount path,
-     * an already path-style configured address is kept as-is, and the card
-     * only gates transport compatibility.
+     * address (Feature FEAT-062 §6: the routing address comes only from the
+     * static configuration — a card-declared address never becomes the
+     * routing target). The configured URL is the card base URL (the same
+     * address {@link #fetchCardInternal} hangs the well-known card path off);
+     * the card only gates transport compatibility or completes the JSON-RPC
+     * mount path of that same address.
      *
      * @param remote the configured static remote agent
-     * @param card the discovered agent card (compatibility gate only)
+     * @param card the discovered agent card
      * @return the one-element candidate list, or empty when the card carries
      *         no JSON-RPC interface
      */
@@ -238,12 +240,135 @@ public class A2AAgentCardDiscovery implements RemoteAgentCardResolver {
         if (!isJsonRpcCompatible) {
             return List.of();
         }
-        String configured = TRAILING_SLASHES.matcher(remote.getUrl()).replaceAll("");
-        URI uri = URI.create(configured);
-        String endpoint = uri.getRawPath() == null || uri.getRawPath().isEmpty()
+        return List.of(new RemoteInstanceCandidate("", jsonRpcEndpoint(remote.getUrl(), card), 0));
+    }
+
+    /**
+     * Derives the JSON-RPC endpoint of a static remote from its configured
+     * card base URL. When the card's JSON-RPC interface URL points back at
+     * the configured origin it corroborates the configuration and only
+     * completes the JSON-RPC mount path — that keeps path-prefixed bases and
+     * remotes with a non-default {@code json-rpc-path} routable, while a
+     * configured path that already carries the mount path (e.g. a hosted
+     * agent path) stays verbatim. A card declaring a foreign address is
+     * ignored and the configured address is kept as-is (a bare root gains
+     * the default mount path).
+     *
+     * @param configuredUrl the configured card base URL of the remote
+     * @param card the discovered agent card
+     * @return the JSON-RPC endpoint URL used as the static routing target
+     */
+    static String jsonRpcEndpoint(String configuredUrl, AgentCard card) {
+        String configured = TRAILING_SLASHES.matcher(configuredUrl).replaceAll("");
+        URI configuredUri = URI.create(configured);
+        String configuredPath = configuredUri.getRawPath() == null ? "" : configuredUri.getRawPath();
+        String cardPath = corroboratedMountPath(card, configuredUri);
+        if (hasTrailingSegment(configuredPath, cardPath)) {
+            return configured;
+        }
+        if (hasLeadingSegment(cardPath, configuredPath)) {
+            return configured + cardPath.substring(configuredPath.length());
+        }
+        return configuredPath.isEmpty()
                 ? configured + A2AServicePaths.A2A_JSONRPC_NO_SLASH
                 : configured;
-        return List.of(new RemoteInstanceCandidate("", endpoint, 0));
+    }
+
+    /**
+     * Returns the mount path of the card's first JSON-RPC interface URL whose
+     * origin equals the configured origin, or an empty string when no
+     * JSON-RPC interface URL corroborates the configuration.
+     *
+     * @param card the discovered agent card
+     * @param configuredUri the parsed configured card base URL
+     * @return the corroborated mount path, or an empty string
+     */
+    private static String corroboratedMountPath(AgentCard card, URI configuredUri) {
+        return card.supportedInterfaces().stream()
+                .filter(iface -> TransportProtocol.JSONRPC.asString().equals(iface.protocolBinding()))
+                .map(AgentInterface::url)
+                .filter(url -> url != null && !url.isBlank())
+                .map(url -> mountPathOf(url, configuredUri))
+                .filter(path -> !path.isEmpty())
+                .findFirst()
+                .orElse("");
+    }
+
+    /**
+     * Returns the trailing-slash-stripped path of the given card URL when it
+     * points at the configured origin, or an empty string otherwise.
+     *
+     * @param url the card-declared interface URL
+     * @param configuredUri the parsed configured card base URL
+     * @return the card mount path, or an empty string
+     */
+    private static String mountPathOf(String url, URI configuredUri) {
+        try {
+            URI uri = URI.create(url);
+            if (!sameOrigin(uri, configuredUri)) {
+                return "";
+            }
+            String path = uri.getRawPath() == null ? "" : uri.getRawPath();
+            while (path.length() > 1 && path.endsWith("/")) {
+                path = path.substring(0, path.length() - 1);
+            }
+            return "/".equals(path) ? "" : path;
+        } catch (IllegalArgumentException malformedCardUrl) {
+            return "";
+        }
+    }
+
+    /**
+     * Checks whether both URLs share scheme, host, and effective port.
+     *
+     * @param left one parsed URL
+     * @param right the other parsed URL
+     * @return true when both point at the same origin
+     */
+    private static boolean sameOrigin(URI left, URI right) {
+        return left.getScheme() != null && left.getScheme().equalsIgnoreCase(right.getScheme())
+                && left.getHost() != null && left.getHost().equalsIgnoreCase(right.getHost())
+                && effectivePort(left) == effectivePort(right);
+    }
+
+    /**
+     * Resolves the effective port of a URL, defaulting per scheme when absent.
+     *
+     * @param uri the parsed URL
+     * @return the explicit or scheme-default port
+     */
+    private static int effectivePort(URI uri) {
+        if (uri.getPort() > 0) {
+            return uri.getPort();
+        }
+        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+    }
+
+    /**
+     * Checks whether the path ends with the segment on a path-segment
+     * boundary.
+     *
+     * @param path the path to inspect
+     * @param segment the trailing segment to look for
+     * @return true when the path carries the segment as its tail
+     */
+    private static boolean hasTrailingSegment(String path, String segment) {
+        return !segment.isEmpty() && path.endsWith(segment)
+                && (path.length() == segment.length()
+                    || path.charAt(path.length() - segment.length() - 1) == '/');
+    }
+
+    /**
+     * Checks whether the path extends the prefix on a path-segment boundary.
+     *
+     * @param path the path to inspect
+     * @param prefix the leading prefix to look for
+     * @return true when the path starts with the prefix segment
+     */
+    private static boolean hasLeadingSegment(String path, String prefix) {
+        return !path.isEmpty() && path.startsWith(prefix)
+                && (prefix.isEmpty() || path.length() == prefix.length()
+                    || path.charAt(prefix.length()) == '/');
     }
 
     AgentCard fetchCardInternal(String baseUrl) {
