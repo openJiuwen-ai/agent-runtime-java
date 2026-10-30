@@ -725,6 +725,11 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         }
     }
 
+    /** First-event synchronization state of one send attempt, shared by its callbacks and wait. */
+    private record AttemptSync(CompletableFuture<Void> firstOrFailure, AtomicBoolean failureSeen,
+            AtomicBoolean attemptActive) {
+    }
+
     /**
      * Sends once to one candidate and waits for its first event or failure
      * before deciding: the wait lets a silent candidate be abandoned and the
@@ -741,34 +746,33 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      */
     private Optional<RuntimeException> tryCandidate(InvocationContext ctx, RemoteInstanceCandidate candidate,
             boolean isStreaming) {
-        CompletableFuture<Void> firstOrFailure = new CompletableFuture<>();
-        AtomicBoolean failureSeen = new AtomicBoolean();
-        AtomicBoolean attemptActive = new AtomicBoolean(true);
+        AttemptSync sync = new AttemptSync(new CompletableFuture<>(), new AtomicBoolean(),
+                new AtomicBoolean(true));
         BiConsumer<ClientEvent, AgentCard> attemptConsumer = (event, card) -> {
-            if (!attemptActive.get()) {
+            if (!sync.attemptActive().get()) {
                 log.debug("A2A abandoned attempt event dropped agent={} instance={} taskId={} contextId={}",
                         ctx.call().agentName(), candidate.instanceId(), taskIdOf(ctx.call()),
                         ctx.setup().contextId());
                 return;
             }
-            firstOrFailure.complete(null);
+            sync.firstOrFailure().complete(null);
             ctx.eventConsumer().accept(event, card);
         };
         try {
             Client client = clientFor(ctx, candidate, isStreaming);
             withApplicationClassLoader(() -> {
                 client.sendMessage(ctx.setup().params(), List.of(attemptConsumer),
-                        error -> handleStreamFailure(ctx, candidate, firstOrFailure, failureSeen, error), null);
+                        error -> handleStreamFailure(ctx, candidate, sync, error), null);
                 return null;
             });
-            return awaitFirstEvent(ctx, candidate, firstOrFailure, failureSeen, attemptActive, isStreaming);
+            return awaitFirstEvent(ctx, candidate, sync, isStreaming);
         } catch (Error error) {
-            attemptActive.set(false);
+            sync.attemptActive().set(false);
             logRemoteError("call", ctx.call(), isStreaming, ctx.setup().contextId(), error);
             ctx.result().completeExceptionally(error);
             throw error;
         } catch (RuntimeException ex) {
-            attemptActive.set(false);
+            sync.attemptActive().set(false);
             return classifyFailure(ctx, candidate, ex, isStreaming);
         }
     }
@@ -781,35 +785,33 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      *
      * @param ctx the invocation coordinates
      * @param candidate the instance candidate the attempt targets
-     * @param firstOrFailure the per-attempt first-event-or-failure future
-     * @param failureSeen the per-attempt first-failure-wins flag
-     * @param attemptActive the per-attempt event-forwarding gate
+     * @param sync the per-attempt first-event synchronization state
      * @param isStreaming whether the invocation runs in streaming mode
      * @return the retryable failure, or empty when settled
      */
     private Optional<RuntimeException> awaitFirstEvent(InvocationContext ctx, RemoteInstanceCandidate candidate,
-            CompletableFuture<Void> firstOrFailure, AtomicBoolean failureSeen, AtomicBoolean attemptActive,
-            boolean isStreaming) {
+            AttemptSync sync, boolean isStreaming) {
         long firstEventWaitMillis = TimeUnit.SECONDS.toMillis(Math.max(1, ctx.setup().entry().timeoutSeconds()))
                 + FIRST_EVENT_BACKSTOP_MARGIN_MILLIS;
         try {
-            firstOrFailure.get(firstEventWaitMillis, TimeUnit.MILLISECONDS);
+            sync.firstOrFailure().get(firstEventWaitMillis, TimeUnit.MILLISECONDS);
             return Optional.empty();
         } catch (TimeoutException timeout) {
-            attemptActive.set(false);
-            if (!failureSeen.compareAndSet(false, true)) {
+            sync.attemptActive().set(false);
+            if (!sync.failureSeen().compareAndSet(false, true)) {
                 return Optional.empty();
             }
             return classifyFailure(ctx, candidate, firstEventBackstopFailure(ctx), isStreaming);
         } catch (ExecutionException execution) {
-            attemptActive.set(false);
+            sync.attemptActive().set(false);
             RuntimeException failure = execution.getCause() instanceof RuntimeException runtimeFailure
                     ? runtimeFailure
                     : new IllegalStateException("Remote attempt failed without a runtime failure cause", execution);
             return classifyFailure(ctx, candidate, failure, isStreaming);
         } catch (InterruptedException stopped) {
-            attemptActive.set(false);
-            Thread.currentThread().interrupt();
+            sync.attemptActive().set(false);
+            log.debug("A2A first-event wait interrupted agent={} instance={} taskId={} contextId={}",
+                    ctx.call().agentName(), candidate.instanceId(), taskIdOf(ctx.call()), ctx.setup().contextId());
             return Optional.empty();
         }
     }
@@ -824,17 +826,16 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      *
      * @param ctx the invocation coordinates
      * @param candidate the instance candidate the attempt targets
-     * @param firstOrFailure the per-attempt first-event-or-failure future
-     * @param failureSeen the per-attempt first-failure-wins flag
+     * @param sync the per-attempt first-event synchronization state
      * @param error the stream error, or {@code null} on premature stream close
      */
-    private void handleStreamFailure(InvocationContext ctx, RemoteInstanceCandidate candidate,
-            CompletableFuture<Void> firstOrFailure, AtomicBoolean failureSeen, Throwable error) {
-        if (!failureSeen.compareAndSet(false, true)) {
+    private void handleStreamFailure(InvocationContext ctx, RemoteInstanceCandidate candidate, AttemptSync sync,
+            Throwable error) {
+        if (!sync.failureSeen().compareAndSet(false, true)) {
             return;
         }
         RuntimeException failure = normalizeStreamFailure(ctx.call().agentName(), error);
-        if (firstOrFailure.completeExceptionally(failure)) {
+        if (sync.firstOrFailure().completeExceptionally(failure)) {
             return;
         }
         completeOutcomeOnStreamEnd(ctx.call().agentName(), ctx.result(), failure);

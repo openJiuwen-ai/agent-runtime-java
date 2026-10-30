@@ -34,6 +34,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -190,7 +192,8 @@ class A2ARemoteAgentClientStreamingFailoverTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         // a held-open SSE exchange must not starve concurrent requests: the
         // default executor serves all exchanges on one thread
-        serverExecutor = Executors.newFixedThreadPool(4);
+        serverExecutor = new ThreadPoolExecutor(4, 4, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
+                Executors.defaultThreadFactory());
         server.setExecutor(serverExecutor);
         server.createContext("/sse-ok", this::replyCompletedTask);
         server.createContext("/silent", this::holdSilentStream);
@@ -221,7 +224,8 @@ class A2ARemoteAgentClientStreamingFailoverTest {
             exchange.sendResponseHeaders(200, 0);
             holdOpen.await(20, TimeUnit.SECONDS);
         } catch (InterruptedException stopped) {
-            Thread.currentThread().interrupt();
+            // the executor shutdown interrupts the hold; the pooled thread exits with it
+            return;
         }
     }
 
@@ -237,7 +241,8 @@ class A2ARemoteAgentClientStreamingFailoverTest {
                 out.flush();
             }
         } catch (InterruptedException stopped) {
-            Thread.currentThread().interrupt();
+            // the executor shutdown interrupts the late write; the latch below still releases
+            return;
         } finally {
             lateEventDelivered.countDown();
         }
@@ -254,7 +259,8 @@ class A2ARemoteAgentClientStreamingFailoverTest {
                 out.flush();
                 holdOpen.await(20, TimeUnit.SECONDS);
             } catch (InterruptedException stopped) {
-                Thread.currentThread().interrupt();
+                // the executor shutdown interrupts the hold; the response is already committed
+                return;
             }
         }
     }
@@ -277,7 +283,7 @@ class A2ARemoteAgentClientStreamingFailoverTest {
         }
     }
 
-    private static A2ARemoteAgentCardRegistry registry(String name, int timeoutSeconds, boolean streaming,
+    private static A2ARemoteAgentCardRegistry registry(String name, int timeoutSeconds, boolean isStreaming,
             String... endpoints) {
         A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
         List<RemoteInstanceCandidate> candidates = new ArrayList<>();
@@ -285,7 +291,7 @@ class A2ARemoteAgentClientStreamingFailoverTest {
             candidates.add(new RemoteInstanceCandidate("i-" + (i + 1), endpoints[i], 0));
         }
         registry.register(new RemoteAgentEntry(name, card(name, endpoints[0]), timeoutSeconds,
-            streaming, null, candidates));
+            isStreaming, null, candidates));
         return registry;
     }
 
