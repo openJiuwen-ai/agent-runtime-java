@@ -7,10 +7,17 @@ package com.openjiuwen.service.app.controller.a2a.client;
 import org.a2aproject.sdk.client.http.A2AHttpClient;
 import org.a2aproject.sdk.client.http.A2AHttpResponse;
 import org.a2aproject.sdk.client.http.ServerSentEvent;
+import org.a2aproject.sdk.spec.A2AClientException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -21,12 +28,21 @@ import java.util.function.Consumer;
  * <p>When no resolver is registered (or it yields no headers), nothing is injected and
  * behavior is identical to the plain client.
  *
+ * <p>With a positive first-event timeout, POST-launched SSE streams carry a transport-level
+ * first-event watchdog (FEAT-062 P11): if the remote sends no SSE event within the timeout,
+ * the watchdog arms a synthesized retryable {@link A2AClientException} into the error
+ * callback so the caller's failure classification sees a normal transport fault, and drops
+ * any later event of the abandoned stream. The gate transitions are CAS-based, so the
+ * expiry racing a first event lets exactly one side win.
+ *
  * @since 0.1.2
  */
 public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
     private final A2AHttpClient delegate;
 
     private final Map<String, String> fixedHeaders;
+
+    private final long firstEventTimeoutMillis;
 
     /**
      * Wraps the given client.
@@ -39,16 +55,32 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
 
     /**
      * Wraps a client and adds fixed headers to every request in addition to
-     * the existing per-request propagation headers.
+     * the existing per-request propagation headers. The SSE first-event
+     * watchdog stays disabled.
      *
      * @param delegate client executing the request
      * @param fixedHeaders headers supplied by the outbound authenticator
      */
     public HeaderInjectingA2AHttpClient(A2AHttpClient delegate, Map<String, String> fixedHeaders) {
+        this(delegate, fixedHeaders, 0L);
+    }
+
+    /**
+     * Wraps a client with fixed headers and a first-event watchdog for SSE
+     * streams opened through {@code postAsyncSSE}.
+     *
+     * @param delegate client executing the request
+     * @param fixedHeaders headers supplied by the outbound authenticator
+     * @param firstEventTimeoutMillis how long a stream may stay silent before
+     *        the watchdog fires; {@code <= 0} disables the watchdog
+     */
+    public HeaderInjectingA2AHttpClient(A2AHttpClient delegate, Map<String, String> fixedHeaders,
+            long firstEventTimeoutMillis) {
         this.delegate = delegate;
         this.fixedHeaders = fixedHeaders == null || fixedHeaders.isEmpty()
                 ? Map.of()
                 : Map.copyOf(fixedHeaders);
+        this.firstEventTimeoutMillis = firstEventTimeoutMillis;
     }
 
     A2AHttpClient unwrap() {
@@ -62,7 +94,7 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
 
     @Override
     public PostBuilder createPost() {
-        return new PostWrapper(delegate.createPost(), fixedHeaders);
+        return new PostWrapper(delegate.createPost(), fixedHeaders, firstEventTimeoutMillis);
     }
 
     @Override
@@ -180,11 +212,16 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
 
     private static final class PostWrapper
             extends BaseWrapper<A2AHttpClient.PostBuilder> implements A2AHttpClient.PostBuilder {
+        private static final Logger log = LoggerFactory.getLogger(PostWrapper.class);
+
+        private final long firstEventTimeoutMillis;
         private String url;
         private String body;
 
-        PostWrapper(A2AHttpClient.PostBuilder delegate, Map<String, String> fixedHeaders) {
+        PostWrapper(A2AHttpClient.PostBuilder delegate, Map<String, String> fixedHeaders,
+                long firstEventTimeoutMillis) {
             super(delegate, fixedHeaders);
+            this.firstEventTimeoutMillis = firstEventTimeoutMillis;
         }
 
         @Override
@@ -220,12 +257,94 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         public CompletableFuture<Void> postAsyncSSE(Consumer<ServerSentEvent> onEvent,
                 Consumer<Throwable> onError, Runnable onComplete) throws IOException, InterruptedException {
             inject(body);
-            return delegate.postAsyncSSE(onEvent, onError, onComplete);
+            if (firstEventTimeoutMillis <= 0) {
+                return delegate.postAsyncSSE(onEvent, onError, onComplete);
+            }
+            FirstEventGate gate = new FirstEventGate();
+            Consumer<Throwable> guardedOnError = error -> {
+                gate.disarm();
+                onError.accept(error);
+            };
+            Runnable guardedOnComplete = () -> {
+                gate.disarm();
+                onComplete.run();
+            };
+            CompletableFuture<Void> stream = delegate.postAsyncSSE(event -> {
+                if (gate.pass()) {
+                    onEvent.accept(event);
+                }
+            }, guardedOnError, guardedOnComplete);
+            scheduleFirstEventWatchdog(gate, stream, onError);
+            return stream;
+        }
+
+        /**
+         * Arms the transport-level first-event watchdog for one stream: when the
+         * gate has seen no event within the timeout, a retryable transport fault
+         * is synthesized into the error callback FIRST so the caller's existing
+         * failure classification can rotate to the next candidate (FEAT-062
+         * P11), and only then is the stream cancelled — the cancellation
+         * surfaces synchronously as its own stream error, which loses the
+         * caller's first-failure race and stays inert.
+         *
+         * @param gate the per-stream first-event gate
+         * @param stream the underlying stream future to cancel on expiry
+         * @param onError the raw error callback receiving the synthesized fault
+         */
+        private void scheduleFirstEventWatchdog(FirstEventGate gate, CompletableFuture<Void> stream,
+                Consumer<Throwable> onError) {
+            Executor delayedExecutor = CompletableFuture.delayedExecutor(firstEventTimeoutMillis,
+                    TimeUnit.MILLISECONDS);
+            CompletableFuture.runAsync(() -> {
+                if (!gate.expire()) {
+                    return;
+                }
+                log.warn("A2A SSE stream first-event watchdog fired after {}ms; aborting the stream attempt",
+                        firstEventTimeoutMillis);
+                onError.accept(firstEventTimeoutFailure());
+                stream.cancel(true);
+            }, delayedExecutor);
+        }
+
+        private static Throwable firstEventTimeoutFailure() {
+            String message = "Remote agent sent no first SSE event within the configured first-event timeout";
+            return new A2AClientException(message, new SocketTimeoutException(message));
         }
 
         @Override
         A2AHttpClient.PostBuilder self() {
             return this;
+        }
+    }
+
+    /**
+     * One-shot gate deciding the race between a stream's first event and its
+     * watchdog expiry: both sides transition the same CAS state, so exactly one
+     * of them wins and the loser's effect is skipped. {@code disarm} covers the
+     * remaining outcomes (real error, clean completion) that retire the
+     * watchdog without expiring it.
+     */
+    private static final class FirstEventGate {
+        private static final int WAITING = 0;
+
+        private static final int PASSED = 1;
+
+        private static final int EXPIRED = 2;
+
+        private static final int DISARMED = 3;
+
+        private final AtomicInteger state = new AtomicInteger(WAITING);
+
+        boolean pass() {
+            return state.compareAndSet(WAITING, PASSED);
+        }
+
+        boolean expire() {
+            return state.compareAndSet(WAITING, EXPIRED);
+        }
+
+        void disarm() {
+            state.compareAndSet(WAITING, DISARMED);
         }
     }
 

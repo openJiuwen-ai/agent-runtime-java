@@ -130,7 +130,10 @@ class A2ARemoteAgentClientClassLoaderTest {
             var outcome = remoteClient.callOutcome(remoteCall("timeout-agent"),
                     mock(RemoteAgentCaller.EventObserver.class));
 
-            assertThatThrownBy(() -> outcome.get(2, TimeUnit.SECONDS)).hasCauseInstanceOf(TimeoutException.class);
+            // FEAT-062 P11: the single-attempt timeout no longer bounds the call;
+            // the total budget (attempts x candidates x attempt timeout + backoff
+            // slack) completes the future exceptionally while the SDK send blocks
+            assertThatThrownBy(() -> outcome.get(15, TimeUnit.SECONDS)).hasCauseInstanceOf(TimeoutException.class);
         } finally {
             release.countDown();
             remoteClient.shutdown();
