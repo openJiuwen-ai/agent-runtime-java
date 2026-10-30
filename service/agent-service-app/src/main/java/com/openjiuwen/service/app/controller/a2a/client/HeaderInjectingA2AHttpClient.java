@@ -15,8 +15,16 @@ import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -35,9 +43,24 @@ import java.util.function.Consumer;
  * any later event of the abandoned stream. The gate transitions are CAS-based, so the
  * expiry racing a first event lets exactly one side win.
  *
+ * <p>The same timeout also bounds the synchronous {@code POST} response wait (FEAT-062
+ * P11 non-streaming follow-up): a non-streaming {@code SendMessage} blocks inside the
+ * synchronous HTTP send before any consumer or backstop can observe it, so {@code post()}
+ * runs the delegate send on a dedicated executor and synthesizes the same retryable
+ * transport fault when no response arrives within the timeout — a silent candidate then
+ * rotates instead of holding the invocation until the global budget expires.
+ *
  * @since 0.1.2
  */
 public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
+    private static final Logger log = LoggerFactory.getLogger(HeaderInjectingA2AHttpClient.class);
+
+    // Bounded-wait executor for synchronous POSTs: one thread per in-flight send,
+    // recycled after 60s idle; a timed-out send is cancelled (interrupting the
+    // blocking JDK send) so no worker outlives its attempt.
+    private static final ExecutorService POST_RESPONSE_EXECUTOR = new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+            60L, TimeUnit.SECONDS, new SynchronousQueue<>(), postResponseWatchdogThreadFactory());
+
     private final A2AHttpClient delegate;
 
     private final Map<String, String> fixedHeaders;
@@ -85,6 +108,24 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
 
     A2AHttpClient unwrap() {
         return delegate;
+    }
+
+    /**
+     * Builds the daemon thread factory for the POST response-wait executor:
+     * named, daemon, and logging uncaught failures instead of killing the JVM.
+     *
+     * @return the configured thread factory
+     */
+    private static ThreadFactory postResponseWatchdogThreadFactory() {
+        ThreadFactory base = Executors.defaultThreadFactory();
+        return runnable -> {
+            Thread thread = base.newThread(runnable);
+            thread.setName("a2a-post-response-watchdog");
+            thread.setDaemon(true);
+            thread.setUncaughtExceptionHandler((source, error) -> log
+                    .error("Uncaught POST response-wait failure on thread={}", source.getName(), error));
+            return thread;
+        };
     }
 
     @Override
@@ -250,7 +291,49 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         @Override
         public A2AHttpResponse post() throws IOException, InterruptedException {
             inject(body);
-            return delegate.post();
+            if (firstEventTimeoutMillis <= 0) {
+                return delegate.post();
+            }
+            Future<A2AHttpResponse> pending = POST_RESPONSE_EXECUTOR.submit(() -> delegate.post());
+            try {
+                return pending.get(firstEventTimeoutMillis, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException expired) {
+                // cancel first so the blocking JDK send unblocks, then surface the
+                // same retryable transport fault the SSE watchdog synthesizes — the
+                // caller's classification rotates to the next candidate (FEAT-062 P11)
+                pending.cancel(true);
+                log.warn("A2A POST response watchdog fired after {}ms; aborting the request attempt",
+                        firstEventTimeoutMillis);
+                throw postResponseTimeoutFailure();
+            } catch (InterruptedException stopped) {
+                pending.cancel(true);
+                throw stopped;
+            } catch (ExecutionException failed) {
+                Throwable cause = failed.getCause();
+                if (cause instanceof IOException ioFailure) {
+                    throw ioFailure;
+                }
+                if (cause instanceof InterruptedException interrupted) {
+                    throw interrupted;
+                }
+                if (cause instanceof RuntimeException runtimeFailure) {
+                    throw runtimeFailure;
+                }
+                throw new A2AClientException("Remote A2A POST failed without a transport failure cause", cause);
+            }
+        }
+
+        /**
+         * Builds the retryable fault for a POST whose response never arrived
+         * within the timeout: the {@link SocketTimeoutException} cause keeps the
+         * fault in the caller's transient (rotatable) classification, matching
+         * the SSE watchdog's synthesized failure.
+         *
+         * @return the synthesized transport fault
+         */
+        private static A2AClientException postResponseTimeoutFailure() {
+            String message = "Remote agent sent no HTTP response within the configured timeout";
+            return new A2AClientException(message, new SocketTimeoutException(message));
         }
 
         @Override
