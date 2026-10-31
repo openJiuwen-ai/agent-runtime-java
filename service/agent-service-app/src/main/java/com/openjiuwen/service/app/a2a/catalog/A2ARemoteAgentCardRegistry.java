@@ -263,6 +263,7 @@ public class A2ARemoteAgentCardRegistry {
         return current.timeoutSeconds() == next.timeoutSeconds()
                 && current.isStreaming() == next.isStreaming()
                 && Objects.equals(current.tls(), next.tls())
+                && Objects.equals(current.card(), next.card())
                 && Objects.equals(current.candidates(), next.candidates());
     }
 
