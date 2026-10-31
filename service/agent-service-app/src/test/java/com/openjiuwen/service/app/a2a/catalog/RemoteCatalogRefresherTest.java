@@ -117,6 +117,32 @@ class RemoteCatalogRefresherTest {
     }
 
     @Test
+    void unexpectedRuntimeFaultKeepsThePreviousCatalogUntilAPullRecovers() {
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        RemoteCatalogSource source = mock(RemoteCatalogSource.class);
+        when(source.load()).thenReturn(new RemoteCatalogSnapshot(1, List.of(entry("weather", 30))))
+                .thenThrow(new IllegalStateException("source implementation bug"))
+                .thenReturn(new RemoteCatalogSnapshot(2, List.of(entry("weather", 77))));
+        RemoteCatalogRefresher refresher = refresher(provider(source), registry, 5000);
+        try {
+            refresher.start();
+            assertThat(registry.get("weather").orElseThrow().timeoutSeconds()).isEqualTo(30);
+
+            // an unclassified runtime fault must degrade like the load signal:
+            // the previous catalog is kept and the TTL loop stays alive
+            ReflectionTestUtils.invokeMethod(refresher, "refreshOnce", "periodic");
+            assertThat(registry.get("weather").orElseThrow().timeoutSeconds()).isEqualTo(30);
+            assertThat(registry.snapshot().version()).isEqualTo(1);
+
+            ReflectionTestUtils.invokeMethod(refresher, "refreshOnce", "periodic");
+            assertThat(registry.get("weather").orElseThrow().timeoutSeconds()).isEqualTo(77);
+            assertThat(registry.snapshot().version()).isEqualTo(2);
+        } finally {
+            refresher.shutdown();
+        }
+    }
+
+    @Test
     void shutdownStopsTheRefreshLoopAndIsIdempotent() {
         RemoteCatalogSource source = mock(RemoteCatalogSource.class);
         when(source.load()).thenReturn(new RemoteCatalogSnapshot(1, List.of(entry("weather", 30))));

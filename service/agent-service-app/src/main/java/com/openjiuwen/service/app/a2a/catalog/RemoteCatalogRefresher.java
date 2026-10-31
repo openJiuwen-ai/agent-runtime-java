@@ -13,6 +13,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -30,8 +32,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * leaves the catalog empty. Steady state is a fixed-delay loop at the
  * configured TTL. Each pull applies the source snapshot through
  * {@link A2ARemoteAgentCardRegistry#replaceAll}, which is idempotent on
- * unchanged source versions. Expected load failures keep the previous catalog,
- * are counted consecutively, and reset the counter on recovery. The source is
+ * unchanged source versions. Pull faults — the {@link RemoteCatalogLoadException}
+ * degradation signal and unexpected runtime faults alike — keep the previous
+ * catalog, are counted consecutively, and reset the counter on recovery: the
+ * pull boundary runs as a scheduled callback, so an escaping exception would
+ * silently terminate the TTL loop. The source is
  * resolved from the {@link ObjectProvider} at start time, so the refresher
  * stays idle (and static discovery stays in charge) when no source bean is
  * defined — immune to auto-configuration ordering.</p>
@@ -140,19 +145,44 @@ public class RemoteCatalogRefresher {
     }
 
     private void refreshOnce(String phase) {
-        RemoteCatalogSnapshot snapshot;
-        try {
-            snapshot = source.load();
-        } catch (RemoteCatalogLoadException e) {
-            int failures = consecutiveFailures.incrementAndGet();
-            log.warn("Remote catalog {} pull failed failures={} ttlMs={}, keeping previous catalog", phase, failures,
-                    refreshTtlMs, e);
+        // Guard boundary: the pull runs on the calling thread (direct executor)
+        // and the completion stage converts every pull-side fault into the
+        // stage failure, so the outcome handler covers the whole fault surface
+        // (the degradation signal and unexpected implementation faults alike)
+        // without catching a base exception type. Errors are rethrown so they
+        // still escape to the scheduler instead of entering the degradation
+        // path. This method runs as a scheduleWithFixedDelay callback — any
+        // escaping RuntimeException would silently terminate the TTL loop
+        // forever, which is why every runtime fault degrades.
+        CompletableFuture.runAsync(this::pullAndApply, Runnable::run)
+                .whenComplete((unused, failure) -> handlePullOutcome(phase, failure));
+    }
+
+    private void pullAndApply() {
+        registry.replaceAll(source.load());
+    }
+
+    private void handlePullOutcome(String phase, Throwable failure) {
+        if (failure == null) {
+            int recovered = consecutiveFailures.getAndSet(0);
+            if (recovered > 0) {
+                log.info("Remote catalog {} pull recovered after {} failure(s)", phase, recovered);
+            }
             return;
         }
-        registry.replaceAll(snapshot);
-        int recovered = consecutiveFailures.getAndSet(0);
-        if (recovered > 0) {
-            log.info("Remote catalog {} pull recovered after {} failure(s)", phase, recovered);
+        Throwable fault = unwrapStageFailure(failure);
+        if (fault instanceof Error error) {
+            throw error;
         }
+        int failures = consecutiveFailures.incrementAndGet();
+        log.warn("Remote catalog {} pull failed failures={} ttlMs={}, keeping previous catalog", phase, failures,
+                refreshTtlMs, fault);
+    }
+
+    private static Throwable unwrapStageFailure(Throwable failure) {
+        if (failure instanceof CompletionException completion && completion.getCause() != null) {
+            return completion.getCause();
+        }
+        return failure;
     }
 }

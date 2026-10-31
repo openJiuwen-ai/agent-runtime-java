@@ -38,7 +38,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Tests of the unified catalog bypass in {@link A2AAgentCardDiscovery} (FEAT-062
  * L2 {@literal §}4): a present {@link RemoteCatalogSource} bean hands the global
  * static discovery over to the TTL refresher while hosted instance-local
- * discovery keeps running, and an absent source preserves the baseline path.
+ * discovery keeps running, an absent source preserves the baseline path, and
+ * the baseline static candidate always carries the configured address (Feature
+ * FEAT-062 §6).
  *
  * @since 0.1.4
  */
@@ -117,6 +119,83 @@ class A2AAgentCardDiscoveryBypassTest {
         }
     }
 
+    @Test
+    void configuredAddressWinsOverTheCardDeclaration() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> replyCardWith(exchange, "remote", "http://127.0.0.1:9/decoy"));
+        server.start();
+        A2AProperties properties = new A2AProperties();
+        properties.setRemoteAgents(List.of(
+                remote("remote", baseUrl() + "/global"), remote("root-remote", baseUrl())));
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        A2AAgentCardDiscovery discovery = new A2AAgentCardDiscovery(properties, registry);
+        try {
+            discovery.discoverAll();
+
+            // Feature FEAT-062 §6: the routing candidate only comes from the
+            // static configuration; a bare root gains the JSON-RPC mount path
+            assertThat(registry.get("remote").orElseThrow().candidates().get(0).url())
+                    .isEqualTo(baseUrl() + "/global");
+            assertThat(registry.get("root-remote").orElseThrow().candidates().get(0).url())
+                    .isEqualTo(baseUrl() + "/a2a");
+            // the card face keeps its declaration untouched
+            assertThat(registry.get("remote").orElseThrow().card().supportedInterfaces().get(0).url())
+                    .isEqualTo("http://127.0.0.1:9/decoy");
+        } finally {
+            discovery.shutdown();
+        }
+    }
+
+    @Test
+    void corroboratingCardCompletesTheConfiguredBaseWithItsMountPath() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        // the card declares the configured origin: it corroborates the static
+        // configuration and only completes the JSON-RPC mount path — covering
+        // a path-prefixed base and a non-default json-rpc-path remote
+        server.createContext("/api/.well-known/agent-card.json",
+                exchange -> replyCardWith(exchange, "remote", baseUrl() + "/api/a2a"));
+        server.createContext("/.well-known/agent-card.json",
+                exchange -> replyCardWith(exchange, "rpc-remote", baseUrl() + "/rpc"));
+        server.start();
+        A2AProperties properties = new A2AProperties();
+        properties.setRemoteAgents(List.of(
+                remote("remote", baseUrl() + "/api"), remote("rpc-remote", baseUrl())));
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        A2AAgentCardDiscovery discovery = new A2AAgentCardDiscovery(properties, registry);
+        try {
+            discovery.discoverAll();
+
+            assertThat(registry.get("remote").orElseThrow().candidates().get(0).url())
+                    .isEqualTo(baseUrl() + "/api/a2a");
+            assertThat(registry.get("rpc-remote").orElseThrow().candidates().get(0).url())
+                    .isEqualTo(baseUrl() + "/rpc");
+        } finally {
+            discovery.shutdown();
+        }
+    }
+
+    @Test
+    void configuredFullEndpointIsKeptWhenTheCardCorroboratesIt() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        // a fully spelled-out endpoint (hosted agent path) must not be
+        // double-suffixed when the card declares the same address
+        server.createContext("/a2a/agents/travel-trip/.well-known/agent-card.json",
+                exchange -> replyCardWith(exchange, "remote", baseUrl() + "/a2a/agents/travel-trip"));
+        server.start();
+        A2AProperties properties = new A2AProperties();
+        properties.setRemoteAgents(List.of(remote("remote", baseUrl() + "/a2a/agents/travel-trip")));
+        A2ARemoteAgentCardRegistry registry = new A2ARemoteAgentCardRegistry();
+        A2AAgentCardDiscovery discovery = new A2AAgentCardDiscovery(properties, registry);
+        try {
+            discovery.discoverAll();
+
+            assertThat(registry.get("remote").orElseThrow().candidates().get(0).url())
+                    .isEqualTo(baseUrl() + "/a2a/agents/travel-trip");
+        } finally {
+            discovery.shutdown();
+        }
+    }
+
     private void startServer(String cardName) throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> replyCard(exchange, cardName));
@@ -128,10 +207,14 @@ class A2AAgentCardDiscoveryBypassTest {
     }
 
     private void replyCard(HttpExchange exchange, String cardName) throws IOException {
+        String endpoint = baseUrl() + exchange.getRequestURI().getPath()
+                .replace("/.well-known/agent-card.json", "");
+        replyCardWith(exchange, cardName, endpoint);
+    }
+
+    private void replyCardWith(HttpExchange exchange, String cardName, String endpoint) throws IOException {
         try (exchange) {
             requestPaths.add(exchange.getRequestURI().getPath());
-            String endpoint = baseUrl() + exchange.getRequestURI().getPath()
-                    .replace("/.well-known/agent-card.json", "");
             byte[] body = new ObjectMapper().writeValueAsBytes(card(cardName, endpoint));
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
