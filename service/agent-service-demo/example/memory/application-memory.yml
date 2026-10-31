@@ -7,6 +7,8 @@ server:
 # Provider-specific settings live under application-mem0.yml or application-jiuwen.yml.
 # This demo uses MemoryProvider.prefetch before each request and MemoryProvider.syncTurn after it.
 # ReActAgent memory tools still call MemoryStore.search/add/get/delete directly.
+# 两条写路径互斥：本轮 memory_add 已成功写入时，syncTurn 跳过该轮，避免同一事实被二次
+# 抽取（多一次抽取/dedup 开销；且工具写单条事实、回写写整轮对话，文本不同会留下重复单元）。
 openjiuwen:
   service:
     middleware:

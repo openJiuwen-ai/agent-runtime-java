@@ -15,6 +15,7 @@ import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
 import com.openjiuwen.service.app.config.runbudget.RunBudgetWiring;
 import com.openjiuwen.service.demo.example.support.ExampleReActAgentFactory;
 import com.openjiuwen.service.demo.example.support.MemoryToolRegistrar;
+import com.openjiuwen.service.demo.example.support.MemoryTurnWriteRegistry;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -48,10 +49,21 @@ public class MemoryDemoApplication {
         SpringApplication.run(MemoryDemoApplication.class, args);
     }
 
+    /**
+     * Shares tool writes with the lifecycle handler so a turn is written through one path.
+     *
+     * @return registry recording tool writes per conversation
+     */
+    @Bean
+    MemoryTurnWriteRegistry memoryTurnWriteRegistry() {
+        return new MemoryTurnWriteRegistry();
+    }
+
     @Bean
     ReActAgent demoMemoryAgent(LlmConfigResolver llmConfigResolver,
         ObjectProvider<MemoryStore> memoryStoreProvider,
-        RunBudgetWiring runBudgetWiring) {
+        RunBudgetWiring runBudgetWiring,
+        MemoryTurnWriteRegistry turnWriteRegistry) {
         MemoryStore memoryStore = memoryStoreProvider.getIfAvailable();
         ResolvedLlmConfig resolvedLlmConfig = llmConfigResolver.resolveRequired();
         ResolvedLlmConfig agentLlmConfig = memoryStore == null
@@ -60,7 +72,7 @@ public class MemoryDemoApplication {
         ReActAgent agent = ExampleReActAgentFactory.build(AGENT_ID, "Demo Memory Agent",
             "ReAct agent with governed MemoryStore tools", agentLlmConfig, runBudgetWiring);
         if (memoryStore != null) {
-            MemoryToolRegistrar.register(agent, memoryStore, true);
+            MemoryToolRegistrar.register(agent, memoryStore, true, turnWriteRegistry);
         }
         return agent;
     }
@@ -69,7 +81,8 @@ public class MemoryDemoApplication {
     AgentHandler agentHandler(ReActAgent demoMemoryAgent,
         ObjectProvider<MemoryProvider> memoryProviderProvider,
         ObjectProvider<ExternalSvcAdapterRegistrar> externalSvcAdapterRegistrarProvider,
-        ObjectProvider<MiddlewareProperties> middlewarePropertiesProvider) {
+        ObjectProvider<MiddlewareProperties> middlewarePropertiesProvider,
+        MemoryTurnWriteRegistry turnWriteRegistry) {
         boolean shouldUseRequestScopedSession = middlewarePropertiesProvider
             .getIfAvailable(MiddlewareProperties::new)
             .getMemory()
@@ -79,7 +92,7 @@ public class MemoryDemoApplication {
             shouldUseRequestScopedSession);
         MemoryProvider memoryProvider = memoryProviderProvider.getIfAvailable();
         return memoryProvider instanceof MemoryStoreMemoryProvider runtimeMemoryProvider
-            ? new MemoryLifecycleAgentHandler(coreHandler, runtimeMemoryProvider)
+            ? new MemoryLifecycleAgentHandler(coreHandler, runtimeMemoryProvider, turnWriteRegistry)
             : coreHandler;
     }
 
