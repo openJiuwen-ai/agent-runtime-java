@@ -10,15 +10,20 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteAgentEntry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteInstanceCandidate;
+import com.openjiuwen.service.app.controller.a2a.A2aPartContent;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import org.a2aproject.sdk.spec.AgentCapabilities;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.AgentInterface;
+import org.a2aproject.sdk.spec.TaskArtifactUpdateEvent;
 import org.a2aproject.sdk.spec.TaskState;
+import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -97,6 +102,42 @@ class A2ARemoteAgentClientStreamingFailoverTest {
             assertThat(outcome.result()).isEqualTo("done");
             assertThat(outcome.remoteState()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
             assertThat(observed).containsExactly("/silent", "/sse-ok");
+        } finally {
+            client.shutdown();
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TaskState.class, names = {"TASK_STATE_COMPLETED", "TASK_STATE_INPUT_REQUIRED"})
+    void forwardsAllEventsAfterFirstEvent(TaskState endState) throws Exception {
+        startServer();
+        String endpoint = "/sequence/" + endState.name();
+        A2ARemoteAgentCardRegistry registry = registry("remote", 5, true, url(endpoint));
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry, 4, null, FIXED_FIRST);
+        List<TaskState> statuses = new CopyOnWriteArrayList<>();
+        List<TaskArtifactUpdateEvent> artifacts = new CopyOnWriteArrayList<>();
+        try {
+            RemoteCallOutcome outcome = client.callOutcome(streamingCall(), new RemoteAgentCaller.EventObserver() {
+                @Override
+                public void onStatus(TaskStatusUpdateEvent event) {
+                    statuses.add(event.status().state());
+                }
+
+                @Override
+                public void onArtifact(TaskArtifactUpdateEvent event) {
+                    artifacts.add(event);
+                }
+            }).get(10, TimeUnit.SECONDS);
+
+            assertThat(outcome.remoteState()).isEqualTo(endState);
+            assertThat(outcome.remoteTaskId()).isEqualTo("remote-task");
+            assertThat(statuses).containsExactly(TaskState.TASK_STATE_WORKING, endState);
+            assertThat(artifacts).hasSize(1);
+            assertThat(A2aPartContent.extract(artifacts.get(0).artifact().parts())).isEqualTo("done");
+            if (endState == TaskState.TASK_STATE_COMPLETED) {
+                assertThat(outcome.result()).isEqualTo("done");
+            }
+            assertThat(observed).containsExactly(endpoint);
         } finally {
             client.shutdown();
         }
@@ -196,6 +237,7 @@ class A2ARemoteAgentClientStreamingFailoverTest {
                 Executors.defaultThreadFactory());
         server.setExecutor(serverExecutor);
         server.createContext("/sse-ok", this::replyCompletedTask);
+        server.createContext("/sequence/", this::replyEventSequence);
         server.createContext("/silent", this::holdSilentStream);
         server.createContext("/late", this::replyLateWorkingEvent);
         server.createContext("/engaged", this::replyWorkingThenHold);
@@ -211,6 +253,26 @@ class A2ARemoteAgentClientStreamingFailoverTest {
             exchange.sendResponseHeaders(200, 0);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(SSE_TASK_COMPLETED);
+                out.flush();
+            }
+        }
+    }
+
+    private void replyEventSequence(HttpExchange exchange) throws IOException {
+        try (exchange) {
+            String path = exchange.getRequestURI().getPath();
+            observed.add(path);
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(SSE_TASK_WORKING);
+                out.write(sseEvent("{\"jsonrpc\":\"2.0\",\"id\":\"request\",\"result\":{\"artifactUpdate\":{"
+                        + "\"taskId\":\"remote-task\",\"contextId\":\"same\",\"artifact\":{\"artifactId\":\"answer\","
+                        + "\"parts\":[{\"text\":\"done\"}]}}}}"));
+                out.write(sseEvent("{\"jsonrpc\":\"2.0\",\"id\":\"request\",\"result\":{\"statusUpdate\":{"
+                        + "\"taskId\":\"remote-task\",\"contextId\":\"same\",\"status\":{\"state\":\""
+                        + path.substring(path.lastIndexOf('/') + 1) + "\"}}}}"));
                 out.flush();
             }
         }
