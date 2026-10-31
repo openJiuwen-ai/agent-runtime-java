@@ -405,7 +405,8 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
      * watchdog expiry: both sides transition the same CAS state, so exactly one
      * of them wins and the loser's effect is skipped. {@code disarm} covers the
      * remaining outcomes (real error, clean completion) that retire the
-     * watchdog without expiring it.
+     * watchdog without expiring it. Once the first event wins, subsequent
+     * events continue to pass through the gate.
      */
     private static final class FirstEventGate {
         private static final int WAITING = 0;
@@ -419,7 +420,7 @@ public class HeaderInjectingA2AHttpClient implements A2AHttpClient {
         private final AtomicInteger state = new AtomicInteger(WAITING);
 
         boolean pass() {
-            return state.compareAndSet(WAITING, PASSED);
+            return state.compareAndSet(WAITING, PASSED) || state.get() == PASSED;
         }
 
         boolean expire() {
