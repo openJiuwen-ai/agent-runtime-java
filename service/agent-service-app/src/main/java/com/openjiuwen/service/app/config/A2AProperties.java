@@ -237,16 +237,6 @@ public class A2AProperties {
     public static class RemoteAgentProperties {
         private String name;
 
-        /**
-         * The remote agent's card base URL: the well-known agent card is
-         * fetched from this address plus {@code /.well-known/agent-card.json},
-         * and the JSON-RPC routing endpoint is derived from the same address
-         * by completing the JSON-RPC mount path — a bare root address gains
-         * the default {@code /a2a} mount, a path-prefixed base keeps its
-         * prefix. An address that already carries the JSON-RPC mount path
-         * (e.g. a hosted agent path) is kept verbatim when the fetched card
-         * declares the same address.
-         */
         private String url;
 
         private int timeoutSeconds = 300;

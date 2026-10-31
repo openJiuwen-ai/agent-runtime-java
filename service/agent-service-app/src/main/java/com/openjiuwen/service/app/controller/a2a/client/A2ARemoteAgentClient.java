@@ -54,7 +54,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.ConnectException;
+import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.net.http.HttpTimeoutException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -981,7 +983,8 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 return httpError.getCode() >= 500;
             }
             if (cause instanceof ConnectException || cause instanceof HttpTimeoutException
-                    || cause instanceof SocketTimeoutException) {
+                    || cause instanceof SocketTimeoutException || cause instanceof UnknownHostException
+                    || cause instanceof NoRouteToHostException) {
                 return true;
             }
         }
