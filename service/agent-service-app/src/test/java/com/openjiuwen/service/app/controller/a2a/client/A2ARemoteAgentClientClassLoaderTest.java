@@ -130,7 +130,10 @@ class A2ARemoteAgentClientClassLoaderTest {
             var outcome = remoteClient.callOutcome(remoteCall("timeout-agent"),
                     mock(RemoteAgentCaller.EventObserver.class));
 
-            assertThatThrownBy(() -> outcome.get(2, TimeUnit.SECONDS)).hasCauseInstanceOf(TimeoutException.class);
+            // FEAT-062 P11: the single-attempt timeout no longer bounds the call;
+            // the total budget (attempts x candidates x attempt timeout + backoff
+            // slack) completes the future exceptionally while the SDK send blocks
+            assertThatThrownBy(() -> outcome.get(15, TimeUnit.SECONDS)).hasCauseInstanceOf(TimeoutException.class);
         } finally {
             release.countDown();
             remoteClient.shutdown();
@@ -401,19 +404,26 @@ class A2ARemoteAgentClientClassLoaderTest {
 
     @Test
     void onlyTransientTransportFailuresAreRetryable() {
-        // 可重试：连接失败（A2AClientException）、远端 5xx
-        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
-                new A2AClientException("connection refused", new java.net.ConnectException("connection refused"))))
-                .isTrue();
+        // 可重试：连接失败（A2AClientException 且 cause 链携带传输层故障）、远端 5xx（裸抛或包装）
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("send failed",
+                new java.net.ConnectException("connection refused")))).isTrue();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
                 new org.a2aproject.sdk.spec.A2AClientHTTPError(503, "unavailable", "body"))).isTrue();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("send failed",
+                new org.a2aproject.sdk.spec.A2AClientHTTPError(503, "unavailable", "body")))).isTrue();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
                 new org.a2aproject.sdk.spec.A2AClientHTTPError(500, "internal", "body"))).isTrue();
-        // 不可重试：远端 4xx、参数错误、JSON 协议错误、服务端业务失败、未分类异常
+        // 不可重试：远端 4xx（含包装形态）、参数错误、JSON 协议错误、服务端业务失败、未分类异常
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("send failed",
+                new org.a2aproject.sdk.spec.A2AClientHTTPError(400, "bad request", "body")))).isFalse();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("send failed",
+                new org.a2aproject.sdk.spec.A2AClientHTTPError(404, "not found", "body")))).isFalse();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
                 new org.a2aproject.sdk.spec.A2AClientHTTPError(404, "not found", "body"))).isFalse();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
                 new org.a2aproject.sdk.spec.A2AClientHTTPError(400, "bad request", "body"))).isFalse();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("connection refused")))
+                .isFalse();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
                 new org.a2aproject.sdk.spec.A2AClientInvalidArgsError("bad args"))).isFalse();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(

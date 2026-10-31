@@ -67,11 +67,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -92,7 +94,12 @@ import java.util.function.Supplier;
  *
  * <p>Structured failure handling: transport errors, timeouts, and premature
  * stream close complete the returned future exceptionally; the coordinator
- * translates them into per-member batch failures.
+ * translates them into per-member batch failures. Before the first remote
+ * event, a silent stream is aborted by the transport-level first-event
+ * watchdog and retryable transport faults rotate to the next candidate inside
+ * a bounded total budget; after the first event the invocation stays on the
+ * engaged instance and late events of abandoned attempts are dropped
+ * (FEAT-062 P11).
  *
  * @since 0.1.0
  */
@@ -107,6 +114,13 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     private static final int DEFAULT_IO_CONCURRENCY = 16;
     private static final int MAX_RETRY_ATTEMPTS = 3;
     private static final long CANCEL_POLL_INTERVAL_NANOS = 50_000_000L;
+
+    /**
+     * Extra wait on top of the attempt timeout in {@code awaitFirstEvent}: the
+     * transport-level first-event watchdog is expected to fire first, so the
+     * client-side wait is only a backstop for a lost watchdog signal.
+     */
+    private static final long FIRST_EVENT_BACKSTOP_MARGIN_MILLIS = 1_000L;
 
     private final A2ARemoteAgentCardRegistry registry;
 
@@ -491,8 +505,10 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      * @return the HTTP client to back the JSON-RPC transport
      */
     A2AHttpClient createHttpClient(RemoteAgentEntry entry, String targetEndpoint) {
+        long firstEventTimeoutMillis = TimeUnit.SECONDS.toMillis(Math.max(1, entry.timeoutSeconds()));
         if (securitySupport == null) {
-            return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create(), outboundHeaders);
+            return new HeaderInjectingA2AHttpClient(A2AHttpClientFactory.create(), outboundHeaders,
+                    firstEventTimeoutMillis);
         }
         ExternalTargetRef target = new ExternalTargetRef("A2A", entry.name(), targetEndpoint, 11);
         ExternalOutboundSecuritySupport.PreparedOutboundSecurity prepared = securitySupport.prepare(target, entry.tls(),
@@ -506,7 +522,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         if (prepared.authMaterial() != null) {
             headers.putAll(prepared.authMaterial().headers());
         }
-        return new HeaderInjectingA2AHttpClient(base, headers);
+        return new HeaderInjectingA2AHttpClient(base, headers, firstEventTimeoutMillis);
     }
 
     /**
@@ -611,7 +627,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
                 isStreaming, call.taskId() != null ? call.taskId() : "new", setup.contextId,
                 call.message() != null ? call.message().length() : 0, entry.candidates().size());
         CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
-        result.orTimeout(setup.entry.timeoutSeconds(), TimeUnit.SECONDS);
+        result.orTimeout(remoteCallBudgetSeconds(setup.entry()), TimeUnit.SECONDS);
         createPrimaryClient(catalog, call, setup, isStreaming);
         AtomicBoolean firstEventSeen = new AtomicBoolean();
         BiConsumer<ClientEvent, AgentCard> eventConsumer = (event, ignoredCard) -> {
@@ -711,11 +727,19 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         }
     }
 
+    /** First-event synchronization state of one send attempt, shared by its callbacks and wait. */
+    private record AttemptSync(CompletableFuture<Void> firstOrFailure, AtomicBoolean failureSeen,
+            AtomicBoolean attemptActive) {
+    }
+
     /**
-     * Sends once to one candidate. Returns the retryable failure to move on to
-     * the next candidate, or empty when the invocation is settled (completed
-     * through events, failed terminally, or aborted after the first-event lock
-     * — the result future is completed inside in those cases).
+     * Sends once to one candidate and waits for its first event or failure
+     * before deciding: the wait lets a silent candidate be abandoned and the
+     * next one tried inside the same invocation (FEAT-062 P11), while the
+     * transport-level first-event watchdog supplies the abort signal for a
+     * stream that never produces anything. Events of an abandoned attempt are
+     * dropped by the per-attempt consumer, so a stale stream can neither
+     * engage the result nor influence later attempts.
      *
      * @param ctx the invocation coordinates
      * @param candidate the instance candidate to send to
@@ -724,21 +748,134 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
      */
     private Optional<RuntimeException> tryCandidate(InvocationContext ctx, RemoteInstanceCandidate candidate,
             boolean isStreaming) {
+        AttemptSync sync = new AttemptSync(new CompletableFuture<>(), new AtomicBoolean(),
+                new AtomicBoolean(true));
+        BiConsumer<ClientEvent, AgentCard> attemptConsumer = (event, card) -> {
+            if (!sync.attemptActive().get()) {
+                log.debug("A2A abandoned attempt event dropped agent={} instance={} taskId={} contextId={}",
+                        ctx.call().agentName(), candidate.instanceId(), taskIdOf(ctx.call()),
+                        ctx.setup().contextId());
+                return;
+            }
+            sync.firstOrFailure().complete(null);
+            ctx.eventConsumer().accept(event, card);
+        };
         try {
             Client client = clientFor(ctx, candidate, isStreaming);
             withApplicationClassLoader(() -> {
-                client.sendMessage(ctx.setup().params(), List.of(ctx.eventConsumer()),
-                        error -> completeOutcomeOnStreamEnd(ctx.call().agentName(), ctx.result(), error), null);
+                client.sendMessage(ctx.setup().params(), List.of(attemptConsumer),
+                        error -> handleStreamFailure(ctx, candidate, sync, error), null);
                 return null;
             });
-            return Optional.empty();
+            return awaitFirstEvent(ctx, candidate, sync, isStreaming);
         } catch (Error error) {
+            sync.attemptActive().set(false);
             logRemoteError("call", ctx.call(), isStreaming, ctx.setup().contextId(), error);
             ctx.result().completeExceptionally(error);
             throw error;
         } catch (RuntimeException ex) {
+            sync.attemptActive().set(false);
             return classifyFailure(ctx, candidate, ex, isStreaming);
         }
+    }
+
+    /**
+     * Waits for the attempt's first event or first failure. A timeout is the
+     * defensive backstop for a watchdog that failed to deliver its synthesized
+     * fault; a failure completion carries the normalized stream failure into
+     * the shared classification path.
+     *
+     * @param ctx the invocation coordinates
+     * @param candidate the instance candidate the attempt targets
+     * @param sync the per-attempt first-event synchronization state
+     * @param isStreaming whether the invocation runs in streaming mode
+     * @return the retryable failure, or empty when settled
+     */
+    private Optional<RuntimeException> awaitFirstEvent(InvocationContext ctx, RemoteInstanceCandidate candidate,
+            AttemptSync sync, boolean isStreaming) {
+        long firstEventWaitMillis = TimeUnit.SECONDS.toMillis(Math.max(1, ctx.setup().entry().timeoutSeconds()))
+                + FIRST_EVENT_BACKSTOP_MARGIN_MILLIS;
+        try {
+            sync.firstOrFailure().get(firstEventWaitMillis, TimeUnit.MILLISECONDS);
+            return Optional.empty();
+        } catch (TimeoutException timeout) {
+            sync.attemptActive().set(false);
+            if (!sync.failureSeen().compareAndSet(false, true)) {
+                return Optional.empty();
+            }
+            return classifyFailure(ctx, candidate, firstEventBackstopFailure(ctx), isStreaming);
+        } catch (ExecutionException execution) {
+            sync.attemptActive().set(false);
+            RuntimeException failure = execution.getCause() instanceof RuntimeException runtimeFailure
+                    ? runtimeFailure
+                    : new IllegalStateException("Remote attempt failed without a runtime failure cause", execution);
+            return classifyFailure(ctx, candidate, failure, isStreaming);
+        } catch (InterruptedException stopped) {
+            sync.attemptActive().set(false);
+            log.debug("A2A first-event wait interrupted agent={} instance={} taskId={} contextId={}",
+                    ctx.call().agentName(), candidate.instanceId(), taskIdOf(ctx.call()), ctx.setup().contextId());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Handles one stream error callback of one attempt: the first failure wins
+     * the race against the watchdog's synthesized fault and cancellation
+     * cascades, failures before the first event wake the waiting send for
+     * classification, and failures after the first event keep the existing
+     * engaged-instance semantics (the result completes exceptionally without a
+     * re-send).
+     *
+     * @param ctx the invocation coordinates
+     * @param candidate the instance candidate the attempt targets
+     * @param sync the per-attempt first-event synchronization state
+     * @param error the stream error, or {@code null} on premature stream close
+     */
+    private void handleStreamFailure(InvocationContext ctx, RemoteInstanceCandidate candidate, AttemptSync sync,
+            Throwable error) {
+        if (!sync.failureSeen().compareAndSet(false, true)) {
+            return;
+        }
+        RuntimeException failure = normalizeStreamFailure(ctx.call().agentName(), error);
+        if (sync.firstOrFailure().completeExceptionally(failure)) {
+            return;
+        }
+        completeOutcomeOnStreamEnd(ctx.call().agentName(), ctx.result(), failure);
+    }
+
+    private static RuntimeException normalizeStreamFailure(String agentName, Throwable error) {
+        if (error == null) {
+            return new IllegalStateException(
+                    "Remote agent '" + agentName + "' closed the stream before a terminal event");
+        }
+        if (error instanceof RuntimeException runtimeFailure) {
+            return runtimeFailure;
+        }
+        return new A2AClientException("Stream failure from remote agent '" + agentName + "'", error);
+    }
+
+    private RuntimeException firstEventBackstopFailure(InvocationContext ctx) {
+        String message = "Remote agent '" + ctx.call().agentName() + "' sent no first event within "
+                + ctx.setup().entry().timeoutSeconds() + "s";
+        return new A2AClientException(message, new SocketTimeoutException(message));
+    }
+
+    /**
+     * Computes the total wall-clock budget for one remote call: every candidate
+     * gets up to one send per round with the configured attempt timeout, and
+     * the exponential backoffs between rounds (base, 2x, 4x) are covered by
+     * their exact sum as slack (FEAT-062 P11 §8: the total budget must not
+     * equal the single-attempt timeout).
+     *
+     * @param entry the registered remote agent entry
+     * @return the total budget in seconds
+     */
+    private long remoteCallBudgetSeconds(RemoteAgentEntry entry) {
+        int candidateCount = Math.max(1, entry.candidates().size());
+        long attemptSeconds = Math.max(1, entry.timeoutSeconds());
+        long backoffSlackMillis = ((1L << MAX_RETRY_ATTEMPTS) - 1) * retryBackoffBaseMillis;
+        return (MAX_RETRY_ATTEMPTS + 1) * candidateCount * attemptSeconds
+                + TimeUnit.MILLISECONDS.toSeconds(backoffSlackMillis) + 1;
     }
 
     private Optional<RuntimeException> classifyFailure(InvocationContext ctx, RemoteInstanceCandidate candidate,
@@ -806,19 +943,25 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
     /**
      * Classifies an {@code sendMessage} failure as transient (retryable) or permanent.
      *
-     * <p>HTTP 5xx responses and client exceptions with recognized connection or timeout
-     * causes are retried. A timeout or 5xx response does not guarantee that the remote
-     * did not process the request, so retrying may repeat work.</p>
+     * <p>Only transport-level failures that guarantee the request was not accepted by
+     * the remote are retried: remote 5xx responses ({@code A2AClientHTTPError} with
+     * status {@code >= 500}, bare or wrapped) and connection faults
+     * ({@code A2AClientException} whose cause chain carries a {@link ConnectException},
+     * {@link HttpTimeoutException}, or {@link SocketTimeoutException} — how the JSON-RPC
+     * transport surfaces an I/O failure).</p>
      *
      * <p>Permanent failures fail fast: remote 4xx rejections, client argument errors,
-     * JSON protocol errors, and server-side business failures
-     * ({@link A2AServerException}) — the latter because the remote already accepted
-     * and processed the request, so a re-send could duplicate the task. Unclassified
+     * JSON protocol errors, JSON-RPC error envelopes (the remote accepted and
+     * processed the send, so a re-send could duplicate the task), and server-side
+     * business failures ({@link A2AServerException}). Unclassified
      * runtime failures are treated as permanent (conservative: no side-effect risk).</p>
      *
-     * <p>Failures surfacing after the send returned (stream event callbacks) never
-     * enter this path; they complete the result exceptionally without a re-send,
-     * so partial-event duplication cannot occur.</p>
+     * <p>Failures surfacing after the send returned enter this path only while
+     * the attempt still waits for its first event (stream error callback or
+     * watchdog fault): they classify exactly like send-time failures. Once the
+     * attempt has seen a remote event, failures keep the engaged-instance
+     * semantics — the result completes exceptionally without a re-send, so
+     * partial-event duplication cannot occur.</p>
      *
      * @param failure the synchronous {@code sendMessage} failure
      * @return {@code true} when the failure is transient and the send may be retried
@@ -827,17 +970,20 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         if (failure instanceof A2AClientHTTPError httpError) {
             return httpError.getCode() >= 500;
         }
-        if (!(failure instanceof A2AClientException)) {
-            return false;
-        }
-        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+        // The JSON-RPC transport wraps I/O faults, HTTP status errors, and remote
+        // JSON-RPC error envelopes alike in A2AClientException; the cause chain
+        // tells them apart.
+        return failure instanceof A2AClientException && hasTransportFaultCause(failure);
+    }
+
+    private static boolean hasTransportFaultCause(Throwable failure) {
+        for (Throwable cause = failure.getCause(); cause != null; cause = cause.getCause()) {
             if (cause instanceof A2AClientHTTPError httpError) {
+                // the remote HTTP layer answered: its status decides
                 return httpError.getCode() >= 500;
             }
-            if (cause instanceof ConnectException
-                    || cause instanceof HttpTimeoutException
-                    || cause instanceof SocketTimeoutException
-                    || cause instanceof UnknownHostException
+            if (cause instanceof ConnectException || cause instanceof HttpTimeoutException
+                    || cause instanceof SocketTimeoutException || cause instanceof UnknownHostException
                     || cause instanceof NoRouteToHostException) {
                 return true;
             }
@@ -906,7 +1052,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             RemoteAgentCaller.EventObserver eventObserver, boolean isCallbackMode, boolean isStreaming) {
         if (event instanceof TaskUpdateEvent tue) {
             if (tue.getUpdateEvent() instanceof TaskArtifactUpdateEvent aue) {
-                if (!result.isDone()) {
+                if (!result.isDone() && eventObserver != null) {
                     eventObserver.onArtifact(aue);
                 }
             } else if (tue.getUpdateEvent() instanceof TaskStatusUpdateEvent sue) {
@@ -941,7 +1087,9 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
             return;
         }
         TaskState state = event.status().state();
-        eventObserver.onStatus(event);
+        if (eventObserver != null) {
+            eventObserver.onStatus(event);
+        }
         String statusText = event.status().message() != null ? extractText(event.status().message().parts()) : "";
         completeTaskOutcome(new TaskOutcome(event.taskId(), state, statusText, task,
                 remoteFailure(event.status().message()).orElse(null)), result, isCallbackMode);
@@ -954,7 +1102,7 @@ public class A2ARemoteAgentClient implements RemoteAgentCaller {
         }
         Task task = event.getTask();
         TaskState state = task.status().state();
-        if (isStreaming) {
+        if (isStreaming && eventObserver != null) {
             eventObserver.onStatus(new TaskStatusUpdateEvent(task.id(), task.status(), task.contextId(), Map.of()));
         }
         String statusText = task.status().message() != null ? extractText(task.status().message().parts()) : "";

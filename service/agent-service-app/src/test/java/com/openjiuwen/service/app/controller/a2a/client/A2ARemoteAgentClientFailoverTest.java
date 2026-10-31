@@ -31,6 +31,8 @@ import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.net.NoRouteToHostException;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -120,30 +122,20 @@ class A2ARemoteAgentClientFailoverTest {
     }
 
     @Test
-    void jsonRpcErrorEnvelopeDoesNotRotate() throws Exception {
+    void jsonRpcErrorEnvelopeIsPermanentAndDoesNotRotate() throws Exception {
         startServer();
         A2ARemoteAgentCardRegistry registry = registry("remote", 20, url("/error"), url("/ok"));
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry, 4, null, FIXED_FIRST);
         try {
-            assertThatThrownBy(() -> client
-                    .callOutcome(new RemoteCall("remote", "hello", "same", null, Map.of()), null)
-                    .get(15, TimeUnit.SECONDS)).isInstanceOf(ExecutionException.class);
-            assertThat(observed).containsExactly("/error");
-        } finally {
-            client.shutdown();
-        }
-    }
+            CompletableFuture<RemoteCallOutcome> result = client.callOutcome(
+                    new RemoteCall("remote", "hello", "same", null, Map.of()), null);
 
-    @Test
-    void invalidProtocolResponseDoesNotRotate() throws Exception {
-        startServer();
-        A2ARemoteAgentCardRegistry registry = registry("remote", 20, url("/invalid"), url("/ok"));
-        A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry, 4, null, FIXED_FIRST);
-        try {
-            assertThatThrownBy(() -> client
-                    .callOutcome(new RemoteCall("remote", "hello", "same", null, Map.of()), null)
-                    .get(15, TimeUnit.SECONDS)).isInstanceOf(ExecutionException.class);
-            assertThat(observed).containsExactly("/invalid");
+            // the remote answered the send with a JSON-RPC error envelope: the
+            // request was accepted and processed, so a re-send could duplicate
+            // side effects — the failure is terminal and never rotates
+            Throwable thrown = catchThrowable(() -> result.get(15, TimeUnit.SECONDS));
+            assertThat(thrown).isInstanceOf(ExecutionException.class);
+            assertThat(observed).containsExactly("/error");
         } finally {
             client.shutdown();
         }
@@ -216,26 +208,29 @@ class A2ARemoteAgentClientFailoverTest {
     }
 
     @Test
-    void recognizedTransportFailuresAreRetryable() {
+    void onlyGuaranteedNotAcceptedTransportFailuresAreRetryable() {
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientHTTPError(500, "boom",
                 (Object) null))).isTrue();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientHTTPError(503, "boom",
                 (Object) null))).isTrue();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientHTTPError(400, "bad",
                 (Object) null))).isFalse();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("send failed",
+                new IOException("post", new ConnectException("refused"))))).isTrue();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("send failed",
+                new HttpTimeoutException("request timed out")))).isTrue();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("send failed",
+                new SocketTimeoutException("read timed out")))).isTrue();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException(
-                new A2AClientHTTPError(503, "unavailable", (Object) null)))).isTrue();
+                new UnknownHostException("missing")))).isTrue();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException(
-                new A2AClientHTTPError(400, "bad", (Object) null)))).isFalse();
-        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
-                new A2AClientException("connection refused", new ConnectException("connection refused"))))
-                .isTrue();
-        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
-                new A2AClientException(new HttpTimeoutException("timed out")))).isTrue();
-        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(
-                new A2AClientException(new SocketTimeoutException("timed out")))).isTrue();
-        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("invalid JSON")))
+                new NoRouteToHostException("unreachable")))).isTrue();
+        // a JSON-RPC error envelope also surfaces as A2AClientException, but it
+        // carries no transport fault: the remote processed the send, so no retry
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("connection refused")))
                 .isFalse();
+        assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AClientException("send failed",
+                new IllegalStateException("unclassified cause")))).isFalse();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new A2AServerException("server side"))).isFalse();
         assertThat(A2ARemoteAgentClient.isRetryableTransportFailure(new IllegalStateException("unclassified")))
                 .isFalse();
