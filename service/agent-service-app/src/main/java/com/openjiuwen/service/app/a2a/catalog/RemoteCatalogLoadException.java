@@ -9,10 +9,9 @@ package com.openjiuwen.service.app.a2a.catalog;
  *
  * <p>{@link RemoteCatalogSource} implementations must translate every expected
  * load failure (network, protocol, deserialization, backend unavailability)
- * into this exception. At the refresher boundary any runtime exception escaping
- * {@code load()} is treated as degradation too — the previous catalog is kept
- * and the next cycle retries — because the pull runs as a scheduled callback
- * and an escaping exception would silently terminate the TTL loop.</p>
+ * into this exception; the refresher treats it as degradation, keeps the
+ * previous catalog, and retries on the next cycle. Any other runtime exception
+ * escaping {@code load()} is an implementation bug and surfaces fail-fast.</p>
  *
  * @since 0.1.4
  */
