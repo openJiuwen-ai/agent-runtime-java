@@ -7,6 +7,7 @@ package com.openjiuwen.service.demo.example.memory;
 import com.openjiuwen.core.memory.external.MemoryProvider;
 import com.openjiuwen.service.adapters.agentcore.memory.MemoryStoreMemoryProvider;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterException;
+import com.openjiuwen.service.demo.example.support.MemoryTurnWriteRegistry;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
@@ -47,17 +48,33 @@ final class MemoryLifecycleAgentHandler implements AgentHandler {
 
     private final MemoryStoreMemoryProvider memoryProvider;
 
+    private final MemoryTurnWriteRegistry turnWriteRegistry;
+
     private final AtomicBoolean initialized = new AtomicBoolean(false);
 
     MemoryLifecycleAgentHandler(AgentHandler delegate, MemoryStoreMemoryProvider memoryProvider) {
+        this(delegate, memoryProvider, null);
+    }
+
+    /**
+     * Creates the lifecycle bridge with a shared tool-write registry.
+     *
+     * @param delegate the handler that executes the turn
+     * @param memoryProvider lifecycle memory provider
+     * @param turnWriteRegistry registry recording tool writes, null disables turn-write suppression
+     */
+    MemoryLifecycleAgentHandler(AgentHandler delegate, MemoryStoreMemoryProvider memoryProvider,
+        MemoryTurnWriteRegistry turnWriteRegistry) {
         this.delegate = delegate;
         this.memoryProvider = memoryProvider;
+        this.turnWriteRegistry = turnWriteRegistry;
     }
 
     @Override
     public QueryResponse query(ServeRequest request) {
         String originalUserQuery = request != null ? request.lastUserQuery() : "";
         Map<String, Object> scope = memoryScope(request);
+        discardStaleToolWrite(scope);
         ServeRequest effectiveRequest = withPrefetchedMemory(request, originalUserQuery, scope);
         QueryResponse response = delegate.query(effectiveRequest);
         syncTurn(originalUserQuery, assistantText(response), scope);
@@ -68,6 +85,7 @@ final class MemoryLifecycleAgentHandler implements AgentHandler {
     public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
         String originalUserQuery = request != null ? request.lastUserQuery() : "";
         Map<String, Object> scope = memoryScope(request);
+        discardStaleToolWrite(scope);
         ServeRequest effectiveRequest = withPrefetchedMemory(request, originalUserQuery, scope);
         StringBuilder assistant = new StringBuilder();
         delegate.streamQuery(effectiveRequest, new QueryStreamObserver() {
@@ -136,10 +154,17 @@ final class MemoryLifecycleAgentHandler implements AgentHandler {
     }
 
     private void syncTurn(String userQuery, String assistantText, Map<String, Object> scope) {
+        // 先消费登记再判早退：早退（provider 不可用/文本为空/委托抛异常）不会把登记留给下一轮。
+        Optional<String> toolWrite = consumeToolWrite(scope);
         if (memoryProvider == null || !memoryProvider.isAvailable()) {
             return;
         }
         if ((userQuery == null || userQuery.isBlank()) && (assistantText == null || assistantText.isBlank())) {
+            return;
+        }
+        if (toolWrite.isPresent()) {
+            log.info("Memory turn write skipped: the memory tool already stored this turn's fact, "
+                + "conversation_id={}", toolWrite.get());
             return;
         }
         try {
@@ -149,6 +174,43 @@ final class MemoryLifecycleAgentHandler implements AgentHandler {
                  | UnsupportedOperationException ex) {
             log.warn("Memory syncTurn failed and will be skipped: {}", ex.getMessage());
         }
+    }
+
+    /**
+     * Drops any tool-write announcement left over from an earlier turn of this conversation.
+     *
+     * <p>A turn that ends abnormally (delegate throws, provider unavailable, both texts blank)
+     * never consumes its announcement; without this reset the next ordinary turn would consume it
+     * and silently skip its own writeback.
+     *
+     * @param scope the incoming turn's memory scope
+     */
+    private void discardStaleToolWrite(Map<String, Object> scope) {
+        consumeToolWrite(scope);
+    }
+
+    /**
+     * Consumes the tool-write announcement for this turn.
+     *
+     * <p>Writing the turn as well would extract the same fact a second time (another
+     * extraction/dedup round, and a duplicate unit when the texts differ), so the turn writeback
+     * is skipped when the tool handled the write.
+     *
+     * @param scope the turn's memory scope
+     * @return the conversation id when the tool wrote during this turn
+     */
+    private Optional<String> consumeToolWrite(Map<String, Object> scope) {
+        if (turnWriteRegistry == null || scope == null) {
+            return Optional.empty();
+        }
+        Object sessionId = scope.get("session_id");
+        if (sessionId == null || String.valueOf(sessionId).isBlank()) {
+            return Optional.empty();
+        }
+        String conversationId = String.valueOf(sessionId);
+        return turnWriteRegistry.consumeToolWrite(conversationId)
+            ? Optional.of(conversationId)
+            : Optional.empty();
     }
 
     private void initializeProvider(Map<String, Object> scope) {

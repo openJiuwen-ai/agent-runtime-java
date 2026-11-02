@@ -101,7 +101,7 @@ public final class MemoryToolRegistrar {
      * @return registered tool cards
      */
     public static List<ToolCard> register(ReActAgent agent, MemoryStore memoryStore) {
-        return register(agent, memoryStore, false);
+        return register(agent, memoryStore, false, null);
     }
 
     /**
@@ -115,6 +115,26 @@ public final class MemoryToolRegistrar {
      */
     public static List<ToolCard> register(ReActAgent agent, MemoryStore memoryStore,
         boolean shouldIncludeManagementTools) {
+        return register(agent, memoryStore, shouldIncludeManagementTools, null);
+    }
+
+    /**
+     * Registers memory tools and reports tool-driven writes to the turn registry.
+     *
+     * <p>When a registry is supplied, a successful {@code memory_add} is announced for the current
+     * conversation so the lifecycle writeback can skip that turn: the turn content would otherwise
+     * be extracted a second time, paying another extraction/dedup round and risking a duplicate
+     * unit because the tool wrote a single fact while the turn writes the whole dialogue.
+     *
+     * @param agent memory demo agent
+     * @param memoryStore governed runtime memory store
+     * @param shouldIncludeManagementTools when {@code true}, also register {@code memory_get} and
+     *        {@code memory_delete}
+     * @param turnWriteRegistry optional registry shared with the lifecycle handler, may be null
+     * @return registered tool cards
+     */
+    public static List<ToolCard> register(ReActAgent agent, MemoryStore memoryStore,
+        boolean shouldIncludeManagementTools, MemoryTurnWriteRegistry turnWriteRegistry) {
         if (agent == null) {
             throw new IllegalArgumentException("agent must not be null");
         }
@@ -123,17 +143,17 @@ public final class MemoryToolRegistrar {
         }
 
         List<ToolCard> cards = new ArrayList<>();
-        registerSchemaTool(agent, memoryStore, SEARCH_SCHEMA, cards);
-        registerSchemaTool(agent, memoryStore, ADD_SCHEMA, cards);
+        registerSchemaTool(agent, memoryStore, SEARCH_SCHEMA, cards, turnWriteRegistry);
+        registerSchemaTool(agent, memoryStore, ADD_SCHEMA, cards, turnWriteRegistry);
         if (shouldIncludeManagementTools) {
-            registerSchemaTool(agent, memoryStore, GET_SCHEMA, cards);
-            registerSchemaTool(agent, memoryStore, DELETE_SCHEMA, cards);
+            registerSchemaTool(agent, memoryStore, GET_SCHEMA, cards, turnWriteRegistry);
+            registerSchemaTool(agent, memoryStore, DELETE_SCHEMA, cards, turnWriteRegistry);
         }
         return cards;
     }
 
     private static void registerSchemaTool(ReActAgent agent, MemoryStore memoryStore, Map<String, Object> schema,
-        List<ToolCard> cards) {
+        List<ToolCard> cards, MemoryTurnWriteRegistry turnWriteRegistry) {
         String toolName = String.valueOf(schema.getOrDefault("name", ""));
         if (toolName.isBlank()) {
             return;
@@ -149,7 +169,7 @@ public final class MemoryToolRegistrar {
             .inputParams(parameters)
             .build();
         LocalFunction tool = new LocalFunction(card, (inputs, kwargs) ->
-            invokeTool(memoryStore, toolName, inputs, resolveScope(kwargs)));
+            invokeTool(memoryStore, toolName, inputs, resolveScope(kwargs), turnWriteRegistry));
         registerTool(agent, tool);
         cards.add(card);
     }
@@ -165,13 +185,13 @@ public final class MemoryToolRegistrar {
     }
 
     private static Object invokeTool(MemoryStore memoryStore, String toolName, Map<String, Object> inputs,
-        MemoryScope scope) {
+        MemoryScope scope, MemoryTurnWriteRegistry turnWriteRegistry) {
         try {
             if (TOOL_SEARCH.equals(toolName)) {
                 return invokeSearch(memoryStore, inputs, scope);
             }
             if (TOOL_ADD.equals(toolName)) {
-                return invokeAdd(memoryStore, inputs, scope);
+                return invokeAdd(memoryStore, inputs, scope, turnWriteRegistry);
             }
             if (TOOL_GET.equals(toolName)) {
                 return invokeGet(memoryStore, inputs, scope);
@@ -200,13 +220,33 @@ public final class MemoryToolRegistrar {
     }
 
     private static Map<String, Object> invokeAdd(MemoryStore memoryStore, Map<String, Object> inputs,
-        MemoryScope scope) {
+        MemoryScope scope, MemoryTurnWriteRegistry turnWriteRegistry) {
         String content = requiredString(inputs, "content");
         MemoryWriteResult result = memoryStore.add(new MemoryAddRequest(
             scope,
             List.of(new MemoryMessage("user", content)),
             addOptions()));
+        markToolWrite(turnWriteRegistry, scope, result);
         return Map.of("result", "Fact stored.", "count", result.records().size());
+    }
+
+    /**
+     * Announces a successful tool write so the lifecycle handler can skip the turn writeback.
+     *
+     * <p>Only a write that actually produced a unit counts: when the derive path extracts nothing
+     * from the fact, the turn is still the only place that can capture the dialogue, so the
+     * writeback must run.
+     *
+     * @param turnWriteRegistry registry shared with the lifecycle handler, may be null
+     * @param scope scope resolved for the tool call
+     * @param result write result returned by the store
+     */
+    private static void markToolWrite(MemoryTurnWriteRegistry turnWriteRegistry, MemoryScope scope,
+        MemoryWriteResult result) {
+        if (turnWriteRegistry == null || scope == null || result == null || result.records().isEmpty()) {
+            return;
+        }
+        turnWriteRegistry.markToolWrite(scope.sessionId());
     }
 
     /**
