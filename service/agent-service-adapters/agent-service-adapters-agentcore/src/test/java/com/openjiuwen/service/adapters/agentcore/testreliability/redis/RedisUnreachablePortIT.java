@@ -214,6 +214,8 @@ class RedisUnreachablePortIT {
             // Runner.stop() 在 Runner 未启动时抛出 IllegalStateException；
             // Runner 可能未启动或已停止，忽略状态异常
         }
+        // 重置 handler 侧 runner-started 标志，确保后续 start() 重新应用 registrar 配置
+        JiuwenCoreAgentHandler.resetRunnerStarted();
         RunnerConfig.getRunnerConfig().setCheckpointerConfig(null);
         RunnerConfig.setRunnerConfig(null);
         CheckpointerFactory.setDefaultCheckpointer(null);

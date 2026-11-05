@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.openjiuwen.core.common.security.JsonUtils;
 import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.extensions.checkpointer.redis.RedisCheckpointer;
+import com.openjiuwen.extensions.store.kv.RedisKVStoreProvider;
 import com.openjiuwen.harness.tools.KvTodoStorage;
 
 import redis.clients.jedis.Jedis;
@@ -76,7 +77,7 @@ class DeepAgentRedisTodoIT {
                                 + "'. Do not execute the task. Then reply with the saved task content.", false);
                 assertTrue(response.contains(marker), response);
                 assertTrue(observer.exists(session + ":todo"), "The model must persist a real Todo: " + response);
-                assertTrue(new KvTodoStorage(cp.getRedisStore()).load(session).stream()
+                assertTrue(new KvTodoStorage(RedisKVStoreProvider.adapt(cp.getRedisStore())).load(session).stream()
                         .anyMatch(todo -> marker.equals(todo.getContent())));
                 assertPersistedKeysAndTtl(observer, session);
 
@@ -96,8 +97,11 @@ class DeepAgentRedisTodoIT {
 
     private static String query(HttpClient client, int port, String session, String message, boolean isStreaming)
             throws Exception {
-        String body = JsonUtils.safeJsonDumps(Map.of("conversation_id", session,
-                "message", message, "stream", isStreaming), "{}");
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("conversation_id", session);
+        payload.put("message", message);
+        payload.put("stream", isStreaming);
+        String body = String.valueOf(JsonUtils.safeJsonDumps(payload, "{}"));
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/v1/query"))
                 .timeout(Duration.ofSeconds(120)).header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body)).build();

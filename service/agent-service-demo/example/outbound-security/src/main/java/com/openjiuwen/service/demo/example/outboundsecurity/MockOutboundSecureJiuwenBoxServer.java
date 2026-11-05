@@ -175,16 +175,35 @@ public class MockOutboundSecureJiuwenBoxServer {
             writeJson(exchange, 200, Map.of("id", SANDBOX_ID));
             return;
         }
-        if ("GET".equals(method) && sandboxPath("/download").equals(path)) {
+        String sandboxId = sandboxIdFrom(path);
+        if ("GET".equals(method) && sandboxId != null && path.endsWith("/download")) {
             String sandboxPath = query.getOrDefault("sandbox_path", "/tmp/demo.txt");
             writeBytes(exchange, 200, ("secure jiuwenbox file:" + sandboxPath).getBytes(StandardCharsets.UTF_8));
             return;
         }
-        if ("DELETE".equals(method) && sandboxPath("").equals(path)) {
+        if ("DELETE".equals(method) && sandboxId != null && path.equals("/api/v1/sandboxes/" + sandboxId)) {
             writeBytes(exchange, 204, new byte[0]);
             return;
         }
         writeJson(exchange, 404, Map.of("message", "sandbox route not found"));
+    }
+
+    /**
+     * Extracts the sandbox id from a {@code /api/v1/sandboxes/{id}[/...]} path, or {@code null}
+     * when the path does not start with the sandbox collection prefix.
+     *
+     * @param path the request path to extract the sandbox id from
+     * @return the sandbox id, or {@code null} when the path is not under the collection prefix
+     */
+    private static String sandboxIdFrom(String path) {
+        String prefix = "/api/v1/sandboxes/";
+        if (path == null || !path.startsWith(prefix)) {
+            return null;
+        }
+        String rest = path.substring(prefix.length());
+        int slash = rest.indexOf('/');
+        String id = slash >= 0 ? rest.substring(0, slash) : rest;
+        return id.isBlank() ? null : id;
     }
 
     private boolean authorize(HttpExchange exchange) {
@@ -193,10 +212,6 @@ public class MockOutboundSecureJiuwenBoxServer {
         }
         String authorization = exchange.getRequestHeaders().getFirst("Authorization");
         return ("Bearer " + bearerToken).equals(authorization);
-    }
-
-    private String sandboxPath(String suffix) {
-        return "/api/v1/sandboxes/" + SANDBOX_ID + suffix;
     }
 
     private static Map<String, String> queryParameters(URI uri) {

@@ -5,7 +5,7 @@
 package com.openjiuwen.service.demo.example.support;
 
 import com.openjiuwen.core.foundation.llm.Model;
-import com.openjiuwen.core.foundation.llm.model_clients.DefaultModelClientFactories;
+import com.openjiuwen.core.foundation.llm.modelclients.DefaultModelClientFactories;
 import com.openjiuwen.core.foundation.llm.schema.ModelClientConfig;
 import com.openjiuwen.core.foundation.llm.schema.ModelRequestConfig;
 import com.openjiuwen.core.singleagent.schema.AgentCard;
@@ -16,7 +16,6 @@ import com.openjiuwen.harness.workspace.Workspace;
 import com.openjiuwen.service.app.config.llm.ResolvedLlmConfig;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Builds a {@link DeepAgent} from reusable service LLM configuration.
@@ -117,19 +116,23 @@ public final class ExampleDeepAgentFactory {
             .addGeneralPurposeAgent(false)
             .build();
         AgentCard card = AgentCard.builder().id(agentId).name(name).description(description).build();
-        Workspace workspace = Workspace.builder().rootPath(workspacePath).language(LANGUAGE).links(Map.of()).build();
+        Workspace workspace = Workspace.builder().rootPath(workspacePath).language(LANGUAGE).build();
         return HarnessFactory.createDeepAgent(card, agentConfig, workspace);
     }
 
     private static Model buildModel(ResolvedLlmConfig config) {
         DefaultModelClientFactories.ensureRegistered();
-        ModelClientConfig clientConfig = ModelClientConfig.builder()
+        ModelClientConfig.ModelClientConfigBuilder clientBuilder = ModelClientConfig.builder()
             .clientProvider(config.getProvider())
             .apiKey(config.getApiKey())
             .apiBase(config.getApiBase())
-            .timeout(config.getTimeout().toMillis() / 1000.0D)
-            .verifySsl(config.isSslVerify())
-            .build();
+            .connectTimeoutSeconds(config.getConnectTimeout().toMillis() / 1000.0D)
+            .streamIdleSeconds(config.getStreamIdleSeconds().toMillis() / 1000.0D)
+            .verifySsl(config.isSslVerify());
+        if (config.isTimeoutExplicit()) {
+            clientBuilder.timeout(config.getTimeout().toMillis() / 1000.0D);
+        }
+        ModelClientConfig clientConfig = clientBuilder.build();
         ModelRequestConfig requestConfig = ModelRequestConfig.builder()
             .modelName(config.getModelName())
             .temperature(config.getTemperature())

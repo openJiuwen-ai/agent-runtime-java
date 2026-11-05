@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.core.foundation.llm.Model;
-import com.openjiuwen.core.foundation.llm.model_clients.BaseModelClient;
+import com.openjiuwen.core.foundation.llm.modelclients.BaseModelClient;
 import com.openjiuwen.core.foundation.llm.output_parsers.BaseOutputParser;
 import com.openjiuwen.core.foundation.llm.schema.AssistantMessage;
 import com.openjiuwen.core.foundation.llm.schema.AssistantMessageChunk;
@@ -22,7 +22,6 @@ import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +58,12 @@ class DemoAgentLlmApplicationTest {
 
     private static final List<List<Map<String, Object>>> MODEL_MESSAGES = new CopyOnWriteArrayList<>();
 
+    static {
+        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
+            Model.registerFactory(new MemoryModelFactory());
+        }
+    }
+
     @Autowired
     private TestRestTemplate rest;
 
@@ -74,13 +79,6 @@ class DemoAgentLlmApplicationTest {
         registry.add("openjiuwen.service.llm.api-base", () -> "mirror://demo-core-memory");
         registry.add("openjiuwen.service.llm.model-name", () -> "test-model");
         registry.add("openjiuwen.service.llm.auto-discover", () -> "false");
-    }
-
-    @BeforeAll
-    static void registerModelFactory() {
-        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
-            Model.registerFactory(new MemoryModelFactory());
-        }
     }
 
     @AfterAll

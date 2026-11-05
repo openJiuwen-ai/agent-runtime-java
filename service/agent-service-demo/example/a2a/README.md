@@ -49,7 +49,23 @@ PowerShell：
 | `A -> B -> D` 流式审批与恢复 | `SendStreamingMessage` | `agentd-streaming` |
 | `A -> B -> D` 非流式审批与恢复 | `SendMessage` | `agentd-nonstreaming` |
 
-每个中断场景都使用原始 `contextId` 和 `taskId` 恢复任务。Agent C 的最终结果包含 `Kung Pao chicken`；Agent D 的最终结果包含费用单号和 `llm_report`。失败时脚本会输出并保留日志目录。
+每个中断场景都使用原始 `contextId` 和 `taskId` 恢复任务。Agent C 的最终结果包含 `Kung Pao chicken`；Agent D 的最终结果包含费用单号和 `llm_report`。失败时脚本会输出并保留日志目录；成功时可用 Bash 环境变量 `A2A_KEEP_EVIDENCE=1` 或 PowerShell 参数 `-KeepEvidence` 保留本轮证据。日志和响应可能包含业务输入及模型输出，应仅保存在本地。
+
+烟测不仅检查父任务完成，还拒绝 `REMOTE_UNAVAILABLE` 等远端错误，检查终态业务内容中的费用单号、审批结论、总额与限额。流式场景另外要求来自 `agentd-streaming` 的结构化结果包含正确的 `claim_id`、`manual_decision=approved`、`policy_status=OVER_LIMIT` 和非空 `llm_report`，防止下游失败被 A/B 的文字总结掩盖。
+
+断言逻辑可离线回归（安装 `pwsh` 时同时检查 PowerShell 实现）：
+
+```bash
+python3 service/agent-service-demo/example/a2a/test_smoke_assertions.py
+```
+
+## 版本与兼容性
+
+构建依赖以仓库根 `pom.xml` 为准，详见 [Agent Core 依赖](../../../../documents/zh/2.开发指南/Agent%20Core%20依赖.md)。当前开发基线为 Runtime `0.1.4`、Core `0.1.17`、A2A Java SDK `1.0.0.Final`。更新 Core develop 后须先在 Core 仓执行 `mvn -B -ntp install -DskipTests`，再从 Runtime 仓构建验证；同名本地快照/开发版本不能证明源码已更新。
+
+Agent Card 和健康接口默认使用 `ServiceProperties` 中维护的版本（当前为 `0.1.4`），可通过已有的 `openjiuwen.service.version` 显式覆盖。发布时需同步维护默认版本；不引入专用版本资源文件。共享配置不再固定旧版本号。此次兼容维护不改变 A2A 方法或业务字段，也不单独提升示例依赖版本；发布时随 Runtime 统一版本管理。
+
+Core 工作流 trace 含 Java 时间对象。Runtime 在 A2A 输出边界将嵌套对象规范化为 JSON 数据，时间写为 ISO 字符串，保留既有 Gson 字段映射，并排除标注 `@JsonIgnore` 的字段，使 SSE 和任务存储使用同一数据表示，无需 JVM `--add-opens`。
 
 ## 示例中的 Agent
 
@@ -166,6 +182,8 @@ curl -sS http://localhost:18093/.well-known/agent-card.json | python3 -m json.to
 以下命令使用 Bash 或 Git Bash。所有业务报文都发送到 Agent A，不直接调用 Agent B、C 或 D。
 
 非流式响应的任务 ID 位于 `result.task.id`，任务状态位于 `result.task.status.state`，响应不会包含远端 Agent 的中间流式进度，也不会回放非流式下游最终 Task 快照中的 Artifact 或状态。流式响应由多行 `data:` 事件组成，任务 ID 位于 `result.statusUpdate.taskId`，任务状态位于 `result.statusUpdate.status.state`。仅实际使用流式协议的远端过程通过 `artifactUpdate` 投影：外层 `taskId` 始终属于 Agent A 的当前 Task，`artifact.metadata.agentEvent` 使用 `delegation`、`output`、`status` 表示直接委派边、实际输出来源和下游节点状态。
+
+A2A 的 `contextId` 标识协议上下文，`taskId` 标识需要恢复的任务；Runtime 内部的 `conversationId` 不是可替代这两个字段的恢复凭证。嵌套远端任务 ID 由 Runtime 管理，客户端继续使用 Agent A 返回的任务 ID。
 
 首轮中断后，从响应中复制 `taskId`，将恢复报文中的 `TASK_ID_FROM_FIRST_RESPONSE` 替换为该值。中断首轮应出现 `TASK_STATE_INPUT_REQUIRED`，恢复后应出现 `TASK_STATE_COMPLETED`，并且两轮的 `taskId` 必须相同。
 
@@ -377,7 +395,7 @@ curl -sS -N -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
-恢复后应进入 `TASK_STATE_COMPLETED`，保持原 `taskId`，且不得包含未解开的 `workflow_final` AgentCore 信封。承载最终结果的 artifact 带有 `metadata._agentcore_terminal: true`，这是 Runtime 区分终态业务结果与流式中间 artifact 的内部来源标识，不属于业务数据。Agent D 的结构化最终结果通过 `parts.data` 传递，但经过 Agent B 和 Agent A 的 ReAct 层后，最外层文本可能被模型重新表述；烟测不对该文本的字段名或格式做断言。
+恢复后应进入 `TASK_STATE_COMPLETED`，保持原 `taskId`，且不得包含未解开的 `workflow_final` AgentCore 信封。承载最终结果的 artifact 带有 `metadata._agentcore_terminal: true`，这是 Runtime 区分终态业务结果与流式中间 artifact 的内部来源标识，不属于业务数据。Agent D 的结构化最终结果通过 `parts.data` 传递，但经过 Agent B 和 Agent A 的 ReAct 层后，最外层文本可能被模型重新表述；烟测不依赖该文本的字段名或格式，但检查业务内容，并验证透传的 D 结构化审批结果及报告。
 
 ### 场景 5：A -> B -> D 非流式人工审批与恢复
 
@@ -430,7 +448,7 @@ curl -sS -X POST http://localhost:18090/a2a/ \
 JSON
 ```
 
-恢复后应进入 `TASK_STATE_COMPLETED` 并保持原 `taskId`，同时 Agent B 不应因空工具结果重复调用 Agent D。烟测不检查经过 ReAct 层后的最终文本字段或格式。
+恢复后应进入 `TASK_STATE_COMPLETED` 并保持原 `taskId`，同时 Agent B 不应因空工具结果重复调用 Agent D。烟测不依赖经过 ReAct 层后的字段名或格式，但会检查终态业务内容，并拒绝远端错误。
 
 ### 场景 6：A -> B -> D 合规费用自动审批
 
@@ -469,3 +487,18 @@ cp agent-service-demo/example/a2a/application-a2a-redis.example.yml \
 ```
 
 编辑 `application-a2a-redis.local.yml`，配置单机 Redis 的 `host`、`port` 和密码，或配置 Redis Cluster 的 `type: cluster` 与 `nodes`。四个 Agent 启动时都会加载该本地配置。
+
+
+## 后续特性覆盖边界
+
+当前烟测覆盖计算、DeepAgent 与 WorkflowAgent 的同进程人工中断/恢复及两种传输模式。它不验证进程重启后的续执，也不把父任务完成视为远端业务成功。建议下一阶段独立增加以下场景，避免基础 smoke 依赖故障注入和重启编排：
+
+| 能力 | 当前情况 | 建议增加的可观察验收点 |
+| --- | --- | --- |
+| 远端响应 Hook | Runtime 已有扩展点，本例未配置定制 Hook | 对 D 返回结果执行转换/审计，验证调用次数、错误传播和最终业务结果 |
+| 预算与超时 | A/B 工厂已接入 `RunBudgetWiring`；C 使用 DeepAgent 工厂，不应假设同一预算覆盖所有 Agent | 分别验证回合耗尽、总时限与远端请求超时，并检查子任务状态和资源释放 |
+| 取消 | Runtime 已实现任务取消，当前 smoke 未调用取消方法 | 执行中取消及等待输入时取消；确认无后续成功结果，重复取消与恢复请求遵循状态约束 |
+| 重启恢复 | 依赖 Redis 检查点、任务存储和执行恢复机制 | 中断后重启恢复；执行中宕机后验证租约/恢复及副作用幂等性。`DeadStepSweeper` 默认未启用，不能据此承诺分布式 exactly-once |
+| 业务分支 | 单测包含费用策略，基础 smoke 只走超标后批准 | 补充合规自动审批、拒绝原因传递及非法审批输入；区分业务拒绝与协议取消 |
+
+上述扩展需要独立测试设计，当前基础用例的通过不代表这些能力已经端到端验证。

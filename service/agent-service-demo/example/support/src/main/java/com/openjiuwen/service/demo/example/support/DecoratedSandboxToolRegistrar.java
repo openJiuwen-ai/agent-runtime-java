@@ -9,6 +9,8 @@ import com.openjiuwen.core.foundation.tool.function.LocalFunction;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.base.Result;
 import com.openjiuwen.core.singleagent.agents.ReActAgent;
+import com.openjiuwen.core.sysop.BaseFsOperation.FileMode;
+import com.openjiuwen.core.sysop.protocal.BaseFsProtocal.LineRange;
 import com.openjiuwen.core.sysop.result.ExecuteCmdResult;
 import com.openjiuwen.core.sysop.result.ExecuteCodeResult;
 import com.openjiuwen.core.sysop.result.ReadFileResult;
@@ -18,6 +20,7 @@ import com.openjiuwen.service.adapters.agentcore.external.AgentCoreSandboxClient
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.OptionalInt;
 
@@ -76,11 +79,11 @@ public final class DecoratedSandboxToolRegistrar {
     }
 
     private static void registerTool(ReActAgent agent, LocalFunction tool) {
-        Result<ToolCard> result = Runner.resourceMgr().addTool(tool, agent.getCard().getId(), true);
+        Result<ToolCard> result = Runner.resourceMgr().addTool(tool, agent.getCard().getId());
         if (result.isError()) {
             throw new IllegalStateException(
-                    "Failed to register sandbox tool " + tool.getCard().getName(),
-                    result.getError());
+                    "Failed to register sandbox tool " + tool.getCard().getName()
+                            + ": " + result.getError());
         }
         agent.getAbilityManager().add(tool.getCard());
     }
@@ -93,15 +96,20 @@ public final class DecoratedSandboxToolRegistrar {
             int[] lineRange = intArrayValue(inputs, "lineRange");
             ReadFileResult result = client.fs().readFile(
                     stringValue(inputs, "path", ""),
-                    stringValue(inputs, "mode", "text"),
+                    resolveFileMode(inputs),
                     head.isPresent() ? Integer.valueOf(head.getAsInt()) : null,
                     tail.isPresent() ? Integer.valueOf(tail.getAsInt()) : null,
-                    lineRange.length == 0 ? null : lineRange,
+                    lineRange.length < 2 ? null : new LineRange(lineRange[0], lineRange[1]),
                     stringValue(inputs, "encoding", "UTF-8"),
                     intValue(inputs, "chunkSize", 0),
-                    objectMapValue(inputs, "options"));
+                    objectMapValue(inputs, "options")).join();
             return result;
         });
+    }
+
+    private static FileMode resolveFileMode(Map<String, Object> inputs) {
+        String mode = stringValue(inputs, "mode", "text");
+        return "bytes".equalsIgnoreCase(mode) ? FileMode.BYTES : FileMode.TEXT;
     }
 
     private static LocalFunction executeCmdTool(SandboxClient client, String serverId) {
@@ -131,17 +139,23 @@ public final class DecoratedSandboxToolRegistrar {
     }
 
     private static ToolCard toolCard(List<ToolCard> cards, String serverId, String operation, String method) {
+        // Core 生成的工具卡名是 snake_case（read_file/execute_cmd/execute_code），
+        // 对外派发名统一用驼峰，因此匹配时做归一化对齐，避免大小写与下划线风格耦合。
         ToolCard source = cards.stream()
-                .filter(card -> method.equals(card.getName()))
+                .filter(card -> normalizeName(card.getName()).equals(normalizeName(method)))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Sandbox tool not found: " + method));
         return ToolCard.builder()
                 .id(toolId(serverId, operation, method))
-                .name(source.getName())
+                .name(method)
                 .description(source.getDescription())
                 .inputParams(source.getInputParams())
                 .properties(source.getProperties())
                 .build();
+    }
+
+    private static String normalizeName(String name) {
+        return name == null ? "" : name.replace("_", "").toLowerCase(Locale.ROOT);
     }
 
     private static String toolId(String serverId, String operation, String method) {

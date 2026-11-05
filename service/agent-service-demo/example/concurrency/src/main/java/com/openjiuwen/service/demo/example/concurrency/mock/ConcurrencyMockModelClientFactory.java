@@ -5,7 +5,7 @@
 package com.openjiuwen.service.demo.example.concurrency.mock;
 
 import com.openjiuwen.core.foundation.llm.Model;
-import com.openjiuwen.core.foundation.llm.model_clients.BaseModelClient;
+import com.openjiuwen.core.foundation.llm.modelclients.BaseModelClient;
 import com.openjiuwen.core.foundation.llm.schema.ModelClientConfig;
 import com.openjiuwen.core.foundation.llm.schema.ModelRequestConfig;
 

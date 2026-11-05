@@ -71,7 +71,7 @@ class MemoryScopeIsolationIT {
         memoryStore = new ScopeRecordingMemoryStore();
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
         memoryProvider = new MemoryStoreMemoryProvider(memoryStore, memory);
-        memoryProvider.initialize(Map.of());
+        memoryProvider.initialize(Map.of()).join();
     }
 
     // ── TC_M_001-1：并发 prefetch scope 隔离 ──
@@ -94,7 +94,7 @@ class MemoryScopeIsolationIT {
                 try {
                     startLatch.await();
                     Map<String, Object> kwargs = Map.of("user_id", userId);
-                    String result = memoryProvider.prefetch("偏好查询_" + userId, kwargs);
+                    String result = memoryProvider.prefetch("偏好查询_" + userId, kwargs).join();
                     assertThat(result).contains("## Long-term Memory");
                     assertThat(result).contains(userId + "的记忆内容");
                     successCount.incrementAndGet();
@@ -139,7 +139,7 @@ class MemoryScopeIsolationIT {
                 try {
                     startLatch.await();
                     Map<String, Object> kwargs = Map.of("user_id", userId);
-                    memoryProvider.syncTurn("用户消息_" + userId, "助手回复_" + userId, kwargs);
+                    memoryProvider.syncTurn("用户消息_" + userId, "助手回复_" + userId, kwargs).join();
                     successCount.incrementAndGet();
                 } catch (InterruptedException ex) {
                     // 线程被中断，直接退出（不调用 Thread.interrupt()，符合 G.CON.10）
@@ -182,9 +182,9 @@ class MemoryScopeIsolationIT {
                 try {
                     startLatch.await();
                     Map<String, Object> kwargs = Map.of("user_id", userId);
-                    String prefetchResult = memoryProvider.prefetch("组合查询_" + userId, kwargs);
+                    String prefetchResult = memoryProvider.prefetch("组合查询_" + userId, kwargs).join();
                     assertThat(prefetchResult).contains(userId + "的记忆内容");
-                    memoryProvider.syncTurn("组合用户消息_" + userId, "组合助手回复_" + userId, kwargs);
+                    memoryProvider.syncTurn("组合用户消息_" + userId, "组合助手回复_" + userId, kwargs).join();
                     successCount.incrementAndGet();
                 } catch (InterruptedException ex) {
                     // 线程被中断，直接退出（不调用 Thread.interrupt()，符合 G.CON.10）

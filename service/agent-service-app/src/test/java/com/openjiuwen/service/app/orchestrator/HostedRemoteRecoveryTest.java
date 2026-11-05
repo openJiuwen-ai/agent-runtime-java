@@ -141,7 +141,8 @@ class HostedRemoteRecoveryTest {
             outcomes.add(outcome);
             return outcome;
         };
-        var coordinator = new RemoteInvocationBatchCoordinator(store, caller, id, dispatcher, continuations::add);
+        var coordinator = new RemoteInvocationBatchCoordinator(store, caller, id, dispatcher,
+                continuations::add, null, null);
         return new Target(id, coordinator, store, calls, outcomes, continuations);
     }
 

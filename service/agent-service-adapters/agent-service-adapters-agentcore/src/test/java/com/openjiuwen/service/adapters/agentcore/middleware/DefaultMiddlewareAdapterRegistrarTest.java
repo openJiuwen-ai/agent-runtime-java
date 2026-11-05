@@ -33,7 +33,7 @@ class DefaultMiddlewareAdapterRegistrarTest {
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);
 
-        assertThat(runnerConfig.getCheckpointerConfig().get("type")).isEqualTo("in_memory");
+        assertThat(runnerConfig.getCheckpointerConfig().getType()).isEqualTo("in_memory");
         var checkpointer = CheckpointerFactory.create("in_memory", Map.of());
         assertThat(checkpointer).isNotNull();
     }
@@ -54,8 +54,7 @@ class DefaultMiddlewareAdapterRegistrarTest {
         RunnerConfig runnerConfig = RunnerConfig.builder().distributedMode(false).build();
         registrar.applyToRunnerConfig(runnerConfig);
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> conf = (Map<String, Object>) runnerConfig.getCheckpointerConfig().get("conf");
+        Map<String, Object> conf = runnerConfig.getCheckpointerConfig().getConf();
         @SuppressWarnings("unchecked")
         Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
         assertThat(connection.get("redis_client")).isNotNull();

@@ -47,12 +47,13 @@ public class ActiveStreamRegistry {
     }
 
     /**
-     * Cancels all active streams for a conversation.
+     * Cancels all active streams for a conversation. Handles remain registered
+     * until execution unregisters them, so shutdown waits for actual completion.
      *
      * @param conversationId the conversation identifier
      */
     public void cancel(String conversationId) {
-        Set<StreamCancellationHandle> handles = active.remove(conversationId);
+        Set<StreamCancellationHandle> handles = active.get(conversationId);
         if (handles != null) {
             for (StreamCancellationHandle handle : handles) {
                 handle.cancel();

@@ -13,10 +13,14 @@ import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Bridges runtime {@link MemoryStore} into core {@link MemoryProvider} lifecycle hooks.
@@ -27,14 +31,14 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
-public class MemoryStoreMemoryProvider implements MemoryProvider {
+public class MemoryStoreMemoryProvider extends MemoryProvider {
     private static final int DEFAULT_PREFETCH_TOP_K = 5;
 
     private final MemoryStore memoryStore;
 
     private final MiddlewareProperties.Memory memory;
 
-    private boolean hasInitialized;
+    private volatile boolean hasInitialized;
 
     /**
      * Creates a memory provider bridge.
@@ -61,8 +65,9 @@ public class MemoryStoreMemoryProvider implements MemoryProvider {
     }
 
     @Override
-    public void initialize(Map<String, Object> kwargs) {
+    public CompletableFuture<Void> initialize(Map<String, Object> kwargs) {
         hasInitialized = true;
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override
@@ -71,35 +76,37 @@ public class MemoryStoreMemoryProvider implements MemoryProvider {
     }
 
     @Override
-    public String handleToolCall(String toolName, Map<String, Object> args) {
-        return "{\"error\":\"MemoryStoreMemoryProvider does not expose memory tools\"}";
+    public CompletableFuture<String> handleToolCall(String toolName, Map<String, Object> args) {
+        return CompletableFuture.completedFuture(
+            "{\"error\":\"MemoryStoreMemoryProvider does not expose memory tools\"}");
     }
 
     @Override
-    public String prefetch(String query, Map<String, Object> kwargs) {
+    public CompletableFuture<String> prefetch(String query, Map<String, Object> kwargs) {
         if (!isAvailable() || query == null || query.isBlank()) {
-            return "";
+            return CompletableFuture.completedFuture("");
         }
         MemorySearchRequest request = new MemorySearchRequest(resolveScope(kwargs), query, DEFAULT_PREFETCH_TOP_K,
             memory.isRerank(), options("prefetch", kwargs));
         List<MemoryRecord> records = memoryStore.search(request);
-        return formatPrefetch(records);
+        return CompletableFuture.completedFuture(formatPrefetch(applyRelevanceFloor(records)));
     }
 
     @Override
-    public void syncTurn(String userMsg, String assistantMsg, Map<String, Object> kwargs) {
+    public CompletableFuture<Void> syncTurn(String userMsg, String assistantMsg, Map<String, Object> kwargs) {
         if (!isAvailable()) {
-            return;
+            return CompletableFuture.completedFuture(null);
         }
         List<MemoryMessage> messages = new ArrayList<>();
         addMessage(messages, "user", userMsg);
         addMessage(messages, "assistant", assistantMsg);
         if (messages.isEmpty()) {
-            return;
+            return CompletableFuture.completedFuture(null);
         }
         Map<String, Object> options = options("sync_turn", kwargs);
         options.put("infer", true);
         memoryStore.add(new MemoryAddRequest(resolveScope(kwargs), messages, options));
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override
@@ -121,6 +128,134 @@ public class MemoryStoreMemoryProvider implements MemoryProvider {
             return "";
         }
         return "## Long-term Memory\n" + String.join("\n", lines);
+    }
+
+    /**
+     * Drops records below the relevance floors so low-relevance memories are not injected
+     * into the prompt — and re-written back by the following turn's sync, which would
+     * amplify the noise. Two independent floors apply:
+     *
+     * <ul>
+     *   <li>relative ({@code ratio × top score}): score-scale-free, so it works for any
+     *       provider; it trims the tail but by construction always keeps the top hit;</li>
+     *   <li>absolute ({@code prefetchMinScore}): score-scale-specific, so it is disabled by
+     *       default. It is the only floor that can drop the <em>top</em> hit, which is what
+     *       "ask something unrelated to every memory" needs.</li>
+     * </ul>
+     *
+     * <p>Unscored records cannot be judged and are kept; either floor set to {@code 0}
+     * disables that floor. Both comparisons run on {@link BigDecimal} per G.TYP.04 (scores
+     * are irrelevant to precision here, but the gate forbids floating-point arithmetic).
+     *
+     * @param records the search results, may be null
+     * @return the records at or above the enabled floors, or all records when none carries
+     *     a score
+     */
+    private List<MemoryRecord> applyRelevanceFloor(List<MemoryRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return records;
+        }
+        Optional<BigDecimal> relativeFloor = relativeFloorOf(records);
+        Optional<BigDecimal> absoluteFloor = absoluteFloor();
+        if (relativeFloor.isEmpty() && absoluteFloor.isEmpty()) {
+            return records;
+        }
+        List<MemoryRecord> kept = new ArrayList<>();
+        for (MemoryRecord record : records) {
+            if (isAtOrAboveFloors(record, relativeFloor, absoluteFloor)) {
+                kept.add(record);
+            }
+        }
+        return kept;
+    }
+
+    /**
+     * Resolves the relative floor ({@code ratio × top score}); empty when the ratio is
+     * disabled or no record carries a score.
+     *
+     * @param records the search results
+     * @return the relative floor, or an empty Optional when it does not apply
+     */
+    private Optional<BigDecimal> relativeFloorOf(List<MemoryRecord> records) {
+        double ratio = memory.getPrefetchMinScoreRatio();
+        if (ratio <= 0) {
+            return Optional.empty();
+        }
+        OptionalDouble topScore = topScoreOf(records);
+        return topScore.isEmpty()
+            ? Optional.empty()
+            : Optional.of(BigDecimal.valueOf(topScore.getAsDouble()).multiply(BigDecimal.valueOf(ratio)));
+    }
+
+    /**
+     * Resolves the absolute floor; empty when it is disabled.
+     *
+     * @return the absolute floor, or an empty Optional when it does not apply
+     */
+    private Optional<BigDecimal> absoluteFloor() {
+        double minScore = memory.getPrefetchMinScore();
+        return minScore > 0 ? Optional.of(BigDecimal.valueOf(minScore)) : Optional.empty();
+    }
+
+    /**
+     * Resolves the highest score across the records ({@code empty} when none carries one).
+     *
+     * @param records the search results
+     * @return the top score, or an empty OptionalDouble when no record is scored
+     */
+    private static OptionalDouble topScoreOf(List<MemoryRecord> records) {
+        OptionalDouble topScore = OptionalDouble.empty();
+        for (MemoryRecord record : records) {
+            if (record == null) {
+                continue;
+            }
+            OptionalDouble score = scoreOf(record);
+            if (score.isPresent() && (topScore.isEmpty() || score.getAsDouble() > topScore.getAsDouble())) {
+                topScore = score;
+            }
+        }
+        return topScore;
+    }
+
+    private static boolean isAtOrAboveFloors(MemoryRecord record, Optional<BigDecimal> relativeFloor,
+        Optional<BigDecimal> absoluteFloor) {
+        OptionalDouble score = record == null ? OptionalDouble.empty() : scoreOf(record);
+        if (score.isEmpty()) {
+            return true;
+        }
+        BigDecimal value = BigDecimal.valueOf(score.getAsDouble());
+        return isAtOrAbove(relativeFloor, value) && isAtOrAbove(absoluteFloor, value);
+    }
+
+    /**
+     * Checks one floor, treating an absent floor as "no constraint".
+     *
+     * @param floor the floor, empty when it does not apply
+     * @param value the record's score
+     * @return true when the value passes the floor or the floor is absent
+     */
+    private static boolean isAtOrAbove(Optional<BigDecimal> floor, BigDecimal value) {
+        if (floor.isEmpty()) {
+            return true;
+        }
+        return value.compareTo(floor.get()) >= 0;
+    }
+
+    /**
+     * Resolves a record's relevance score across provider shapes: the modeled
+     * {@code metadata} map first, falling back to the raw provider record — mem0
+     * reports the score only at the raw top level, while jiuwen/jiuwen2 mirror it
+     * into metadata. Returns {@code empty} when neither carries a numeric score.
+     *
+     * @param record the search result
+     * @return the score, or an empty OptionalDouble when the record is unscored
+     */
+    private static OptionalDouble scoreOf(MemoryRecord record) {
+        Object score = record.metadata() != null ? record.metadata().get("score") : null;
+        if (!(score instanceof Number)) {
+            score = record.raw() != null ? record.raw().get("score") : null;
+        }
+        return score instanceof Number number ? OptionalDouble.of(number.doubleValue()) : OptionalDouble.empty();
     }
 
     private MemoryScope resolveScope(Map<String, Object> kwargs) {

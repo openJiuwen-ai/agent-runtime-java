@@ -80,15 +80,21 @@ public class Jiuwen2MemoryApi {
      * @param content memory text
      * @param scope request scope ({@code org/space/user/agent/session})
      * @param userMetadata business metadata stored alongside the unit
+     * @param systemMetadata system metadata steering the 2.0 write path (for example
+     *     {@code {infer: "true"}} to route the unit through the derive/extraction
+     *     pipeline); omitted when null or empty
      * @return inserted memory units as returned by the service
      */
     public List<Map<String, Object>> add(String baseUrl, String content, Map<String, Object> scope,
-        Map<String, Object> userMetadata) {
+        Map<String, Object> userMetadata, Map<String, Object> systemMetadata) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("content", content);
         body.put("scope", scope);
         if (userMetadata != null && !userMetadata.isEmpty()) {
             body.put("user_metadata", userMetadata);
+        }
+        if (systemMetadata != null && !systemMetadata.isEmpty()) {
+            body.put("system_metadata", systemMetadata);
         }
         return executeAdd(baseUrl, body);
     }

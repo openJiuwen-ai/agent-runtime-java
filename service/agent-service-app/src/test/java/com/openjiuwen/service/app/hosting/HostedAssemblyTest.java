@@ -13,18 +13,23 @@ import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.autoconfigure.HostedRuntimeAutoConfiguration;
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
+import com.openjiuwen.service.app.controller.a2a.AdmissionReleaseCoordinator;
 import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCallOutcome;
+import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamInterruptor;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleHooks;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionService;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
 import com.openjiuwen.service.spec.hosting.HostedSharedLifecycle;
 import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
@@ -45,7 +50,9 @@ import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -70,6 +77,28 @@ class HostedAssemblyTest {
             .withUserConfiguration(Handlers.class).withPropertyValues("spring.application.name=hosted-test");
 
     @ParameterizedTest
+    @MethodSource("duplicateResponseHooks")
+    <T> void rejectsDuplicateHooksDespiteMatchingFieldNameOrPrimary(Class<T> hookType, boolean isPrimary) {
+        String beanName = hookType == RemoteProjectionHook.class ? "remoteProjectionHook" : "remoteTaskResultHook";
+        RemoteAgentCaller caller = (call, observer) -> CompletableFuture.completedFuture(null);
+        runner.withBean(RemoteAgentCaller.class, () -> caller)
+                .withBean(beanName, hookType, () -> org.mockito.Mockito.mock(hookType),
+                        definition -> definition.setPrimary(isPrimary))
+                .withBean("secondHook", hookType, () -> org.mockito.Mockito.mock(hookType)).run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(NoUniqueBeanDefinitionException.class)
+                            .hasStackTraceContaining(hookType.getName());
+                });
+    }
+
+    private static List<Arguments> duplicateResponseHooks() {
+        return List.of(Arguments.of(RemoteProjectionHook.class, false),
+                Arguments.of(RemoteProjectionHook.class, true), Arguments.of(RemoteTaskResultHook.class, false),
+                Arguments.of(RemoteTaskResultHook.class, true));
+    }
+
+    @ParameterizedTest
     @MethodSource("unsupportedGlobalComponents")
     <T> void rejectsGlobalComponentsThatHostedExecutionWouldIgnore(Class<T> type) {
         runner.withBean("customGlobalComponent", type, () -> org.mockito.Mockito.mock(type)).run(context -> {
@@ -84,6 +113,34 @@ class HostedAssemblyTest {
                 MainEventBus.class, MainEventBusProcessor.class, QueueManager.class, A2AAgentExecutor.class,
                 A2ATaskContinuation.class, A2aPushNotificationCallbackStore.class,
                 A2aPushNotificationCallbackHandler.class);
+    }
+
+    @Test
+    void passesSelectedHooksToEachHostedExecutionGraph() {
+        RemoteProjectionHook projection = (event, context) -> null;
+        RemoteTaskResultHook result = task -> "custom-result";
+        runner.withBean(RemoteProjectionHook.class, () -> projection)
+                .withBean(RemoteTaskResultHook.class, () -> result).run(context -> {
+                    assertThat(context).hasNotFailed();
+                    var lifecycle = context.getBean(HostedLifecycleCoordinator.class);
+                    lifecycle.runInitPhase();
+                    try {
+                        assertThat(org.springframework.test.util.ReflectionTestUtils.getField(
+                                context.getBean(A2ARemoteAgentClient.class), "taskResultHook")).isSameAs(result);
+                        for (var runtime : context.getBean(HostedRuntimeCatalog.class).instances()) {
+                            Object coordinator = org.springframework.test.util.ReflectionTestUtils.getField(
+                                    runtime.orchestrator(), "batchCoordinator");
+                            assertThat(org.springframework.test.util.ReflectionTestUtils.getField(
+                                    coordinator, "projectionHook")).isSameAs(projection);
+                            Object mapper = org.springframework.test.util.ReflectionTestUtils.getField(
+                                    coordinator, "batchMapper");
+                            assertThat(org.springframework.test.util.ReflectionTestUtils.getField(
+                                    mapper, "taskResultHook")).isSameAs(result);
+                        }
+                    } finally {
+                        lifecycle.runShutdownPhase();
+                    }
+                });
     }
 
     @Test
@@ -111,6 +168,20 @@ class HostedAssemblyTest {
                         lifecycle.runShutdownPhase();
                     }
                 });
+    }
+
+    @Test
+    void exposesProcessWideAdmissionCoordinatorAsTaskAdmissionService() {
+        runner.run(context -> {
+            assertThat(context).hasNotFailed();
+            var coordinator = context.getBean(AdmissionReleaseCoordinator.class);
+            // The TaskAdmissionService injection points (controller, transport
+            // bridges) must resolve the hosted coordinator — otherwise the
+            // HTTP face degrades to the plain concurrency-limit code.
+            assertThat(context.getBean(TaskAdmissionService.class)).isSameAs(coordinator);
+            // The main assembly's coordinator must back off in hosted form.
+            assertThat(context.getBeanNamesForType(AdmissionReleaseCoordinator.class)).hasSize(1);
+        });
     }
 
     @Test

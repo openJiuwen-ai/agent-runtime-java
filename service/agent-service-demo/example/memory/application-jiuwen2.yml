@@ -5,8 +5,12 @@ openjiuwen:
         provider: jiuwen2
         endpoint: ${JIUWEN2_ENDPOINT:http://localhost:8137}
         encrypted-api-key: ${JIUWEN2_API_KEY:placeholder}
-        rerank: false
         # agent-memory 2.0 在请求 scope 上校验 org/user 与调用方身份一致（dev 模式身份
         # 固定为 local/developer）；业务用户维度经 user_metadata 保留。
         scope-org: ${JIUWEN2_SCOPE_ORG:local}
         scope-user: ${JIUWEN2_SCOPE_USER:developer}
+        # 相关性下限（两道，取更严的一侧）：
+        # - prefetch-min-score-ratio：相对 top1 分数，与 provider 分数刻度无关，默认 0.2；
+        #   按比例设阈，结构上保得住 top1，但滤不掉"只有一条且不相关"的注入。
+        # - prefetch-min-score：绝对值，依赖 provider 分数刻度，默认 0（关闭）。
+        #   bge 精排分约 0~1，可设 0.05~0.1；RRF 分约 0.01 量级，不要设。

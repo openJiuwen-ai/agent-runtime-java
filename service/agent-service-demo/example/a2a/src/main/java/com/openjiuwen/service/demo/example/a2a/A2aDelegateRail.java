@@ -9,9 +9,7 @@ import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
 import com.openjiuwen.core.foundation.llm.schema.ToolCall;
 import com.openjiuwen.core.foundation.tool.ToolCard;
-import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.rail.AgentCallbackContext;
-import com.openjiuwen.harness.rails.interrupt.BaseInterruptRail;
 import com.openjiuwen.harness.rails.interrupt.InterruptDecision;
 
 import java.lang.reflect.Type;
@@ -25,7 +23,7 @@ import java.util.Map;
  *
  * @since 0.1.0
  */
-public class A2aDelegateRail extends BaseInterruptRail {
+public class A2aDelegateRail extends A2aInterruptRail {
     private static final Gson GSON = new Gson();
 
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {
@@ -36,8 +34,8 @@ public class A2aDelegateRail extends BaseInterruptRail {
     private static final String AGENT_NAME = "agentb";
 
     public A2aDelegateRail() {
-        super(List.of(TOOL_NAME));
-        getTools().add(delegateCard(TOOL_NAME, "Delegate a task to the configured Agent B route"));
+        super(List.of(TOOL_NAME), List.of(delegateCard(TOOL_NAME,
+            "Delegate a task to the configured Agent B route")));
     }
 
     @Override
@@ -57,9 +55,8 @@ public class A2aDelegateRail extends BaseInterruptRail {
         } catch (JsonSyntaxException ignored) {
             // arguments parse failed; fall through to AGENT_NAME
         }
-        var request = InterruptRequest.builder().message(userQuery != null ? userQuery : AGENT_NAME)
-                .context(Map.of("agentName", AGENT_NAME, "_interrupt_kind", "a2a_delegate")).build();
-        return interrupt(request);
+        return interrupt(buildInterruptRequest(userQuery != null ? userQuery : AGENT_NAME,
+                Map.of("agentName", AGENT_NAME, "_interrupt_kind", "a2a_delegate")));
     }
 
     private static ToolCard delegateCard(String toolName, String description) {

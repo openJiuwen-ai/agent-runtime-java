@@ -29,8 +29,8 @@ import org.springframework.context.annotation.Primary;
 @SpringBootTest(classes = {
     DemoAgentApplication.class, DemoExternalMcpAdapterApplicationTest.ExternalAdapterTestConfig.class
 }, properties = {
-    "openjiuwen.service.llm.provider=DemoExternalMcpProvider",
-    "openjiuwen.service.llm.api-key=test-key", "openjiuwen.service.llm.api-base=mirror://demo-external-mcp",
+    "openjiuwen.service.llm.provider=OpenAI",
+    "openjiuwen.service.llm.api-key=test-key", "openjiuwen.service.llm.api-base=http://localhost:8999",
     "openjiuwen.service.llm.model-name=test-model", "openjiuwen.service.llm.auto-discover=false",
     "openjiuwen.service.external.mcp.servers[0].server-id=demo-mcp",
     "openjiuwen.service.external.mcp.servers[0].server-name=demo-tools",
@@ -46,7 +46,8 @@ class DemoExternalMcpAdapterApplicationTest {
     private RecordingExternalSvcAdapterRegistrar registrar;
 
     @BeforeAll
-    static void resetRunnerBeforeContextStarts() {
+    static void resetRunnerBeforeTest() {
+        // 清掉前序测试可能残留的 Runner 状态，确保本测试的 agentHandler.start() 能重新启动 Runner。
         new JiuwenCoreAgentHandler("demo-reset").stop();
         Runner.stop();
     }

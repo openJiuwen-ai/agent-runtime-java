@@ -31,6 +31,20 @@ import java.util.List;
  */
 class A2aJsonRpcParamsParserTest {
     @Test
+    void modelSelectionRejectsMalformedMetadataAndNormalizesPublicAlias() {
+        String template = """
+                {"params":{"message":{"role":"ROLE_USER","parts":[{"text":"hello"}]},
+                  "metadata":{"model_name":%s}}}
+                """;
+        for (String value : List.of("123", "true", "[]", "{}", "\"   \"")) {
+            assertThatThrownBy(() -> parse(template.formatted(value))).isInstanceOf(InvalidParamsError.class);
+        }
+        assertThat(A2aJsonRpcParamsParser.modelName(parse(template.formatted("\" b \"")).metadata()))
+                .isEqualTo("b");
+        assertThat(A2aJsonRpcParamsParser.modelName(parse(template.formatted("null")).metadata())).isNull();
+    }
+
+    @Test
     void urlPartBecomesFileWithUriPreservingFilenameAndMediaType() {
         MessageSendParams params = parse("""
         {"params":{"message":{"role":"ROLE_USER","parts":[

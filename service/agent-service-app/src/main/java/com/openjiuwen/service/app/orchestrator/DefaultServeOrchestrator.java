@@ -84,8 +84,11 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
         } finally {
             // Empty token means prepareTask acquired nothing (e.g. busy
             // rejection) — completeTask must not disturb the other task.
-            agentHandler.completeTask(taskToken);
-            streamRegistry.unregister(conversationId, handle);
+            try {
+                agentHandler.completeTask(taskToken);
+            } finally {
+                streamRegistry.unregister(conversationId, handle);
+            }
         }
     }
 
@@ -130,6 +133,15 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
             @Override
             public void onComplete() {
                 observer.onComplete();
+            }
+
+            @Override
+            public void onComplete(QueryResponse response) {
+                if (!isCancelled()) {
+                    observer.onComplete(response);
+                } else {
+                    observer.onComplete();
+                }
             }
 
             @Override

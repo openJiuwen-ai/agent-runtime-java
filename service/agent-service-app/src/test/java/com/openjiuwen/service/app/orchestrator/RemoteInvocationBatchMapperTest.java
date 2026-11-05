@@ -27,6 +27,7 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
@@ -39,7 +40,93 @@ import java.util.concurrent.TimeoutException;
  * @since 0.1.0
  */
 class RemoteInvocationBatchMapperTest {
-        private final RemoteInvocationBatchMapper mapper = new RemoteInvocationBatchMapper();
+        private final RemoteInvocationBatchMapper mapper = new RemoteInvocationBatchMapper(null);
+
+        @Test
+        void nullableContextMetadataSurvivesSnapshotAndRemainsReadOnly() {
+            Map<String, Object> context = new LinkedHashMap<>();
+            context.put("_interrupt_kind", "a2a_delegate");
+            context.put("agentName", "agent-a");
+            context.put("selectedCard", null);
+            context.put("channel", "app");
+            Map<String, Object> item = Map.of("toolCallId", "call-a", "message", "query", "context", context);
+
+            RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(item)), request(), "parent-1",
+                    observer());
+            Map<String, Object> metadata = batch.members.get(0).requestMetadata;
+            assertThat(metadata).containsEntry("selectedCard", null).containsEntry("channel", "app");
+            assertThatThrownBy(() -> metadata.put("channel", "changed"))
+                    .isInstanceOf(UnsupportedOperationException.class);
+            context.put("channel", "changed");
+            assertThat(metadata).containsEntry("channel", "app");
+
+            RemoteInvocationBatch restored = mapper.restore(mapper.snapshot(batch, "RUNNING"), request(),
+                    "parent-1", observer());
+            assertThat(restored.members.get(0).requestMetadata)
+                    .containsEntry("selectedCard", null).containsEntry("channel", "app");
+            assertThatThrownBy(() -> restored.members.get(0).requestMetadata.clear())
+                    .isInstanceOf(UnsupportedOperationException.class);
+        }
+
+        @Test
+        void metadataFromNonSuccessfulOutcomeIsNotKept() {
+                for (TaskState state : List.of(TaskState.TASK_STATE_FAILED, TaskState.TASK_STATE_CANCELED,
+                                TaskState.TASK_STATE_INPUT_REQUIRED)) {
+                        Member member = member("call-a");
+                        member.responseMetadata = Map.of("stale", true);
+                        mapper.applyOutcome(member, new RemoteCallOutcome("task-a", state,
+                                        "STOPPED", "answer", null, null, Map.of("leadOut", "not-final")), null);
+                        assertThat(member.responseMetadata).isEmpty();
+                        assertThat(mapper.resolution(batch(List.of(member), true)).responseMetadata()).isEmpty();
+                }
+        }
+
+        @Test
+        void responseMetadataSurvivesSnapshot() {
+                Member first = member("call-a");
+                Member second = member("call-b");
+                mapper.applyOutcome(first, new RemoteCallOutcome("task-a", TaskState.TASK_STATE_COMPLETED,
+                                "COMPLETED", "answer-a", null, null, Map.of("leadOut", "next-a")), null);
+                mapper.applyOutcome(second, new RemoteCallOutcome("task-b", TaskState.TASK_STATE_COMPLETED,
+                                "COMPLETED", "answer-b", null, null, Map.of("leadOut", "next-b")), null);
+                RemoteInvocationBatch batch = batch(List.of(first, second), true);
+                RemoteInvocationBatch restored = mapper.restore(mapper.snapshot(batch, "READY_TO_RESUME"),
+                                request(), "parent-1", observer());
+
+                RemoteInvocationBatchCoordinator.BatchResolution resolution = mapper.resolution(restored);
+
+                assertThat(resolution.responseMetadata()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                                "call-a", Map.of("leadOut", "next-a"), "call-b", Map.of("leadOut", "next-b")));
+                assertThat(resolution.results()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                                "call-a", "answer-a", "call-b", "answer-b"));
+                assertThat(resolution.parentParamsMetadata()).isEmpty();
+        }
+
+        @Test
+        void contextMetadataIsScopedToItsMemberAndSurvivesSnapshot() {
+                Map<String, Object> followUp = Map.of("query", "ok", "selectedCapabilityId", "cap.next",
+                                "offers", List.of(Map.of("capabilityId", "cap.next")));
+                Map<String, Object> urlPart = Map.of("kind", "url", "url", "https://example.com/report.pdf");
+                Map<String, Object> first = Map.of("index", 0, "toolCallId", "call-a", "toolName", "tool-a",
+                                "message", "ok", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                                        "agentName", "agent-a", "parts", List.of(urlPart),
+                                        "business.follow_up", followUp));
+                RemoteInvocationBatch batch = mapper.parse(Map.of("items", List.of(first,
+                                interruptMember(1, "call-b", true))), request(), "parent-1", observer());
+                assertThat(batch.members.get(0).requestMetadata).containsEntry("business.follow_up", followUp);
+                assertThat(batch.members.get(0).requestMetadata)
+                                .doesNotContainKeys("parts", "agentName", "_interrupt_kind");
+                assertThat(batch.members.get(0).parts).containsExactly(urlPart);
+                assertThat(batch.members.get(1).requestMetadata).isEmpty();
+
+                RemoteInvocationBatch restored = mapper.restore(mapper.snapshot(batch, "RUNNING"), request(),
+                                "parent-1", observer());
+                assertThat(restored.members.get(0).requestMetadata).containsEntry("business.follow_up", followUp);
+                assertThat(restored.members.get(0).requestMetadata)
+                                .doesNotContainKeys("parts", "agentName", "_interrupt_kind");
+                assertThat(restored.members.get(0).parts).containsExactly(urlPart);
+                assertThat(restored.members.get(1).requestMetadata).isEmpty();
+        }
 
         @Test
         void parseOrdersMembersAndUsesGeneratedBatchId() {
@@ -274,12 +361,13 @@ class RemoteInvocationBatchMapperTest {
         void continuationRequestSurvivesTaskStoreSerialization() {
                 ServeRequest request = new ServeRequest();
                 request.setConversationId("conversation-persisted");
+                request.setModelName(" b ");
                 request.setStream(false);
                 request.setUserId("user-1");
                 request.setSpaceId("space-1");
                 request.setTenantId("tenant-1");
                 request.setMessages(List.of(Map.of("role", "user", "content", "delegate")));
-                request.setMetadata(Map.of("traceId", "trace-1"));
+                request.setMetadata(Map.of("traceId", "trace-1", "model_name", "b"));
                 RemoteInvocationBatch batch = new RemoteInvocationBatch("batch-persisted", "parent-persisted", request,
                                 observer(), List.of(member("call-a")), true);
                 Map<String, Object> snapshot = mapper.snapshot(batch, "READY_TO_RESUME");
@@ -293,6 +381,7 @@ class RemoteInvocationBatchMapperTest {
                 ServeRequest restored = mapper.continuationRequest(restoredSnapshot, new ServeRequest());
 
                 assertThat(restored.getConversationId()).isEqualTo("conversation-persisted");
+                assertThat(restored.getModelName()).isEqualTo("b");
                 assertThat(restored.isStream()).isFalse();
                 assertThat(restored.getUserId()).isEqualTo("user-1");
                 assertThat(restored.getSpaceId()).isEqualTo("space-1");
@@ -308,6 +397,7 @@ class RemoteInvocationBatchMapperTest {
                 rawRequest.put("stream", false);
                 rawRequest.put("messages", List.of(Map.of("role", "user", "content", "delegate")));
                 rawRequest.put("metadata", Map.of(
+                                "model_name", "legacy-alias",
                                 "traceId", "trace-1",
                                 "_interrupt", Map.of("type", "__interaction__"),
                                 "runtime.parentTaskId", "parent-old",
@@ -319,6 +409,19 @@ class RemoteInvocationBatchMapperTest {
                                 Map.of("request", rawRequest), new ServeRequest());
 
                 assertThat(restored.getMetadata()).containsExactlyEntriesOf(Map.of("traceId", "trace-1"));
+        }
+
+        @Test
+        void continuationValidatesAliasAndOldSnapshotsSelectDefault() {
+                ServeRequest fallback = request();
+                fallback.setModelName("b");
+                assertThat(mapper.continuationRequest(Map.of("request", Map.of("conversationId", "old")),
+                                fallback).getModelName()).isNull();
+                for (Object value : List.of(1, true, List.of(), Map.of(), "   ")) {
+                        assertThatThrownBy(() -> mapper.continuationRequest(
+                                        Map.of("request", Map.of("modelName", value)), fallback))
+                                        .isInstanceOf(IllegalArgumentException.class);
+                }
         }
 
         @Test

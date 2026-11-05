@@ -121,7 +121,8 @@ class ConcurrencyAdmissionIntegrationTest {
                 new HttpEntity<>(jsonRpc("SendMessage", "conv-race", "hello"), headers), String.class);
 
         assertThat(response.getStatusCode().value()).isEqualTo(503);
-        assertThat(response.getBody()).contains("concurrent task limit reached");
+        assertThat(response.getBody()).contains("temporarily unavailable");
+        assertThat(response.getBody()).contains("CONCURRENCY_LIMIT_REACHED");
     }
 
     @Test
@@ -138,7 +139,8 @@ class ConcurrencyAdmissionIntegrationTest {
                 new HttpEntity<>(jsonRpc("SendStreamingMessage", "conv-race-s", "hello"), headers), String.class);
 
         assertThat(response.getStatusCode().value()).isEqualTo(503);
-        assertThat(response.getBody()).contains("concurrent task limit reached");
+        assertThat(response.getBody()).contains("temporarily unavailable");
+        assertThat(response.getBody()).contains("CONCURRENCY_LIMIT_REACHED");
     }
 
     private static HttpHeaders jsonHeaders() {

@@ -7,12 +7,19 @@ package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
+import com.openjiuwen.core.foundation.store.kv.InMemoryKVStore;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.runner.drunner.remoteclient.ProtocolEnum;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClient;
 import com.openjiuwen.core.runner.drunner.remoteclient.RemoteClientConfig;
+import com.openjiuwen.core.session.checkpointer.Checkpointer;
+import com.openjiuwen.core.session.checkpointer.PersistenceCheckpointer;
+import com.openjiuwen.core.session.checkpointer.step.KvStepJournal;
+import com.openjiuwen.core.session.checkpointer.step.StepRecord;
+import com.openjiuwen.core.session.checkpointer.step.StepStatus;
 import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
+import com.openjiuwen.service.adapters.agentcore.agentfw.DeadStepSweeper;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreExternalProperties;
 import com.openjiuwen.service.adapters.agentcore.external.AgentCoreRemoteClientDecoratorFactory;
@@ -22,10 +29,13 @@ import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemote
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreRemoteClientFactory;
 import com.openjiuwen.service.adapters.agentcore.external.DefaultAgentCoreSandboxClientFactory;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
+import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog;
+import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,6 +49,25 @@ import org.springframework.context.annotation.Configuration;
 class AgentCoreAdaptersAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner().withConfiguration(
         AutoConfigurations.of(AgentCoreAdaptersAutoConfiguration.class));
+
+    @Test
+    void optionalCatalogIsConsumedAtDefaultHandlerStartup() {
+        var catalog = new LlmModelCatalog("a", java.util.Map.of("a", new LlmModelCatalog.ModelDefinition(
+                "OpenAI", "test-only", "http://127.0.0.1:1/v1", "vendor-a", true)),
+                0.0, 0.8, java.time.Duration.ofSeconds(1));
+        contextRunner.withBean(LlmModelCatalog.class, () -> catalog)
+                .withPropertyValues("openjiuwen.service.agent-id=my-agent").run(context -> {
+                    var handler = context.getBean(AgentHandler.class);
+                    try {
+                        handler.start();
+                        assertThat(com.openjiuwen.core.runner.Runner.resourceMgr()
+                                .getModel("runtime:model:bXktYWdlbnQ:YQ").toCompletableFuture().join())
+                                .isInstanceOf(com.openjiuwen.core.foundation.llm.Model.class);
+                    } finally {
+                        handler.stop();
+                    }
+                });
+    }
 
     @Test
     void registersJiuwenCoreAgentHandlerWhenAgentIdConfigured() {
@@ -213,6 +242,77 @@ class AgentCoreAdaptersAutoConfigurationTest {
                 "openjiuwen.service.external.sandbox.servers[0].sandbox-type=jiuwenbox")
             .run(context -> assertThat(context.getBean(AgentCoreSandboxClientFactory.class)).isInstanceOf(
                 CustomSandboxFactoryConfig.CustomSandboxClientFactory.class));
+    }
+
+    @Test
+    void journalRetentionDefaultsToCheckpointerTtl() {
+        InMemoryKVStore kvStore = new InMemoryKVStore();
+        long nowMillis = System.currentTimeMillis();
+        KvStepJournal journal = new KvStepJournal(kvStore);
+        journal.append(new StepRecord("session-expired", "agent", 1L, "TOOL_CALL", "old",
+                "", StepStatus.COMPLETED, nowMillis - 120_000L));
+        journal.append(new StepRecord("session-live", "agent", 2L, "TOOL_CALL", "recent",
+                "", StepStatus.COMPLETED, nowMillis - 30_000L));
+
+        contextRunner.withUserConfiguration(PersistenceCheckpointerConfig.class)
+            .withBean(InMemoryKVStore.class, () -> kvStore)
+            .withPropertyValues("openjiuwen.step-sweeper.enabled=true",
+                "openjiuwen.service.middleware.checkpointer.ttl-seconds=90")
+            .run(context -> {
+                assertThat(context).hasSingleBean(DeadStepSweeper.class);
+                context.getBean(DeadStepSweeper.class).sweepOnce();
+                assertThat(journal.replay("session-expired")).isEmpty();
+                assertThat(journal.replay("session-live")).hasSize(1);
+            });
+    }
+
+    @Test
+    void explicitRetentionLongerThanTtlOverridesDerivation() {
+        InMemoryKVStore kvStore = new InMemoryKVStore();
+        long nowMillis = System.currentTimeMillis();
+        KvStepJournal journal = new KvStepJournal(kvStore);
+        journal.append(new StepRecord("session-pinned", "agent", 1L, "TOOL_CALL", "beyond-ttl",
+                "", StepStatus.COMPLETED, nowMillis - 100_000L));
+
+        // Explicit 120s retention beats the 90s TTL: the 100s-old record survives.
+        contextRunner.withUserConfiguration(PersistenceCheckpointerConfig.class)
+            .withBean(InMemoryKVStore.class, () -> kvStore)
+            .withPropertyValues("openjiuwen.step-sweeper.enabled=true",
+                "openjiuwen.service.middleware.checkpointer.ttl-seconds=90",
+                "openjiuwen.step-journal.retention-seconds=120")
+            .run(context -> {
+                assertThat(context).hasSingleBean(DeadStepSweeper.class);
+                context.getBean(DeadStepSweeper.class).sweepOnce();
+                assertThat(journal.replay("session-pinned")).hasSize(1);
+            });
+    }
+
+    @Test
+    void nonPositiveRetentionDisablesJournalPurge() {
+        InMemoryKVStore kvStore = new InMemoryKVStore();
+        long nowMillis = System.currentTimeMillis();
+        KvStepJournal journal = new KvStepJournal(kvStore);
+        journal.append(new StepRecord("session-forever", "agent", 1L, "TOOL_CALL", "ancient",
+                "", StepStatus.COMPLETED, nowMillis - 3_600_000L));
+
+        contextRunner.withUserConfiguration(PersistenceCheckpointerConfig.class)
+            .withBean(InMemoryKVStore.class, () -> kvStore)
+            .withPropertyValues("openjiuwen.step-sweeper.enabled=true",
+                "openjiuwen.step-journal.retention-seconds=0")
+            .run(context -> {
+                assertThat(context).hasSingleBean(DeadStepSweeper.class);
+                context.getBean(DeadStepSweeper.class).sweepOnce();
+                assertThat(journal.replay("session-forever")).hasSize(1);
+            });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableConfigurationProperties(MiddlewareProperties.class)
+    static class PersistenceCheckpointerConfig {
+        @Bean
+        Checkpointer checkpointer(InMemoryKVStore kvStore) {
+            return new PersistenceCheckpointer(kvStore);
+        }
     }
 
     @Configuration

@@ -8,6 +8,8 @@ import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -19,6 +21,9 @@ final class RemoteInvocationBatch {
     final String parentTaskId;
 
     final ServeRequest request;
+
+    /** Local selection for this execution round; null means the deployment default. */
+    final String parentModelName;
 
     /** Business params metadata of the local-agent invocation that created this batch. */
     final Map<String, Object> parentParamsMetadata;
@@ -35,15 +40,18 @@ final class RemoteInvocationBatch {
 
     RemoteInvocationBatch(String batchId, String parentTaskId, ServeRequest request, SerialQueryStreamObserver observer,
             List<Member> members, boolean shouldResume) {
-        this(batchId, parentTaskId, request, request.getMetadata(), observer, members, shouldResume);
+        this(batchId, parentTaskId, request, request.getMetadata(),
+                observer, members, shouldResume);
     }
 
     RemoteInvocationBatch(String batchId, String parentTaskId, ServeRequest request,
-            Map<String, Object> parentParamsMetadata, SerialQueryStreamObserver observer, List<Member> members,
+            Map<String, Object> parentParamsMetadata,
+            SerialQueryStreamObserver observer, List<Member> members,
             boolean shouldResume) {
         this.batchId = batchId;
         this.parentTaskId = parentTaskId;
         this.request = request;
+        this.parentModelName = request.getModelName();
         this.parentParamsMetadata = RemoteInvocationBatchMapper.cleanRequestMetadata(parentParamsMetadata);
         this.observer = observer;
         this.members = members;
@@ -64,6 +72,8 @@ final class RemoteInvocationBatch {
 
         final String agentName;
 
+        final Map<String, Object> requestMetadata;
+
         String message;
 
         /** Normalized Part list carried from the interrupt payload; empty when absent. */
@@ -74,6 +84,9 @@ final class RemoteInvocationBatch {
         String remoteTaskId = "";
 
         Object result;
+
+        /** Response-side metadata exported only when this remote member completes successfully. */
+        Map<String, Object> responseMetadata = Map.of();
 
         String resultCategory;
 
@@ -90,14 +103,21 @@ final class RemoteInvocationBatch {
         Instant completedAt;
 
         Member(int index, String toolCallId, String toolName, String agentName, String message) {
+            this(index, toolCallId, toolName, agentName, message, Map.of());
+        }
+
+        Member(int index, String toolCallId, String toolName, String agentName, String message,
+                Map<String, Object> requestMetadata) {
             this.index = index;
             this.toolCallId = toolCallId;
             this.toolName = toolName;
             this.agentName = agentName;
             this.message = message;
+            this.requestMetadata = Collections.unmodifiableMap(new LinkedHashMap<>(requestMetadata));
         }
 
         void fail(MemberState failedState, String category, String failureMessage) {
+            responseMetadata = Map.of();
             resultCategory = category;
             errorMessage = failureMessage;
             remoteFailure = null;

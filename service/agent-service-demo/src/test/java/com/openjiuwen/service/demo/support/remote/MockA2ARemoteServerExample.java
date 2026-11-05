@@ -77,7 +77,7 @@ public class MockA2ARemoteServerExample {
 
         Map<String, Object> responseMessage = new LinkedHashMap<>();
         responseMessage.put("messageId", "mock-a2a-response");
-        responseMessage.put("role", "ROLE_AGENT");
+        responseMessage.put("role", "ROLE_USER");
         if (contextId != null) {
             responseMessage.put("contextId", String.valueOf(contextId));
         }
@@ -110,6 +110,10 @@ public class MockA2ARemoteServerExample {
     }
 
     private String firstText(Map<String, Object> message) {
+        Object query = message.get("query");
+        if (query != null) {
+            return String.valueOf(query);
+        }
         Object parts = message.get("parts");
         if (!(parts instanceof List<?> list)) {
             return "";
