@@ -9,6 +9,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
+import com.openjiuwen.service.adapters.agentcore.middleware.CheckpointKVStoreProvider;
+import com.openjiuwen.core.foundation.store.BaseKVStore;
+import com.openjiuwen.core.foundation.store.kv.InMemoryKVStore;
+import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
+import com.openjiuwen.core.session.checkpointer.PersistenceCheckpointer;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
@@ -76,5 +81,49 @@ class MiddlewareAdaptersAutoConfigurationTest {
         CredentialDecryptor credentialDecryptor() {
             return ciphertext -> "decrypted";
         }
+    }
+
+    @Test
+    void extensionProvidesExactStoreAndReusesItBeforeRunnerStart() {
+        InMemoryKVStore store = new InMemoryKVStore();
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=custom",
+                "openjiuwen.service.middleware.checkpointer.backend-ref=primary")
+                .withBean(CheckpointKVStoreProvider.class, () -> new CheckpointKVStoreProvider() {
+                    public String type() { return "custom"; }
+                    public BaseKVStore getStore(String ref) {
+                        assertThat(ref).isEqualTo("primary");
+                        calls.incrementAndGet();
+                        return store;
+                    }
+                }).run(context -> {
+                    assertThat(context).hasNotFailed();
+                    var registrar = context.getBean(MiddlewareAdapterRegistrar.class);
+                    registrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
+                    registrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());
+                    var config = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
+                    assertThat(config.getType()).isEqualTo("persistence");
+                    assertThat(config.getConf().get("kv_store")).isSameAs(store);
+                    assertThat(((PersistenceCheckpointer) CheckpointerFactory.create(config)).kvStore()).isSameAs(store);
+                    assertThat(calls).hasValue(1);
+                });
+    }
+
+    @Test
+    void extensionRejectsMissingDuplicateAndNullStoreProviders() {
+        var configured = contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=custom");
+        configured.run(context -> assertThat(context).hasFailed());
+        configured.withBean("first", CheckpointKVStoreProvider.class, () -> provider(new InMemoryKVStore()))
+                .withBean("second", CheckpointKVStoreProvider.class, () -> provider(new InMemoryKVStore()))
+                .run(context -> assertThat(context).hasFailed());
+        configured.withBean(CheckpointKVStoreProvider.class, () -> provider(null))
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    private static CheckpointKVStoreProvider provider(BaseKVStore store) {
+        return new CheckpointKVStoreProvider() {
+            public String type() { return "custom"; }
+            public BaseKVStore getStore(String ref) { return store; }
+        };
     }
 }

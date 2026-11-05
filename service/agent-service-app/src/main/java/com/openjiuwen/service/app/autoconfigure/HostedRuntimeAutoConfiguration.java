@@ -24,6 +24,7 @@ import com.openjiuwen.service.app.hosting.HostedIngressResolver;
 import com.openjiuwen.service.app.hosting.HostedLifecycleCoordinator;
 import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
 import com.openjiuwen.service.app.hosting.HostedRuntimeAssembler;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider;
 import com.openjiuwen.service.app.hosting.HostedRuntimeCatalog;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
@@ -236,7 +237,7 @@ public class HostedRuntimeAutoConfiguration {
     @Bean
     public HostedRuntimeAssembler hostedRuntimeAssembler(A2AProperties properties, HostedResources resources,
             RemoteInvocationDispatcher dispatcher, HostedAgentCardFactory cards,
-            AdmissionReleaseCoordinator admissionCoordinator) {
+            AdmissionReleaseCoordinator admissionCoordinator, ObjectProvider<A2ATaskStoreProvider> taskStoreProviders) {
         TaskAdmissionGate gate = admissionGate.getIfAvailable();
         var dependencies = new HostedRuntimeAssembler.Dependencies(properties, middleware.getIfAvailable(),
                 redisClient.getIfAvailable(), remoteCaller.getObject(),
@@ -245,7 +246,7 @@ public class HostedRuntimeAutoConfiguration {
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build(), admissionCoordinator,
                 A2AAutoConfiguration.resolveResponseHook(remoteProjectionHook, RemoteProjectionHook.class).orElse(null),
                 A2AAutoConfiguration.resolveResponseHook(remoteTaskResultHook, RemoteTaskResultHook.class)
-                        .orElse(null));
+                        .orElse(null), taskStoreProviders.stream().toList());
         return new HostedRuntimeAssembler(dependencies, extensions.orderedStream().toList(),
                 beanFactory.getBean(HostedRemoteAgentCatalogs.class));
     }

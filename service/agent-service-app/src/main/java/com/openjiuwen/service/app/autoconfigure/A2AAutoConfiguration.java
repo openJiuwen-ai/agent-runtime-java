@@ -19,6 +19,9 @@ import com.openjiuwen.service.app.hosting.HostedRuntimeCatalog;
 import com.openjiuwen.service.app.hosting.InstanceCatalog;
 import com.openjiuwen.service.app.hosting.StandardInstanceCatalog;
 import com.openjiuwen.service.app.config.A2AProperties;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider.TaskStoreContext;
+import jakarta.annotation.PreDestroy;
 import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
@@ -90,6 +93,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executor;
@@ -113,6 +117,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 @EnableConfigurationProperties({A2AProperties.class, RemoteCatalogProperties.class})
 public class A2AAutoConfiguration {
     private static final Logger log = LoggerFactory.getLogger(A2AAutoConfiguration.class);
+
+    private final List<Runnable> taskStoreCleanup = new ArrayList<>();
 
     private static final Map<String, String> A2A_RUNTIME_DEFAULTS = Map.of("a2a.blocking.agent.timeout.seconds", "300");
 
@@ -186,12 +192,30 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean({TaskStore.class, HostedAgentDefinitions.class})
     public TaskStore a2aTaskStore(ObjectProvider<MiddlewareProperties> middlewareProvider,
-            ObjectProvider<RuntimeRedisClient> redisClientProvider, A2AProperties a2aProperties) {
+            ObjectProvider<RuntimeRedisClient> redisClientProvider, A2AProperties a2aProperties,
+            ObjectProvider<A2ATaskStoreProvider> taskStoreProviders,
+            @Value("${spring.application.name:agent}") String applicationName,
+            ObjectProvider<ServiceProperties> servicePropertiesProvider) {
         MiddlewareProperties middlewareProperties = middlewareProvider.getIfAvailable();
         RuntimeRedisClient redisClient = middlewareProperties != null
                 && "redis".equals(middlewareProperties.getCheckpointer().getType())
                 ? redisClientProvider.getIfAvailable() : null;
-        return createTaskStore(middlewareProperties, redisClient, a2aProperties);
+        String configuredType = middlewareProperties == null ? null
+                : middlewareProperties.getCheckpointer().getType();
+        String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
+        String ref = "in_memory".equals(type) || "redis".equals(type) ? "default"
+                : middlewareProperties.getCheckpointer().getBackendRef();
+        ServiceProperties service = servicePropertiesProvider.getIfAvailable();
+        String agentId = service == null || service.getAgentId() == null || service.getAgentId().isBlank()
+                ? applicationName : service.getAgentId();
+        try {
+            return createTaskStore(middlewareProperties, redisClient, a2aProperties,
+                    new TaskStoreContext(applicationName, agentId, ref, taskStoreCleanup::add),
+                    taskStoreProviders.stream().toList());
+        } catch (RuntimeException | Error failure) {
+            closeTaskStoreResources();
+            throw failure;
+        }
     }
 
     /**
@@ -204,7 +228,17 @@ public class A2AAutoConfiguration {
      */
     public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
             RuntimeRedisClient redisClient, A2AProperties a2aProperties) {
-        if (middlewareProperties != null && "redis".equals(middlewareProperties.getCheckpointer().getType())) {
+        return createTaskStore(middlewareProperties, redisClient, a2aProperties,
+                new TaskStoreContext("agent", "agent", "default", cleanup -> { }), List.of());
+    }
+
+    /** Creates one raw extension store in the supplied scope, then applies framework throttling once. */
+    public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
+            RuntimeRedisClient redisClient, A2AProperties a2aProperties, TaskStoreContext context,
+            List<A2ATaskStoreProvider> providers) {
+        String configuredType = middlewareProperties == null ? null : middlewareProperties.getCheckpointer().getType();
+        String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
+        if ("redis".equals(type)) {
             if (redisClient == null) {
                 throw new IllegalStateException("RuntimeRedisClient is required for redis A2A task store");
             }
@@ -215,7 +249,31 @@ public class A2AAutoConfiguration {
                     new RedisTaskStore(redisClient, middlewareProperties.getCheckpointer().getTtlSeconds()),
                     a2aProperties.getTaskStoreWriteThrottleMs());
         }
-        return new InMemoryTaskStore();
+        if ("in_memory".equals(type)) {
+            return new InMemoryTaskStore();
+        }
+        var matches = providers.stream().filter(provider -> type.equals(provider.type())).toList();
+        if (matches.size() != 1) {
+            throw new IllegalStateException("Expected one A2ATaskStoreProvider for type " + type
+                    + ", found " + matches.size());
+        }
+        TaskStore raw = matches.get(0).create(context);
+        if (raw == null || raw instanceof WriteThrottlingTaskStore) {
+            throw new IllegalStateException("A2ATaskStoreProvider must return a raw non-null store for type " + type);
+        }
+        return new WriteThrottlingTaskStore(raw, a2aProperties.getTaskStoreWriteThrottleMs());
+    }
+
+    @PreDestroy
+    void closeTaskStoreResources() {
+        for (int index = taskStoreCleanup.size() - 1; index >= 0; index--) {
+            try {
+                taskStoreCleanup.get(index).run();
+            } catch (RuntimeException failure) {
+                log.warn("Task store resource cleanup failed", failure);
+            }
+        }
+        taskStoreCleanup.clear();
     }
 
     /**
