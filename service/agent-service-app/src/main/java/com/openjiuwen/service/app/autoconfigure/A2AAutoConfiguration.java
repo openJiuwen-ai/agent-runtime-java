@@ -228,14 +228,6 @@ public class A2AAutoConfiguration {
      */
     public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
             RuntimeRedisClient redisClient, A2AProperties a2aProperties) {
-        return createTaskStore(middlewareProperties, redisClient, a2aProperties,
-                new TaskStoreContext("agent", "agent", "default", cleanup -> { }), List.of());
-    }
-
-    /** Creates one raw extension store in the supplied scope, then applies framework throttling once. */
-    public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
-            RuntimeRedisClient redisClient, A2AProperties a2aProperties, TaskStoreContext context,
-            List<A2ATaskStoreProvider> providers) {
         String configuredType = middlewareProperties == null ? null : middlewareProperties.getCheckpointer().getType();
         String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
         if ("redis".equals(type)) {
@@ -251,6 +243,18 @@ public class A2AAutoConfiguration {
         }
         if ("in_memory".equals(type)) {
             return new InMemoryTaskStore();
+        }
+        throw new IllegalStateException("Expected one A2ATaskStoreProvider for type " + type + ", found 0");
+    }
+
+    /** Creates one raw extension store in the supplied scope, then applies framework throttling once. */
+    public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
+            RuntimeRedisClient redisClient, A2AProperties a2aProperties, TaskStoreContext context,
+            List<A2ATaskStoreProvider> providers) {
+        String configuredType = middlewareProperties == null ? null : middlewareProperties.getCheckpointer().getType();
+        String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
+        if ("in_memory".equals(type) || "redis".equals(type)) {
+            return createTaskStore(middlewareProperties, redisClient, a2aProperties);
         }
         var matches = providers.stream().filter(provider -> type.equals(provider.type())).toList();
         if (matches.size() != 1) {
