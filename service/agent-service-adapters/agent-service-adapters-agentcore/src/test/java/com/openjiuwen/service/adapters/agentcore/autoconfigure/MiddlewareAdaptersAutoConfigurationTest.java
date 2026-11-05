@@ -88,7 +88,7 @@ class MiddlewareAdaptersAutoConfigurationTest {
         InMemoryKVStore store = new InMemoryKVStore();
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=custom",
-                "openjiuwen.service.middleware.checkpointer.backend-ref=primary")
+                "openjiuwen.service.middleware.checkpointer.connection-ref=primary")
                 .withBean(CheckpointKVStoreProvider.class, () -> new CheckpointKVStoreProvider() {
                     public String type() { return "custom"; }
                     public BaseKVStore getStore(String ref) {

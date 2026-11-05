@@ -21,15 +21,15 @@ public interface A2ATaskStoreProvider {
      * synchronously during create; the framework runs it once on failure or shutdown.
      * Shared application resources must be managed by their application owner instead.
      */
-    record TaskStoreContext(String applicationName, String agentId, String backendRef,
+    record TaskStoreContext(String applicationName, String agentId, String connectionRef,
             Consumer<Runnable> onClose) {
         public TaskStoreContext {
             Objects.requireNonNull(applicationName, "applicationName");
             Objects.requireNonNull(agentId, "agentId");
-            Objects.requireNonNull(backendRef, "backendRef");
+            Objects.requireNonNull(connectionRef, "connectionRef");
             Objects.requireNonNull(onClose, "onClose");
-            if (applicationName.isBlank() || agentId.isBlank() || backendRef.isBlank()) {
-                throw new IllegalArgumentException("Task store scope and backend-ref must not be blank");
+            if (applicationName.isBlank() || agentId.isBlank() || connectionRef.isBlank()) {
+                throw new IllegalArgumentException("Task store scope and connection-ref must not be blank");
             }
         }
     }

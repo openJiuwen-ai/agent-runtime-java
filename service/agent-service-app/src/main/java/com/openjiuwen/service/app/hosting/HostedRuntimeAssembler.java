@@ -91,7 +91,7 @@ public final class HostedRuntimeAssembler {
                     : dependencies.middleware().getCheckpointer().getType();
             String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
             String ref = "in_memory".equals(type) || "redis".equals(type) ? "default"
-                    : dependencies.middleware().getCheckpointer().getBackendRef();
+                    : dependencies.middleware().getCheckpointer().getConnectionRef();
             TaskStore store = A2AAutoConfiguration.createTaskStore(dependencies.middleware(), scoped,
                     dependencies.properties(), new TaskStoreContext(applicationName, entry.agentId(),
                             ref, assembly::onClose),

@@ -50,7 +50,7 @@ class TaskStoreProviderTest {
                             .isInstanceOf(TaskStateProvider.class);
                     assertThat(scope.get().applicationName()).isEqualTo("business");
                     assertThat(scope.get().agentId()).isEqualTo("registered-agent");
-                    assertThat(scope.get().backendRef()).isEqualTo("primary");
+                    assertThat(scope.get().connectionRef()).isEqualTo("primary");
                     assertThat(closed).hasValue(0);
                 });
         assertThat(closed).hasValue(1);
@@ -76,9 +76,9 @@ class TaskStoreProviderTest {
     }
 
     @Test
-    void builtinsIgnoreExtensionProvidersAndBackendReference() {
+    void builtinsIgnoreExtensionProvidersAndConnectionReference() {
         var props = properties("in_memory");
-        props.getCheckpointer().setBackendRef(null);
+        props.getCheckpointer().setConnectionRef(null);
         var ctx = new TaskStoreContext("app", "agent", "default", cleanup -> { });
         TaskStore result = A2AAutoConfiguration.createTaskStore(props, null, new A2AProperties(), ctx,
                 List.of(provider(scope -> { throw new AssertionError("Must not select extension"); })));
@@ -88,7 +88,7 @@ class TaskStoreProviderTest {
     private static MiddlewareProperties properties(String type) {
         var props = new MiddlewareProperties();
         props.getCheckpointer().setType(type);
-        props.getCheckpointer().setBackendRef("primary");
+        props.getCheckpointer().setConnectionRef("primary");
         return props;
     }
 

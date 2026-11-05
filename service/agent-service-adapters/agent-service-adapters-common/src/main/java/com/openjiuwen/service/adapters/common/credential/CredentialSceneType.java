@@ -37,6 +37,9 @@ public final class CredentialSceneType {
     /** Ingress/outbound TLS trust store password credential. */
     public static final int TLS_TRUSTSTORE_PASSWORD = 14;
 
+    /** Custom password credential. */
+    public static final int CUSTOM_PASSWORD = 100;
+
     private CredentialSceneType() {
     }
 }

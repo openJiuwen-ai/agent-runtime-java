@@ -204,7 +204,7 @@ public class A2AAutoConfiguration {
                 : middlewareProperties.getCheckpointer().getType();
         String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
         String ref = "in_memory".equals(type) || "redis".equals(type) ? "default"
-                : middlewareProperties.getCheckpointer().getBackendRef();
+                : middlewareProperties.getCheckpointer().getConnectionRef();
         ServiceProperties service = servicePropertiesProvider.getIfAvailable();
         String agentId = service == null || service.getAgentId() == null || service.getAgentId().isBlank()
                 ? applicationName : service.getAgentId();

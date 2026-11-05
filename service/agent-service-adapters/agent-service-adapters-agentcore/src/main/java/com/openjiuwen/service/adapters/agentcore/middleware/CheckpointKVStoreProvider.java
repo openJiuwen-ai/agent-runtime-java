@@ -14,5 +14,5 @@ public interface CheckpointKVStoreProvider {
     String type();
 
     /** Returns the initialized store for a named connection, reused across registrar applications. */
-    BaseKVStore getStore(String backendRef);
+    BaseKVStore getStore(String connectionRef);
 }

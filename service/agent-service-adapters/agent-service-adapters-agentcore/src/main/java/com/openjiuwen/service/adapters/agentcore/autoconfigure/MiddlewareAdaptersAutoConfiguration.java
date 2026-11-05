@@ -60,9 +60,9 @@ public class MiddlewareAdaptersAutoConfiguration {
                 throw new IllegalStateException("Expected one CheckpointKVStoreProvider for type " + type
                         + ", found " + matches.size());
             }
-            String ref = middlewareProperties.getCheckpointer().getBackendRef();
+            String ref = middlewareProperties.getCheckpointer().getConnectionRef();
             if (ref == null || ref.isBlank()) {
-                throw new IllegalArgumentException("checkpointer.backend-ref must not be blank for type " + type);
+                throw new IllegalArgumentException("checkpointer.connection-ref must not be blank for type " + type);
             }
             BaseKVStore store = matches.get(0).getStore(ref);
             if (store == null) {

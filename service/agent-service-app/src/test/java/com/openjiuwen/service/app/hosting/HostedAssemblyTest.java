@@ -84,7 +84,7 @@ class HostedAssemblyTest {
         var closed = new java.util.concurrent.atomic.AtomicInteger();
         var middleware = new MiddlewareProperties();
         middleware.getCheckpointer().setType("custom");
-        middleware.getCheckpointer().setBackendRef("primary");
+        middleware.getCheckpointer().setConnectionRef("primary");
         runner.withBean(MiddlewareProperties.class, () -> middleware)
                 .withBean(A2ATaskStoreProvider.class, () -> new A2ATaskStoreProvider() {
                     public String type() { return "custom"; }
@@ -103,7 +103,7 @@ class HostedAssemblyTest {
                             .containsExactly("a", "b");
                     assertThat(scopes).allSatisfy(scope -> {
                         assertThat(scope.applicationName()).isEqualTo("hosted-test");
-                        assertThat(scope.backendRef()).isEqualTo("primary");
+                        assertThat(scope.connectionRef()).isEqualTo("primary");
                     });
                     assertThat(stores.get(0)).isNotSameAs(stores.get(1));
                     lifecycle.runShutdownPhase();

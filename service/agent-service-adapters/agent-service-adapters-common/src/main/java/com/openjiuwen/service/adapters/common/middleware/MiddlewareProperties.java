@@ -93,7 +93,7 @@ public class MiddlewareProperties {
 
         private String redisRef = "default";
 
-        private String backendRef = "default";
+        private String connectionRef = "default";
 
         private long ttlSeconds = DEFAULT_TTL_SECONDS;
 
@@ -109,12 +109,12 @@ public class MiddlewareProperties {
             return redisRef;
         }
 
-        public String getBackendRef() {
-            return backendRef;
+        public String getConnectionRef() {
+            return connectionRef;
         }
 
-        public void setBackendRef(String backendRef) {
-            this.backendRef = backendRef;
+        public void setConnectionRef(String connectionRef) {
+            this.connectionRef = connectionRef;
         }
 
         public void setRedisRef(String redisRef) {
