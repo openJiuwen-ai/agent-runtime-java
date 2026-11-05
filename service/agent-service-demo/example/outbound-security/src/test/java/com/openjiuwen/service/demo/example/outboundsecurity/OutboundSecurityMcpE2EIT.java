@@ -6,7 +6,6 @@ package com.openjiuwen.service.demo.example.outboundsecurity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIf;
 
@@ -23,7 +22,6 @@ class OutboundSecurityMcpE2EIT {
         return true;
     }
 
-    @Tag("smoke")
     @Test
     void listsToolsOverHttpsWithBearerAuth() throws Exception {
         List<String> toolNames = OutboundSecurityMcpClientExample.runDemo(0);
