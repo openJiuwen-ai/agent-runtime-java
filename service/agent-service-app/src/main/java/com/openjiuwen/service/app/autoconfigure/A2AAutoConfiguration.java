@@ -9,8 +9,17 @@ import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
 import com.openjiuwen.service.adapters.common.security.ExternalOutboundSecuritySupport;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
+import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogProperties;
+import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogRefresher;
+import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogSource;
+import com.openjiuwen.service.app.hosting.HostedAgentCardFactory;
+import com.openjiuwen.service.app.hosting.HostedInstanceCatalog;
 import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
+import com.openjiuwen.service.app.hosting.HostedRuntimeCatalog;
+import com.openjiuwen.service.app.hosting.InstanceCatalog;
+import com.openjiuwen.service.app.hosting.StandardInstanceCatalog;
 import com.openjiuwen.service.app.config.A2AProperties;
+import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
@@ -18,21 +27,28 @@ import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCapabilityGate;
+import com.openjiuwen.service.app.controller.a2a.AdmissionReleaseCoordinator;
 import com.openjiuwen.service.app.controller.a2a.HttpPushNotificationSender;
 import com.openjiuwen.service.app.controller.a2a.InMemoryA2aPushNotificationCallbackStore;
 import com.openjiuwen.service.app.controller.a2a.NoOpA2aPushNotificationCallbackHandler;
 import com.openjiuwen.service.app.controller.a2a.RedisTaskStore;
 import com.openjiuwen.service.app.controller.a2a.ResilientMainEventBusProcessor;
+import com.openjiuwen.service.app.controller.a2a.StandardAgentCardFactory;
 import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2AAgentCardDiscovery;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
+import com.openjiuwen.service.app.controller.a2a.client.CandidateSelector;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
+import com.openjiuwen.service.app.controller.a2a.client.WeightedRandomCandidateSelector;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
+import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
@@ -55,8 +71,10 @@ import org.a2aproject.sdk.server.tasks.PushNotificationSender;
 import org.a2aproject.sdk.server.tasks.TaskStateProvider;
 import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.Event;
+import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -67,10 +85,13 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -89,7 +110,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @AutoConfiguration(after = {AgentServiceAutoConfiguration.class, RedisMiddlewareAutoConfiguration.class})
 @ConditionalOnClass(AgentExecutor.class)
-@EnableConfigurationProperties(A2AProperties.class)
+@EnableConfigurationProperties({A2AProperties.class, RemoteCatalogProperties.class})
 public class A2AAutoConfiguration {
     private static final Logger log = LoggerFactory.getLogger(A2AAutoConfiguration.class);
 
@@ -102,6 +123,46 @@ public class A2AAutoConfiguration {
      */
     @Autowired
     private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
+
+    /**
+     * Remote caller provider. Field-injected so the
+     * {@code a2aEnabledServeOrchestrator} bean method stays within five
+     * parameters.
+     */
+    @Autowired
+    private ObjectProvider<RemoteAgentCaller> remoteCallerProvider;
+
+    @Autowired
+    private ObjectProvider<RemoteProjectionHook> remoteProjectionHookProvider;
+
+    @Autowired
+    private ObjectProvider<RemoteTaskResultHook> remoteTaskResultHookProvider;
+
+    /**
+     * Active stream registry provider. Field-injected so the
+     * {@code a2aEnabledServeOrchestrator} bean method stays within five
+     * parameters.
+     */
+    @Autowired
+    private ObjectProvider<ActiveStreamRegistry> streamRegistryProvider;
+
+    /**
+     * Resolves an optional response hook without implicit name or primary selection.
+     *
+     * @param provider available hook candidates
+     * @param hookType response hook interface
+     * @param <T> hook type
+     * @return the only hook, or an empty Optional when none is registered
+     * @throws NoUniqueBeanDefinitionException when multiple hooks are registered
+     */
+    static <T> Optional<T> resolveResponseHook(ObjectProvider<T> provider, Class<T> hookType) {
+        List<T> candidates = provider.stream().toList();
+        if (candidates.size() > 1) {
+            throw new NoUniqueBeanDefinitionException(hookType, candidates.size(),
+                    "At most one response hook is allowed");
+        }
+        return candidates.stream().findFirst();
+    }
 
     /**
      * Creates the SDK main event bus bean.
@@ -231,6 +292,36 @@ public class A2AAutoConfiguration {
     }
 
     /**
+     * Creates the admission-release coordinator that owns the permit
+     * lifecycle under the consequence-landed release model: permits are
+     * returned when a round's terminal or interrupted event has been consumed
+     * by the event processor, with a TTL fallback for lost consequences.
+     * Assembled after the queue manager, main event bus and task store so the
+     * stall detector observes the real bus and the TTL condition observes the
+     * real store.
+     *
+     * @param taskStore the task store; when it implements
+     *        {@link TaskStateProvider} it also drives the TTL final-state
+     *        condition
+     * @param mainEventBus the main assembly event bus used for stall detection
+     * @param properties the A2A properties carrying the release TTL
+     * @param admissionGateProvider the admission gate provider (optional; a
+     *        missing gate yields a no-op coordinator)
+     * @param admissionListenerProvider the admission lifecycle listener
+     *        provider (optional)
+     * @return the admission-release coordinator
+     */
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean({AdmissionReleaseCoordinator.class, HostedAgentDefinitions.class})
+    public AdmissionReleaseCoordinator a2aAdmissionReleaseCoordinator(TaskStore taskStore, MainEventBus mainEventBus,
+            A2AProperties properties, ObjectProvider<TaskAdmissionGate> admissionGateProvider,
+            ObjectProvider<TaskAdmissionListener> admissionListenerProvider) {
+        TaskStateProvider taskStateProvider = taskStore instanceof TaskStateProvider provider ? provider : null;
+        return new AdmissionReleaseCoordinator(admissionGateProvider.getIfAvailable(), mainEventBus,
+                taskStateProvider, properties, admissionListenerProvider.getIfAvailable());
+    }
+
+    /**
      * Creates the main event bus processor bean. The resilient variant restarts
      * the processing loop after an unexpected death, and the finalize callback
      * closes the task's queue so abandoned queues do not accumulate.
@@ -239,32 +330,52 @@ public class A2AAutoConfiguration {
      * @param taskStore the task store
      * @param pushSender the push notification sender
      * @param queueManager the queue manager
+     * @param admissionReleaseCoordinator the admission-release coordinator
+     *        owning the permit lifecycle
      * @return the main event bus processor
      */
     @Bean
     @ConditionalOnMissingBean({MainEventBusProcessor.class, HostedAgentDefinitions.class})
     public MainEventBusProcessor a2aMainEventBusProcessor(MainEventBus mainEventBus, TaskStore taskStore,
-            PushNotificationSender pushSender, QueueManager queueManager) {
-        return createEventProcessor(mainEventBus, taskStore, pushSender, queueManager);
+            PushNotificationSender pushSender, QueueManager queueManager,
+            AdmissionReleaseCoordinator admissionReleaseCoordinator) {
+        return createEventProcessor(mainEventBus, taskStore, pushSender, queueManager, admissionReleaseCoordinator);
     }
 
     /**
-     * Builds the existing event processor with its original finalization callback.
+     * Builds the existing event processor with its original finalization
+     * callback, extended with the admission-release signals: the interrupted
+     * filter and {@code consequenceLanded} release trigger in both event
+     * callbacks, plus the consumption heartbeat. The heartbeat feeds the
+     * coordinator's stall detector only; when the coordinator is assembled
+     * without a main event bus (hosted targets) the detector stays inert, so
+     * the heartbeat is harmless there and needs no caller-side switch.
      *
      * @param mainEventBus SDK event bus
      * @param taskStore final task store
      * @param pushSender push notification sender
      * @param queueManager SDK event queues
-     * @return processor with task finalization cleanup installed
+     * @param admissionReleaseCoordinator the admission-release coordinator
+     *        owning the permit lifecycle; may be null to keep the plain
+     *        cleanup-only callback
+     * @return processor with task finalization cleanup and release signals
      */
     public static MainEventBusProcessor createEventProcessor(MainEventBus mainEventBus, TaskStore taskStore,
-            PushNotificationSender pushSender, QueueManager queueManager) {
+            PushNotificationSender pushSender, QueueManager queueManager,
+            AdmissionReleaseCoordinator admissionReleaseCoordinator) {
         ResilientMainEventBusProcessor processor = new ResilientMainEventBusProcessor(mainEventBus, taskStore,
                 pushSender, queueManager);
         processor.setCallback(new MainEventBusProcessorCallback() {
             @Override
             public void onEventProcessed(String taskId, Event event) {
-                // Intentionally empty: production keeps the SDK's default no-op behavior.
+                if (admissionReleaseCoordinator == null) {
+                    return;
+                }
+                admissionReleaseCoordinator.heartbeat();
+                if (event instanceof TaskStatusUpdateEvent statusUpdate
+                        && statusUpdate.isFinalOrInterrupted() && !statusUpdate.isFinal()) {
+                    admissionReleaseCoordinator.consequenceLanded(taskId);
+                }
             }
 
             @Override
@@ -274,6 +385,9 @@ public class A2AAutoConfiguration {
                 } catch (NoTaskQueueException e) {
                     // Already closed or absent -- nothing to clean up for this task.
                     log.debug("A2A task {} queue already closed or absent", taskId);
+                }
+                if (admissionReleaseCoordinator != null) {
+                    admissionReleaseCoordinator.consequenceLanded(taskId);
                 }
             }
         });
@@ -316,15 +430,18 @@ public class A2AAutoConfiguration {
      * @param admissionListenerProvider the admission lifecycle listener
      *        provider (optional; the listener bean typically comes from the
      *        ext module's concurrency auto-configuration)
+     * @param admissionReleaseCoordinator the admission-release coordinator
+     *        owning the permit lifecycle (DFX-006)
      * @return the A2A agent executor
      */
     @Bean
     @ConditionalOnMissingBean({A2AAgentExecutor.class, HostedAgentDefinitions.class})
     public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
             ObjectProvider<TaskAdmissionGate> admissionGateProvider,
-            ObjectProvider<TaskAdmissionListener> admissionListenerProvider) {
+            ObjectProvider<TaskAdmissionListener> admissionListenerProvider,
+            AdmissionReleaseCoordinator admissionReleaseCoordinator) {
         return new A2AAgentExecutor(orchestrator, adapter, admissionGateProvider.getIfAvailable(),
-                admissionListenerProvider.getIfAvailable());
+                admissionListenerProvider.getIfAvailable(), admissionReleaseCoordinator);
     }
 
     /**
@@ -378,14 +495,20 @@ public class A2AAutoConfiguration {
      * @param registry the remote agent card registry
      * @param props A2A runtime properties
      * @param securitySupportProvider provider for optional outbound security support
+     * @param candidateSelector the instance candidate selection strategy
      * @return the default remote agent caller
      */
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCaller.class)
     public A2ARemoteAgentClient defaultRemoteAgentCaller(A2ARemoteAgentCardRegistry registry, A2AProperties props,
-            ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider) {
-        return new A2ARemoteAgentClient(registry, props.getRemoteInvocation().getMaxConcurrency(),
-                securitySupportProvider.getIfAvailable());
+            ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider,
+            CandidateSelector candidateSelector) {
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry,
+                props.getRemoteInvocation().getMaxConcurrency(),
+                securitySupportProvider.getIfAvailable(), candidateSelector,
+                resolveResponseHook(remoteTaskResultHookProvider, RemoteTaskResultHook.class).orElse(null));
+        client.setOutboundHeaders(props.getOutboundHeaders());
+        return client;
     }
 
     /**
@@ -397,22 +520,109 @@ public class A2AAutoConfiguration {
      * @param props the A2A properties
      * @param registry the remote agent card registry
      * @param hostedCatalogs optional hosted remote directories
+     * @param catalogSource optional dynamic catalog source; its presence makes
+     *        static discovery step aside in favor of the refresher
      * @return the agent card discovery
      */
     @Bean
     @ConditionalOnMissingBean(RemoteAgentCardResolver.class)
     public A2AAgentCardDiscovery a2aAgentCardDiscovery(A2AProperties props, A2ARemoteAgentCardRegistry registry,
-            ObjectProvider<HostedRemoteAgentCatalogs> hostedCatalogs) {
-        return new A2AAgentCardDiscovery(props, registry, hostedCatalogs.getIfAvailable());
+            ObjectProvider<HostedRemoteAgentCatalogs> hostedCatalogs,
+            ObjectProvider<RemoteCatalogSource> catalogSource) {
+        return new A2AAgentCardDiscovery(props, registry, hostedCatalogs.getIfAvailable(), catalogSource);
     }
 
     /**
-     * Creates the A2A-enabled serve orchestrator bean as the default orchestrator.
+     * Creates the instance candidate selection strategy for multi-instance
+     * weighted routing and failover. Deployments may override with a custom
+     * {@link CandidateSelector}.
+     *
+     * @return the weighted random candidate selector
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CandidateSelector a2aCandidateSelector() {
+        return new WeightedRandomCandidateSelector();
+    }
+
+    /**
+     * Creates the TTL refresher pulling unified catalog snapshots from the
+     * remote catalog source into the registry. The refresher resolves the
+     * source at start time and stays idle when no source bean is defined, so
+     * static discovery remains the sole catalog owner in that case.
+     *
+     * @param registry the remote agent card registry
+     * @param properties the refresh configuration
+     * @param sourceProvider the remote catalog source provider
+     * @return the remote catalog refresher
+     */
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean
+    public RemoteCatalogRefresher remoteCatalogRefresher(A2ARemoteAgentCardRegistry registry,
+            RemoteCatalogProperties properties, ObjectProvider<RemoteCatalogSource> sourceProvider) {
+        return new RemoteCatalogRefresher(sourceProvider, registry, properties);
+    }
+
+    /**
+     * Creates the standard card factory shared by the standard instance
+     * catalog. The well-known card endpoint builds its own equal factory from
+     * the same immutable configuration, so the served card and the registered
+     * card are always the same fact. Lazily instantiated: minimal
+     * applications that never consume the instance catalog must not need the
+     * identity and capability beans it depends on.
+     *
+     * @param properties the A2A configuration properties
+     * @param identity the agent service identity
+     * @param serviceProperties the service properties
+     * @param pushNotificationCapabilityGate the push notification capability gate
+     * @return the standard card factory
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    public StandardAgentCardFactory standardAgentCardFactory(A2AProperties properties, AgentServiceIdentity identity,
+            ServiceProperties serviceProperties, A2aPushNotificationCapabilityGate pushNotificationCapabilityGate) {
+        return new StandardAgentCardFactory(properties, identity, serviceProperties, pushNotificationCapabilityGate);
+    }
+
+    /**
+     * Creates the instance catalog describing what this process publishes for
+     * unified-registry registration: every hosted registration in hosted mode,
+     * the single standard instance otherwise. Lazily instantiated: only the
+     * registration extension consumes it, so minimal applications must not
+     * need the identity beans it depends on.
+     *
+     * @param standardCards the standard card factory
+     * @param identity the agent service identity
+     * @param properties the A2A configuration properties
+     * @param hostedCatalogProvider the hosted runtime catalog provider (hosted mode)
+     * @param hostedCardsProvider the hosted card factory provider (hosted mode)
+     * @return the instance catalog
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean(InstanceCatalog.class)
+    public InstanceCatalog instanceCatalog(StandardAgentCardFactory standardCards, AgentServiceIdentity identity,
+            A2AProperties properties, ObjectProvider<HostedRuntimeCatalog> hostedCatalogProvider,
+            ObjectProvider<HostedAgentCardFactory> hostedCardsProvider) {
+        HostedRuntimeCatalog hostedCatalog = hostedCatalogProvider.getIfAvailable();
+        HostedAgentCardFactory hostedCards = hostedCardsProvider.getIfAvailable();
+        if ((hostedCatalog == null) ^ (hostedCards == null)) {
+            throw new IllegalStateException(
+                    "Hosted instance wiring is inconsistent: runtime catalog and card factory must "
+                            + "be provided together");
+        }
+        if (hostedCatalog != null) {
+            return new HostedInstanceCatalog(hostedCatalog, hostedCards);
+        }
+        return new StandardInstanceCatalog(standardCards, identity, properties.getJsonRpcPath());
+    }
+
+    /**
+     * Creates the A2A-enabled serve orchestrator bean.
      *
      * @param agentHandler the agent handler
      * @param taskStore the task store
-     * @param remoteAgentCaller the remote agent caller SPI
-     * @param streamRegistry the active stream registry
      * @param agentId the application name used as the agent identifier for shadow task namespacing
      * @param props A2A runtime properties
      * @param continuation the callback task continuation adapter
@@ -421,12 +631,14 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean({ServeOrchestrator.class, HostedAgentDefinitions.class})
     public A2AEnabledServeOrchestrator a2aEnabledServeOrchestrator(AgentHandler agentHandler, TaskStore taskStore,
-            RemoteAgentCaller remoteAgentCaller, ActiveStreamRegistry streamRegistry,
             @Value("${spring.application.name:agent}") String agentId, A2AProperties props,
             A2ATaskContinuation continuation) {
         A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
-        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteAgentCaller, streamRegistry, agentId,
-                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds(), continuation);
+        return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteCallerProvider.getObject(),
+                streamRegistryProvider.getObject(), agentId,
+                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds(), continuation,
+                resolveResponseHook(remoteProjectionHookProvider, RemoteProjectionHook.class).orElse(null),
+                resolveResponseHook(remoteTaskResultHookProvider, RemoteTaskResultHook.class).orElse(null));
     }
 
     /**

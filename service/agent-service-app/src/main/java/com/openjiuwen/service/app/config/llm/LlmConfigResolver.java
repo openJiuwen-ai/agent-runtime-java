@@ -7,10 +7,13 @@ package com.openjiuwen.service.app.config.llm;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
+import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog;
 
 import org.springframework.core.env.Environment;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -28,6 +31,14 @@ public final class LlmConfigResolver {
 
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
 
+    private static final Duration MIN_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+
+    private static final Duration MAX_CONNECT_TIMEOUT = Duration.ofSeconds(15);
+
+    private static final Duration MIN_STREAM_IDLE_TIMEOUT = Duration.ofSeconds(300);
+
+    private static final Duration MAX_STREAM_IDLE_TIMEOUT = Duration.ofSeconds(900);
+
     private static final int DEFAULT_CONTEXT_WINDOW_LIMIT = 10;
 
     private static final int DEFAULT_MAX_ITERATIONS = 5;
@@ -39,6 +50,8 @@ public final class LlmConfigResolver {
     private final CredentialDecryptor credentialDecryptor;
 
     private ResolvedLlmConfig resolved;
+
+    private LlmModelCatalog catalog;
 
     /**
      * Creates an LLM configuration resolver.
@@ -87,21 +100,76 @@ public final class LlmConfigResolver {
         return config;
     }
 
-    private ResolvedLlmConfig doResolve() {
-        boolean shouldAutoDiscover = Boolean.TRUE.equals(properties.getAutoDiscover());
-        ApiConfigLoader.ApiConfigValues fileValues = apiConfigLoader
-            .load(properties.getConfigFile(), shouldAutoDiscover)
-            .orElseGet(ApiConfigLoader.ApiConfigValues::empty);
+    /**
+     * Resolves the fixed deployment catalog from the same snapshot as the default model.
+     * Explicit Java callers may opt in independently of Spring auto-configuration.
+     *
+     * @return validated, decrypted catalog
+     */
+    public synchronized LlmModelCatalog resolveCatalog() {
+        if (catalog != null) {
+            return catalog;
+        }
+        ResolvedLlmConfig defaults = resolveRequired();
+        String defaultId = properties.getModelId() == null ? "default"
+            : requireModelId(properties.getModelId(), "openjiuwen.service.llm.model-id");
+        Map<String, LlmModelCatalog.ModelDefinition> models = new LinkedHashMap<>();
+        models.put(defaultId, new LlmModelCatalog.ModelDefinition(defaults.getProvider(), defaults.getApiKey(),
+            defaults.getApiBase(), defaults.getModelName(), defaults.isSslVerify()));
+        if (properties.getModels() != null) {
+            for (LlmProperties.ModelProperties item : properties.getModels()) {
+                if (item == null) {
+                    throw new IllegalStateException("openjiuwen.service.llm.models entries must be objects");
+                }
+                addModel(models, item);
+            }
+        }
+        catalog = new LlmModelCatalog(defaultId, models, defaults.getTemperature(), defaults.getTopP(),
+            defaults.getTimeout());
+        return catalog;
+    }
 
-        String encryptedApiKey = firstSecret(properties.getApiKey(), fileValues.apiKey());
-        String apiKey = decryptApiKey(encryptedApiKey);
+    private void addModel(Map<String, LlmModelCatalog.ModelDefinition> models,
+        LlmProperties.ModelProperties item) {
+        String source = "openjiuwen.service.llm.models";
+        String id = requireModelId(item.getModelId(), source + ".model-id");
+        if (models.containsKey(id)) {
+            throw new IllegalStateException("Duplicate model-id in LLM catalog");
+        }
+        String key = decryptApiKey(firstSecret(item.getApiKey(), Optional.empty()));
+        String base = firstText(item.getApiBase(), Optional.empty(), "");
+        String name = firstText(item.getModelName(), Optional.empty(), "");
+        requireText(key, source + ".api-key");
+        requireText(base, source + ".api-base");
+        requireText(name, source + ".model-name");
+        models.put(id, new LlmModelCatalog.ModelDefinition(
+            firstText(item.getProvider(), Optional.empty(), DEFAULT_PROVIDER), key, base, name,
+            item.getSslVerify() == null || item.getSslVerify()));
+    }
+
+    private static String requireModelId(String id, String propertyName) {
+        requireText(id, propertyName);
+        return id.trim();
+    }
+
+    private ResolvedLlmConfig doResolve() {
         double temperature = valueOrDefault(properties.getTemperature(), DEFAULT_TEMPERATURE);
         double topP = valueOrDefault(properties.getTopP(), DEFAULT_TOP_P);
         Duration timeout = properties.getTimeout() != null ? properties.getTimeout() : DEFAULT_TIMEOUT;
+        Duration connectTimeout = properties.getConnectTimeout() != null
+            ? properties.getConnectTimeout() : ResolvedLlmConfig.DEFAULT_CONNECT_TIMEOUT;
+        Duration streamIdleTimeout = properties.getStreamIdleSeconds() != null
+            ? properties.getStreamIdleSeconds() : ResolvedLlmConfig.DEFAULT_STREAM_IDLE_TIMEOUT;
         int contextWindowLimit = valueOrDefault(properties.getContextWindowLimit(), DEFAULT_CONTEXT_WINDOW_LIMIT);
         int maxIterations = valueOrDefault(properties.getMaxIterations(), DEFAULT_MAX_ITERATIONS);
 
         validateRuntimeValues(temperature, topP, timeout, contextWindowLimit, maxIterations);
+        validateTimeoutTiering(connectTimeout, streamIdleTimeout);
+
+        ApiConfigLoader.ApiConfigValues fileValues = apiConfigLoader.load(properties.getConfigFile(),
+                Boolean.TRUE.equals(properties.getAutoDiscover()))
+            .orElseGet(ApiConfigLoader.ApiConfigValues::empty);
+        String apiKey = decryptApiKey(firstSecret(properties.getApiKey(), fileValues.apiKey()));
 
         return ResolvedLlmConfig.builder()
             .provider(firstText(properties.getProvider(), fileValues.provider(), DEFAULT_PROVIDER))
@@ -114,6 +182,9 @@ public final class LlmConfigResolver {
             .temperature(temperature)
             .topP(topP)
             .timeout(timeout)
+            .connectTimeout(connectTimeout)
+            .streamIdleSeconds(streamIdleTimeout)
+            .isTimeoutExplicit(properties.getTimeout() != null)
             .contextWindowLimit(contextWindowLimit)
             .maxIterations(maxIterations)
             .build();
@@ -143,6 +214,18 @@ public final class LlmConfigResolver {
         }
         if (maxIterations <= 0) {
             throw new IllegalStateException("openjiuwen.service.llm.max-iterations must be greater than zero");
+        }
+    }
+
+    private static void validateTimeoutTiering(Duration connectTimeout, Duration streamIdleTimeout) {
+        if (connectTimeout.compareTo(MIN_CONNECT_TIMEOUT) < 0 || connectTimeout.compareTo(MAX_CONNECT_TIMEOUT) > 0) {
+            throw new IllegalStateException(
+                "openjiuwen.service.llm.connect-timeout must be between 5 and 15 seconds");
+        }
+        if (streamIdleTimeout.compareTo(MIN_STREAM_IDLE_TIMEOUT) < 0
+            || streamIdleTimeout.compareTo(MAX_STREAM_IDLE_TIMEOUT) > 0) {
+            throw new IllegalStateException(
+                "openjiuwen.service.llm.stream-idle-seconds must be between 300 and 900 seconds");
         }
     }
 

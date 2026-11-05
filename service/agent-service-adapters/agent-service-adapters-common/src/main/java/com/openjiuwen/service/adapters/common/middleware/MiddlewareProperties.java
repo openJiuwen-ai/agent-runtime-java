@@ -229,6 +229,12 @@ public class MiddlewareProperties {
 
         private boolean shouldUseRequestScopedSession = false;
 
+        /**
+         * Requests server-side reranking on search. Only the mem0 provider surfaces a
+         * rerank parameter — the jiuwen2 (agent-memory 2.0) search contract has none, so
+         * this flag is inert there; jiuwen2 recall quality is tuned via
+         * {@link #prefetchMinScoreRatio} instead.
+         */
         private boolean shouldRerank = false;
 
         private String authHeaderMode = "token";
@@ -238,6 +244,24 @@ public class MiddlewareProperties {
         private String scopeOrg = "";
 
         private String scopeUser = "";
+
+        /**
+         * Relative relevance floor for memory prefetch, as a ratio of the top hit's score:
+         * records below {@code ratio × topScore} are dropped from the prompt block. The
+         * ratio is score-scale-free; {@code 0} (or any negative value) disables the floor
+         * (inject everything).
+         */
+        private double prefetchMinScoreRatio = 0.2;
+
+        /**
+         * Absolute relevance floor for memory prefetch: records whose score is below this
+         * value are dropped from the prompt block, including the top hit, so a query that
+         * matches nothing injects nothing. Unlike {@link #prefetchMinScoreRatio} this value
+         * depends on the provider's score scale (a calibrated reranker yields scores around
+         * 0-1 while RRF yields around 0.01), so it is deployment-specific and disabled by
+         * default; {@code 0} (or any negative value) disables it. Unscored records are kept.
+         */
+        private double prefetchMinScore = 0.0;
 
         private int timeoutMs = 3000;
 
@@ -325,6 +349,22 @@ public class MiddlewareProperties {
 
         public void setScopeUser(String scopeUser) {
             this.scopeUser = scopeUser != null ? scopeUser.trim() : "";
+        }
+
+        public double getPrefetchMinScoreRatio() {
+            return prefetchMinScoreRatio;
+        }
+
+        public void setPrefetchMinScoreRatio(double prefetchMinScoreRatio) {
+            this.prefetchMinScoreRatio = prefetchMinScoreRatio;
+        }
+
+        public double getPrefetchMinScore() {
+            return prefetchMinScore;
+        }
+
+        public void setPrefetchMinScore(double prefetchMinScore) {
+            this.prefetchMinScore = prefetchMinScore;
         }
 
         @Override

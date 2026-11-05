@@ -9,8 +9,11 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
 import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
-import com.openjiuwen.core.session.Session;
+import com.openjiuwen.core.session.AgentSessionApi;
+import com.openjiuwen.core.singleagent.BaseAgent;
+import com.openjiuwen.core.singleagent.schema.AgentCard;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.service.adapters.agentcore.agentfw.JiuwenCoreAgentHandler;
@@ -86,8 +89,8 @@ class MiddlewareRedisSpringIT {
         contextRunner.run(context -> {
             assertThat(context).hasSingleBean(MiddlewareAdapterRegistrar.class);
 
-            Map<String, Object> checkpointerConfig = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
-            assertThat(checkpointerConfig.get("type")).isEqualTo("redis");
+            CheckpointerConfig checkpointerConfig = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
+            assertThat(checkpointerConfig.getType()).isEqualTo("redis");
 
             MiddlewareAdapterRegistrar registrar = context.getBean(MiddlewareAdapterRegistrar.class);
 
@@ -125,7 +128,16 @@ class MiddlewareRedisSpringIT {
     }
 
     /** Test agent that echoes session history across turns. */
-    public static class SessionEchoAgent {
+    public static class SessionEchoAgent extends BaseAgent {
+        SessionEchoAgent() {
+            super(new AgentCard("echo-agent", "echo-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Streams a reply while persisting conversation history in session state.
          *
@@ -135,7 +147,7 @@ class MiddlewareRedisSpringIT {
          * @return the output iterator
          */
         @SuppressWarnings("unchecked")
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             Map<String, Object> inputMap = (Map<String, Object>) inputs;
             String query = String.valueOf(inputMap.get("query"));
             Object priorState = session.getState("history");

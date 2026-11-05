@@ -98,9 +98,60 @@ class Jiuwen2MemoryStoreTest {
         Jiuwen2MemoryStore store = newStore();
 
         store.add(new MemoryAddRequest(MemoryScope.empty(),
-            List.of(new MemoryMessage("", "第一条"), new MemoryMessage("assistant", "  ")), Map.of()));
+            List.of(new MemoryMessage("", "第一条"), new MemoryMessage("assistant", "  "),
+                new MemoryMessage("assistant", "第二条")),
+            Map.of()));
 
-        assertThat(server.lastAddBody()).containsEntry("content", "[user] 第一条");
+        assertThat(server.lastAddBody()).containsEntry("content", "[user] 第一条\n[assistant] 第二条");
+    }
+
+    @Test
+    void addSingleMessageKeepsContentVerbatim() {
+        server = LocalJiuwen2Server.start();
+        Jiuwen2MemoryStore store = newStore();
+
+        // 单条消息（例如 memory_add 工具写入）不需要角色标记：标记会写进正文、进
+        // embedding 与后续注入块，属于无意义污染。
+        store.add(new MemoryAddRequest(MemoryScope.empty(),
+            List.of(new MemoryMessage("user", "用户下周三去北京出差")), Map.of()));
+
+        assertThat(server.lastAddBody()).containsEntry("content", "用户下周三去北京出差");
+    }
+
+    @Test
+    void addForwardsInferOptionAsSystemMetadataTrue() {
+        server = LocalJiuwen2Server.start();
+        Jiuwen2MemoryStore store = newStore();
+
+        store.add(new MemoryAddRequest(MemoryScope.empty(),
+            List.of(new MemoryMessage("user", "我今天中午吃了麦当劳")), Map.of("infer", true)));
+
+        // 2.0 的抽取链路（矛盾更新/supersede）由 system_metadata["infer"]="true" 触发，
+        // 写入路径只认字符串 "true"（_truthy_metadata）；boolean option 必须转成该字符串
+        // 下发，否则 derive 上下文传不到引擎，旧事实压过新事实（issue #124）。
+        assertThat(server.lastAddSystemMetadata()).containsEntry("infer", "true");
+    }
+
+    @Test
+    void addWithoutInferOptionOmitsSystemMetadata() {
+        server = LocalJiuwen2Server.start();
+        Jiuwen2MemoryStore store = newStore();
+
+        store.add(new MemoryAddRequest(MemoryScope.empty(),
+            List.of(new MemoryMessage("user", "普通记录")), Map.of()));
+
+        assertThat(server.lastAddBody()).doesNotContainKey("system_metadata");
+    }
+
+    @Test
+    void addWithFalseInferOptionOmitsSystemMetadata() {
+        server = LocalJiuwen2Server.start();
+        Jiuwen2MemoryStore store = newStore();
+
+        store.add(new MemoryAddRequest(MemoryScope.empty(),
+            List.of(new MemoryMessage("user", "普通记录")), Map.of("infer", false)));
+
+        assertThat(server.lastAddBody()).doesNotContainKey("system_metadata");
     }
 
     @Test
@@ -252,6 +303,12 @@ class Jiuwen2MemoryStoreTest {
         @SuppressWarnings("unchecked")
         private Map<String, Object> lastAddUserMetadata() {
             Object metadata = lastAddBody.get().get("user_metadata");
+            return metadata instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+        }
+
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> lastAddSystemMetadata() {
+            Object metadata = lastAddBody.get().get("system_metadata");
             return metadata instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
         }
 

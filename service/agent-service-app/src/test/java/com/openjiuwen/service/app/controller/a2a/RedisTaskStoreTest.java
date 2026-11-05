@@ -6,7 +6,13 @@ package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
+import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
+import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
+import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
+import com.openjiuwen.service.spec.dto.QueryChunk;
+import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
 import redis.clients.jedis.exceptions.JedisConnectionException;
@@ -15,6 +21,7 @@ import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
 import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
 import org.a2aproject.sdk.spec.Artifact;
+import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Message;
 import org.a2aproject.sdk.spec.Task;
@@ -24,6 +31,7 @@ import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -38,6 +46,28 @@ import java.util.Map;
  * @since 0.1.0
  */
 class RedisTaskStoreTest {
+    @Test
+    void persistsMappedTraceWithNestedJavaTime() {
+        RedisTaskStore store = new RedisTaskStore(new InMemoryRuntimeRedisClient(), 3600L);
+        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_CHUNK, Map.of("type", "tracer_workflow", "payload",
+                Map.of("startTime", LocalDateTime.parse("2026-10-26T11:47:05"))));
+        Artifact artifact = Artifact.builder().artifactId("trace").parts(new ChunkMapper().toParts(chunk)).build();
+        Task task = Task.builder().id("trace-task").contextId("trace-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(artifact)).build();
+
+        store.save(task, false);
+
+        Task restored = store.get("trace-task");
+        assertThat(restored.id()).isEqualTo(task.id());
+        assertThat(restored.status()).isEqualTo(task.status());
+        assertThat(restored.artifacts()).hasSize(1);
+        assertThat(artifact.parts().get(0)).isInstanceOfSatisfying(DataPart.class,
+                original -> assertThat(restored.artifacts().get(0).parts().get(0)).isInstanceOfSatisfying(
+                        DataPart.class, actual -> assertThat(actual.data()).isEqualTo(original.data())));
+        assertThat(JsonUtil.OBJECT_MAPPER.toJson(store.get("trace-task"))).contains("2026-10-26T11:47:05",
+                "tracer_workflow");
+    }
+
     @Test
     void storesTasksThroughRuntimeRedisClient() {
         InMemoryRuntimeRedisClient redisClient = new InMemoryRuntimeRedisClient();
@@ -63,6 +93,31 @@ class RedisTaskStoreTest {
         assertThat(listed.tasks()).extracting(Task::id).containsExactly("task-1");
         assertThat(store.get("task-1")).isNull();
         assertThat(store.get("task-2")).isNotNull();
+    }
+
+    @Test
+    void resetConversationDeletesEveryPageAndItsContextIndex() {
+        int taskCount = 2 * ListTasksParams.builder().build().getEffectivePageSize() + 1;
+        InMemoryRuntimeRedisClient redisClient = new InMemoryRuntimeRedisClient();
+        RedisTaskStore store = new RedisTaskStore(redisClient, 3600L);
+        Task unrelated = task("unrelated", "ctx-other", TaskState.TASK_STATE_COMPLETED);
+        store.save(unrelated, false);
+        store.list(ListTasksParams.builder().contextId("ctx-other").build());
+        var unrelatedKeys = new LinkedHashSet<>(redisClient.values.keySet());
+        for (int index = 0; index < taskCount; index++) {
+            store.save(task("reset-" + index, "ctx-reset", TaskState.TASK_STATE_COMPLETED), false);
+        }
+        A2AEnabledServeOrchestrator orchestrator = new A2AEnabledServeOrchestrator(mock(AgentHandler.class),
+                store, mock(RemoteAgentCaller.class), mock(ActiveStreamRegistry.class), "test-agent", 16, 256, 30);
+
+        orchestrator.resetConversation("ctx-reset");
+
+        assertThat(redisClient.values.keySet()).containsExactlyInAnyOrderElementsOf(unrelatedKeys);
+        for (int index = 0; index < taskCount; index++) {
+            assertThat(store.get("reset-" + index)).isNull();
+        }
+        assertThat(store.list(ListTasksParams.builder().contextId("ctx-reset").build()).tasks()).isEmpty();
+        assertThat(store.get("unrelated")).isEqualTo(unrelated);
     }
 
     @Test
@@ -129,10 +184,8 @@ class RedisTaskStoreTest {
         };
         RedisTaskStore store = new RedisTaskStore(redisClient, 3600L);
 
-        assertThatThrownBy(() -> store.get("task-1"))
-                .isInstanceOf(TaskPersistenceException.class)
-                .hasMessageContaining("Redis get failed")
-                .hasCauseInstanceOf(JedisConnectionException.class);
+        assertThatThrownBy(() -> store.get("task-1")).isInstanceOf(TaskPersistenceException.class)
+                .hasMessageContaining("Redis get failed").hasCauseInstanceOf(JedisConnectionException.class);
     }
 
     @Test
@@ -146,8 +199,7 @@ class RedisTaskStoreTest {
         RedisTaskStore store = new RedisTaskStore(redisClient, 3600L);
 
         assertThatThrownBy(() -> store.save(task("task-1", "ctx-1", TaskState.TASK_STATE_WORKING), false))
-                .isInstanceOf(TaskPersistenceException.class)
-                .hasMessageContaining("Redis save failed")
+                .isInstanceOf(TaskPersistenceException.class).hasMessageContaining("Redis save failed")
                 .hasCauseInstanceOf(JedisConnectionException.class);
     }
 

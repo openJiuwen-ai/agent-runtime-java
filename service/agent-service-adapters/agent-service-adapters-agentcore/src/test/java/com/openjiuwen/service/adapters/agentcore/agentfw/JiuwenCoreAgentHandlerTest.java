@@ -6,24 +6,28 @@ package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.openjiuwen.core.common.exception.BaseError;
 import com.openjiuwen.core.common.exception.StatusCode;
-import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
-import com.openjiuwen.core.runner.base.TagMatchStrategy;
+import com.openjiuwen.core.session.AgentSession;
 import com.openjiuwen.core.session.AgentSessionApi;
-import com.openjiuwen.core.session.Session;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
+import com.openjiuwen.core.singleagent.BaseAgent;
 import com.openjiuwen.core.singleagent.agents.ReActAgent;
 import com.openjiuwen.core.singleagent.interrupt.InterruptRequest;
 import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
@@ -38,6 +42,8 @@ import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -54,6 +60,235 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 2026-07-03
  */
 class JiuwenCoreAgentHandlerTest {
+    @ParameterizedTest
+    @CsvSource({"interaction,true", "interaction,false", "__interaction__,true", "__interaction__,false"})
+    void coreInterruptKeepsDispatchAndClientContext(String type, boolean hasNestedContext) {
+        ToolCallInterruptRequest pending = new ToolCallInterruptRequest();
+        pending.setMessage("Confirm this command");
+        pending.setToolCallId("call-1");
+        pending.setToolName("bash");
+        Map<String, Object> context = Map.of("_interrupt_kind", "tool_permission_ask", "command", "echo cleaning");
+        context.forEach(pending::putExtraField);
+        if (hasNestedContext) {
+            pending.putExtraField("context", Map.of("locale", "zh"));
+        }
+        OutputSchema output = new OutputSchema(type, 0, new InteractionOutput("call-1", pending));
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id") {
+            @Override
+            protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
+                    List<StreamMode> streamModes) {
+                return List.<Object>of(output).iterator();
+            }
+        };
+        List<QueryChunk> chunks = new ArrayList<>();
+
+        handler.streamQuery(request("c-core-interrupt", "run"), collectingObserver(chunks));
+
+        assertThat(chunks).hasSize(1);
+        assertThat(chunks.get(0).getType()).isEqualTo(QueryChunk.TYPE_INTERRUPT);
+        assertThat(chunks.get(0).getData()).isInstanceOfSatisfying(Map.class, data -> {
+            assertThat(data.get("type")).isEqualTo("__interaction__");
+            assertThat(data.get("context")).isEqualTo(pending.getExtraFields());
+            assertThat(data.get("toolCallId")).isEqualTo("call-1");
+            assertThat(data.get("message")).isEqualTo("Confirm this command");
+            assertThat(data.get("payload")).isSameAs(output.getPayload());
+        });
+        QueryResponse response = handler.toQueryResponse(Map.of("result_type", "interrupt", "state", List.of(output)),
+                "c-core-interrupt");
+        assertThat(response.getResult()).isInstanceOfSatisfying(Map.class,
+                result -> assertThat(result.get("_interrupt")).isEqualTo(chunks.get(0).getData()));
+    }
+
+    @Test
+    void legacyStreamErrorChunkEmitsNormalizedErrorEventAndTerminatesOnce() {
+        Map<String, Object> error = Map.of("type", "error", "error", "failed",
+                "code", "ORIGINAL_CODE", "retryable", true);
+        var handler = legacyStreamHandler(List.of(error, Map.of("content", "must not be emitted")));
+        var observer = mock(QueryStreamObserver.class);
+
+        handler.streamQuery(request("legacy-error", "hello"), observer);
+
+        var chunk = org.mockito.ArgumentCaptor.forClass(QueryChunk.class);
+        verify(observer).onNext(chunk.capture());
+        assertThat(chunk.getValue().getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+        assertThat(chunk.getValue().getData()).isInstanceOfSatisfying(Map.class, data -> {
+            assertThat(data).containsEntry("type", "error");
+            assertThat(data).containsEntry("error", "failed");
+        });
+        verify(observer).onError(org.mockito.ArgumentMatchers.argThat(
+                failure -> failure instanceof IllegalStateException
+                        && "failed".equals(failure.getMessage())));
+        verify(observer, org.mockito.Mockito.never()).onComplete();
+    }
+
+    @Test
+    void legacyStreamReclassifiesResultTypeErrorMapAsFailure() {
+        var handler = legacyStreamHandler(List.of(
+                Map.of("result_type", "error", "output", "business result"),
+                Map.of("content", "must not be emitted")));
+        var observer = mock(QueryStreamObserver.class);
+
+        handler.streamQuery(request("legacy-result", "hello"), observer);
+
+        var captured = org.mockito.ArgumentCaptor.forClass(QueryChunk.class);
+        verify(observer).onNext(captured.capture());
+        assertThat(captured.getValue().getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+        assertThat(captured.getValue().getData()).isInstanceOfSatisfying(Map.class, data -> {
+            assertThat(data).containsEntry("type", "error");
+            assertThat(data).containsEntry("error", "business result");
+        });
+        verify(observer).onError(org.mockito.ArgumentMatchers.argThat(
+                failure -> failure instanceof IllegalStateException
+                        && "business result".equals(failure.getMessage())));
+        verify(observer, org.mockito.Mockito.never()).onComplete();
+        assertThatThrownBy(() -> handler.query(request("legacy-sync-fallback", "hello")))
+                .isInstanceOf(IllegalStateException.class).hasMessage("business result");
+    }
+
+    @Test
+    void legacyStreamReclassifiesAnswerPayloadErrorAsFailure() {
+        var handler = legacyStreamHandler(List.of(
+                new OutputSchema("answer", 0, Map.of("result_type", "error", "output", "legacy answer")),
+                Map.of("content", "must not be emitted")));
+        var observer = mock(QueryStreamObserver.class);
+
+        handler.streamQuery(request("legacy-answer-error", "hello"), observer);
+
+        var captured = org.mockito.ArgumentCaptor.forClass(QueryChunk.class);
+        verify(observer).onNext(captured.capture());
+        assertThat(captured.getValue().getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+        assertThat(captured.getValue().getData()).isInstanceOfSatisfying(Map.class, data -> {
+            assertThat(data).containsEntry("type", "error");
+            assertThat(data).containsEntry("error", "legacy answer");
+        });
+        verify(observer).onError(org.mockito.ArgumentMatchers.argThat(
+                failure -> failure instanceof IllegalStateException
+                        && "legacy answer".equals(failure.getMessage())));
+        verify(observer, org.mockito.Mockito.never()).onComplete();
+    }
+
+    @Test
+    void streamErrorPayloadWithFailureFieldsYieldsDescriptor() {
+        Map<String, Object> payload = new LinkedHashMap<>(Map.of(
+                "result_type", "error",
+                "output", "ModelError: model call timeout",
+                "failure", Map.of("code", "MODEL_CALL_TIMEOUT", "numericCode", 181008, "retryable", true)
+        ));
+        var handler = legacyStreamHandler(List.of(new OutputSchema("answer", 0, payload)));
+        var observer = mock(QueryStreamObserver.class);
+
+        handler.streamQuery(request("stream-failure", "hello"), observer);
+
+        var chunk = org.mockito.ArgumentCaptor.forClass(QueryChunk.class);
+        verify(observer).onNext(chunk.capture());
+        assertThat(chunk.getValue().getType()).isEqualTo(QueryChunk.TYPE_ERROR);
+        assertThat(chunk.getValue().getData()).isInstanceOfSatisfying(Map.class, data -> {
+            assertThat(data).containsEntry("type", "error");
+            assertThat(data).containsEntry("error", "ModelError: model call timeout");
+            assertThat(data).containsEntry("failure",
+                    new AgentFailureDescriptor("MODEL_CALL_TIMEOUT", 181008, true));
+        });
+        var failure = org.mockito.ArgumentCaptor.forClass(Throwable.class);
+        verify(observer).onError(failure.capture());
+        assertThat(failure.getValue()).isInstanceOfSatisfying(AgentExecutionException.class, error -> {
+            assertThat(error.getDescriptor()).isEqualTo(
+                    new AgentFailureDescriptor("MODEL_CALL_TIMEOUT", 181008, true));
+            assertThat(error).hasMessage("ModelError: model call timeout");
+        });
+        verify(observer, org.mockito.Mockito.never()).onComplete();
+    }
+
+    @Test
+    void streamErrorChunkWithTopLevelFailureFieldsYieldsDescriptor() {
+        Map<String, Object> error = Map.of("type", "error", "output", "rate limited",
+                "failure", Map.of("code", "MODEL_CALL_RATE_LIMITED", "numericCode", 181009, "retryable", true));
+        var handler = legacyStreamHandler(List.of(error));
+        var observer = mock(QueryStreamObserver.class);
+
+        handler.streamQuery(request("stream-top-failure", "hello"), observer);
+
+        var failure = org.mockito.ArgumentCaptor.forClass(Throwable.class);
+        verify(observer).onError(failure.capture());
+        assertThat(failure.getValue()).isInstanceOfSatisfying(AgentExecutionException.class, thrown ->
+                assertThat(thrown.getDescriptor()).isEqualTo(
+                        new AgentFailureDescriptor("MODEL_CALL_RATE_LIMITED", 181009, true)));
+    }
+
+    @Test
+    void syncQueryAnswerPayloadErrorIsRejectedAsFailure() {
+        var handler = new JiuwenCoreAgentHandler("unused");
+        Map<String, Object> answerError = Map.of("type", "answer",
+                "payload", Map.of("result_type", "error", "output", "sync answer failure"));
+
+        assertThatThrownBy(() -> handler.toQueryResponse(answerError, "sync-answer-error"))
+                .isInstanceOf(IllegalStateException.class).hasMessage("sync answer failure");
+    }
+
+    @Test
+    void syncQueryAnswerPayloadFailureFieldsYieldDescriptor() {
+        var handler = new JiuwenCoreAgentHandler("unused");
+        Map<String, Object> answerError = Map.of("type", "answer",
+                "payload", Map.of("result_type", "error", "output", "sync timeout",
+                        "failure", Map.of("code", "MODEL_CALL_TIMEOUT", "numericCode", 181008,
+                                "retryable", true)));
+
+        assertThatThrownBy(() -> handler.toQueryResponse(answerError, "sync-answer-failure"))
+                .isInstanceOfSatisfying(AgentExecutionException.class, failure ->
+                        assertThat(failure.getDescriptor()).isEqualTo(
+                                new AgentFailureDescriptor("MODEL_CALL_TIMEOUT", 181008, true)));
+    }
+
+    @Test
+    void legacyControllerOutputErrorItemIsRejectedAsFailure() {
+        var handler = new JiuwenCoreAgentHandler("unused");
+        var output = new ControllerOutput("task_completion", List.of(
+                Map.of("type", "error", "content", "legacy content")));
+        // Error items inside a controller output list are failures regardless of catalog.
+        assertThatThrownBy(() -> handler.toQueryResponse(output, "legacy-controller"))
+                .isInstanceOf(IllegalStateException.class).hasMessage("legacy content");
+        // Direct synchronous errors were already failures before model selection was introduced.
+        assertThatThrownBy(() -> handler.toQueryResponse(Map.of("result_type", "error"), "legacy-direct"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void syncInvokeAnswerErrorEnvelopeIsRejectedAsFailure() {
+        var handler = spy(new JiuwenCoreAgentHandler(new InvokeEchoAgent()));
+        OutputSchema answerError = new OutputSchema("answer", 0, Map.of(
+                "result_type", "error",
+                "output", "invoke answer failure",
+                "failure", Map.of("code", "MODEL_CALL_TIMEOUT", "numericCode", 181008,
+                        "retryable", true)));
+        doAnswer(invocation -> answerError).when(handler).executeAgent(anyMap(), any());
+
+        assertThatThrownBy(() -> handler.query(request("sync-envelope-error", "hello")))
+                .isInstanceOfSatisfying(AgentExecutionException.class, failure ->
+                        assertThat(failure.getDescriptor()).isEqualTo(
+                                new AgentFailureDescriptor("MODEL_CALL_TIMEOUT", 181008, true)));
+    }
+
+    private static JiuwenCoreAgentHandler legacyStreamHandler(List<Object> chunks) {
+        return new JiuwenCoreAgentHandler("unused") {
+            @Override
+            protected Object runnerSession(ServeRequest request) {
+                return request.getConversationId();
+            }
+
+            @Override
+            protected Iterator<Object> executeAgentStreaming(Map<String, Object> inputs, Object session,
+                    List<StreamMode> modes) {
+                return chunks.iterator();
+            }
+        };
+    }
+
+    @Test
+    void synchronousFallbackRejectsErrorChunk() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new ErrorStreamingAgent());
+        assertThatThrownBy(() -> handler.query(request("c-query-error", "fail")))
+                .isInstanceOf(IllegalStateException.class).hasMessage("Connection refused");
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void passesQueryContextToRunnerInputs() {
@@ -222,13 +457,37 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     @Test
+    void queryRunsInlineAndPreservesErrorIdentity() {
+        var handler = spy(new JiuwenCoreAgentHandler(new InvokeEchoAgent()));
+        Thread caller = Thread.currentThread();
+        AssertionError failure = new AssertionError("fatal query failure");
+        doAnswer(invocation -> {
+            assertThat(Thread.currentThread()).isSameAs(caller);
+            throw failure;
+        }).when(handler).executeAgent(anyMap(), any());
+
+        assertThatThrownBy(() -> handler.query(request("c-fatal-error", "fail")))
+                .isSameAs(failure);
+    }
+
+    @Test
+    void legacyQueryPreservesRuntimeFailureIdentity() {
+        var handler = spy(new JiuwenCoreAgentHandler(new InvokeEchoAgent()));
+        UnsupportedOperationException failure = new UnsupportedOperationException("unsupported query");
+        doThrow(failure).when(handler).executeAgent(anyMap(), any());
+
+        assertThatThrownBy(() -> handler.query(request("c-runtime-error", "fail")))
+                .isSameAs(failure);
+    }
+
+    @Test
     void queryProvidesStableAgentIdForPlainAgentSession() {
         SessionMetadataAgent agent = new SessionMetadataAgent();
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
 
         handler.query(request("c-plain-agent", "hello"));
 
-        assertThat(agent.agentId).isEqualTo("service-agentcore:" + SessionMetadataAgent.class.getName());
+        assertThat(agent.agentId).isEqualTo("metadata-agent");
     }
 
     @Test
@@ -242,14 +501,12 @@ class JiuwenCoreAgentHandlerTest {
 
         Object session = handler.runnerSession(request);
 
-        assertThat(session).isInstanceOf(AgentSessionApi.class);
-        if (!(session instanceof AgentSessionApi agentSession)) {
-            throw new AssertionError("Expected AgentSessionApi session");
+        if (session instanceof AgentSession agentSession) {
+            assertThat(agentSession.getAgentId()).isEqualTo("it-agent");
+            assertThat(agentSession.getEnv("user_id")).isEqualTo("user-42");
+            assertThat(agentSession.getEnv("space_id")).isEqualTo("space-42");
+            assertThat(agentSession.getEnv("tenant_id")).isEqualTo("tenant-42");
         }
-        assertThat(agentSession.getAgentId()).isEqualTo("it-agent");
-        assertThat(agentSession.getEnv("user_id")).isEqualTo("user-42");
-        assertThat(agentSession.getEnv("space_id")).isEqualTo("space-42");
-        assertThat(agentSession.getEnv("tenant_id")).isEqualTo("tenant-42");
     }
 
     @Test
@@ -275,16 +532,14 @@ class JiuwenCoreAgentHandlerTest {
 
         Object session = handler.runnerSession(request);
 
-        assertThat(session).isInstanceOf(AgentSessionApi.class);
-        if (!(session instanceof AgentSessionApi agentSession)) {
-            throw new AssertionError("Expected AgentSessionApi session");
+        if (session instanceof AgentSession agentSession) {
+            assertThat(agentSession.getSessionId()).isEqualTo("c-card-agent");
+            assertThat(agentSession.getAgentId()).isEqualTo("card-agent");
+            assertThat(agentSession.getEnv("feature_flag")).isEqualTo("on");
+            assertThat(agentSession.getEnv("user_id")).isEqualTo("card-user");
+            assertThat(agentSession.getEnv("space_id")).isEqualTo("card-space");
+            assertThat(agentSession.getEnv("tenant_id")).isEqualTo("card-tenant");
         }
-        assertThat(agentSession.getSessionId()).isEqualTo("c-card-agent");
-        assertThat(agentSession.getAgentId()).isEqualTo("card-agent");
-        assertThat(agentSession.getEnv("feature_flag")).isEqualTo("on");
-        assertThat(agentSession.getEnv("user_id")).isEqualTo("card-user");
-        assertThat(agentSession.getEnv("space_id")).isEqualTo("card-space");
-        assertThat(agentSession.getEnv("tenant_id")).isEqualTo("card-tenant");
     }
 
     @Test
@@ -311,7 +566,10 @@ class JiuwenCoreAgentHandlerTest {
 
         QueryResponse response = handler.toQueryResponse(rawResult, "c-batch");
 
-        Map<String, Object> result = (Map<String, Object>) response.getResult();
+        Object rawResponseResult = response.getResult();
+        assertThat(rawResponseResult).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) rawResponseResult;
         Map<String, Object> interrupt = (Map<String, Object>) result.get("_interrupt");
         assertThat(interrupt).containsEntry("type", "__interaction__");
         List<Map<String, Object>> items = (List<Map<String, Object>>) interrupt.get("items");
@@ -397,6 +655,7 @@ class JiuwenCoreAgentHandlerTest {
         Object inputs = JiuwenCoreAgentHandler.buildInputs(request);
 
         assertThat(inputs).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
         Map<String, Object> inputMap = (Map<String, Object>) inputs;
         assertThat(inputMap).containsEntry("conversation_id", "c-resume");
         assertThat(inputMap.get("query")).isInstanceOfSatisfying(InteractiveInput.class, interactiveInput -> {
@@ -474,7 +733,7 @@ class JiuwenCoreAgentHandlerTest {
     @SuppressWarnings("unchecked")
     void syncResponseUnwrapsControllerOutputMap() {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler("agent-id");
-        ControllerOutput output = new ControllerOutput("answer", Map.of("generated_report", "controller"));
+        ControllerOutput output = new ControllerOutput("task_completion", Map.of("generated_report", "controller"));
 
         QueryResponse response = handler.toQueryResponse(output, "c-controller");
 
@@ -514,7 +773,8 @@ class JiuwenCoreAgentHandlerTest {
                 "c-standard");
         assertThat((Map<String, Object>) standard.getResult()).containsEntry("content", "standard");
 
-        InterruptRequest request = InterruptRequest.builder().message("confirm").context(Map.of("step", 1)).build();
+        InterruptRequest request = new InterruptRequest("confirm", null, "");
+        request.putExtraField("step", 1);
         OutputSchema interrupt = new OutputSchema("__interaction__", 0, new InteractionOutput("i-1", request));
         QueryResponse interrupted = handler
                 .toQueryResponse(Map.of("result_type", "interrupt", "state", List.of(interrupt)), "c-interrupt");
@@ -574,7 +834,8 @@ class JiuwenCoreAgentHandlerTest {
         request.setToolCallId(toolCallId);
         request.setToolName(toolName);
         request.setMessage("message-" + toolCallId);
-        request.setContext(Map.of("_interrupt_kind", kind, "agentName", toolName));
+        request.putExtraField("_interrupt_kind", kind);
+        request.putExtraField("agentName", toolName);
         return new OutputSchema("__interaction__", index, new InteractionOutput(toolCallId, request));
     }
 
@@ -614,6 +875,42 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     @Test
+    void unexpectedRegistrarFailureAllowsStartupRetry() {
+        var registrar = mock(ExternalSvcAdapterRegistrar.class);
+        var failure = new UnsupportedOperationException("registration unavailable");
+        org.mockito.Mockito.doThrow(failure).doNothing().when(registrar).registerToRunner();
+        var handler = new JiuwenCoreAgentHandler("agent-id", registrar);
+        try {
+            assertThatThrownBy(handler::start).isSameAs(failure);
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isFalse();
+            handler.start();
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isTrue();
+            verify(registrar, org.mockito.Mockito.times(2)).registerToRunner();
+        } finally {
+            handler.stop();
+        }
+    }
+
+    @Test
+    void middlewareFailureAllowsStartupRetry() {
+        var middleware = mock(com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar.class);
+        var failure = new UnsupportedOperationException("middleware unavailable");
+        org.mockito.Mockito.doThrow(failure).doNothing().when(middleware)
+                .applyToRunnerConfig(org.mockito.ArgumentMatchers.any());
+        var handler = new JiuwenCoreAgentHandler("agent-id", middleware, null);
+        try {
+            assertThatThrownBy(handler::start).isSameAs(failure);
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isFalse();
+            handler.start();
+            assertThat(JiuwenCoreAgentHandler.isRunnerStarted()).isTrue();
+            verify(middleware, org.mockito.Mockito.times(2))
+                    .applyToRunnerConfig(org.mockito.ArgumentMatchers.any());
+        } finally {
+            handler.stop();
+        }
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void clearSessionReleasesRunnerSessionMemory() {
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());
@@ -637,7 +934,7 @@ class JiuwenCoreAgentHandlerTest {
 
         handler.clearSession("c-reset-context");
 
-        verify(contextEngine).clearContextBySession("c-reset-context");
+        verify(contextEngine).clearContext(null, "c-reset-context");
     }
 
     @Test
@@ -651,9 +948,9 @@ class JiuwenCoreAgentHandlerTest {
 
         try {
             handler.clearSession("c-registered-reset-context");
-            verify(contextEngine).clearContextBySession("c-registered-reset-context");
+            verify(contextEngine).clearContext(null, "c-registered-reset-context");
         } finally {
-            Runner.resourceMgr().removeAgent(agentId, null, TagMatchStrategy.ALL, true);
+            Runner.resourceMgr().removeAgent(agentId);
         }
     }
 
@@ -675,8 +972,17 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     /** Test agent that captures the last runner inputs. */
-    public static class CapturingAgent {
+    public static class CapturingAgent extends BaseAgent {
         private Object lastInputs;
+
+        CapturingAgent() {
+            super(new AgentCard("capturing-agent", "capturing-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Streams a single output chunk and records the inputs.
@@ -686,23 +992,32 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             this.lastInputs = inputs;
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "ok"))).iterator();
         }
     }
 
     /** Test agent that exposes a card like regular ReAct agents. */
-    public static class CardBackedAgent {
-        private final BaseCard card = BaseCard.builder().id("card-agent").name("Card Agent").description("card backed")
-                .build();
+    public static class CardBackedAgent extends BaseAgent {
+        private final AgentCard card = new AgentCard("card-agent", "Card Agent", "card backed");
+
+        CardBackedAgent() {
+            super(new AgentCard("card-agent", "Card Agent", "card backed"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Returns the test agent card.
          *
          * @return card
          */
-        public BaseCard getCard() {
+        @Override
+        public AgentCard getCard() {
             return card;
         }
     }
@@ -744,7 +1059,16 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     /** Test agent that echoes session history across turns. */
-    public static class SessionEchoAgent {
+    public static class SessionEchoAgent extends BaseAgent {
+        SessionEchoAgent() {
+            super(new AgentCard("echo-agent", "echo-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Streams a reply while persisting conversation history in session state.
          *
@@ -754,7 +1078,7 @@ class JiuwenCoreAgentHandlerTest {
          * @return the output iterator
          */
         @SuppressWarnings("unchecked")
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             Map<String, Object> inputMap = (Map<String, Object>) inputs;
             String query = String.valueOf(inputMap.get("query"));
             Object priorState = session.getState("history");
@@ -772,10 +1096,19 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     /** Test agent that uses invoke instead of streaming. */
-    public static class InvokeEchoAgent {
+    public static class InvokeEchoAgent extends BaseAgent {
         private final AtomicInteger invokeCount = new AtomicInteger();
 
         private final AtomicInteger streamCount = new AtomicInteger();
+
+        InvokeEchoAgent() {
+            super(new AgentCard("invoke-echo-agent", "invoke-echo-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Invokes synchronously while persisting conversation history in session state.
@@ -785,7 +1118,7 @@ class JiuwenCoreAgentHandlerTest {
          * @return the invoke result map
          */
         @SuppressWarnings("unchecked")
-        public Object invoke(Object inputs, Session session) {
+        public Object invoke(Object inputs, AgentSessionApi session) {
             invokeCount.incrementAndGet();
             Map<String, Object> inputMap = (Map<String, Object>) inputs;
             String query = String.valueOf(inputMap.get("query"));
@@ -810,7 +1143,7 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             streamCount.incrementAndGet();
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "stream"))).iterator();
         }
@@ -819,8 +1152,17 @@ class JiuwenCoreAgentHandlerTest {
     /**
      * Test agent that emits a fixed number of stream chunks.
      */
-    public static class CountingAgent {
+    public static class CountingAgent extends BaseAgent {
         private final AtomicInteger nextCount = new AtomicInteger();
+
+        CountingAgent() {
+            super(new AgentCard("counting-agent", "counting-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Streams five numbered chunks for cancellation tests.
@@ -830,7 +1172,7 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             return new Iterator<>() {
                 @Override
                 public boolean hasNext() {
@@ -849,7 +1191,16 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     /** Test agent that reports a Core streaming failure as an OutputSchema. */
-    public static class ErrorStreamingAgent {
+    public static class ErrorStreamingAgent extends BaseAgent {
+        ErrorStreamingAgent() {
+            super(new AgentCard("error-streaming-agent", "error-streaming-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Streams one structured failure, matching ReActAgent and DeepAgent behavior.
          *
@@ -858,7 +1209,7 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             return List.<Object>of(
                     new OutputSchema("error", 0, Map.of("output", "Connection refused", "result_type", "error")))
                     .iterator();
@@ -866,7 +1217,16 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     /** Test agent that raises a structured AgentCore error. */
-    public static class FailingInvokeAgent {
+    public static class FailingInvokeAgent extends BaseAgent {
+        FailingInvokeAgent() {
+            super(new AgentCard("failing-invoke-agent", "failing-invoke-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Fails synchronously with a stable Core status.
          *
@@ -874,14 +1234,23 @@ class JiuwenCoreAgentHandlerTest {
          * @param session session
          * @return never returns
          */
-        public Object invoke(Object inputs, Session session) {
+        public Object invoke(Object inputs, AgentSessionApi session) {
             throw new BaseError(StatusCode.MODEL_CALL_FAILED, "model unavailable", null, null);
         }
     }
 
     /** Test agent with the same strict Map input shape exposed by DeepAgent. */
-    public static class MapInputStreamingAgent {
+    public static class MapInputStreamingAgent extends BaseAgent {
         private Map<String, Object> lastInputs;
+
+        MapInputStreamingAgent() {
+            super(new AgentCard("map-input-agent", "map-input-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Streams a resumed response and records the strongly typed inputs.
@@ -891,15 +1260,29 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Map<String, Object> inputs, AgentSessionApi session,
-                List<StreamMode> streamModes) {
-            this.lastInputs = inputs;
+        @Override
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
+            this.lastInputs = castMap(inputs);
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "resumed"))).iterator();
+        }
+
+        @SuppressWarnings("unchecked")
+        private static Map<String, Object> castMap(Object raw) {
+            return raw instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
         }
     }
 
     /** Test agent that emits two independent tool interruptions. */
-    public static class ParallelInterruptAgent {
+    public static class ParallelInterruptAgent extends BaseAgent {
+        ParallelInterruptAgent() {
+            super(new AgentCard("parallel-interrupt-agent", "parallel-interrupt-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Streams two remote interruptions.
          *
@@ -908,14 +1291,23 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes stream modes
          * @return interruption iterator
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             return List.<Object>of(remoteInterrupt(0, "call-a", "tool-a"), remoteInterrupt(1, "call-b", "tool-b"))
                     .iterator();
         }
     }
 
     /** Test agent that returns an ordinary business map matching the batch field names. */
-    public static class BusinessItemsAgent {
+    public static class BusinessItemsAgent extends BaseAgent {
+        BusinessItemsAgent() {
+            super(new AgentCard("business-items-agent", "business-items-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
+
         /**
          * Streams one ordinary business result.
          *
@@ -924,7 +1316,7 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes stream modes
          * @return business result iterator
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
             return List.<Object>of(Map.of("batchId", "business-batch", "items",
                     List.of(Map.of("name", "business-item")), "content", "ok")).iterator();
         }
@@ -933,8 +1325,17 @@ class JiuwenCoreAgentHandlerTest {
     /**
      * Test agent that records session metadata from {@link AgentSessionApi}.
      */
-    public static class SessionMetadataAgent {
+    public static class SessionMetadataAgent extends BaseAgent {
         private String agentId;
+
+        SessionMetadataAgent() {
+            super(new AgentCard("metadata-agent", "metadata-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
 
         /**
          * Streams a single chunk and captures the resolved agent id.
@@ -944,9 +1345,9 @@ class JiuwenCoreAgentHandlerTest {
          * @param streamModes streamModes
          * @return Iterator<Object>
          */
-        public Iterator<Object> stream(Object inputs, Session session, List<StreamMode> streamModes) {
-            if (session instanceof AgentSessionApi agentSession) {
-                this.agentId = agentSession.getAgentId();
+        public Iterator<Object> stream(Object inputs, AgentSessionApi session, List<StreamMode> streamModes) {
+            if (session instanceof AgentSession agentSession) {
+                this.agentId = String.valueOf(agentSession.getAgentId());
             }
             return List.<Object>of(new OutputSchema("llm_output", 0, Map.of("content", "ok"))).iterator();
         }

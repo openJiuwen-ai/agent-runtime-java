@@ -14,6 +14,7 @@ import lombok.Setter;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +66,15 @@ public class A2AProperties {
 
     private List<RemoteAgentProperties> remoteAgents = List.of();
 
+    /**
+     * Fixed headers injected into every outbound remote A2A call, merged under
+     * the prepared authentication headers. Intended for deployments whose
+     * remote entries point at an agent-gateway path address that enforces
+     * bearer authentication (L2 §8.3 discipline #1); leave empty for direct
+     * runtime-to-runtime calls.
+     */
+    private Map<String, String> outboundHeaders = new LinkedHashMap<>();
+
     /** Instance Card and remote-agent configuration keyed by HostedAgentDefinitions identifiers. */
     private Map<String, HostedCardProperties> agents = new LinkedHashMap<>();
 
@@ -92,6 +102,20 @@ public class A2AProperties {
      * the pre-check as an emergency switch.
      */
     private long maxMessageBytes = A2aPartLimits.DEFAULT_MAX_REQUEST_BODY_BYTES;
+
+    /**
+     * Fallback TTL for admission release: when a round's consequence events
+     * are lost before landing, the permit is reclaimed once the task is
+     * finalized in the store or the main event deque drains; otherwise the
+     * lease re-arms at a fixed step and is released unconditionally when the
+     * force cap (max(20m, 2x this TTL)) elapses since execution finished.
+     * Values &lt;= 0 disable the TTL fallback together with the force cap —
+     * capacity recovery then relies on processor self-healing only, a
+     * declared recovery boundary.
+     *
+     * @since 0.1.4
+     */
+    private Duration admissionReleaseTtl = Duration.ofMinutes(10);
 
     /**
      * A2A platform agent execution pool size. Values <= 0 mean auto-sizing
@@ -213,6 +237,16 @@ public class A2AProperties {
     public static class RemoteAgentProperties {
         private String name;
 
+        /**
+         * The remote agent's card base URL: the well-known agent card is
+         * fetched from this address plus {@code /.well-known/agent-card.json},
+         * and the JSON-RPC routing endpoint is derived from the same address
+         * by completing the JSON-RPC mount path — a bare root address gains
+         * the default {@code /a2a} mount, a path-prefixed base keeps its
+         * prefix. An address that already carries the JSON-RPC mount path
+         * (e.g. a hosted agent path) is kept verbatim when the fetched card
+         * declares the same address.
+         */
         private String url;
 
         private int timeoutSeconds = 300;

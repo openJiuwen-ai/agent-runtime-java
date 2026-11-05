@@ -31,9 +31,9 @@ class BToDDelegateRailTest {
         Object result = rail.resolve(call(BToDDelegateRail.STREAMING_TOOL_NAME), null);
 
         assertThat(result).isInstanceOfSatisfying(InterruptResult.class, interrupt -> {
-            assertThat(interrupt.getRequest().getContext()).containsEntry("agentName", "agentd-streaming")
+            assertThat(interrupt.request().getExtraFields()).containsEntry("agentName", "agentd-streaming")
                     .containsEntry("_interrupt_kind", "a2a_delegate").doesNotContainKey("_stream_mode");
-            assertThat(claim(interrupt.getRequest().getMessage())).containsEntry("claim_id", "WF-001")
+            assertThat(claim(interrupt.request().getMessage())).containsEntry("claim_id", "WF-001")
                     .containsEntry("category", "hotel").containsEntry("currency", "CNY");
         });
     }
@@ -45,7 +45,7 @@ class BToDDelegateRailTest {
         Object result = rail.resolve(call(BToDDelegateRail.NON_STREAMING_TOOL_NAME), null);
 
         assertThat(result).isInstanceOfSatisfying(InterruptResult.class,
-                interrupt -> assertThat(interrupt.getRequest().getContext())
+                interrupt -> assertThat(interrupt.request().getExtraFields())
                         .containsEntry("agentName", "agentd-nonstreaming")
                         .containsEntry("_interrupt_kind", "a2a_delegate").doesNotContainKey("_stream_mode"));
     }
@@ -55,7 +55,7 @@ class BToDDelegateRailTest {
         Object result = new TestRail().resolve(ToolCall.builder().build(), "Agent D expense review completed");
 
         assertThat(result).isInstanceOfSatisfying(RejectResult.class,
-                reject -> assertThat(reject.getToolResult()).isEqualTo("Agent D expense review completed"));
+                reject -> assertThat(reject.toolResult()).isEqualTo("Agent D expense review completed"));
     }
 
     private static ToolCall call(String name) {

@@ -27,9 +27,18 @@ class HealthControllerTest {
 
         assertThat(response.getStatus()).isEqualTo("healthy");
         assertThat(response.getApp()).isEqualTo("agent-service");
-        assertThat(response.getVersion()).isEqualTo("0.1.1.post1");
+        assertThat(response.getVersion()).isEqualTo("0.1.4");
         assertThat(response.isProcessUp()).isTrue();
         assertThat(response.isAgentLoaded()).isTrue();
+    }
+
+    @Test
+    void explicitServiceVersionOverridesDefaultVersion() {
+        ServiceProperties properties = new ServiceProperties();
+        properties.setVersion("custom-agent-2.0");
+        HealthController controller = new HealthController(readiness(true, true), () -> "custom", properties);
+
+        assertThat(controller.health().getVersion()).isEqualTo("custom-agent-2.0");
     }
 
     private static AgentReadiness readiness(boolean isProcessUp, boolean isAgentLoaded) {

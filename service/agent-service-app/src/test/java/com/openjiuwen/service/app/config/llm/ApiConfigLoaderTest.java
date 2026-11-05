@@ -12,6 +12,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
 
 import java.nio.file.Files;
@@ -23,6 +25,79 @@ import java.nio.file.Path;
 class ApiConfigLoaderTest {
     @TempDir
     private Path tempDir;
+
+    @ParameterizedTest
+    @ValueSource(strings = {"json", "yaml"})
+    void load_resolvesEnvironmentPlaceholdersInSingleModel(String extension) throws Exception {
+        Path file = tempDir.resolve("apiconfig." + extension);
+        Files.writeString(file, "json".equals(extension) ? """
+            {"API_KEY":"${MODEL_A_KEY}","LLM_SSL_VERIFY":"${VERIFY_SSL}",
+             "API_BASE":"${MODEL_A_URL}","MODEL_NAME":"${MODEL_A_NAME:a}"}
+            """ : """
+            API_KEY: ${MODEL_A_KEY}
+            LLM_SSL_VERIFY: ${VERIFY_SSL}
+            API_BASE: ${MODEL_A_URL}
+            MODEL_NAME: ${MODEL_A_NAME:a}
+            """);
+        var environment = new MockEnvironment().withProperty("MODEL_A_KEY", "ENC:a")
+            .withProperty("VERIFY_SSL", "false").withProperty("MODEL_A_URL", "https://a.example/v1");
+        var loader = new ApiConfigLoader(new ObjectMapper(), environment, () -> tempDir);
+
+        var values = loader.load(file.toString(), false).orElseThrow();
+
+        assertThat(values.apiKey()).hasValue("ENC:a");
+        assertThat(values.apiBase()).hasValue("https://a.example/v1");
+        assertThat(values.modelName()).hasValue("a");
+        assertThat(values.shouldVerifySsl()).hasValue(false);
+    }
+
+    @Test
+    void load_rejectsUnresolvedPlaceholderWithoutExposingCredentialText() throws Exception {
+        Path file = tempDir.resolve("apiconfig.yaml");
+        Files.writeString(file, "API_KEY: 'sensitive-prefix-${UNDEFINED_LLM_TEST_KEY}'");
+        var loader = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(), () -> tempDir);
+
+        assertThatThrownBy(() -> loader.load(file.toString(), false))
+            .isInstanceOf(IllegalStateException.class).hasMessageContaining("API_KEY")
+            .hasMessageNotContaining("sensitive-prefix").hasMessageNotContaining("UNDEFINED_LLM_TEST_KEY")
+            .hasNoCause();
+    }
+
+    @Test
+    void load_readsYamlFromEnvironmentBeforeDiscoveredJson() throws Exception {
+        Path file = tempDir.resolve("model.YML");
+        Files.writeString(file, """
+            # Legacy single-model schema, shared with JSON.
+            MODEL_PROVIDER: OpenAI
+            API_KEY: 'ENC:key'
+            API_BASE: https://llm.internal/v1
+            MODEL_NAME: model-x
+            LLM_SSL_VERIFY: false
+            """);
+        writeConfig(tempDir.resolve(ApiConfigLoader.DEFAULT_FILE_NAME), "DiscoveredProvider", "true");
+        var environment = new MockEnvironment().withProperty(ApiConfigLoader.API_CONFIG_ENV, file.toString());
+        var loader = new ApiConfigLoader(new ObjectMapper(), environment, () -> tempDir);
+
+        var values = loader.load(null, true).orElseThrow();
+
+        assertThat(values.provider()).hasValue("OpenAI");
+        assertThat(values.apiKey()).hasValue("ENC:key");
+        assertThat(values.shouldVerifySsl()).hasValue(false);
+        var discoveryOnly = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(), () -> tempDir);
+        assertThat(discoveryOnly.load(null, true).orElseThrow().provider()).hasValue("DiscoveredProvider");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MODEL_NAME: [", "- not-a-mapping", "null", "",
+        "MODEL_NAME: first\nMODEL_NAME: second", "MODEL_NAME: first\n---\nMODEL_NAME: second",
+        "MODEL_NAME: 42", "LLM_SSL_VERIFY: 42"})
+    void load_rejectsInvalidYamlAndRetainsFieldValidation(String content) throws Exception {
+        Path file = tempDir.resolve("invalid.yaml");
+        Files.writeString(file, content);
+        var loader = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(), () -> tempDir);
+
+        assertThatThrownBy(() -> loader.load(file.toString(), false)).isInstanceOf(IllegalStateException.class);
+    }
 
     @Test
     void load_readsExplicitApiConfig() throws Exception {
@@ -171,9 +246,10 @@ class ApiConfigLoaderTest {
             .hasMessageContaining("must contain a JSON object");
     }
 
-    @Test
-    void load_rejectsOversizedFile() throws Exception {
-        Path file = tempDir.resolve("oversized.json");
+    @ParameterizedTest
+    @ValueSource(strings = {"json", "yaml"})
+    void load_rejectsOversizedFile(String extension) throws Exception {
+        Path file = tempDir.resolve("oversized." + extension);
         Files.write(file, new byte[1024 * 1024 + 1]);
         ApiConfigLoader loader = new ApiConfigLoader(new ObjectMapper(), new MockEnvironment(), () -> tempDir);
 

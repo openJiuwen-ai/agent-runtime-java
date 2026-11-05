@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.openjiuwen.core.sysop.config.ContainerScope;
 import com.openjiuwen.core.sysop.config.SandboxGatewayConfig;
 import com.openjiuwen.core.sysop.sandbox.SandboxClient;
-import com.openjiuwen.core.sysop.sandbox.SandboxEndpoint;
+import com.openjiuwen.core.sysop.sandbox.gateway.SandboxEndpoint;
 import com.openjiuwen.core.sysop.sandbox.SandboxRegistry;
 
 import org.junit.jupiter.api.Test;
@@ -56,6 +56,23 @@ class DefaultAgentCoreSandboxClientFactoryTest {
         assertThat(config.getIsolation().getCustomId()).isEqualTo("session-1");
         assertThat(config.getIsolation().getPrefix()).isEqualTo("tenant-a");
         assertThat(config.getIsolation().getContainerScope()).isEqualTo(ContainerScope.CUSTOM);
+    }
+
+    @Test
+    void configFor_prefixNotConfigured_defaultsPrefixToServerId() {
+        AgentCoreExternalProperties properties = properties();
+        AgentCoreExternalProperties.SandboxServer second = new AgentCoreExternalProperties.SandboxServer();
+        second.setServerId("box-b");
+        second.setServiceUrl("http://localhost:18091");
+        second.setSandboxType("jiuwenbox");
+        properties.getSandbox().setServers(java.util.List.of(properties.getSandbox().getServers().get(0), second));
+        DefaultAgentCoreSandboxClientFactory factory = new DefaultAgentCoreSandboxClientFactory(properties);
+
+        SandboxGatewayConfig first = factory.configFor("default");
+        SandboxGatewayConfig other = factory.configFor("box-b");
+
+        assertThat(first.getIsolation().getPrefix()).isEqualTo("default");
+        assertThat(other.getIsolation().getPrefix()).isEqualTo("box-b");
     }
 
     @Test

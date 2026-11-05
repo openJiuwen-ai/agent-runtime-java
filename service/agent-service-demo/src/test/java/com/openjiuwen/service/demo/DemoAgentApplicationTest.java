@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openjiuwen.core.foundation.llm.Model;
-import com.openjiuwen.core.foundation.llm.model_clients.BaseModelClient;
+import com.openjiuwen.core.foundation.llm.modelclients.BaseModelClient;
 import com.openjiuwen.core.foundation.llm.output_parsers.BaseOutputParser;
 import com.openjiuwen.core.foundation.llm.schema.AssistantMessage;
 import com.openjiuwen.core.foundation.llm.schema.AssistantMessageChunk;
@@ -22,7 +22,6 @@ import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,6 +61,12 @@ class DemoAgentApplicationTest {
     private static final AtomicReference<List<Map<String, Object>>> LAST_MODEL_MESSAGES = new AtomicReference<>(
             List.of());
 
+    static {
+        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
+            Model.registerFactory(new EchoModelFactory());
+        }
+    }
+
     @Autowired
     private TestRestTemplate rest;
 
@@ -77,13 +82,6 @@ class DemoAgentApplicationTest {
         registry.add("openjiuwen.service.llm.api-base", () -> "mirror://demo-smoke");
         registry.add("openjiuwen.service.llm.model-name", () -> "test-model");
         registry.add("openjiuwen.service.llm.auto-discover", () -> "false");
-    }
-
-    @BeforeAll
-    static void registerModelFactory() {
-        if (FACTORY_REGISTERED.compareAndSet(false, true)) {
-            Model.registerFactory(new EchoModelFactory());
-        }
     }
 
     @AfterAll
@@ -102,7 +100,7 @@ class DemoAgentApplicationTest {
         Map<String, Object> json = mapper.readValue(resp.getBody(), Map.class);
         assertThat(json).containsEntry("status", "healthy");
         assertThat(json).containsEntry("app", "demo-agent-service");
-        assertThat(json).containsEntry("version", "0.1.1.post1");
+        assertThat(json).containsEntry("version", "0.1.4");
         assertThat(json).containsEntry("process_up", true);
         assertThat(json).containsEntry("agent_loaded", true);
     }
@@ -204,8 +202,7 @@ class DemoAgentApplicationTest {
         @Override
         public VideoGenerationResponse generateVideo(List<UserMessage> messages, String imgUrl, String audioUrl,
                 String model, String size, String resolution, int duration, boolean shouldPromptExtend,
-                boolean shouldWatermark,
-                String negativePrompt, Integer seed, Map<String, Object> kwargs) {
+                boolean shouldWatermark, String negativePrompt, Integer seed, Map<String, Object> kwargs) {
             throw new UnsupportedOperationException();
         }
     }

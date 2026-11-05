@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -19,6 +20,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.controller.a2a.client.A2ARemoteAgentClient;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteCall;
@@ -34,15 +36,20 @@ import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 import org.a2aproject.sdk.jsonrpc.common.wrappers.ListTasksResult;
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
 import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
+import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
 import org.a2aproject.sdk.server.tasks.TaskStore;
+import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Task;
 import org.a2aproject.sdk.spec.TaskState;
 import org.a2aproject.sdk.spec.TaskStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -51,6 +58,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 /**
  * Unit tests for the A2A-enabled serve orchestrator.
@@ -112,6 +121,86 @@ class A2AEnabledServeOrchestratorTest {
         });
 
         assertThat(completed.get()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void remoteMetadataReachesLocalResumeWithoutEnteringToolResults(boolean isStreaming) throws Exception {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        Map<String, Object> responseMetadata = Map.of("leadOut", "next-service");
+        when(a2aClient.callOutcome(any(), any())).thenReturn(CompletableFuture.completedFuture(
+                new RemoteCallOutcome("remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "done",
+                        null, null, responseMetadata)));
+        AtomicInteger localRuns = new AtomicInteger();
+        java.util.function.Function<ServeRequest, QueryResponse> local = request -> {
+            if (localRuns.getAndIncrement() == 0) {
+                return new QueryResponse(Map.of("_interrupt", Map.of("type", "__interaction__",
+                        "toolCallId", "call-1", "toolName", "a2a_delegate", "message", "go",
+                        "context", Map.of("_interrupt_kind", "a2a_delegate", "agentName", "remote-agent"))), "c1");
+            }
+            assertThat(request.getRemoteResponseMetadata()).isEqualTo(Map.of("call-1", responseMetadata));
+            assertThat(request.getMetadata().get("runtime.remoteToolResults")).isEqualTo(Map.of("call-1", "done"));
+            assertThat(request.getMetadata()).doesNotContainKeys("leadOut", "runtime.response_metadata");
+            return new QueryResponse(Map.of("content", "parent-done"), "c1");
+        };
+        when(agentHandler.query(any())).thenAnswer(invocation -> local.apply(invocation.getArgument(0)));
+        doAnswer(invocation -> {
+            QueryResponse response = local.apply(invocation.getArgument(0));
+            QueryStreamObserver observer = invocation.getArgument(1);
+            Map<?, ?> result = (Map<?, ?>) response.getResult();
+            if (result.containsKey("_interrupt")) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, result.get("_interrupt")));
+            }
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        ServeRequest request = req("c1");
+        request.setStream(isStreaming);
+        if (isStreaming) {
+            QueryStreamObserver observer = mock(QueryStreamObserver.class);
+            orchestrator.streamQuery(request, observer);
+            verify(observer, never()).onError(any());
+        } else {
+            assertThat(orchestrator.query(request).getMetadata()).isNullOrEmpty();
+        }
+        assertThat(localRuns.get()).isEqualTo(2);
+        assertThat(request.getRemoteResponseMetadata()).isEmpty();
+    }
+
+    @Test
+    void directRemoteResponseExportsMetadataAndForwardsBusinessArtifact() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        Map<String, Object> metadata = Map.of("leadOut", "next-service");
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
+            RemoteAgentCaller.EventObserver events = invocation.getArgument(1);
+            var artifact = org.a2aproject.sdk.spec.Artifact.builder().artifactId("business")
+                    .parts(new org.a2aproject.sdk.spec.TextPart("done")).build();
+            events.onArtifact(new org.a2aproject.sdk.spec.TaskArtifactUpdateEvent("remote-task", artifact,
+                    "c1", false, true, Map.of()));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-task",
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "done", null, null, metadata));
+        });
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of("type", "__interaction__",
+                    "toolCallId", "call-1", "toolName", "a2a_delegate", "message", "go", "context",
+                    Map.of("_interrupt_kind", "a2a_delegate", "agentName", "remote-agent", "resume", false))));
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        orchestrator.streamQuery(req("c1"), observer);
+
+        verify(observer).onComplete(argThat(response -> response != null && metadata.equals(response.getMetadata())));
+        verify(observer).onNext(argThat(chunk -> QueryChunk.TYPE_REMOTE_AGENT_OUTPUT.equals(chunk.getType())
+                && chunk.getData() instanceof org.a2aproject.sdk.spec.TaskArtifactUpdateEvent update
+                && update.artifact().parts().equals(List.of(new org.a2aproject.sdk.spec.TextPart("done")))
+                && !update.artifact().metadata().containsKey("_agentcore_response_metadata")));
     }
 
     @Test
@@ -357,14 +446,22 @@ class A2AEnabledServeOrchestratorTest {
         }).when(agentHandler).streamQuery(any(), any());
         QueryStreamObserver observer = mock(QueryStreamObserver.class);
         ServeRequest request = req("c-batch");
+        request.setModelName("b");
         request.setMetadata(Map.of("runtime.parentTaskId", "parent-batch"));
 
         orchestrator.streamQuery(request, observer);
 
         verify(a2aClient, times(3)).callOutcome(any(), any());
         assertThat(localRuns.get()).isEqualTo(2);
+        assertModelSelectionPreserved(agentHandler);
         assertThat(taskStore.get("shadow:test-agent:parent-batch")).isNull();
         verify(observer).onComplete();
+    }
+
+    private static void assertModelSelectionPreserved(AgentHandler handler) {
+        var resumedRequests = org.mockito.ArgumentCaptor.forClass(ServeRequest.class);
+        verify(handler, times(2)).streamQuery(resumedRequests.capture(), any());
+        assertThat(resumedRequests.getAllValues()).allSatisfy(value -> assertThat(value.getModelName()).isEqualTo("b"));
     }
 
     @Test
@@ -782,6 +879,250 @@ class A2AEnabledServeOrchestratorTest {
         verify(taskStore, never()).delete(any());
     }
 
+    @ParameterizedTest
+    @MethodSource("resetTaskCounts")
+    void resetConversationCleansEveryPage(int taskCount) {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        for (int index = 0; index < taskCount; index++) {
+            taskStore.save(Task.builder().id("reset-task-" + index).contextId("c-reset")
+                    .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build(), true);
+        }
+        Task unrelated = Task.builder().id("unrelated").contextId("c-other")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+        taskStore.save(unrelated, true);
+
+        orchestrator.resetConversation("c-reset");
+
+        for (int index = 0; index < taskCount; index++) {
+            assertThat(taskStore.get("reset-task-" + index)).as("task %s", index).isNull();
+        }
+        assertThat(taskStore.get("unrelated")).isEqualTo(unrelated);
+        orchestrator.resetConversation("c-reset");
+        assertThat(taskStore.get("unrelated")).isEqualTo(unrelated);
+        verify(streamRegistry, times(2)).cancel("c-reset");
+        verify(agentHandler, times(2)).clearSession("c-reset");
+    }
+
+    @Test
+    void resetCollectsAllPagesBeforeDeletingAndDeduplicatesIds() {
+        Task parent = resetTask("parent");
+        Task shadow = Task.builder().id("shadow:parent").contextId("c-reset")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
+                .metadata(Map.of("_remote_batch", Map.of("parentTaskId", "parent"))).build();
+        when(taskStore.list(any())).thenReturn(
+                new ListTasksResult(List.of(parent), 2, 1, " opaque token "),
+                new ListTasksResult(List.of(), 2, 0, "next"),
+                new ListTasksResult(List.of(parent, shadow), 2, 2, null));
+
+        orchestrator.resetConversation("c-reset");
+
+        var order = inOrder(streamRegistry, agentHandler, taskStore);
+        order.verify(streamRegistry).cancel("c-reset");
+        order.verify(agentHandler).clearSession("c-reset");
+        for (String token : Arrays.asList(null, " opaque token ", "next")) {
+            order.verify(taskStore).list(ListTasksParams.builder().contextId("c-reset")
+                    .pageToken(token).historyLength(0).includeArtifacts(false).build());
+        }
+        order.verify(taskStore).delete("parent");
+        order.verify(taskStore).delete("shadow:parent");
+        order.verifyNoMoreInteractions();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " \t"})
+    void resetStopsOnBlankNextPageToken(String token) {
+        when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of(resetTask("t1")), 1, 1, token));
+
+        orchestrator.resetConversation("c-reset");
+
+        verify(taskStore).list(any());
+        verify(taskStore).delete("t1");
+    }
+
+    @Test
+    void resetRejectsCyclicTokensBeforeDeletingTasks() {
+        when(taskStore.list(any())).thenReturn(
+                new ListTasksResult(List.of(resetTask("t1")), 3, 1, "a"),
+                new ListTasksResult(List.of(resetTask("t2")), 3, 1, "b"),
+                new ListTasksResult(List.of(resetTask("t3")), 3, 1, "a"));
+
+        assertThatThrownBy(() -> orchestrator.resetConversation("c-reset"))
+                .isInstanceOf(TaskPersistenceException.class).hasMessageContaining("repeated a page token");
+
+        verify(taskStore, times(3)).list(any());
+        verify(taskStore, never()).delete(any());
+    }
+
+    @Test
+    void resetPropagatesLaterPageFailureWithoutDeletingTasks() {
+        TaskPersistenceException failure = new TaskPersistenceException("list failed");
+        when(taskStore.list(any())).thenReturn(new ListTasksResult(List.of(resetTask("t1")), 2, 1, "next"))
+                .thenThrow(failure);
+
+        assertThatThrownBy(() -> orchestrator.resetConversation("c-reset")).isSameAs(failure);
+
+        verify(taskStore, never()).delete(any());
+        verify(streamRegistry).cancel("c-reset");
+        verify(agentHandler).clearSession("c-reset");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"page", "tasks", "task", "null-id", "empty-id", "blank-id"})
+    void resetRejectsInvalidPagesBeforeDeletingTasks(String invalidPart) {
+        ListTasksResult invalidPage = invalidResetPage(invalidPart).orElse(null);
+        when(taskStore.list(any())).thenReturn(
+                new ListTasksResult(List.of(resetTask("valid")), 2, 1, "next"), invalidPage);
+
+        assertThatThrownBy(() -> orchestrator.resetConversation("c-reset"))
+                .isInstanceOf(TaskPersistenceException.class).hasMessageContaining("invalid");
+
+        verify(taskStore, never()).delete(any());
+    }
+
+    @Test
+    void resetPropagatesDeleteFailureAndStopsDeleting() {
+        when(taskStore.list(any())).thenReturn(
+                new ListTasksResult(List.of(resetTask("t1"), resetTask("t2"), resetTask("t3"))));
+        TaskPersistenceException failure = new TaskPersistenceException("delete failed");
+        doThrow(failure).when(taskStore).delete("t2");
+
+        assertThatThrownBy(() -> orchestrator.resetConversation("c-reset")).isSameAs(failure);
+
+        verify(taskStore).delete("t1");
+        verify(taskStore).delete("t2");
+        verify(taskStore, never()).delete("t3");
+    }
+
+    @Test
+    void resetCleansAllPagesThroughWriteThrottlingDecorator() {
+        int taskCount = 2 * ListTasksParams.builder().build().getEffectivePageSize() + 1;
+        TaskStore delegate = new InMemoryTaskStore();
+        taskStore = new WriteThrottlingTaskStore(delegate, Long.MAX_VALUE);
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        for (int index = 0; index < taskCount; index++) {
+            Task task = Task.builder().id("cached-" + index).contextId("c-reset")
+                    .status(new TaskStatus(TaskState.TASK_STATE_WORKING)).build();
+            taskStore.save(task, true);
+            taskStore.save(task, true);
+        }
+
+        orchestrator.resetConversation("c-reset");
+
+        for (int index = 0; index < taskCount; index++) {
+            assertThat(taskStore.get("cached-" + index)).isNull();
+            assertThat(delegate.get("cached-" + index)).isNull();
+        }
+        assertThat(taskStore.list(ListTasksParams.builder().contextId("c-reset").build()).tasks()).isEmpty();
+        assertThat(delegate.list(ListTasksParams.builder().contextId("c-reset").build()).tasks()).isEmpty();
+    }
+
+    private static IntStream resetTaskCounts() {
+        int defaultPageSize = ListTasksParams.builder().build().getEffectivePageSize();
+        return IntStream.of(0, defaultPageSize - 1, defaultPageSize, defaultPageSize + 1, 2 * defaultPageSize + 1);
+    }
+
+    private static Task resetTask(String id) {
+        return Task.builder().id(id).contextId("c-reset")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+    }
+
+    private static Optional<ListTasksResult> invalidResetPage(String invalidPart) {
+        if ("page".equals(invalidPart)) {
+            return Optional.empty();
+        }
+        ListTasksResult page = mock(ListTasksResult.class);
+        if ("tasks".equals(invalidPart)) {
+            when(page.tasks()).thenReturn(null);
+            return Optional.of(page);
+        }
+        Task task = mock(Task.class);
+        switch (invalidPart) {
+            case "task" -> task = null;
+            case "null-id" -> when(task.id()).thenReturn(null);
+            case "empty-id" -> when(task.id()).thenReturn("");
+            case "blank-id" -> when(task.id()).thenReturn(" \t");
+            default -> throw new IllegalArgumentException("Unexpected invalid part: " + invalidPart);
+        }
+        when(page.tasks()).thenReturn(Arrays.asList(task));
+        return Optional.of(page);
+    }
+
+    @Test
+    void streamCompletionWaitsForTaskRelease() {
+        Optional<Object> token = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(token);
+        List<String> events = new java.util.ArrayList<>();
+        doAnswer(invocation -> {
+            events.add("handler");
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onComplete(new QueryResponse(Map.of("content", "done"), "c-release-order"));
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        doAnswer(invocation -> {
+            events.add("release");
+            return null;
+        }).when(agentHandler).completeTask(token);
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> {
+            events.add("done");
+            return null;
+        }).when(observer).onComplete(any(QueryResponse.class));
+
+        orchestrator.streamQuery(req("c-release-order"), observer);
+
+        assertThat(events).containsExactly("handler", "release", "done");
+        verify(agentHandler).completeTask(token);
+    }
+
+    @Test
+    void streamResumeReleasesOnceBeforeFinalCompletion() {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        Optional<Object> token = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(token);
+        when(a2aClient.callOutcome(any(), any())).thenReturn(CompletableFuture.completedFuture(
+                new RemoteCallOutcome("remote-task", TaskState.TASK_STATE_COMPLETED, "COMPLETED", "remote-done",
+                        null, null, Map.of())));
+        AtomicInteger releases = new AtomicInteger();
+        AtomicInteger localRuns = new AtomicInteger();
+        doAnswer(invocation -> {
+            releases.incrementAndGet();
+            return null;
+        }).when(agentHandler).completeTask(token);
+        doAnswer(invocation -> {
+            assertThat(releases.get()).isZero();
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (localRuns.getAndIncrement() == 0) {
+                observer.onNext(new QueryChunk(QueryChunk.TYPE_INTERRUPT, Map.of(
+                        "type", "__interaction__", "toolCallId", "call-1", "toolName", "a2a_delegate",
+                        "message", "go", "context", Map.of("_interrupt_kind", "a2a_delegate",
+                                "agentName", "remote-agent"))));
+                observer.onComplete();
+            } else {
+                observer.onComplete(new QueryResponse(Map.of("content", "done"), "c-release-resume"));
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        doAnswer(invocation -> {
+            assertThat(releases.get()).isEqualTo(1);
+            return null;
+        }).when(observer).onComplete(any(QueryResponse.class));
+
+        orchestrator.streamQuery(req("c-release-resume"), observer);
+
+        assertThat(localRuns.get()).isEqualTo(2);
+        verify(agentHandler).prepareTask(any());
+        verify(agentHandler).completeTask(token);
+        verify(observer).onComplete(any(QueryResponse.class));
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onError(any());
+    }
+
     @Test
     void streamQuery_prepareTaskThrows_unregistersAndCompletes() {
         ActiveStreamRegistry realRegistry = new ActiveStreamRegistry();
@@ -840,7 +1181,37 @@ class A2AEnabledServeOrchestratorTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void parentMetadataSurvivesRepeatedDirectResumeAndNextDelegation(boolean isStreaming) {
+    void modelSelectionStaysLocalAcrossRepeatedDelegation(boolean isStreaming) {
+        taskStore = new InMemoryTaskStore();
+        orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
+                "test-agent", 16, 256, 30);
+        List<RemoteCall> calls = new java.util.ArrayList<>();
+        when(a2aClient.callOutcome(any(), any())).thenAnswer(invocation -> {
+            calls.add(invocation.getArgument(0));
+            return CompletableFuture.completedFuture(new RemoteCallOutcome("remote-a",
+                    TaskState.TASK_STATE_COMPLETED, "COMPLETED", "result", null));
+        });
+        List<ServeRequest> localRequests = new java.util.ArrayList<>();
+        stubMetadataAgent(localRequests);
+        ServeRequest initial = metadataRequest(Map.of("model_name", "b", "trace", "keep"), isStreaming, "initial");
+        initial.setModelName("b");
+
+        runMetadataRequest(initial, isStreaming);
+
+        assertThat(calls).hasSize(2).allSatisfy(call -> assertThat(call.metadata())
+                .containsEntry("trace", "keep").doesNotContainKey("model_name"));
+        assertThat(localRequests).hasSize(3)
+                .allSatisfy(request -> assertThat(request.getModelName()).isEqualTo("b"));
+        assertThat(localRequests.subList(1, 3)).allSatisfy(request ->
+                assertThat(request.getMetadata()).doesNotContainKey("model_name"));
+
+        runMetadataRequest(metadataRequest(Map.of(), isStreaming, "new request"), isStreaming);
+        assertThat(localRequests.get(3).getModelName()).isNull();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, c", "true, c", "false,", "true,"})
+    void parentMetadataSurvivesRepeatedDirectResumeAndNextDelegation(boolean isStreaming, String currentModel) {
         taskStore = new InMemoryTaskStore();
         orchestrator = new A2AEnabledServeOrchestrator(agentHandler, taskStore, a2aClient, streamRegistry,
                 "test-agent", 16, 256, 30);
@@ -852,14 +1223,17 @@ class A2AEnabledServeOrchestratorTest {
         stubMetadataAgent(localRequests);
 
         ServeRequest initial = metadataRequest(parentMetadata, !isStreaming, "initial");
+        initial.setModelName("b");
         runMetadataRequest(initial, isStreaming);
         ServeRequest second = metadataRequest(Map.of("header", Map.of("trace", "second"),
                 "secondOnly", true), isStreaming, "answer-2");
+        second.setModelName("a");
         runMetadataRequest(second, isStreaming);
         assertThat(localRequests).hasSize(1);
         restoreMetadataShadow(parentMetadata);
         ServeRequest third = metadataRequest(Map.of("body", Map.of("answer", "third"),
                 "thirdOnly", true), isStreaming, "answer-3");
+        third.setModelName(currentModel);
         third.getMetadata().put("runtime.remoteToolInputs", Map.of("call-a", "answer-3"));
         third.getMetadata().put("_interrupt", Map.of("message", "current interrupt"));
         runMetadataRequest(third, isStreaming);
@@ -869,6 +1243,7 @@ class A2AEnabledServeOrchestratorTest {
         ServeRequest fresh = metadataRequest(Map.of("fresh", true), isStreaming, "new-local-input");
         runMetadataRequest(fresh, isStreaming);
         assertThat(localRequests.get(3).getMetadata()).containsEntry("fresh", true).doesNotContainKey("parentOnly");
+        assertThat(localRequests.get(3).getModelName()).isNull();
     }
 
     private void stubMetadataRemote(List<RemoteCall> calls) {
@@ -908,6 +1283,7 @@ class A2AEnabledServeOrchestratorTest {
         Task shadow = taskStore.get("shadow:test-agent:metadata-parent");
         Map<?, ?> batch = (Map<?, ?>) shadow.metadata().get("_remote_batch");
         assertThat(((Map<?, ?>) batch.get("request")).get("metadata")).isEqualTo(parentMetadata);
+        assertThat(((Map<?, ?>) batch.get("request")).get("modelName")).isEqualTo("a");
         Task restored = JsonUtil.OBJECT_MAPPER.fromJson(
                 JsonUtil.OBJECT_MAPPER.toJson(shadow), Task.class);
         taskStore.save(restored, true);
@@ -918,6 +1294,7 @@ class A2AEnabledServeOrchestratorTest {
     private void assertMetadataRoundTrip(List<RemoteCall> calls, List<ServeRequest> localRequests,
             Map<String, Object> parentMetadata, ServeRequest third, boolean isStreaming) {
         assertThat(calls).hasSize(4);
+        assertThat(calls).allSatisfy(call -> assertThat(call.metadata()).doesNotContainKey("model_name"));
         assertThat(calls.get(0).metadata()).containsAllEntriesOf(parentMetadata);
         assertThat(calls.get(1).metadata()).containsEntry("secondOnly", true).doesNotContainKey("parentOnly");
         assertThat(calls.get(2).metadata()).containsEntry("thirdOnly", true).doesNotContainKey("header");
@@ -927,6 +1304,10 @@ class A2AEnabledServeOrchestratorTest {
         assertThat(calls.get(3).isCallerStreaming()).isEqualTo(isStreaming);
         assertThat(localRequests).hasSize(3);
         ServeRequest resumed = localRequests.get(1);
+        // Supplemental HTTP requests select afresh, while internal delegation retains this round's selection.
+        assertThat(localRequests.get(0).getModelName()).isEqualTo("b");
+        assertThat(resumed.getModelName()).isEqualTo(third.getModelName());
+        assertThat(localRequests.get(2).getModelName()).isEqualTo(third.getModelName());
         assertThat(resumed.getMetadata()).containsAllEntriesOf(parentMetadata)
                 .containsEntry("runtime.parentTaskId", "metadata-parent")
                 .containsEntry("runtime.remoteToolResults", Map.of("call-a", "result"))
@@ -1004,5 +1385,113 @@ class A2AEnabledServeOrchestratorTest {
             "toolCallId", toolCallId,
             "toolName", toolName,
             "context", Map.of("_interrupt_kind", "client_tool"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void streamCleanupFailureStillUnregisters(boolean isCancelled) {
+        ActiveStreamRegistry realRegistry = new ActiveStreamRegistry();
+        A2AEnabledServeOrchestrator realOrchestrator = new A2AEnabledServeOrchestrator(agentHandler,
+            taskStore, a2aClient, realRegistry, "test-agent", 16, 256, 30);
+        Optional<Object> taskToken = Optional.of(new Object());
+        when(agentHandler.prepareTask(any())).thenReturn(taskToken);
+        IllegalStateException failure = new IllegalStateException("resource cleanup failed");
+        doThrow(failure).when(agentHandler).completeTask(taskToken);
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (isCancelled) {
+                realOrchestrator.cancelActive("cleanup-failure");
+                assertThat(observer.isCancelled()).isTrue();
+            }
+            observer.onComplete();
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        assertThatThrownBy(() -> realOrchestrator.streamQuery(req("cleanup-failure"), observer))
+                .isSameAs(failure);
+        assertThat(realRegistry.activeCount()).isZero();
+        assertThat(realRegistry.awaitDrain(0L)).isTrue();
+        verify(observer).onError(failure);
+        verify(observer, times(1)).onError(any());
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onComplete(any(QueryResponse.class));
+    }
+
+    @Test
+    void streamCleanupFailureKeepsOriginalError() {
+        Optional<Object> taskToken = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(taskToken);
+        IllegalStateException cleanupFailure = new IllegalStateException("resource cleanup failed");
+        IllegalStateException originalFailure = new IllegalStateException("agent failed");
+        doThrow(cleanupFailure).when(agentHandler).completeTask(taskToken);
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            observer.onError(originalFailure);
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        assertThatThrownBy(() -> orchestrator.streamQuery(req("cleanup-original-error"), observer))
+                .isSameAs(cleanupFailure);
+
+        verify(observer).onError(originalFailure);
+        verify(observer, times(1)).onError(any());
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onComplete(any(QueryResponse.class));
+    }
+
+    @Test
+    void streamCleanupFailureConvertsLateCompletion() {
+        Optional<Object> taskToken = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(taskToken);
+        IllegalStateException failure = new IllegalStateException("resource cleanup failed");
+        doThrow(failure).when(agentHandler).completeTask(taskToken);
+        AtomicReference<QueryStreamObserver> agentObserver = new AtomicReference<>();
+        doAnswer(invocation -> {
+            agentObserver.set(invocation.getArgument(1));
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+
+        assertThatThrownBy(() -> orchestrator.streamQuery(req("cleanup-late-completion"), observer))
+                .isSameAs(failure);
+        agentObserver.get().onComplete();
+
+        verify(observer).onError(failure);
+        verify(observer, times(1)).onError(any());
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onComplete(any(QueryResponse.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void streamCleanupFailureSurvivesTerminalCallbackFailure(boolean isOriginalError) {
+        Optional<Object> taskToken = Optional.of(TASK_TOKEN);
+        when(agentHandler.prepareTask(any())).thenReturn(taskToken);
+        IllegalStateException cleanupFailure = new IllegalStateException("resource cleanup failed");
+        IllegalStateException agentFailure = new IllegalStateException("agent failed");
+        doThrow(cleanupFailure).when(agentHandler).completeTask(taskToken);
+        doAnswer(invocation -> {
+            QueryStreamObserver observer = invocation.getArgument(1);
+            if (isOriginalError) {
+                observer.onError(agentFailure);
+            } else {
+                observer.onComplete();
+            }
+            return null;
+        }).when(agentHandler).streamQuery(any(), any());
+        QueryStreamObserver observer = mock(QueryStreamObserver.class);
+        IllegalStateException callbackFailure = new IllegalStateException("downstream callback failed");
+        doThrow(callbackFailure).when(observer).onError(any());
+
+        assertThatThrownBy(() -> orchestrator.streamQuery(req("cleanup-callback-failure"), observer))
+                .isSameAs(cleanupFailure)
+                .hasSuppressedException(callbackFailure);
+
+        verify(observer).onError(isOriginalError ? agentFailure : cleanupFailure);
+        verify(observer, times(1)).onError(any());
+        verify(observer, never()).onComplete();
+        verify(observer, never()).onComplete(any(QueryResponse.class));
     }
 }

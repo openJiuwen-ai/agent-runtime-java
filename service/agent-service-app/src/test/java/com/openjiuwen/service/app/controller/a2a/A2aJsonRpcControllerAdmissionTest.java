@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
+import com.openjiuwen.service.spec.concurrency.TaskAdmissionService;
 
 import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
@@ -31,6 +32,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+import java.util.Optional;
 import java.util.concurrent.Flow;
 
 /**
@@ -52,10 +54,48 @@ class A2aJsonRpcControllerAdmissionTest {
         ResponseEntity<?> response = controller.handleJsonRpc(sendMessageJson(), servletRequest());
 
         assertThat(response.getStatusCode().value()).isEqualTo(503);
-        assertThat(response.getBody()).asString().contains("concurrent task limit reached");
+        assertThat(response.getBody()).asString().contains("temporarily unavailable");
+        assertThat(response.getBody()).asString().contains("CONCURRENCY_LIMIT_REACHED");
         verify(handler, never()).onMessageSend(any(), any());
         // Nothing was acquired, so nothing may be released.
         verify(gate, never()).release();
+    }
+
+    @Test
+    void sendMessage_rejectedStateUnavailable_whenEventProcessorStalled() {
+        RequestHandler handler = mock(RequestHandler.class);
+        TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
+        when(gate.limit()).thenReturn(5);
+        TaskAdmissionService service = mock(TaskAdmissionService.class);
+        when(service.checkEventSafety())
+                .thenReturn(Optional.of(TaskAdmissionService.BUSINESS_CODE_EVENT_QUEUE_STATE_UNAVAILABLE));
+        A2aJsonRpcController controller = newController(handler, gate, service);
+
+        ResponseEntity<?> response = controller.handleJsonRpc(sendMessageJson(), servletRequest());
+
+        assertThat(response.getStatusCode().value()).isEqualTo(503);
+        assertThat(response.getBody()).asString().contains("temporarily unavailable");
+        assertThat(response.getBody()).asString().contains("EVENT_QUEUE_STATE_UNAVAILABLE");
+        // The stall verdict precedes the quota check — no permit is acquired.
+        verify(gate, never()).tryAcquire();
+        verify(handler, never()).onMessageSend(any(), any());
+    }
+
+    @Test
+    void sendMessage_rejectedWithOverloaded_whenPendingReleaseBacklog() {
+        RequestHandler handler = mock(RequestHandler.class);
+        TaskAdmissionGate gate = rejectingGate();
+        TaskAdmissionService service = mock(TaskAdmissionService.class);
+        when(service.classifyPoolExhaustion())
+                .thenReturn(TaskAdmissionService.BUSINESS_CODE_EVENT_QUEUE_OVERLOADED);
+        A2aJsonRpcController controller = newController(handler, gate, service);
+
+        ResponseEntity<?> response = controller.handleJsonRpc(sendMessageJson(), servletRequest());
+
+        assertThat(response.getStatusCode().value()).isEqualTo(503);
+        assertThat(response.getBody()).asString().contains("temporarily unavailable");
+        assertThat(response.getBody()).asString().contains("EVENT_QUEUE_OVERLOADED");
+        verify(handler, never()).onMessageSend(any(), any());
     }
 
     @Test
@@ -210,10 +250,20 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     private static A2aJsonRpcController newController(RequestHandler handler, TaskAdmissionGate gate) {
+        return newController(handler, gate, null);
+    }
+
+    private static A2aJsonRpcController newController(RequestHandler handler, TaskAdmissionGate gate,
+            TaskAdmissionService service) {
         ObjectProvider<TaskAdmissionGate> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(gate);
         A2aJsonRpcController controller = new A2aJsonRpcController(handler);
         controller.setAdmissionGateProvider(provider);
+        if (service != null) {
+            ObjectProvider<TaskAdmissionService> serviceProvider = mock(ObjectProvider.class);
+            when(serviceProvider.getIfAvailable()).thenReturn(service);
+            controller.setAdmissionServiceProvider(serviceProvider);
+        }
         return controller;
     }
 

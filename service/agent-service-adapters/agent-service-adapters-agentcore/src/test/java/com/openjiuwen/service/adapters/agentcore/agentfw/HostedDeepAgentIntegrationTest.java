@@ -13,7 +13,7 @@ import com.openjiuwen.core.graph.pregel.PregelConstants;
 import com.openjiuwen.core.graph.store.GraphStoreState;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
-import com.openjiuwen.core.session.AgentSessionApi;
+import com.openjiuwen.core.session.AgentSession;
 import com.openjiuwen.core.session.checkpointer.Checkpointer;
 import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.core.session.checkpointer.InMemoryCheckpointer;
@@ -194,14 +194,14 @@ class HostedDeepAgentIntegrationTest {
         // Runtime registration and the calling Core ID do not add another workflow namespace.
         handlers.get(0).clearSession(parent);
         assertThat(checkpointer.sessionExists(parent)).isFalse();
-        assertThat(checkpointer.graphStore().get(parent, "workflow-first")).isEmpty();
-        assertThat(checkpointer.graphStore().get(parent, "workflow-second")).isEmpty();
-        assertThat(checkpointer.graphStore().get(derived, "workflow-child")).isPresent();
+        assertThat(checkpointer.graphStore().get(parent, "workflow-first").toCompletableFuture().join()).isEmpty();
+        assertThat(checkpointer.graphStore().get(parent, "workflow-second").toCompletableFuture().join()).isEmpty();
+        assertThat(checkpointer.graphStore().get(derived, "workflow-child").toCompletableFuture().join()).isPresent();
         var child = new WorkflowSession("workflow-child", null, derived, InMemoryState.create(), null);
         checkpointer.preWorkflowExecute(child, new InteractiveInput("resume-child"));
         assertThat(child.state().getGlobal("owner")).isEqualTo("child");
         handlers.get(1).clearSession(derived);
-        assertThat(checkpointer.graphStore().get(derived, "workflow-child")).isEmpty();
+        assertThat(checkpointer.graphStore().get(derived, "workflow-child").toCompletableFuture().join()).isEmpty();
     }
 
     private static void saveAndRestoreWorkflows(Checkpointer checkpointer, String parent, String derived) {
@@ -212,7 +212,7 @@ class HostedDeepAgentIntegrationTest {
             var restored = new WorkflowSession(id, null, parent, InMemoryState.create(), null);
             checkpointer.preWorkflowExecute(restored, new InteractiveInput("resume"));
             assertThat(restored.state().getGlobal("owner")).isEqualTo(id.substring("workflow-".length()));
-            assertThat(checkpointer.graphStore().get(parent, id)).isPresent();
+            assertThat(checkpointer.graphStore().get(parent, id).toCompletableFuture().join()).isPresent();
         }
     }
 
@@ -222,7 +222,8 @@ class HostedDeepAgentIntegrationTest {
         session.state().updateGlobal(Map.of("owner", owner));
         assertInstanceOf(WorkflowCommitState.class, session.state()).commit();
         checkpointer.graphStore().save(conversation, id,
-                GraphStoreState.create(id, 1, Map.of("owner", owner), List.of(), Map.of(), Map.of()));
+                GraphStoreState.create(id, 1, Map.of("owner", owner), List.of(), Map.of(), Map.of()))
+                .toCompletableFuture().join();
         checkpointer.postWorkflowExecute(session, Map.of(PregelConstants.TASK_STATUS_INTERRUPT, true), null);
     }
 
@@ -320,7 +321,7 @@ class HostedDeepAgentIntegrationTest {
     }
 
     private static Object readState(DeepAgent agent, String conversation) {
-        var freshSession = new AgentSessionApi(conversation, null, agent.getCard());
+        var freshSession = AgentSession.createAgentSession(conversation, null, agent.getCard());
         freshSession.preRun(Map.of("query", "read-checkpoint"));
         assertThat(freshSession.getSessionId()).isEqualTo(conversation);
         assertThat(freshSession.getAgentId()).isEqualTo(agent.getCard().getId());

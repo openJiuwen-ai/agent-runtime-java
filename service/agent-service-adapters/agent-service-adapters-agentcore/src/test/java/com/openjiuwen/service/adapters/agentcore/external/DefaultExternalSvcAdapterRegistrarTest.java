@@ -55,7 +55,7 @@ class DefaultExternalSvcAdapterRegistrarTest {
         assertThat(coreConfig.getServerName()).isEqualTo("tools");
         assertThat(coreConfig.getServerPath()).isEqualTo("http://localhost:9000/mcp");
         assertThat(coreConfig.getClientType()).isEqualTo("streamable_http");
-        assertThat(coreConfig.getAuthHeaders()).containsEntry("Accept", "application/json");
+        assertThat(coreConfig.getAuthHeaders()).doesNotContainKey("Accept");
     }
 
     @Test
@@ -160,6 +160,8 @@ class DefaultExternalSvcAdapterRegistrarTest {
                 .id("remote-a2a")
                 .protocol(ProtocolEnum.A2A)
                 .url("http://localhost:18081/a2a")
+                .kwargs(Map.of("card", new com.openjiuwen.core.singleagent.schema.AgentCard("remote-a2a",
+                    "remote-a2a", "test")))
                 .build());
             RemoteClient mqClient = RemoteClientFactory.create(
                 RemoteClientConfig.builder().id("remote-mq").protocol(ProtocolEnum.MQ).topic("agent-topic").build());

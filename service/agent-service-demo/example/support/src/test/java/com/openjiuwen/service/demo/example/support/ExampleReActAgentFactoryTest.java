@@ -31,6 +31,7 @@ class ExampleReActAgentFactoryTest {
             .temperature(0.2D)
             .topP(0.7D)
             .timeout(Duration.ofMillis(1500))
+            .isTimeoutExplicit(true)
             .contextWindowLimit(12)
             .maxIterations(4)
             .build();

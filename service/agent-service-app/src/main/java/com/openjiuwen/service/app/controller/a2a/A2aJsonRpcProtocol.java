@@ -110,12 +110,39 @@ final class A2aJsonRpcProtocol {
             if (!response.has("id")) {
                 response.add("id", JsonNull.INSTANCE);
             }
+            relocateBusinessCodeDetails(response);
             return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(response.toString());
         } catch (RuntimeException | org.a2aproject.sdk.jsonrpc.common.json.JsonProcessingException e) {
             log.error("Failed to serialize A2A JSON-RPC error response", e);
             return ResponseEntity.internalServerError().contentType(MediaType.APPLICATION_JSON)
                     .body(internalErrorResponse());
         }
+    }
+
+    /**
+     * Moves the serialized {@code error.details} member into the JSON-RPC
+     * standard {@code error.data} slot when it carries a businessCode. Gson
+     * serializes {@code A2AError.details} under its field name, while the
+     * wire contract exposes application error detail via {@code error.data}.
+     * The relocation is scoped to details objects containing a businessCode
+     * key so other error shapes are never rewritten implicitly.
+     *
+     * @param response the serialized JSON-RPC error response object
+     */
+    private static void relocateBusinessCodeDetails(JsonObject response) {
+        if (!response.has("error")) {
+            return;
+        }
+        JsonObject error = response.getAsJsonObject("error");
+        if (!error.has("details") || !error.get("details").isJsonObject()) {
+            return;
+        }
+        JsonObject details = error.getAsJsonObject("details");
+        if (!details.has("businessCode")) {
+            return;
+        }
+        error.add("data", details);
+        error.remove("details");
     }
 
     private static boolean isValidRequest(JsonObject request) {

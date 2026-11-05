@@ -145,11 +145,12 @@ public class QueryMvcController {
         try {
             return objectMapper.readValue(rawBody, QueryRequest.class);
         } catch (com.fasterxml.jackson.databind.JsonMappingException failure) {
-            boolean isAgentField = failure.getPath().stream()
-                    .anyMatch(reference -> "agent_id".equals(reference.getFieldName()));
-            if (isAgentField) {
+            boolean isStrictRequestField = failure.getPath().stream()
+                    .anyMatch(reference -> "agent_id".equals(reference.getFieldName())
+                            || "model_name".equals(reference.getFieldName()));
+            if (isStrictRequestField) {
                 throw new org.springframework.http.converter.HttpMessageNotReadableException(
-                        "agent_id must be a string or null", failure,
+                        "Invalid agent_id or model_name", failure,
                         new org.springframework.http.server.ServletServerHttpRequest(request));
             }
             throw failure;
@@ -183,6 +184,7 @@ public class QueryMvcController {
 
     private void streamToEmitter(ServeOrchestrator orchestrator,
             com.openjiuwen.service.spec.dto.ServeRequest serveRequest, SseEmitter emitter, AtomicBoolean cancelled) {
+        AtomicBoolean errorEventSent = new AtomicBoolean(false);
         orchestrator.streamQuery(serveRequest, new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
@@ -191,6 +193,9 @@ public class QueryMvcController {
                 }
                 try {
                     emitter.send(SseEmitter.event().data(QuerySseSupport.toSseData(chunk, objectMapper)));
+                    if (QueryChunk.TYPE_ERROR.equals(chunk.getType())) {
+                        errorEventSent.set(true);
+                    }
                 } catch (IOException | RuntimeException ex) {
                     cancelled.set(true);
                     throw new CancellationException(ex.getMessage());
@@ -199,10 +204,14 @@ public class QueryMvcController {
 
             @Override
             public void onError(Throwable error) {
-                if (!isCancelled()) {
-                    log.error("Stream query failed for conversation_id={}", serveRequest.getConversationId(), error);
-                    emitter.completeWithError(error);
+                if (isCancelled()) {
+                    return;
                 }
+                log.error("Stream query failed for conversation_id={}", serveRequest.getConversationId(), error);
+                if (!errorEventSent.get()) {
+                    sendTerminalError(emitter, serveRequest.getConversationId(), cancelled);
+                }
+                emitter.complete();
             }
 
             @Override
@@ -217,6 +226,17 @@ public class QueryMvcController {
                 return cancelled.get();
             }
         });
+    }
+
+    private void sendTerminalError(SseEmitter emitter, String conversationId, AtomicBoolean cancelled) {
+        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_ERROR,
+                QueryIngressSupport.agentExecutionFailed(conversationId));
+        try {
+            emitter.send(SseEmitter.event().data(QuerySseSupport.toSseData(chunk, objectMapper)));
+        } catch (IOException | IllegalStateException ex) {
+            cancelled.set(true);
+            log.warn("Failed to send terminal SSE error for conversation_id={}", conversationId, ex);
+        }
     }
 
     private boolean isAgentReady() {

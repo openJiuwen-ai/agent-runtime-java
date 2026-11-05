@@ -4,8 +4,11 @@
 
 package com.openjiuwen.service.app.config.llm;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import org.springframework.core.env.Environment;
 
@@ -13,12 +16,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * Loads the agent-core compatible {@code apiconfig.json} format.
+ * Loads the legacy single-model API configuration from JSON or explicitly selected YAML files.
+ * Auto-discovery continues to look only for {@code apiconfig.json}.
  *
  * @since 0.1.0
  */
@@ -36,6 +43,9 @@ final class ApiConfigLoader {
     private static final String KEY_MODEL_NAME = "MODEL_NAME";
 
     private static final String KEY_SSL_VERIFY = "LLM_SSL_VERIFY";
+
+    private static final Set<String> PLACEHOLDER_FIELDS = Set.of(KEY_PROVIDER, KEY_API_KEY, KEY_API_BASE,
+        KEY_MODEL_NAME, KEY_SSL_VERIFY);
 
     private static final long MAX_FILE_SIZE_BYTES = 1024L * 1024L;
 
@@ -105,16 +115,42 @@ final class ApiConfigLoader {
                 throw new IllegalStateException("LLM API configuration file exceeds 1 MiB: " + path);
             }
             try (InputStream input = Files.newInputStream(path)) {
-                Map<String, Object> raw = objectMapper.readValue(input, new TypeReference<>() {});
+                String filename = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                ObjectMapper reader = filename.endsWith(".yaml") || filename.endsWith(".yml")
+                    ? new ObjectMapper(new YAMLFactory())
+                        .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                        .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
+                    : objectMapper;
+                Map<String, Object> raw = reader.readValue(input, new TypeReference<>() {});
                 if (raw == null) {
-                    throw new IllegalStateException("LLM API configuration file must contain a JSON object: " + path);
+                    throw new IllegalStateException(
+                        "LLM API configuration file must contain a JSON object or YAML mapping: " + path);
                 }
-                return new ApiConfigValues(readText(raw, KEY_PROVIDER), readText(raw, KEY_API_KEY),
-                    readText(raw, KEY_API_BASE), readText(raw, KEY_MODEL_NAME), readBoolean(raw, KEY_SSL_VERIFY));
+                return readValues(resolvePlaceholders(raw));
             }
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to read LLM API configuration file: " + path, exception);
         }
+    }
+
+    private Map<String, Object> resolvePlaceholders(Map<String, Object> raw) {
+        Map<String, Object> values = new LinkedHashMap<>(raw);
+        for (String key : PLACEHOLDER_FIELDS) {
+            if (raw.get(key) instanceof String text) {
+                try {
+                    values.put(key, environment.resolveRequiredPlaceholders(text));
+                } catch (IllegalArgumentException exception) {
+                    // Placeholder text may contain credentials; report only the field name.
+                    throw new IllegalStateException("Unresolved placeholder in LLM API configuration field " + key);
+                }
+            }
+        }
+        return values;
+    }
+
+    private static ApiConfigValues readValues(Map<String, Object> raw) {
+        return new ApiConfigValues(readText(raw, KEY_PROVIDER), readText(raw, KEY_API_KEY),
+            readText(raw, KEY_API_BASE), readText(raw, KEY_MODEL_NAME), readBoolean(raw, KEY_SSL_VERIFY));
     }
 
     private static Optional<String> readText(Map<String, Object> raw, String key) {

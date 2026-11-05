@@ -51,7 +51,7 @@ Agent Core external adapters 的配置绑定对象。
 | `sandbox.servers[].on-stop` | `delete` | 停止策略。 |
 | `sandbox.servers[].root-path` | `.` | 写入 Core gateway `params.root_path`，除非 `params.root_path` 已设置。 |
 | `sandbox.servers[].isolation-key` | `null` | 写入 Core `SandboxIsolationConfig.customId`。 |
-| `sandbox.servers[].isolation-prefix` | `null` | 写入 Core `SandboxIsolationConfig.prefix`。 |
+| `sandbox.servers[].isolation-prefix` | `null` | 写入 Core `SandboxIsolationConfig.prefix`；未配置时使用 `server-id`，保证同类型的多台 server 隔离键不同。 |
 | `sandbox.servers[].container-scope` | `SESSION` | 写入 Core `SandboxIsolationConfig.containerScope`。 |
 | `sandbox.servers[].timeout-ms` | `null` | server 级超时，覆盖 `sandbox.timeout-ms`。 |
 | `sandbox.servers[].idle-ttl-seconds` | `null` | 写入 Core `SandboxLauncherConfig.idleTtlSeconds`。 |

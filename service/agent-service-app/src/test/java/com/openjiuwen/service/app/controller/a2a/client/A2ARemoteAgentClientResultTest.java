@@ -20,6 +20,7 @@ import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 
 import org.a2aproject.sdk.client.ClientEvent;
+import org.a2aproject.sdk.client.MessageEvent;
 import org.a2aproject.sdk.client.TaskEvent;
 import org.a2aproject.sdk.client.TaskUpdateEvent;
 import org.a2aproject.sdk.spec.Artifact;
@@ -33,6 +34,8 @@ import org.a2aproject.sdk.spec.TaskStatus;
 import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.a2aproject.sdk.spec.TextPart;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 
 import java.lang.reflect.Method;
@@ -46,6 +49,121 @@ import java.util.concurrent.CompletableFuture;
  */
 class A2ARemoteAgentClientResultTest {
     private static final Gson GSON = new Gson();
+
+    @Test
+    void responseMetadataIsKeptSeparateAndOnlyReadAtSuccessfulCompletion() throws Exception {
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        Method method = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class,
+                RemoteAgentCaller.EventObserver.class, boolean.class);
+        method.setAccessible(true);
+        Map<String, Object> metadata = Map.of("leadOut", List.of("service-next"));
+        Artifact answer = Artifact.builder().artifactId("answer").parts(new TextPart("business-answer")).build();
+        Map<String, Object> taskMetadata = Map.of("_agentcore_response_metadata", metadata);
+        try {
+            for (TaskState state : List.of(TaskState.TASK_STATE_COMPLETED, TaskState.TASK_STATE_FAILED,
+                    TaskState.TASK_STATE_INPUT_REQUIRED, TaskState.TASK_STATE_CANCELED)) {
+                Task task = Task.builder().id("task").contextId("context").status(new TaskStatus(state))
+                        .artifacts(List.of(answer)).metadata(taskMetadata).build();
+                CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+                method.invoke(client, new TaskStatusUpdateEvent("task", task.status(), "context", Map.of()),
+                        task, result, mock(RemoteAgentCaller.EventObserver.class), false);
+                assertThat(result.getNow(null).responseMetadata())
+                        .isEqualTo(state == TaskState.TASK_STATE_COMPLETED ? metadata : Map.of());
+                if (state == TaskState.TASK_STATE_COMPLETED) {
+                    assertThat(result.getNow(null).result()).isEqualTo("business-answer");
+                }
+            }
+        } finally {
+            client.shutdown();
+        }
+    }
+
+    @Test
+    void customHookReceivesTaskAndOverridesDefaultResult() throws Exception {
+        RemoteTaskResultHook hook = task -> {
+            assertThat(task.id()).isEqualTo("remote-task");
+            assertThat(task.status().state()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
+            assertThat(task.artifacts()).hasSize(1);
+            return "hook-result";
+        };
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class), 1, null,
+                new WeightedRandomCandidateSelector(), hook);
+        Method statusMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeStatus",
+                TaskStatusUpdateEvent.class, Task.class, CompletableFuture.class,
+                RemoteAgentCaller.EventObserver.class, boolean.class);
+        statusMethod.setAccessible(true);
+        Artifact artifact = Artifact.builder().artifactId("answer").parts(new TextPart("default-result")).build();
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).artifacts(List.of(artifact)).build();
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        try {
+            statusMethod.invoke(client,
+                    new TaskStatusUpdateEvent("remote-task", task.status(), "remote-context", Map.of()),
+                    task, result, mock(RemoteAgentCaller.EventObserver.class), false);
+            assertThat(result.getNow(null).result()).isEqualTo("hook-result");
+        } finally {
+            client.shutdown();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true, COMPLETED", "false, COMPLETED", "true, INPUT_REQUIRED", "false, INPUT_REQUIRED",
+        "true, FAILED", "false, FAILED", "true, WORKING", "false, WORKING"})
+    void resultHookRunsOnlyOnSuccessfulTaskForBothResponseModes(boolean isStreaming, String stateName)
+            throws Exception {
+        RemoteTaskResultHook hook = mock(RemoteTaskResultHook.class);
+        org.mockito.Mockito.when(hook.extract(any())).thenReturn("");
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class), 1, null,
+                new WeightedRandomCandidateSelector(), hook);
+        TaskState state = TaskState.valueOf("TASK_STATE_" + stateName);
+        Task task = Task.builder().id("remote-task").contextId("remote-context")
+                .status(new TaskStatus(state)).build();
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        RemoteAgentCaller.EventObserver observer = mock(RemoteAgentCaller.EventObserver.class);
+        Method eventMethod = A2ARemoteAgentClient.class.getDeclaredMethod("handleClientEvent",
+                ClientEvent.class, CompletableFuture.class, RemoteAgentCaller.EventObserver.class,
+                boolean.class, boolean.class);
+        eventMethod.setAccessible(true);
+        try {
+            eventMethod.invoke(client, new TaskEvent(task), result, observer, false, isStreaming);
+            if (state == TaskState.TASK_STATE_COMPLETED) {
+                verify(hook).extract(task);
+                assertThat(result.join().result()).isEmpty();
+            } else {
+                verifyNoInteractions(hook);
+                assertThat(result.isDone()).isEqualTo(state.isFinal() || state.isInterrupted());
+            }
+            if (isStreaming) {
+                verify(observer).onStatus(any());
+            } else {
+                verifyNoInteractions(observer);
+            }
+        } finally {
+            client.shutdown();
+        }
+    }
+
+    @Test
+    void messageResponseMetadataIsReadWithoutChangingBusinessText() throws Exception {
+        A2ARemoteAgentClient client = new A2ARemoteAgentClient(mock(A2ARemoteAgentCardRegistry.class));
+        Method method = A2ARemoteAgentClient.class.getDeclaredMethod("handleOutcomeMessage",
+                MessageEvent.class, CompletableFuture.class);
+        method.setAccessible(true);
+        MessageEvent event = mock(MessageEvent.class);
+        Map<String, Object> metadata = Map.of("leadOut", "next");
+        org.mockito.Mockito.when(event.getMessage()).thenReturn(Message.builder().role(Message.Role.ROLE_AGENT)
+                .taskId("task").parts(new TextPart("done"))
+                .metadata(Map.of("_agentcore_response_metadata", metadata)).build());
+        CompletableFuture<RemoteCallOutcome> result = new CompletableFuture<>();
+        try {
+            method.invoke(client, event, result);
+            assertThat(result.getNow(null).result()).isEqualTo("done");
+            assertThat(result.getNow(null).responseMetadata()).isEqualTo(metadata);
+        } finally {
+            client.shutdown();
+        }
+    }
 
     @Test
     void remoteStatesMapToStableResultCategories() {

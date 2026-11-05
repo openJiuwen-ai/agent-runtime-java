@@ -237,6 +237,9 @@ class RedisCheckpointerMiddlewareIT {
         } catch (Exception ignored) {
             // Runner may not be started
         }
+        // Reset the handler-side runner-started flag so a later handler start re-applies
+        // the middleware registrar's checkpointer config instead of short-circuiting.
+        JiuwenCoreAgentHandler.resetRunnerStarted();
         // Reset DEFAULT singleton's checkpointerConfig which may have been
         // mutated by DefaultMiddlewareAdapterRegistrar.applyToRunnerConfig().
         RunnerConfig.getRunnerConfig().setCheckpointerConfig(null);

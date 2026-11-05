@@ -56,6 +56,7 @@ public class A2AProtocolAdapter {
     public ServeRequest toServeRequest(A2AMessageContext ctx) {
         ServeRequest req = new ServeRequest();
         req.setConversationId(ctx.getContextId());
+        req.setModelName(A2aJsonRpcParamsParser.modelName(ctx.getMetadata()));
         req.setStream(false); // default non-streaming; overridden by executor for SendStreamingMessage
 
         // Preserve A2A protocol metadata: MessageSendParams.metadata()
@@ -193,6 +194,8 @@ public class A2AProtocolAdapter {
             metadata.putAll(ctx.getMetadata());
         }
         RESERVED_METADATA_KEYS.forEach(metadata::remove);
+        // Consumed into ServeRequest.modelName; selection belongs only to this local invocation.
+        metadata.remove("model_name");
         if (ctx.getTaskId() != null && !ctx.getTaskId().isBlank()) {
             metadata.put(PARENT_TASK_ID, ctx.getTaskId());
         }
