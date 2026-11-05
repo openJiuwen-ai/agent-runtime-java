@@ -5,6 +5,7 @@
 package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
@@ -109,11 +110,9 @@ class MiddlewareAdaptersAutoConfigurationTest {
                     var config = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
                     assertThat(config.getType()).isEqualTo("persistence");
                     assertThat(config.getConf().get("kv_store")).isSameAs(store);
-                    var checkpointer = CheckpointerFactory.create(config);
-                    assertThat(checkpointer).isInstanceOf(PersistenceCheckpointer.class);
-                    if (checkpointer instanceof PersistenceCheckpointer persistence) {
-                        assertThat(persistence.kvStore()).isSameAs(store);
-                    }
+                    var checkpointer = assertInstanceOf(PersistenceCheckpointer.class,
+                            CheckpointerFactory.create(config));
+                    assertThat(checkpointer.kvStore()).isSameAs(store);
                     assertThat(calls).hasValue(1);
                 });
     }
