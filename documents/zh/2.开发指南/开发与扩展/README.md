@@ -11,6 +11,7 @@
 | [生命周期与探针](../生命周期与探针.md) | 探针、lifecycle interrupt、A2A Cancel | `DefaultAgentLifecycleManager`、`A2AAgentExecutor` |
 | [外部服务](外部服务.md) | MCP、A2A Remote、Sandbox 出站配置与验证 | `adapters/agentcore/external` |
 | [响应元数据](响应元数据.md) | 请求级应答附加数据、A2A 往返与工具恢复隔离 | `QueryResponse`、`QueryStreamObserver`、`RemoteCallOutcome` |
+| [持久化存储扩展](持久化存储扩展.md) | 自定义检查点 KVStore 与按 Agent 隔离的 A2A TaskStore | `CheckpointKVStoreProvider`、`A2ATaskStoreProvider` |
 | [安全加固](安全加固.md) | 入站 TLS/mTLS、细粒度鉴权 SPI、出站 TLS/鉴权对称关系 | `spec.security`、`app.security` |
 ## 阅读提示
 
