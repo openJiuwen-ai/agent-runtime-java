@@ -1,6 +1,7 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
+
 package com.openjiuwen.service.app.storage;
 
 import org.a2aproject.sdk.server.tasks.TaskStore;
@@ -8,12 +9,25 @@ import org.a2aproject.sdk.server.tasks.TaskStore;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-/** Creates raw, agent-scoped task stores for an extension checkpoint backend. */
+/**
+ * Creates raw, agent-scoped task stores for an extension checkpoint backend.
+ *
+ * @since 0.1.4
+ */
 public interface A2ATaskStoreProvider {
-    /** Returns the extension token used by checkpointer.type. Built-in types are reserved. */
+    /**
+     * Returns the extension token used by checkpointer.type. Built-in types are reserved.
+     *
+     * @return extension backend type
+     */
     String type();
 
-    /** Creates an unthrottled store; shared resources remain owned by the application. */
+    /**
+     * Creates an unthrottled store; shared resources remain owned by the application.
+     *
+     * @param context agent scope and connection reference
+     * @return raw task store
+     */
     TaskStore create(TaskStoreContext context);
 
     /**

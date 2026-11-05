@@ -90,7 +90,12 @@ class MiddlewareAdaptersAutoConfigurationTest {
         contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=custom",
                 "openjiuwen.service.middleware.checkpointer.connection-ref=primary")
                 .withBean(CheckpointKVStoreProvider.class, () -> new CheckpointKVStoreProvider() {
-                    public String type() { return "custom"; }
+                    @Override
+                    public String type() {
+                        return "custom";
+                    }
+
+                    @Override
                     public BaseKVStore getStore(String ref) {
                         assertThat(ref).isEqualTo("primary");
                         calls.incrementAndGet();
@@ -104,7 +109,11 @@ class MiddlewareAdaptersAutoConfigurationTest {
                     var config = RunnerConfig.getRunnerConfig().getCheckpointerConfig();
                     assertThat(config.getType()).isEqualTo("persistence");
                     assertThat(config.getConf().get("kv_store")).isSameAs(store);
-                    assertThat(((PersistenceCheckpointer) CheckpointerFactory.create(config)).kvStore()).isSameAs(store);
+                    var checkpointer = CheckpointerFactory.create(config);
+                    assertThat(checkpointer).isInstanceOf(PersistenceCheckpointer.class);
+                    if (checkpointer instanceof PersistenceCheckpointer persistence) {
+                        assertThat(persistence.kvStore()).isSameAs(store);
+                    }
                     assertThat(calls).hasValue(1);
                 });
     }
@@ -122,8 +131,15 @@ class MiddlewareAdaptersAutoConfigurationTest {
 
     private static CheckpointKVStoreProvider provider(BaseKVStore store) {
         return new CheckpointKVStoreProvider() {
-            public String type() { return "custom"; }
-            public BaseKVStore getStore(String ref) { return store; }
+            @Override
+            public String type() {
+                return "custom";
+            }
+
+            @Override
+            public BaseKVStore getStore(String ref) {
+                return store;
+            }
         };
     }
 }

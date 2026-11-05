@@ -87,7 +87,12 @@ class HostedAssemblyTest {
         middleware.getCheckpointer().setConnectionRef("primary");
         runner.withBean(MiddlewareProperties.class, () -> middleware)
                 .withBean(A2ATaskStoreProvider.class, () -> new A2ATaskStoreProvider() {
-                    public String type() { return "custom"; }
+                    @Override
+                    public String type() {
+                        return "custom";
+                    }
+
+                    @Override
                     public TaskStore create(TaskStoreContext scope) {
                         scopes.add(scope);
                         scope.onClose().accept(closed::incrementAndGet);
@@ -114,13 +119,18 @@ class HostedAssemblyTest {
     }
 
     @Test
-    void extensionFailureClosesCreatedScopesBeforePublishingOrStartingHandlers() {
+    void extensionFailureClosesScopesBeforeStartingHandlers() {
         var closed = new java.util.concurrent.atomic.AtomicInteger();
         var middleware = new MiddlewareProperties();
         middleware.getCheckpointer().setType("custom");
         runner.withBean(MiddlewareProperties.class, () -> middleware)
                 .withBean(A2ATaskStoreProvider.class, () -> new A2ATaskStoreProvider() {
-                    public String type() { return "custom"; }
+                    @Override
+                    public String type() {
+                        return "custom";
+                    }
+
+                    @Override
                     public TaskStore create(TaskStoreContext scope) {
                         scope.onClose().accept(closed::incrementAndGet);
                         if ("b".equals(scope.agentId())) {

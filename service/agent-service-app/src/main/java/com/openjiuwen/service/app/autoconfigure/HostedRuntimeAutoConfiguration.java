@@ -113,6 +113,9 @@ public class HostedRuntimeAutoConfiguration {
     private ObjectProvider<RemoteTaskResultHook> remoteTaskResultHook;
 
     @Autowired
+    private ObjectProvider<A2ATaskStoreProvider> taskStoreProviders;
+
+    @Autowired
     private ObjectProvider<HostedSharedLifecycle> sharedLifecycles;
 
     @Autowired
@@ -237,7 +240,7 @@ public class HostedRuntimeAutoConfiguration {
     @Bean
     public HostedRuntimeAssembler hostedRuntimeAssembler(A2AProperties properties, HostedResources resources,
             RemoteInvocationDispatcher dispatcher, HostedAgentCardFactory cards,
-            AdmissionReleaseCoordinator admissionCoordinator, ObjectProvider<A2ATaskStoreProvider> taskStoreProviders) {
+            AdmissionReleaseCoordinator admissionCoordinator) {
         TaskAdmissionGate gate = admissionGate.getIfAvailable();
         var dependencies = new HostedRuntimeAssembler.Dependencies(properties, middleware.getIfAvailable(),
                 redisClient.getIfAvailable(), remoteCaller.getObject(),

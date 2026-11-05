@@ -22,7 +22,7 @@ import java.util.Map;
  */
 class MiddlewarePropertiesTest {
     @Test
-    void extensionConnectionReferenceBindsAndDefaultsIndependentlyOfRedisReference() {
+    void extensionConnectionRefBindsIndependentlyOfRedisRef() {
         assertThat(new MiddlewareProperties().getCheckpointer().getConnectionRef()).isEqualTo("default");
         var source = Map.of("openjiuwen.service.middleware.checkpointer.type", "custom",
                 "openjiuwen.service.middleware.checkpointer.connection-ref", "database",
