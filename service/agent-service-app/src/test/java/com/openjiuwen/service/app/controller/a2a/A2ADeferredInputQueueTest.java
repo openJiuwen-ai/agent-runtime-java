@@ -14,6 +14,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Verifies serialized input ownership, capacity reclamation and cancellation.
+ */
 class A2ADeferredInputQueueTest {
     private static final A2ADeferredInputQueue.Scope SCOPE = new A2ADeferredInputQueue.Scope("tenant", "space", "agent",
             "user", "conversation");

@@ -97,6 +97,10 @@ final class A2ADeferredInputQueue implements AutoCloseable {
 
     /**
      * Claims an ordinary round without overtaking already accepted input.
+     *
+     * @param scope authenticated conversation scope
+     * @param taskId task identity
+     * @return exclusive round ownership, or empty when unavailable
      */
     synchronized Optional<Lease> begin(Scope scope, String taskId) {
         Objects.requireNonNull(scope, "scope");
@@ -141,6 +145,11 @@ final class A2ADeferredInputQueue implements AutoCloseable {
 
     /**
      * Rebuild only an idle, server-validated waiting task. Never replace a concurrent owner.
+     *
+     * @param scope authenticated conversation scope
+     * @param taskId validated waiting task identity
+     * @param accepted previously accepted message identities
+     * @return whether the waiting index exists or was restored
      */
     synchronized boolean restore(Scope scope, String taskId, Set<String> accepted) {
         TaskKey key = new TaskKey(scope, taskId);
@@ -177,6 +186,10 @@ final class A2ADeferredInputQueue implements AutoCloseable {
 
     /**
      * A client may observe INPUT_REQUIRED before the previous producer finishes cleanup.
+     *
+     * @param scope authenticated conversation scope
+     * @param taskId waiting task identity
+     * @return ownership after cleanup, or empty when unavailable or interrupted
      */
     synchronized Optional<Lease> resume(Scope scope, String taskId) {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
@@ -203,6 +216,12 @@ final class A2ADeferredInputQueue implements AutoCloseable {
 
     /**
      * Stores input only for a bound task. Repeated message IDs never execute twice.
+     *
+     * @param scope authenticated conversation scope
+     * @param taskId bound task identity
+     * @param messageId deduplication identity
+     * @param input request to deliver serially
+     * @return enqueue result
      */
     synchronized Offer offer(Scope scope, String taskId, String messageId, ServeRequest input) {
         Objects.requireNonNull(scope, "scope");
@@ -230,6 +249,10 @@ final class A2ADeferredInputQueue implements AutoCloseable {
 
     /**
      * Claims pending input for an idle task; caller owns dispatch and output handling.
+     *
+     * @param scope authenticated conversation scope
+     * @param taskId bound task identity
+     * @return next input with exclusive ownership, or empty
      */
     synchronized Optional<Lease> claim(Scope scope, String taskId) {
         Slot slot = slots.get(new TaskKey(scope, taskId));
@@ -241,6 +264,9 @@ final class A2ADeferredInputQueue implements AutoCloseable {
 
     /**
      * Transfers to queued input while retaining exclusive ownership when no input exists.
+     *
+     * @param lease current round ownership
+     * @return next owned input, or empty without releasing the current owner
      */
     synchronized Optional<Lease> advance(Lease lease) {
         Slot slot = slots.get(lease.key);
@@ -252,6 +278,10 @@ final class A2ADeferredInputQueue implements AutoCloseable {
 
     /**
      * Releases the owner and atomically hands off pending input, or discards it on termination.
+     *
+     * @param lease current round ownership
+     * @param isTerminal whether the task has terminated
+     * @return ownership of pending input, or empty
      */
     synchronized Optional<Lease> finish(Lease lease, boolean isTerminal) {
         Objects.requireNonNull(lease, "lease");
@@ -284,6 +314,8 @@ final class A2ADeferredInputQueue implements AutoCloseable {
 
     /**
      * Returns unexecuted input to the head when admission rejects its claimed round.
+     *
+     * @param lease rejected round ownership
      */
     synchronized void retry(Lease lease) {
         Slot slot = slots.get(lease.key);

@@ -212,6 +212,8 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
 
     /**
      * Uses the existing task store to rebuild evicted waiting-task indexes.
+     *
+     * @param taskStore existing runtime task store
      */
     public void setDeferredTaskStore(org.a2aproject.sdk.server.tasks.TaskStore taskStore) {
         deferredTaskStore = java.util.Objects.requireNonNull(taskStore);
@@ -219,6 +221,10 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
 
     /**
      * Enqueues an authorized input for the current task without invoking a second agent execution.
+     *
+     * @param request authenticated request to enqueue
+     * @param messageId input deduplication identity
+     * @return enqueue result code
      */
     public String deferInput(ServeRequest request, String messageId) {
         var scope = inputScope(request);
@@ -299,6 +305,9 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
 
     /**
      * Whether this authenticated scope has a uniquely identifiable waiting task. Does not execute it.
+     *
+     * @param request authenticated request identifying the scope
+     * @return whether a unique waiting task can be recovered
      */
     public boolean hasWaitingInput(ServeRequest request) {
         return recoverWaitingTask(inputScope(request)).isPresent();
@@ -306,6 +315,8 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
 
     /**
      * Binds the runtime-owned deferred dispatch; no business control service is introduced.
+     *
+     * @param dispatch serial continuation dispatcher
      */
     public void setDeferredDispatch(java.util.function.Consumer<ServeRequest> dispatch) {
         deferredDispatch = java.util.Objects.requireNonNull(dispatch);

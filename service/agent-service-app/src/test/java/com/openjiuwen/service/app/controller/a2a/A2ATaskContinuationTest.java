@@ -219,33 +219,39 @@ class A2ATaskContinuationTest {
             assertThat(workerEntered.await(5, TimeUnit.SECONDS)).isTrue();
             var queued = executor.submit(() -> {
             });
-            var callers = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(2),
-                    new ThreadPoolExecutor.AbortPolicy());
-            try {
-                var submitted = callers.submit(() -> continuation.submit(request()));
-                assertThat(continuationEntered.await(5, TimeUnit.SECONDS)).isTrue();
-                // The continuation is still executing inline on the submitting thread.
-                // Shutdown must return before that invocation is allowed to finish.
-                callers.submit(continuation::shutdown).get(5, TimeUnit.SECONDS);
-                assertThat(submitted.isDone()).isFalse();
-                continuation.submit(request());
-                releaseContinuation.countDown();
-                submitted.get(5, TimeUnit.SECONDS);
-                releaseWorker.countDown();
-                worker.get(5, TimeUnit.SECONDS);
-                queued.get(5, TimeUnit.SECONDS);
-                verify(agentExecutor, times(1)).continueTask(any(), any(), any());
-            } finally {
-                releaseContinuation.countDown();
-                releaseWorker.countDown();
-                callers.shutdown();
-                assertThat(callers.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
-            }
+            verifyInlineShutdown(releaseContinuation, continuationEntered, releaseWorker);
+            worker.get(5, TimeUnit.SECONDS);
+            queued.get(5, TimeUnit.SECONDS);
+
         } finally {
             releaseContinuation.countDown();
             releaseWorker.countDown();
             executor.shutdown();
             assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private void verifyInlineShutdown(CountDownLatch releaseContinuation, CountDownLatch continuationEntered,
+            CountDownLatch releaseWorker) throws Exception {
+        var callers = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(2),
+                new ThreadPoolExecutor.AbortPolicy());
+        try {
+            var submitted = callers.submit(() -> continuation.submit(request()));
+            assertThat(continuationEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            // The continuation is still executing inline on the submitting thread.
+            // Shutdown must return before that invocation is allowed to finish.
+            callers.submit(continuation::shutdown).get(5, TimeUnit.SECONDS);
+            assertThat(submitted.isDone()).isFalse();
+            continuation.submit(request());
+            releaseContinuation.countDown();
+            submitted.get(5, TimeUnit.SECONDS);
+            releaseWorker.countDown();
+            verify(agentExecutor, times(1)).continueTask(any(), any(), any());
+        } finally {
+            releaseContinuation.countDown();
+            releaseWorker.countDown();
+            callers.shutdown();
+            assertThat(callers.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }
     }
 
