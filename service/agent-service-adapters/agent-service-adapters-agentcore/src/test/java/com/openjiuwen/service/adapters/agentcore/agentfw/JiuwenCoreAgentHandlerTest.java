@@ -356,6 +356,134 @@ class JiuwenCoreAgentHandlerTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void passesRawImagePartAsStructuredModelQuery() {
+        String rawBase64 = "aW1hZ2U=";
+        Map<String, Object> imagePart = new LinkedHashMap<>();
+        imagePart.put("kind", "raw");
+        imagePart.put("bytesBase64", rawBase64);
+        imagePart.put("byteSize", 5L);
+        imagePart.put("filename", "screenshot.png");
+        imagePart.put("mediaType", "image/png");
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("role", "user");
+        message.put("content", "what is on the screenshot");
+        message.put("parts", List.of(Map.of("kind", "text", "text", "what is on the screenshot"), imagePart));
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-image-input");
+        request.setMessages(List.of(message));
+        request.setUserId("anonymous");
+        request.setSpaceId("default");
+
+        CapturingAgent agent = new CapturingAgent();
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
+        handler.query(request);
+
+        Map<String, Object> inputs = (Map<String, Object>) agent.lastInputs;
+        assertThat(inputs.get("query")).isInstanceOf(List.class);
+        List<Map<String, Object>> queryBlocks = (List<Map<String, Object>>) inputs.get("query");
+        assertThat(queryBlocks).hasSize(2);
+        assertThat(queryBlocks.get(0)).containsEntry("type", "text")
+                .containsEntry("text", "what is on the screenshot");
+        assertThat(queryBlocks.get(1)).containsEntry("type", "image")
+                .containsEntry("mediaType", "image/png")
+                .containsEntry("filename", "screenshot.png");
+        Map<String, Object> source = (Map<String, Object>) queryBlocks.get(1).get("source");
+        assertThat(source).containsEntry("kind", "raw").containsEntry("bytes", rawBase64);
+
+        Map<String, Object> runContext = (Map<String, Object>) inputs.get("run_context");
+        assertThat(runContext).isNotNull();
+        List<Map<String, Object>> requestParts =
+                (List<Map<String, Object>>) runContext.get("request_parts");
+        assertThat(requestParts).singleElement().isEqualTo(imagePart);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void imageOnlyRequestBuildsStructuredQueryWithoutText() {
+        String rawBase64 = "iVBORw0KGgo=";
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("role", "user");
+        message.put("content", "");
+        message.put("parts", List.of(Map.of("kind", "raw", "bytesBase64", rawBase64)));
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-image-only");
+        request.setMessages(List.of(message));
+        request.setUserId("anonymous");
+        request.setSpaceId("default");
+
+        Object inputs = JiuwenCoreAgentHandler.buildInputs(request);
+
+        Map<String, Object> inputMap = (Map<String, Object>) inputs;
+        List<Map<String, Object>> queryBlocks = (List<Map<String, Object>>) inputMap.get("query");
+        assertThat(queryBlocks).hasSize(1);
+        assertThat(queryBlocks.get(0)).containsEntry("type", "image");
+        Map<String, Object> source = (Map<String, Object>) queryBlocks.get(0).get("source");
+        assertThat(source).containsEntry("kind", "raw").containsEntry("bytes", rawBase64);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void imageOnlyMessageWithoutContentBuildsStructuredQuery() {
+        String pngHeaderBase64 = "iVBORw0KGgo=";
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("role", "user");
+        message.put("parts", List.of(Map.of("kind", "raw", "bytesBase64", pngHeaderBase64)));
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-image-without-content");
+        request.setMessages(List.of(message));
+        request.setUserId("anonymous");
+        request.setSpaceId("default");
+
+        Object inputs = JiuwenCoreAgentHandler.buildInputs(request);
+
+        Map<String, Object> inputMap = (Map<String, Object>) inputs;
+        List<Map<String, Object>> queryBlocks = (List<Map<String, Object>>) inputMap.get("query");
+        assertThat(queryBlocks).hasSize(1);
+        assertThat(queryBlocks.get(0)).containsEntry("type", "image");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rawPartWithoutImageMagicDoesNotBecomeModelQuery() {
+        Map<String, Object> rawPart = Map.of("kind", "raw", "bytesBase64", "aGVsbG8=");
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("role", "user");
+        message.put("content", "analyze the attachment");
+        message.put("parts", List.of(rawPart));
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-non-image-raw");
+        request.setMessages(List.of(message));
+        request.setUserId("anonymous");
+        request.setSpaceId("default");
+
+        Object inputs = JiuwenCoreAgentHandler.buildInputs(request);
+
+        Map<String, Object> inputMap = (Map<String, Object>) inputs;
+        assertThat(inputMap).containsEntry("query", "analyze the attachment");
+        Map<String, Object> runContext = (Map<String, Object>) inputMap.get("run_context");
+        assertThat((List<Map<String, Object>>) runContext.get("request_parts")).singleElement()
+                .isEqualTo(rawPart);
+    }
+
+    @Test
+    void imagePartWithoutBytesDoesNotBecomeModelQuery() {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("role", "user");
+        message.put("content", "analyze this");
+        message.put("parts", List.of(Map.of("kind", "raw", "mediaType", "image/png")));
+        ServeRequest request = new ServeRequest();
+        request.setConversationId("c-image-without-bytes");
+        request.setMessages(List.of(message));
+        request.setUserId("anonymous");
+        request.setSpaceId("default");
+
+        Object inputs = JiuwenCoreAgentHandler.buildInputs(request);
+
+        assertThat(((Map<?, ?>) inputs).get("query")).isEqualTo("analyze this");
+    }
+
+    @Test
     void queryWithoutPartsKeepsPlainQuery() {
         CapturingAgent agent = new CapturingAgent();
         JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
