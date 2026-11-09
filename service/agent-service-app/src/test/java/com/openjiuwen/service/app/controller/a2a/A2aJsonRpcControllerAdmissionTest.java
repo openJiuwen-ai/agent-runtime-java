@@ -17,9 +17,9 @@ import com.openjiuwen.service.spec.concurrency.TaskAdmissionService;
 
 import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
-import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.A2AError;
 import org.a2aproject.sdk.spec.A2AErrorCodes;
+import org.a2aproject.sdk.spec.A2AMethods;
 import org.a2aproject.sdk.spec.MessageSendParams;
 import org.a2aproject.sdk.spec.StreamingEventKind;
 import org.a2aproject.sdk.spec.Task;
@@ -46,7 +46,28 @@ import java.util.concurrent.Flow;
  */
 class A2aJsonRpcControllerAdmissionTest {
     @Test
-    void sendMessage_rejectedWith503_whenAcquireFails() {
+    void ingressReceiptBypassesBusinessQuotaWithoutAcquiringOrReleasingIt() {
+        RequestHandler handler = mock(RequestHandler.class);
+        TaskAdmissionGate gate = rejectingGate();
+        A2aJsonRpcController controller = newController(handler, gate);
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        factory.registerSingleton("hook",
+                (A2AIngressHook) (params, context, agentId) -> Optional
+                        .of(Task.builder().id("control-receipt").contextId(params.message().contextId())
+                                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build()));
+        controller.setIngressHookProvider(factory.getBeanProvider(A2AIngressHook.class));
+
+        ResponseEntity<?> response = controller.handleJsonRpc(sendMessageJson(), servletRequest());
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).asString().contains("control-receipt");
+        verifyNoInteractions(handler);
+        verify(gate, never()).tryAcquire();
+        verify(gate, never()).release();
+    }
+
+    @Test
+    void sendMessageRejectedWith503WhenAcquireFails() {
         RequestHandler handler = mock(RequestHandler.class);
         TaskAdmissionGate gate = rejectingGate();
         A2aJsonRpcController controller = newController(handler, gate);
@@ -62,7 +83,7 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     @Test
-    void sendMessage_rejectedStateUnavailable_whenEventProcessorStalled() {
+    void sendMessageRejectedStateUnavailableWhenEventProcessorStalled() {
         RequestHandler handler = mock(RequestHandler.class);
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
         when(gate.limit()).thenReturn(5);
@@ -82,12 +103,11 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     @Test
-    void sendMessage_rejectedWithOverloaded_whenPendingReleaseBacklog() {
+    void sendMessageRejectedWithOverloadedWhenPendingReleaseBacklog() {
         RequestHandler handler = mock(RequestHandler.class);
         TaskAdmissionGate gate = rejectingGate();
         TaskAdmissionService service = mock(TaskAdmissionService.class);
-        when(service.classifyPoolExhaustion())
-                .thenReturn(TaskAdmissionService.BUSINESS_CODE_EVENT_QUEUE_OVERLOADED);
+        when(service.classifyPoolExhaustion()).thenReturn(TaskAdmissionService.BUSINESS_CODE_EVENT_QUEUE_OVERLOADED);
         A2aJsonRpcController controller = newController(handler, gate, service);
 
         ResponseEntity<?> response = controller.handleJsonRpc(sendMessageJson(), servletRequest());
@@ -99,7 +119,7 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     @Test
-    void sendStreamingMessage_rejectedWith503_whenAcquireFails() {
+    void sendStreamingMessageRejectedWith503WhenAcquireFails() {
         RequestHandler handler = mock(RequestHandler.class);
         TaskAdmissionGate gate = rejectingGate();
         A2aJsonRpcController controller = newController(handler, gate);
@@ -112,7 +132,7 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     @Test
-    void sendMessage_admitted_marksPermitForExecutorHandover() {
+    void sendMessageAdmittedMarksPermitForExecutorHandover() {
         RequestHandler handler = mock(RequestHandler.class);
         when(handler.onMessageSend(any(MessageSendParams.class), any())).thenReturn(completedTask());
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
@@ -125,15 +145,14 @@ class A2aJsonRpcControllerAdmissionTest {
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         ArgumentCaptor<ServerCallContext> ctxCaptor = ArgumentCaptor.forClass(ServerCallContext.class);
         verify(handler).onMessageSend(any(MessageSendParams.class), ctxCaptor.capture());
-        assertThat(ctxCaptor.getValue().getState())
-                .containsKey(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY);
+        assertThat(ctxCaptor.getValue().getState()).containsKey(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY);
         // The executor adopts (and later releases) the permit — the controller
         // must not release it on the success path.
         verify(gate, never()).release();
     }
 
     @Test
-    void sendStreamingMessage_admitted_marksPermitForExecutorHandover() {
+    void sendStreamingMessageAdmittedMarksPermitForExecutorHandover() {
         RequestHandler handler = mock(RequestHandler.class);
         when(handler.onMessageSendStream(any(MessageSendParams.class), any())).thenReturn(completedStreamPublisher());
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
@@ -146,13 +165,12 @@ class A2aJsonRpcControllerAdmissionTest {
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         ArgumentCaptor<ServerCallContext> ctxCaptor = ArgumentCaptor.forClass(ServerCallContext.class);
         verify(handler).onMessageSendStream(any(MessageSendParams.class), ctxCaptor.capture());
-        assertThat(ctxCaptor.getValue().getState())
-                .containsKey(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY);
+        assertThat(ctxCaptor.getValue().getState()).containsKey(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY);
         verify(gate, never()).release();
     }
 
     @Test
-    void sendMessage_syncHandlerFailure_releasesPermit() {
+    void sendMessageSyncHandlerFailureReleasesPermit() {
         RequestHandler handler = mock(RequestHandler.class);
         when(handler.onMessageSend(any(MessageSendParams.class), any()))
                 .thenThrow(new RuntimeException("handler failed"));
@@ -169,7 +187,7 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     @Test
-    void sendMessage_syncA2AError_releasesPermit() {
+    void sendMessageSyncA2AErrorReleasesPermit() {
         RequestHandler handler = mock(RequestHandler.class);
         when(handler.onMessageSend(any(MessageSendParams.class), any()))
                 .thenThrow(new A2AError(A2AErrorCodes.INTERNAL.code(), "boom", null));
@@ -185,7 +203,7 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     @Test
-    void sendStreamingMessage_syncHandlerFailure_releasesPermit() {
+    void sendStreamingMessageSyncHandlerFailureReleasesPermit() {
         RequestHandler handler = mock(RequestHandler.class);
         when(handler.onMessageSendStream(any(MessageSendParams.class), any()))
                 .thenThrow(new RuntimeException("stream handler failed"));
@@ -201,7 +219,7 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     @Test
-    void sendMessage_unlimitedLimit_skipsAcquisition() {
+    void sendMessageUnlimitedLimitSkipsAcquisition() {
         RequestHandler handler = mock(RequestHandler.class);
         when(handler.onMessageSend(any(MessageSendParams.class), any())).thenReturn(completedTask());
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
@@ -216,7 +234,7 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     @Test
-    void getTask_notThrottled() {
+    void getTaskNotThrottled() {
         RequestHandler handler = mock(RequestHandler.class);
         when(handler.onGetTask(any(TaskQueryParams.class), any())).thenReturn(completedTask());
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
@@ -228,7 +246,7 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     @Test
-    void admissionGateNull_skipsCheck() {
+    void admissionGateNullSkipsCheck() {
         RequestHandler handler = mock(RequestHandler.class);
         when(handler.onMessageSend(any(MessageSendParams.class), any())).thenReturn(completedTask());
         ObjectProvider<TaskAdmissionGate> provider = mock(ObjectProvider.class);
@@ -269,7 +287,7 @@ class A2aJsonRpcControllerAdmissionTest {
 
     private static MockHttpServletRequest servletRequest() {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/a2a");
-        request.setContent(new byte[] {'{', '}'});
+        request.setContent(new byte[]{'{', '}'});
         return request;
     }
 
@@ -291,8 +309,8 @@ class A2aJsonRpcControllerAdmissionTest {
     }
 
     private static Task completedTask() {
-        return Task.builder().id("task-1").contextId("ctx-1")
-                .status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
+        return Task.builder().id("task-1").contextId("ctx-1").status(new TaskStatus(TaskState.TASK_STATE_COMPLETED))
+                .build();
     }
 
     private static Flow.Publisher<StreamingEventKind> completedStreamPublisher() {

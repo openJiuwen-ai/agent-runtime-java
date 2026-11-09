@@ -125,8 +125,8 @@ public class A2ATaskContinuation {
     public A2ATaskContinuation(TaskStore taskStore, QueueManager queueManager,
             ObjectProvider<A2AAgentExecutor> agentExecutorProvider, Executor executor,
             ScheduledExecutorService retryScheduler) {
-        this(taskStore, queueManager, agentExecutorProvider, executor, DEFAULT_RETRY_BASE_DELAY_MS,
-                retryScheduler, false);
+        this(taskStore, queueManager, agentExecutorProvider, executor, DEFAULT_RETRY_BASE_DELAY_MS, retryScheduler,
+                false);
     }
 
     /**
@@ -179,6 +179,81 @@ public class A2ATaskContinuation {
             return;
         }
         dispatch(taskId, batchId, continuationId, request);
+    }
+
+    /**
+     * Wakes the existing executor for task-bound deferred input. Unlike callback
+     * continuation this does not inspect remote batches or fabricate their results.
+     */
+    public void submitInput(ServeRequest request) {
+        Object raw = request.getMetadata().get(PARENT_TASK_ID);
+        if (isStopped || !(raw instanceof String taskId) || taskId.isBlank()) {
+            return;
+        }
+        dispatchInput(taskId, request, 0);
+    }
+
+    private void dispatchInput(String taskId, ServeRequest request, int attempt) {
+        if (isStopped) {
+            return;
+        }
+        try {
+            executor.execute(() -> deliverInput(taskId, request, attempt));
+        } catch (RejectedExecutionException rejected) {
+            retryInput(taskId, request, attempt);
+        }
+    }
+
+    private void deliverInput(String taskId, ServeRequest request, int attempt) {
+        A2AAgentExecutor agentExecutor = agentExecutorProvider.getIfAvailable();
+        if (isStopped || agentExecutor == null || !agentExecutor.hasDeferredInput(request, taskId)) {
+            return; // Active owner consumes it, or wakes us again after completing projection.
+        }
+        Task task = taskStore.get(taskId);
+        if (task == null || task.status() == null || task.status().state().isFinal()) {
+            agentExecutor.discardDeferredInput(request, taskId);
+            return;
+        }
+        if (task.status().state() != TaskState.TASK_STATE_INPUT_REQUIRED) {
+            retryInput(taskId, request, attempt);
+            return;
+        }
+        RequestContext context = new RequestContext.Builder().setTaskId(taskId).setContextId(task.contextId())
+                .setTask(task).build();
+        EventQueue queue = queueManager.createOrTap(taskId);
+        try {
+            agentExecutor.executeDeferred(context, request, new AgentEmitter(context, queue));
+        } catch (A2AError error) {
+            if (isAdmissionRejection(error)) {
+                retryInput(taskId, request, attempt);
+            } else {
+                log.warn("Deferred input rejected taskId={}", taskId, error);
+            }
+        } catch (RuntimeException error) {
+            log.warn("Deferred input dispatch failed taskId={}", taskId, error);
+        } finally {
+            queue.close(false, true);
+        }
+    }
+
+    private void retryInput(String taskId, ServeRequest request, int attempt) {
+        if (attempt >= MAX_ADMISSION_RETRIES) {
+            log.warn("Deferred input remains pending after dispatch retries taskId={}", taskId);
+            return;
+        }
+        synchronized (lifecycleLock) {
+            if (isStopped) {
+                return;
+            }
+            final ScheduledFuture<?>[] scheduled = new ScheduledFuture<?>[1];
+            scheduled[0] = retryScheduler.schedule(() -> {
+                synchronized (lifecycleLock) {
+                    pendingRetries.remove(scheduled[0]);
+                }
+                dispatchInput(taskId, request, attempt + 1);
+            }, retryBaseDelayMs << attempt, TimeUnit.MILLISECONDS);
+            pendingRetries.add(scheduled[0]);
+        }
     }
 
     /**
@@ -276,8 +351,9 @@ public class A2ATaskContinuation {
         int attempt = retries.incrementAndGet();
         if (attempt > MAX_ADMISSION_RETRIES) {
             activeContinuations.remove(continuationId);
-            log.warn("A2A callback continuation dropped after {} admission retries taskId={} batchId={} "
-                    + "conversationId={} -- parent task stays in INPUT_REQUIRED until client resume",
+            log.warn(
+                    "A2A callback continuation dropped after {} admission retries taskId={} batchId={} "
+                            + "conversationId={} -- parent task stays in INPUT_REQUIRED until client resume",
                     MAX_ADMISSION_RETRIES, taskId, batchId, request.getConversationId());
             return false;
         }
@@ -309,9 +385,7 @@ public class A2ATaskContinuation {
 
     private boolean isAdmissionRejection(A2AError error) {
         Integer code = error.getCode();
-        return code != null
-                && code == A2AErrorCodes.INTERNAL.code()
-                && error.getDetails() != null
+        return code != null && code == A2AErrorCodes.INTERNAL.code() && error.getDetails() != null
                 && error.getDetails().containsKey("businessCode");
     }
 
@@ -363,8 +437,8 @@ public class A2ATaskContinuation {
         @Override
         public Thread newThread(Runnable runnable) {
             Thread thread = super.newThread(runnable);
-            thread.setUncaughtExceptionHandler((t, ex) ->
-                    log.warn("Uncaught exception on continuation retry scheduler thread={}", t.getName(), ex));
+            thread.setUncaughtExceptionHandler((t, ex) -> log
+                    .warn("Uncaught exception on continuation retry scheduler thread={}", t.getName(), ex));
             return thread;
         }
     }

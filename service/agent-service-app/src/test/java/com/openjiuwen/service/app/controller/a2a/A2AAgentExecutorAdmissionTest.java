@@ -25,10 +25,10 @@ import org.a2aproject.sdk.server.agentexecution.RequestContext;
 import org.a2aproject.sdk.server.events.EventQueue;
 import org.a2aproject.sdk.server.events.EventQueueClosedException;
 import org.a2aproject.sdk.server.events.EventQueueItem;
+import org.a2aproject.sdk.server.events.MainEventBus;
 import org.a2aproject.sdk.server.tasks.AgentEmitter;
 import org.a2aproject.sdk.spec.A2AError;
 import org.a2aproject.sdk.spec.Event;
-import org.a2aproject.sdk.server.events.MainEventBus;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -42,9 +42,38 @@ import java.util.concurrent.atomic.AtomicInteger;
  * consequence-landed release model — DFX-006 test plan U-09..U-12.
  */
 class A2AAgentExecutorAdmissionTest {
+    @Test
+    void deferredInputSurvivesAdmissionRejectionAndExecutesOnceOnRetry() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(
+                new QueryResponse(Map.of("_interrupt", Map.of("message", "date?")), "ctx-1"),
+                new QueryResponse(Map.of("content", "paused"), "ctx-1"));
+        TaskAdmissionGate gate = gate(30);
+        when(gate.tryAcquire()).thenReturn(true, false, true);
+        AdmissionReleaseCoordinator coordinator = coordinator(gate, 0);
+        var executor = new A2AAgentExecutor(orchestrator, requestAdapter(false), gate, null, coordinator);
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        executor.execute(context, mock(AgentEmitter.class));
+        coordinator.consequenceLanded("task-1");
+        ServeRequest input = new ServeRequest();
+        input.setConversationId("ctx-1");
+        input.setStream(false);
+        input.setMessages(List.of(Map.of("role", "user", "content", "暂停")));
+        assertThat(executor.deferInput(input, "pause-message")).isEqualTo("ACCEPTED");
+        A2AError error = catchThrowableOfType(() -> executor.executeDeferred(context, input, mock(AgentEmitter.class)),
+                A2AError.class);
+        assertThat(error).isNotNull();
+        assertThat(executor.hasDeferredInput(input, "task-1")).isTrue();
+        executor.executeDeferred(context, input, mock(AgentEmitter.class));
+        var capture = org.mockito.ArgumentCaptor.forClass(ServeRequest.class);
+        verify(orchestrator, times(2)).query(capture.capture());
+        assertThat(capture.getAllValues().get(1).lastUserQuery()).isEqualTo("暂停");
+        assertThat(executor.hasDeferredInput(input, "task-1")).isFalse();
+    }
+
     /** TTL disabled: leases stay pending until consequenceLanded, keeping attribution deterministic. */
-    private static final AdmissionReleaseCoordinator.Timing NO_TTL =
-            new AdmissionReleaseCoordinator.Timing(-1L, 50L, 250L, 80L);
+    private static final AdmissionReleaseCoordinator.Timing NO_TTL = new AdmissionReleaseCoordinator.Timing(-1L, 50L,
+            250L, 80L);
 
     @Test
     void stalledEventProcessorRejectsBeforeQuotaWithStateUnavailable() {
@@ -55,8 +84,7 @@ class A2AAgentExecutorAdmissionTest {
         when(gate.tryAcquire()).thenReturn(true);
         AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate, bus, null, null,
                 new AdmissionReleaseCoordinator.Timing(-1L, 50L, 250L, -1L));
-        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false), gate, null,
-                coordinator);
+        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false), gate, null, coordinator);
 
         A2AError error = catchThrowableOfType(
                 () -> executor.execute(requestContext("task-1", "ctx-1", false), mock(AgentEmitter.class)),
@@ -77,8 +105,7 @@ class A2AAgentExecutorAdmissionTest {
         TaskAdmissionGate gate = gate(30);
         when(gate.tryAcquire()).thenReturn(false);
         AdmissionReleaseCoordinator coordinator = coordinator(gate, 0);
-        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false), gate, null,
-                coordinator);
+        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false), gate, null, coordinator);
 
         A2AError error = catchThrowableOfType(
                 () -> executor.execute(requestContext("task-1", "ctx-1", false), mock(AgentEmitter.class)),
@@ -96,8 +123,7 @@ class A2AAgentExecutorAdmissionTest {
         TaskAdmissionGate gate = gate(30);
         when(gate.tryAcquire()).thenReturn(false);
         AdmissionReleaseCoordinator coordinator = coordinator(gate, 1);
-        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false), gate, null,
-                coordinator);
+        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false), gate, null, coordinator);
 
         A2AError error = catchThrowableOfType(
                 () -> executor.execute(requestContext("task-1", "ctx-1", false), mock(AgentEmitter.class)),
@@ -158,8 +184,7 @@ class A2AAgentExecutorAdmissionTest {
         TaskAdmissionGate gate = gate(30);
         when(gate.tryAcquire()).thenReturn(true);
         AdmissionReleaseCoordinator coordinator = coordinator(gate, 0);
-        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false), gate, null,
-                coordinator);
+        A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false), gate, null, coordinator);
         RequestContext context = requestContext("task-1", "ctx-1", false);
 
         executor.execute(context, new AgentEmitter(context, new CapturingEventQueue()));
@@ -224,8 +249,8 @@ class A2AAgentExecutorAdmissionTest {
 
     private static AdmissionReleaseCoordinator coordinator(TaskAdmissionGate gate, int pendingRounds,
             TaskAdmissionListener listener) {
-        AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate, mock(MainEventBus.class),
-                null, listener, NO_TTL);
+        AdmissionReleaseCoordinator coordinator = new AdmissionReleaseCoordinator(gate, mock(MainEventBus.class), null,
+                listener, NO_TTL);
         for (int index = 0; index < pendingRounds; index++) {
             coordinator.register("other-task-" + index, "other-conv", null).ifPresent(coordinator::completeRound);
         }

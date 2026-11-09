@@ -467,6 +467,51 @@ class A2aJsonRpcControllerTest {
         assertThat(body.getAsJsonObject("result").get("id").getAsString()).isEqualTo("task-1");
     }
 
+    @Test
+    void ingressReceiptDoesNotInvokeBusinessHandler() {
+        var handler = mock(RequestHandler.class);
+        var controller = new A2aJsonRpcController(handler);
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        factory.registerSingleton("hook", (A2AIngressHook) (params, context, agentId) -> {
+            assertThat(params.message().contextId()).isEqualTo("ctx-1");
+            return java.util.Optional.of(completedTask());
+        });
+        controller.setIngressHookProvider(factory.getBeanProvider(A2AIngressHook.class));
+        String body = """
+                {"jsonrpc":"2.0","id":"control","method":"SendMessage","params":{
+                "message":{"role":"ROLE_USER","messageId":"m1","contextId":"ctx-1",
+                "parts":[{"text":"暂停"}]}}}
+                """;
+        var request = new MockHttpServletRequest("POST", "/a2a");
+        request.setContent(body.getBytes(StandardCharsets.UTF_8));
+        var response = controller.handleJsonRpc(body, request);
+        assertThat(jsonBody(response).has("result")).isTrue();
+        assertThat(jsonBody(response).getAsJsonObject("result").getAsJsonObject("task").get("id").getAsString())
+                .isEqualTo("task-1");
+        verifyNoInteractions(handler);
+    }
+
+    @Test
+    void unmatchedIngressKeepsOriginalMessage() {
+        var handler = mock(RequestHandler.class);
+        when(handler.onMessageSend(any(), any())).thenReturn(completedTask());
+        var controller = new A2aJsonRpcController(handler);
+        var factory = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        factory.registerSingleton("hook", (A2AIngressHook) (params, context, agentId) -> java.util.Optional.empty());
+        controller.setIngressHookProvider(factory.getBeanProvider(A2AIngressHook.class));
+        String body = """
+                {"jsonrpc":"2.0","id":"ordinary","method":"SendMessage","params":{
+                "message":{"role":"ROLE_USER","messageId":"m2","contextId":"ctx-1",
+                "parts":[{"text":"杭州景点"}]}}}
+                """;
+        var request = new MockHttpServletRequest("POST", "/a2a");
+        request.setContent(body.getBytes(StandardCharsets.UTF_8));
+        assertThat(controller.handleJsonRpc(body, request).getStatusCode().value()).isEqualTo(200);
+        var capture = ArgumentCaptor.forClass(MessageSendParams.class);
+        verify(handler).onMessageSend(capture.capture(), any());
+        assertThat(((TextPart) capture.getValue().message().parts().get(0)).text()).isEqualTo("杭州景点");
+    }
+
     private static JsonObject requestWithMetadata(String paramsMetadata, String messageMetadata) {
         String json = "{\"params\":{\"metadata\":" + paramsMetadata + ",\"message\":{"
                 + "\"role\":\"ROLE_USER\",\"messageId\":\"msg-1\",\"contextId\":\"ctx-1\","

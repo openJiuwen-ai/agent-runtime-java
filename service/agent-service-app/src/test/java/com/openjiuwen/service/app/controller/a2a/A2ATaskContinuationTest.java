@@ -71,8 +71,7 @@ class A2ATaskContinuationTest {
         ObjectProvider<A2AAgentExecutor> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(agentExecutor);
         when(taskStore.get(TASK_ID)).thenReturn(inputRequiredTask());
-        continuation = new A2ATaskContinuation(taskStore, queueManager, provider, Runnable::run,
-                RETRY_BASE_DELAY_MS);
+        continuation = new A2ATaskContinuation(taskStore, queueManager, provider, Runnable::run, RETRY_BASE_DELAY_MS);
     }
 
     @AfterEach
@@ -81,7 +80,24 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void admissionRejection_retriesWithBackoff_andSucceeds() throws Exception {
+    void deferredInputRetriesAdmissionWithoutClientRetry() throws Exception {
+        when(agentExecutor.hasDeferredInput(any(), any())).thenReturn(true);
+        CountDownLatch delivered = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                throw admissionRejected();
+            }
+            delivered.countDown();
+            return null;
+        }).when(agentExecutor).executeDeferred(any(), any(), any());
+        continuation.submitInput(request());
+        assertThat(delivered.await(3, TimeUnit.SECONDS)).isTrue();
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @Test
+    void admissionRejectionRetriesWithBackoffAndSucceeds() throws Exception {
         CountDownLatch succeeded = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
         doAnswer(invocation -> {
@@ -100,7 +116,7 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void retryBudgetExhausted_thenAcceptsResubmit() throws Exception {
+    void retryBudgetExhaustedThenAcceptsResubmit() throws Exception {
         CountDownLatch resubmitSucceeded = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
         doAnswer(invocation -> {
@@ -124,9 +140,9 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void nonAdmissionError_noRetry_thenAcceptsResubmit() throws Exception {
-        doThrow(new A2AError(A2AErrorCodes.INTERNAL.code(), "AGENT_EXECUTION_FAILED", null))
-                .when(agentExecutor).continueTask(any(), any(), any());
+    void nonAdmissionErrorNoRetryThenAcceptsResubmit() throws Exception {
+        doThrow(new A2AError(A2AErrorCodes.INTERNAL.code(), "AGENT_EXECUTION_FAILED", null)).when(agentExecutor)
+                .continueTask(any(), any(), any());
 
         continuation.submit(request());
         verify(agentExecutor, times(1)).continueTask(any(), any(), any());
@@ -140,7 +156,7 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void neutralMessageWithoutBusinessCode_noRetry() throws Exception {
+    void neutralMessageWithoutBusinessCodeNoRetry() throws Exception {
         // Identification is businessCode-based (DFX-006): the neutral message
         // alone must NOT be treated as an admission rejection.
         doThrow(new A2AError(A2AErrorCodes.INTERNAL.code(), A2AAgentExecutor.ADMISSION_REJECTED_MESSAGE, null))
@@ -153,7 +169,7 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void retryChainHoldsMarker_duplicateSubmitSuppressed() throws Exception {
+    void retryChainHoldsMarkerDuplicateSubmitSuppressed() throws Exception {
         CountDownLatch secondAttemptStarted = new CountDownLatch(1);
         CountDownLatch releaseSecondAttempt = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
@@ -183,8 +199,8 @@ class A2ATaskContinuationTest {
         ObjectProvider<A2AAgentExecutor> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(agentExecutor);
         continuation.shutdown();
-        continuation = new A2ATaskContinuation(taskStore, new InMemoryQueueManager(null, new MainEventBus()),
-                provider, executor, RETRY_BASE_DELAY_MS);
+        continuation = new A2ATaskContinuation(taskStore, new InMemoryQueueManager(null, new MainEventBus()), provider,
+                executor, RETRY_BASE_DELAY_MS);
         var releaseContinuation = new CountDownLatch(1);
         var continuationEntered = new CountDownLatch(1);
         doAnswer(invocation -> {
@@ -203,7 +219,8 @@ class A2ATaskContinuationTest {
                 return null;
             });
             assertThat(workerEntered.await(5, TimeUnit.SECONDS)).isTrue();
-            var queued = executor.submit(() -> { });
+            var queued = executor.submit(() -> {
+            });
             var submitted = callers.submit(() -> continuation.submit(request()));
             assertThat(continuationEntered.await(5, TimeUnit.SECONDS)).isTrue();
             // The continuation is still executing inline on the submitting thread.
@@ -323,8 +340,8 @@ class A2ATaskContinuationTest {
     }
 
     private static Task inputRequiredTask() {
-        return Task.builder().id(TASK_ID).contextId("ctx-1")
-                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED)).build();
+        return Task.builder().id(TASK_ID).contextId("ctx-1").status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
+                .build();
     }
 
     private static ServeRequest request() {
