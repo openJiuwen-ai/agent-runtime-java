@@ -202,12 +202,10 @@ public class A2AAutoConfiguration {
             ObjectProvider<A2ATaskStoreProvider> taskStoreProviders,
             @Value("${spring.application.name:agent}") String applicationName) {
         MiddlewareProperties middlewareProperties = middlewareProvider.getIfAvailable();
-        RuntimeRedisClient redisClient = middlewareProperties != null
-                && "redis".equals(middlewareProperties.getCheckpointer().getType())
-                ? redisClientProvider.getIfAvailable() : null;
         String configuredType = middlewareProperties == null ? null
                 : middlewareProperties.getCheckpointer().getType();
         String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
+        RuntimeRedisClient redisClient = "redis".equals(type) ? redisClientProvider.getIfAvailable() : null;
         String ref = "in_memory".equals(type) || "redis".equals(type) ? "default"
                 : middlewareProperties.getCheckpointer().getConnectionRef();
         ServiceProperties service = servicePropertiesProvider.getIfAvailable();

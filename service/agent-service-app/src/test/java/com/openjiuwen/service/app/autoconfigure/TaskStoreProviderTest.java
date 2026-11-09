@@ -14,6 +14,7 @@ import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.app.controller.a2a.WriteThrottlingTaskStore;
 import com.openjiuwen.service.app.storage.A2ATaskStoreProvider;
 import com.openjiuwen.service.app.storage.A2ATaskStoreProvider.TaskStoreContext;
+import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
@@ -35,6 +36,19 @@ import java.util.function.Function;
  * @since 0.1.4
  */
 class TaskStoreProviderTest {
+    @Test
+    void ordinaryRedisScopeNormalizesTypeBeforeSelectingClient() {
+        new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(A2AAutoConfiguration.class))
+                .withBean(ServeOrchestrator.class, () -> mock(ServeOrchestrator.class))
+                .withBean(RequestHandler.class, () -> mock(RequestHandler.class))
+                .withBean(MiddlewareProperties.class, () -> properties(" redis "))
+                .withBean(RuntimeRedisClient.class, () -> mock(RuntimeRedisClient.class))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(TaskStore.class)).isInstanceOf(WriteThrottlingTaskStore.class);
+                });
+    }
+
     @Test
     void ordinaryScopeUsesRegisteredAgentAndClosesResourcesOnce() {
         var scope = new AtomicReference<TaskStoreContext>();
