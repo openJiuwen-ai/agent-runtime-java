@@ -18,6 +18,8 @@ import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackStor
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCapabilityGate;
 import com.openjiuwen.service.app.controller.a2a.AdmissionReleaseCoordinator;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
+import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.hosting.HostedAgentCardFactory;
 import com.openjiuwen.service.app.hosting.HostedAgentRuntime;
 import com.openjiuwen.service.app.hosting.HostedIngressResolver;
@@ -25,12 +27,11 @@ import com.openjiuwen.service.app.hosting.HostedLifecycleCoordinator;
 import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
 import com.openjiuwen.service.app.hosting.HostedRuntimeAssembler;
 import com.openjiuwen.service.app.hosting.HostedRuntimeCatalog;
-import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
-import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamInterruptor;
 import com.openjiuwen.service.app.lifecycle.AgentLifecycleHooks;
 import com.openjiuwen.service.app.lifecycle.DefaultAgentReadiness;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationDispatcher;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
@@ -110,6 +111,9 @@ public class HostedRuntimeAutoConfiguration {
 
     @Autowired
     private ObjectProvider<RemoteTaskResultHook> remoteTaskResultHook;
+
+    @Autowired
+    private ObjectProvider<A2ATaskStoreProvider> taskStoreProviders;
 
     @Autowired
     private ObjectProvider<HostedSharedLifecycle> sharedLifecycles;
@@ -239,13 +243,12 @@ public class HostedRuntimeAutoConfiguration {
             AdmissionReleaseCoordinator admissionCoordinator) {
         TaskAdmissionGate gate = admissionGate.getIfAvailable();
         var dependencies = new HostedRuntimeAssembler.Dependencies(properties, middleware.getIfAvailable(),
-                redisClient.getIfAvailable(), remoteCaller.getObject(),
-                beanFactory.getBean(A2AProtocolAdapter.class),
+                redisClient.getIfAvailable(), remoteCaller.getObject(), beanFactory.getBean(A2AProtocolAdapter.class),
                 gate, resources, dispatcher, cards, beanFactory,
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build(), admissionCoordinator,
                 A2AAutoConfiguration.resolveResponseHook(remoteProjectionHook, RemoteProjectionHook.class).orElse(null),
-                A2AAutoConfiguration.resolveResponseHook(remoteTaskResultHook, RemoteTaskResultHook.class)
-                        .orElse(null));
+                A2AAutoConfiguration.resolveResponseHook(remoteTaskResultHook, RemoteTaskResultHook.class).orElse(null),
+                taskStoreProviders.stream().toList());
         return new HostedRuntimeAssembler(dependencies, extensions.orderedStream().toList(),
                 beanFactory.getBean(HostedRemoteAgentCatalogs.class));
     }
@@ -266,9 +269,8 @@ public class HostedRuntimeAutoConfiguration {
             DefaultAgentReadiness readiness) {
         var configuration = new HostedLifecycleCoordinator.Configuration(definitions, identity,
                 beanFactory.getBean(AgentLifecycleHooks.class), readiness,
-                beanFactory.getBean(LifecycleProperties.class),
-                sharedLifecycles.orderedStream().toList(), beanFactory.getBean(HostedResources.class),
-                beanFactory.getBean(ActiveStreamInterruptor.class));
+                beanFactory.getBean(LifecycleProperties.class), sharedLifecycles.orderedStream().toList(),
+                beanFactory.getBean(HostedResources.class), beanFactory.getBean(ActiveStreamInterruptor.class));
         return new HostedLifecycleCoordinator(configuration, assembler, catalog);
     }
 
@@ -391,8 +393,8 @@ public class HostedRuntimeAutoConfiguration {
             // These components are assembled per target, not taken from global beans.
             // Reject unsupported replacements rather than silently ignoring user configuration.
             for (Class<?> type : List.of(TaskAdmissionListener.class, PushNotificationConfigStore.class,
-                    PushNotificationSender.class, MainEventBus.class, MainEventBusProcessor.class,
-                    QueueManager.class, A2AAgentExecutor.class, A2ATaskContinuation.class)) {
+                    PushNotificationSender.class, MainEventBus.class, MainEventBusProcessor.class, QueueManager.class,
+                    A2AAgentExecutor.class, A2ATaskContinuation.class)) {
                 rejectUnscopedReplacement(type, null);
             }
         };
@@ -401,14 +403,14 @@ public class HostedRuntimeAutoConfiguration {
     private void rejectUnscopedReplacement(Class<?> type, String facadeName) {
         for (String name : beanFactory.getBeanNamesForType(type)) {
             if (!name.equals(facadeName)) {
-                throw new IllegalStateException("Unscoped " + type.getSimpleName()
-                        + " replacement conflicts with hosted assembly: " + name);
+                throw new IllegalStateException(
+                        "Unscoped " + type.getSimpleName() + " replacement conflicts with hosted assembly: " + name);
             }
         }
     }
 
     private static <T> T facade(Class<T> type, HostedRuntimeCatalog catalog, Function<HostedAgentRuntime, T> select) {
-        Object proxy = Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, (self, method, args) -> {
+        Object proxy = Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type}, (self, method, args) -> {
             if (method.getDeclaringClass() == Object.class) {
                 return switch (method.getName()) {
                     case "toString" -> "Hosted default facade: " + type.getSimpleName();

@@ -22,6 +22,8 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationDispatcher;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider.TaskStoreContext;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
@@ -86,8 +88,17 @@ public final class HostedRuntimeAssembler {
             assembly.bind(A2ARemoteAgentCardRegistry.class, remoteCatalogs.catalog(entry.agentId()));
         }
         try {
+            String configuredType = dependencies.middleware() == null
+                    ? null
+                    : dependencies.middleware().getCheckpointer().getType();
+            String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
+            String ref = "in_memory".equals(type) || "redis".equals(type)
+                    ? "default"
+                    : dependencies.middleware().getCheckpointer().getConnectionRef();
             TaskStore store = A2AAutoConfiguration.createTaskStore(dependencies.middleware(), scoped,
-                    dependencies.properties());
+                    dependencies.properties(),
+                    new TaskStoreContext(applicationName, entry.agentId(), ref, assembly::onClose),
+                    dependencies.taskStoreProviders());
             assembly.taskStateProvider = store instanceof TaskStateProvider provider ? provider : null;
             for (Extension extension : extensions) {
                 store = Objects.requireNonNull(extension.decorateTaskStore(assembly, store), "Decorated TaskStore");
@@ -193,7 +204,21 @@ public final class HostedRuntimeAssembler {
             TaskAdmissionGate admissionGate, HostedResources resources, RemoteInvocationDispatcher dispatcher,
             HostedAgentCardFactory cards, AutowireCapableBeanFactory beanFactory, HttpClient httpClient,
             AdmissionReleaseCoordinator admissionCoordinator, RemoteProjectionHook remoteProjectionHook,
-            RemoteTaskResultHook remoteTaskResultHook) {
+            RemoteTaskResultHook remoteTaskResultHook, List<A2ATaskStoreProvider> taskStoreProviders) {
+        public Dependencies {
+            taskStoreProviders = List.copyOf(taskStoreProviders);
+        }
+
+        public Dependencies(A2AProperties properties, MiddlewareProperties middleware, RuntimeRedisClient redisClient,
+                RemoteAgentCaller remoteCaller, A2AProtocolAdapter protocol, TaskAdmissionGate admissionGate,
+                HostedResources resources, RemoteInvocationDispatcher dispatcher, HostedAgentCardFactory cards,
+                AutowireCapableBeanFactory beanFactory, HttpClient httpClient,
+                AdmissionReleaseCoordinator admissionCoordinator, RemoteProjectionHook remoteProjectionHook,
+                RemoteTaskResultHook remoteTaskResultHook) {
+            this(properties, middleware, redisClient, remoteCaller, protocol, admissionGate, resources, dispatcher,
+                    cards, beanFactory, httpClient, admissionCoordinator, remoteProjectionHook, remoteTaskResultHook,
+                    List.of());
+        }
         public Dependencies(A2AProperties properties, MiddlewareProperties middleware, RuntimeRedisClient redisClient,
                 RemoteAgentCaller remoteCaller, A2AProtocolAdapter protocol, TaskAdmissionGate admissionGate,
                 HostedResources resources, RemoteInvocationDispatcher dispatcher, HostedAgentCardFactory cards,
