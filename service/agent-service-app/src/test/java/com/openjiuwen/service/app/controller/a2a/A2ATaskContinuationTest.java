@@ -209,10 +209,8 @@ class A2ATaskContinuationTest {
             return null;
         }).when(agentExecutor).continueTask(any(), any(), any());
         var releaseWorker = new CountDownLatch(1);
-        var workerEntered = new CountDownLatch(1);
-        var callers = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(2),
-                new ThreadPoolExecutor.AbortPolicy());
         try {
+            var workerEntered = new CountDownLatch(1);
             var worker = executor.submit(() -> {
                 workerEntered.countDown();
                 releaseWorker.await();
@@ -221,25 +219,32 @@ class A2ATaskContinuationTest {
             assertThat(workerEntered.await(5, TimeUnit.SECONDS)).isTrue();
             var queued = executor.submit(() -> {
             });
-            var submitted = callers.submit(() -> continuation.submit(request()));
-            assertThat(continuationEntered.await(5, TimeUnit.SECONDS)).isTrue();
-            // The continuation is still executing inline on the submitting thread.
-            // Shutdown must return before that invocation is allowed to finish.
-            callers.submit(continuation::shutdown).get(5, TimeUnit.SECONDS);
-            assertThat(submitted.isDone()).isFalse();
-            continuation.submit(request());
-            releaseContinuation.countDown();
-            submitted.get(5, TimeUnit.SECONDS);
-            releaseWorker.countDown();
-            worker.get(5, TimeUnit.SECONDS);
-            queued.get(5, TimeUnit.SECONDS);
-            verify(agentExecutor, times(1)).continueTask(any(), any(), any());
+            var callers = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(2),
+                    new ThreadPoolExecutor.AbortPolicy());
+            try {
+                var submitted = callers.submit(() -> continuation.submit(request()));
+                assertThat(continuationEntered.await(5, TimeUnit.SECONDS)).isTrue();
+                // The continuation is still executing inline on the submitting thread.
+                // Shutdown must return before that invocation is allowed to finish.
+                callers.submit(continuation::shutdown).get(5, TimeUnit.SECONDS);
+                assertThat(submitted.isDone()).isFalse();
+                continuation.submit(request());
+                releaseContinuation.countDown();
+                submitted.get(5, TimeUnit.SECONDS);
+                releaseWorker.countDown();
+                worker.get(5, TimeUnit.SECONDS);
+                queued.get(5, TimeUnit.SECONDS);
+                verify(agentExecutor, times(1)).continueTask(any(), any(), any());
+            } finally {
+                releaseContinuation.countDown();
+                releaseWorker.countDown();
+                callers.shutdown();
+                assertThat(callers.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            }
         } finally {
             releaseContinuation.countDown();
             releaseWorker.countDown();
-            callers.shutdown();
             executor.shutdown();
-            assertThat(callers.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
             assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }
     }

@@ -1,6 +1,7 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
+
 package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,6 +20,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Flow;
 
+/**
+ * Verifies receipt validation and streaming delivery.
+ */
 class A2AIngressHookTest {
     @Test
     void receiptCannotModifyOriginalTaskOrCrossConversation() {

@@ -134,6 +134,10 @@ public class A2AAutoConfiguration {
     @Autowired
     private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
 
+    // Lazy lookup avoids the orchestrator/continuation/executor dependency cycle.
+    @Autowired
+    private ObjectProvider<A2ATaskContinuation> continuationProvider;
+
     /**
      * Remote caller provider. Field-injected so the
      * {@code a2aEnabledServeOrchestrator} bean method stays within five
@@ -499,23 +503,19 @@ public class A2AAutoConfiguration {
      *
      * @param orchestrator the serve orchestrator
      * @param adapter the A2A protocol adapter
-     * @param admissionGateProvider the admission gate provider (optional; the
-     *        gate bean typically comes from the ext module's concurrency
-     *        auto-configuration)
      * @param admissionListenerProvider the admission lifecycle listener
      *        provider (optional; the listener bean typically comes from the
      *        ext module's concurrency auto-configuration)
      * @param admissionReleaseCoordinator the admission-release coordinator
      *        owning the permit lifecycle (DFX-006)
+     * @param taskStore existing task store used to reconstruct idle waiting tasks
      * @return the A2A agent executor
      */
     @Bean
     @ConditionalOnMissingBean({A2AAgentExecutor.class, HostedAgentDefinitions.class})
     public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
-            ObjectProvider<TaskAdmissionGate> admissionGateProvider,
             ObjectProvider<TaskAdmissionListener> admissionListenerProvider,
-            AdmissionReleaseCoordinator admissionReleaseCoordinator,
-            ObjectProvider<A2ATaskContinuation> continuationProvider, TaskStore taskStore) {
+            AdmissionReleaseCoordinator admissionReleaseCoordinator, TaskStore taskStore) {
         var executor = new A2AAgentExecutor(orchestrator, adapter, admissionGateProvider.getIfAvailable(),
                 admissionListenerProvider.getIfAvailable(), admissionReleaseCoordinator);
         // Resolve only on dispatch: the orchestrator itself depends on the continuation.

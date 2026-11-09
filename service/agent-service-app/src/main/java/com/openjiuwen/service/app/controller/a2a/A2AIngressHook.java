@@ -1,6 +1,7 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
+
 package com.openjiuwen.service.app.controller.a2a;
 
 import org.a2aproject.sdk.server.ServerCallContext;
@@ -13,7 +14,11 @@ import java.util.Optional;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Optional protocol ingress extension; empty preserves the original execution path. */
+/**
+ * Optional protocol ingress extension; empty preserves the original execution path.
+ *
+ * @since 0.1.4
+ */
 @FunctionalInterface
 public interface A2AIngressHook {
     /**
@@ -26,7 +31,14 @@ public interface A2AIngressHook {
      * @return independent receipt Task, or empty to continue the original request
      */
     Optional<Task> handle(MessageSendParams params, ServerCallContext context, String agentId);
-    /** Checks that a direct receipt cannot masquerade as a transition of the business task. */
+
+    /**
+     * Checks that a direct receipt cannot masquerade as a transition of the business task.
+     *
+     * @param params original request identifying the business task and context
+     * @param receipt independent final receipt to validate
+     * @throws IllegalStateException when the receipt violates task or context isolation
+     */
     static void validateReceipt(MessageSendParams params, Task receipt) {
         if (receipt.id() == null || receipt.id().isBlank() || Objects.equals(receipt.id(), params.message().taskId())
                 || !Objects.equals(receipt.contextId(), params.message().contextId()) || receipt.status() == null
@@ -35,15 +47,20 @@ public interface A2AIngressHook {
         }
     }
 
-    /** A single Task snapshot is a valid streaming event; no business execution is started. */
+    /**
+     * A single Task snapshot is a valid streaming event; no business execution is started.
+     *
+     * @param receipt independent final receipt
+     * @return demand-aware publisher of the receipt
+     */
     static Flow.Publisher<StreamingEventKind> receiptPublisher(Task receipt) {
         return subscriber -> subscriber.onSubscribe(new Flow.Subscription() {
             private final AtomicBoolean sent = new AtomicBoolean();
-            private volatile boolean cancelled;
+            private volatile boolean isCancelled;
 
             @Override
             public void request(long count) {
-                if (cancelled || !sent.compareAndSet(false, true)) {
+                if (isCancelled || !sent.compareAndSet(false, true)) {
                     return;
                 }
                 if (count <= 0) {
@@ -51,14 +68,14 @@ public interface A2AIngressHook {
                     return;
                 }
                 subscriber.onNext(receipt);
-                if (!cancelled) {
+                if (!isCancelled) {
                     subscriber.onComplete();
                 }
             }
 
             @Override
             public void cancel() {
-                cancelled = true;
+                isCancelled = true;
             }
         });
     }

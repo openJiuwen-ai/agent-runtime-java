@@ -1,7 +1,10 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
+
 package com.openjiuwen.service.app.controller.a2a;
+
+import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import java.util.ArrayDeque;
 import java.util.HashSet;
@@ -15,11 +18,11 @@ import java.util.Set;
  * Bounded task-bound input mailbox. It never invokes agents or inspects remote state.
  * The execution owner must finish its round before handing off its lease.
  */
-final class A2ADeferredInputQueue<T> implements AutoCloseable {
+final class A2ADeferredInputQueue implements AutoCloseable {
     private final int maxSessions;
     private final int maxInputs;
-    private final Map<TaskKey, Slot<T>> slots = new LinkedHashMap<>();
-    private boolean closed;
+    private final Map<TaskKey, Slot> slots = new LinkedHashMap<>();
+    private boolean isClosed;
 
     A2ADeferredInputQueue(int maxSessions, int maxInputs) {
         if (maxSessions <= 0 || maxInputs <= 0) {
@@ -46,35 +49,37 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
         ACCEPTED, DUPLICATE, NO_TARGET, FULL, CLOSED
     }
 
-    /** Unforgeable round ownership; stale owners cannot release a later round. */
-    static final class Lease<T> {
+    /**
+     * Unforgeable round ownership; stale owners cannot release a later round.
+     */
+    static final class Lease {
         private final TaskKey key;
-        private final T input;
+        private final ServeRequest input;
 
-        private Lease(TaskKey key, T input) {
+        private Lease(TaskKey key, ServeRequest input) {
             this.key = key;
             this.input = input;
         }
 
-        T input() {
+        ServeRequest input() {
             return input;
         }
     }
 
     synchronized void discardIdle(Scope scope, String taskId) {
-        Slot<T> slot = slots.get(new TaskKey(scope, taskId));
+        Slot slot = slots.get(new TaskKey(scope, taskId));
         if (slot != null && slot.taskId.equals(taskId) && slot.owner == null) {
             slots.remove(new TaskKey(scope, taskId));
         }
     }
 
     synchronized boolean hasIdleInput(Scope scope, String taskId) {
-        Slot<T> slot = slots.get(new TaskKey(scope, taskId));
-        return !closed && slot != null && slot.taskId.equals(taskId) && slot.owner == null && !slot.pending.isEmpty();
+        Slot slot = slots.get(new TaskKey(scope, taskId));
+        return !isClosed && slot != null && slot.taskId.equals(taskId) && slot.owner == null && !slot.pending.isEmpty();
     }
 
     synchronized Optional<String> task(Scope scope) {
-        if (closed) {
+        if (isClosed) {
             return Optional.empty();
         }
         var matches = slots.keySet().stream().filter(key -> key.scope().equals(scope)).limit(2).toList();
@@ -86,29 +91,31 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
     }
 
     synchronized boolean idle(Scope scope, String taskId) {
-        Slot<T> slot = slots.get(new TaskKey(scope, taskId));
+        Slot slot = slots.get(new TaskKey(scope, taskId));
         return slot != null && slot.owner == null;
     }
 
-    /** Claims an ordinary round without overtaking already accepted input. */
-    synchronized Optional<Lease<T>> begin(Scope scope, String taskId) {
+    /**
+     * Claims an ordinary round without overtaking already accepted input.
+     */
+    synchronized Optional<Lease> begin(Scope scope, String taskId) {
         Objects.requireNonNull(scope, "scope");
         requireIdentity(taskId, "taskId");
-        if (closed) {
+        if (isClosed) {
             return Optional.empty();
         }
-        Slot<T> slot = slots.get(new TaskKey(scope, taskId));
+        Slot slot = slots.get(new TaskKey(scope, taskId));
         if (slot == null) {
             if (!makeRoom()) {
                 return Optional.empty();
             }
-            slot = new Slot<>(taskId);
+            slot = new Slot(taskId);
             slots.put(new TaskKey(scope, taskId), slot);
         }
         if (!slot.taskId.equals(taskId) || slot.owner != null || !slot.pending.isEmpty()) {
             return Optional.empty();
         }
-        slot.owner = new Lease<>(new TaskKey(scope, taskId), null);
+        slot.owner = new Lease(new TaskKey(scope, taskId), null);
         return Optional.of(slot.owner);
     }
 
@@ -118,7 +125,7 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
         }
         var iterator = slots.entrySet().iterator();
         while (iterator.hasNext()) {
-            Slot<T> slot = iterator.next().getValue();
+            Slot slot = iterator.next().getValue();
             if (slot.owner == null && slot.pending.isEmpty()) {
                 iterator.remove();
                 return true;
@@ -128,14 +135,16 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
     }
 
     synchronized Set<String> accepted(Scope scope, String taskId) {
-        Slot<T> slot = slots.get(new TaskKey(scope, taskId));
+        Slot slot = slots.get(new TaskKey(scope, taskId));
         return slot == null ? Set.of() : Set.copyOf(slot.accepted);
     }
 
-    /** Rebuild only an idle, server-validated waiting task. Never replace a concurrent owner. */
+    /**
+     * Rebuild only an idle, server-validated waiting task. Never replace a concurrent owner.
+     */
     synchronized boolean restore(Scope scope, String taskId, Set<String> accepted) {
         TaskKey key = new TaskKey(scope, taskId);
-        if (closed || accepted.size() > maxInputs) {
+        if (isClosed || accepted.size() > maxInputs) {
             return false;
         }
         if (slots.containsKey(key)) {
@@ -144,7 +153,7 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
         if (!makeRoom()) {
             return false;
         }
-        Slot<T> slot = new Slot<>(taskId);
+        Slot slot = new Slot(taskId);
         slot.accepted.addAll(accepted);
         slots.put(key, slot);
         return true;
@@ -155,8 +164,8 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
         while (iterator.hasNext()) {
             var entry = iterator.next();
             if (entry.getKey().taskId().equals(taskId)) {
-                Slot<T> slot = entry.getValue();
-                slot.cancelled = true;
+                Slot slot = entry.getValue();
+                slot.isCancelled = true;
                 slot.pending.clear();
                 if (slot.owner == null) {
                     iterator.remove();
@@ -166,12 +175,14 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
         notifyAll();
     }
 
-    /** A client may observe INPUT_REQUIRED before the previous producer finishes cleanup. */
-    synchronized Optional<Lease<T>> resume(Scope scope, String taskId) {
+    /**
+     * A client may observe INPUT_REQUIRED before the previous producer finishes cleanup.
+     */
+    synchronized Optional<Lease> resume(Scope scope, String taskId) {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
         TaskKey key = new TaskKey(scope, taskId);
-        while (!closed) {
-            Slot<T> slot = slots.get(key);
+        while (!isClosed) {
+            Slot slot = slots.get(key);
             if (slot == null || slot.owner == null) {
                 return begin(scope, taskId);
             }
@@ -182,6 +193,7 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
             try {
                 java.util.concurrent.TimeUnit.NANOSECONDS.timedWait(this, remaining);
             } catch (InterruptedException exception) {
+                // Preserve cancellation for the execution owner; waiting must not consume it.
                 Thread.currentThread().interrupt();
                 return Optional.empty();
             }
@@ -189,17 +201,19 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
         return Optional.empty();
     }
 
-    /** Stores input only for a bound task. Repeated message IDs never execute twice. */
-    synchronized Offer offer(Scope scope, String taskId, String messageId, T input) {
+    /**
+     * Stores input only for a bound task. Repeated message IDs never execute twice.
+     */
+    synchronized Offer offer(Scope scope, String taskId, String messageId, ServeRequest input) {
         Objects.requireNonNull(scope, "scope");
         requireIdentity(taskId, "taskId");
         requireIdentity(messageId, "messageId");
         Objects.requireNonNull(input, "input");
-        if (closed) {
+        if (isClosed) {
             return Offer.CLOSED;
         }
-        Slot<T> slot = slots.get(new TaskKey(scope, taskId));
-        if (slot == null || slot.cancelled || !slot.taskId.equals(taskId)) {
+        Slot slot = slots.get(new TaskKey(scope, taskId));
+        if (slot == null || slot.isCancelled || !slot.taskId.equals(taskId)) {
             return Offer.NO_TARGET;
         }
         if (slot.accepted.contains(messageId)) {
@@ -214,33 +228,39 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
         return Offer.ACCEPTED;
     }
 
-    /** Claims pending input for an idle task; caller owns dispatch and output handling. */
-    synchronized Optional<Lease<T>> claim(Scope scope, String taskId) {
-        Slot<T> slot = slots.get(new TaskKey(scope, taskId));
-        if (closed || slot == null || !slot.taskId.equals(taskId) || slot.owner != null) {
+    /**
+     * Claims pending input for an idle task; caller owns dispatch and output handling.
+     */
+    synchronized Optional<Lease> claim(Scope scope, String taskId) {
+        Slot slot = slots.get(new TaskKey(scope, taskId));
+        if (isClosed || slot == null || !slot.taskId.equals(taskId) || slot.owner != null) {
             return Optional.empty();
         }
         return next(new TaskKey(scope, taskId), slot);
     }
 
-    /** Transfers to queued input while retaining exclusive ownership when no input exists. */
-    synchronized Optional<Lease<T>> advance(Lease<T> lease) {
-        Slot<T> slot = slots.get(lease.key);
-        if (closed || slot == null || slot.owner != lease || slot.pending.isEmpty()) {
+    /**
+     * Transfers to queued input while retaining exclusive ownership when no input exists.
+     */
+    synchronized Optional<Lease> advance(Lease lease) {
+        Slot slot = slots.get(lease.key);
+        if (isClosed || slot == null || slot.owner != lease || slot.pending.isEmpty()) {
             return Optional.empty();
         }
         return next(lease.key, slot);
     }
 
-    /** Releases the owner and atomically hands off pending input, or discards it on termination. */
-    synchronized Optional<Lease<T>> finish(Lease<T> lease, boolean terminal) {
+    /**
+     * Releases the owner and atomically hands off pending input, or discards it on termination.
+     */
+    synchronized Optional<Lease> finish(Lease lease, boolean isTerminal) {
         Objects.requireNonNull(lease, "lease");
-        Slot<T> slot = slots.get(lease.key);
-        if (closed || slot == null || slot.owner != lease) {
+        Slot slot = slots.get(lease.key);
+        if (isClosed || slot == null || slot.owner != lease) {
             return Optional.empty();
         }
         notifyAll();
-        if (terminal || slot.cancelled) {
+        if (isTerminal || slot.isCancelled) {
             slots.remove(lease.key);
             return Optional.empty();
         }
@@ -248,13 +268,13 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
         return next(lease.key, slot);
     }
 
-    synchronized boolean release(Lease<T> lease, boolean terminal) {
-        Slot<T> slot = slots.get(lease.key);
-        if (closed || slot == null || slot.owner != lease) {
+    synchronized boolean release(Lease lease, boolean isTerminal) {
+        Slot slot = slots.get(lease.key);
+        if (isClosed || slot == null || slot.owner != lease) {
             return false;
         }
         notifyAll();
-        if (terminal || slot.cancelled) {
+        if (isTerminal || slot.isCancelled) {
             slots.remove(lease.key);
             return false;
         }
@@ -262,27 +282,29 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
         return !slot.pending.isEmpty();
     }
 
-    /** Returns unexecuted input to the head when admission rejects its claimed round. */
-    synchronized void retry(Lease<T> lease) {
-        Slot<T> slot = slots.get(lease.key);
-        if (!closed && slot != null && slot.owner == lease && lease.input != null) {
+    /**
+     * Returns unexecuted input to the head when admission rejects its claimed round.
+     */
+    synchronized void retry(Lease lease) {
+        Slot slot = slots.get(lease.key);
+        if (!isClosed && slot != null && slot.owner == lease && lease.input != null) {
             slot.pending.addFirst(lease.input);
             slot.owner = null;
         }
     }
 
-    private Optional<Lease<T>> next(TaskKey key, Slot<T> slot) {
-        T input = slot.pending.pollFirst();
+    private Optional<Lease> next(TaskKey key, Slot slot) {
+        ServeRequest input = slot.pending.pollFirst();
         if (input == null) {
             return Optional.empty();
         }
-        slot.owner = new Lease<>(key, input);
+        slot.owner = new Lease(key, input);
         return Optional.of(slot.owner);
     }
 
     @Override
     public synchronized void close() {
-        closed = true;
+        isClosed = true;
         slots.clear();
         notifyAll();
     }
@@ -293,12 +315,12 @@ final class A2ADeferredInputQueue<T> implements AutoCloseable {
         }
     }
 
-    private static final class Slot<T> {
+    private static final class Slot {
         private final String taskId;
-        private final ArrayDeque<T> pending = new ArrayDeque<>();
+        private final ArrayDeque<ServeRequest> pending = new ArrayDeque<>();
         private final Set<String> accepted = new HashSet<>();
-        private Lease<T> owner;
-        private boolean cancelled;
+        private Lease owner;
+        private boolean isCancelled;
 
         private Slot(String taskId) {
             this.taskId = taskId;

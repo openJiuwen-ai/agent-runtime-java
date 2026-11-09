@@ -509,7 +509,8 @@ class A2aJsonRpcControllerTest {
         assertThat(controller.handleJsonRpc(body, request).getStatusCode().value()).isEqualTo(200);
         var capture = ArgumentCaptor.forClass(MessageSendParams.class);
         verify(handler).onMessageSend(capture.capture(), any());
-        assertThat(((TextPart) capture.getValue().message().parts().get(0)).text()).isEqualTo("杭州景点");
+        assertThat(capture.getValue().message().parts().get(0)).isInstanceOfSatisfying(TextPart.class,
+                part -> assertThat(part.text()).isEqualTo("杭州景点"));
     }
 
     private static JsonObject requestWithMetadata(String paramsMetadata, String messageMetadata) {

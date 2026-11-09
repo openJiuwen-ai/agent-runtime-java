@@ -184,6 +184,8 @@ public class A2ATaskContinuation {
     /**
      * Wakes the existing executor for task-bound deferred input. Unlike callback
      * continuation this does not inspect remote batches or fabricate their results.
+     *
+     * @param request accepted input carrying its bound parent task ID
      */
     public void submitInput(ServeRequest request) {
         Object raw = request.getMetadata().get(PARENT_TASK_ID);

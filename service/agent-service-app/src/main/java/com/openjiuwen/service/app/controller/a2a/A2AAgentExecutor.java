@@ -94,7 +94,9 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
 
     private static final String INTERRUPT = "_interrupt";
 
-    /** Non-streaming counterpart of the cancel chunk. */
+    /**
+     * Non-streaming counterpart of the cancel chunk.
+     */
     private static final String CANCEL = "_cancel";
 
     private static final String GENERIC_EXECUTION_ERROR = "AGENT_EXECUTION_FAILED";
@@ -110,8 +112,13 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
      */
     private static final long CLOSE_DRAIN_TIMEOUT_MS = 60000L;
 
-    /** Poll interval while waiting for in-flight events to drain. */
+    /**
+     * Poll interval while waiting for in-flight events to drain.
+     */
     private static final long CLOSE_DRAIN_POLL_MS = 15L;
+
+    private static final String INPUT_SCOPE = "runtime.deferredInputScope";
+    private static final String INPUT_IDS = "runtime.deferredInputIds";
 
     private final ServeOrchestrator orchestrator;
 
@@ -126,14 +133,9 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
     private java.util.function.Consumer<ServeRequest> deferredDispatch = request -> {
     };
 
-    private final A2ADeferredInputQueue<ServeRequest> deferredInputs = new A2ADeferredInputQueue<>(4096, 64);
+    private final A2ADeferredInputQueue deferredInputs = new A2ADeferredInputQueue(4096, 64);
 
     private org.a2aproject.sdk.server.tasks.TaskStore deferredTaskStore;
-
-    /** Uses the existing task store to rebuild evicted waiting-task indexes. */
-    public void setDeferredTaskStore(org.a2aproject.sdk.server.tasks.TaskStore taskStore) {
-        deferredTaskStore = java.util.Objects.requireNonNull(taskStore);
-    }
 
     private final ChunkMapper chunkMapper = new ChunkMapper();
 
@@ -208,7 +210,16 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
         this.admissionCoordinator = admissionCoordinator;
     }
 
-    /** Enqueues an authorized input for the current task without invoking a second agent execution. */
+    /**
+     * Uses the existing task store to rebuild evicted waiting-task indexes.
+     */
+    public void setDeferredTaskStore(org.a2aproject.sdk.server.tasks.TaskStore taskStore) {
+        deferredTaskStore = java.util.Objects.requireNonNull(taskStore);
+    }
+
+    /**
+     * Enqueues an authorized input for the current task without invoking a second agent execution.
+     */
     public String deferInput(ServeRequest request, String messageId) {
         var scope = inputScope(request);
         Optional<String> task = deferredInputs.task(scope);
@@ -235,9 +246,6 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
         return result.name();
     }
 
-    private static final String INPUT_SCOPE = "runtime.deferredInputScope";
-    private static final String INPUT_IDS = "runtime.deferredInputIds";
-
     private static Map<String, Object> scopeData(A2ADeferredInputQueue.Scope scope) {
         return Map.of("tenant", scope.tenant(), "space", scope.space(), "user", scope.user(), "agent", scope.agent(),
                 "conversation", scope.conversation());
@@ -257,12 +265,13 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
                 return Optional.empty();
             }
             for (Task task : page.tasks()) {
-                if (matchesWaitingTask(task, scope)) {
-                    if (found != null && !found.id().equals(task.id())) {
-                        return Optional.empty(); // Untargeted control cannot choose among concurrent tasks.
-                    }
-                    found = task;
+                if (!matchesWaitingTask(task, scope)) {
+                    continue;
                 }
+                if (found != null && !found.id().equals(task.id())) {
+                    return Optional.empty(); // Untargeted control cannot choose among concurrent tasks.
+                }
+                found = task;
             }
             token = page.nextPageToken();
             if (token != null && !token.isBlank() && !seen.add(token)) {
@@ -288,12 +297,16 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
                 && scopeData(scope).equals(task.status().message().metadata().get(INPUT_SCOPE));
     }
 
-    /** Whether this authenticated scope has a uniquely identifiable waiting task. Does not execute it. */
+    /**
+     * Whether this authenticated scope has a uniquely identifiable waiting task. Does not execute it.
+     */
     public boolean hasWaitingInput(ServeRequest request) {
         return recoverWaitingTask(inputScope(request)).isPresent();
     }
 
-    /** Binds the runtime-owned deferred dispatch; no business control service is introduced. */
+    /**
+     * Binds the runtime-owned deferred dispatch; no business control service is introduced.
+     */
     public void setDeferredDispatch(java.util.function.Consumer<ServeRequest> dispatch) {
         deferredDispatch = java.util.Objects.requireNonNull(dispatch);
     }
@@ -317,11 +330,11 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
             findStoredInterrupt(context.getTask()).ifPresent(value -> metadata.put(INTERRUPT, value));
         }
         request.setMetadata(metadata);
-        InputRound round = new InputRound(lease.get());
+        InputRound round = new InputRound(lease.get(), false);
         try {
-            executeOwnedRequest(context, A2AMessageContext.from(context), request, emitter, false, round);
+            executeOwnedRequest(context, A2AMessageContext.from(context), request, emitter, round);
         } finally {
-            if (round.started) {
+            if (round.hasStarted) {
                 releaseInputRound(round, request);
             } else {
                 deferredInputs.retry(round.lease);
@@ -358,25 +371,25 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
 
     private void executeRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
             boolean isNewTask) {
-        boolean resuming = ctx.getTask() != null && ctx.getTask().status() != null
+        boolean isResuming = ctx.getTask() != null && ctx.getTask().status() != null
                 && ctx.getTask().status().state() == TaskState.TASK_STATE_INPUT_REQUIRED;
-        var lease = resuming
+        var lease = isResuming
                 ? deferredInputs.resume(inputScope(req), msgCtx.getTaskId())
                 : deferredInputs.begin(inputScope(req), msgCtx.getTaskId());
         if (lease.isEmpty()) {
             throw new A2AError(A2AErrorCodes.INTERNAL.code(), "Conversation already executing",
                     Map.of("businessCode", "CONVERSATION_BUSY"));
         }
-        var round = new InputRound(lease.get());
+        var round = new InputRound(lease.get(), isNewTask);
         try {
-            executeOwnedRequest(ctx, msgCtx, req, emitter, isNewTask, round);
+            executeOwnedRequest(ctx, msgCtx, req, emitter, round);
         } finally {
             releaseInputRound(round, req);
         }
     }
 
     private void executeOwnedRequest(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req,
-            AgentEmitter emitter, boolean isNewTask, InputRound round) {
+            AgentEmitter emitter, InputRound round) {
         boolean hasPreAcquiredPermit = consumePreAcquiredAdmission(ctx);
         if (!hasPreAcquiredPermit && admissionGate != null) {
             Optional<String> eventRejection = admissionCoordinator.checkEventSafety();
@@ -405,7 +418,7 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
             if (admissionGate != null && admissionListener != null) {
                 admissionListener.onAdmitted(msgCtx.getTaskId(), req.getConversationId());
             }
-            executeAdmitted(ctx, msgCtx, req, emitter, isNewTask, round);
+            executeAdmitted(ctx, msgCtx, req, emitter, round);
         } finally {
             if (admissionCoordinator != null) {
                 roundLease.ifPresent(admissionCoordinator::completeRound);
@@ -442,12 +455,12 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
     }
 
     private void executeAdmitted(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter,
-            boolean isNewTask, InputRound round) {
-        round.started = true;
+            InputRound round) {
+        round.hasStarted = true;
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
-                msgCtx.getContextId(), req.getConversationId(), !isNewTask, req.isStream());
+                msgCtx.getContextId(), req.getConversationId(), !round.isNewTask, req.isStream());
 
-        if (isNewTask) {
+        if (round.isNewTask) {
             emitter.submit();
         }
         emitter.startWork();
@@ -700,9 +713,9 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
     }
 
     private Optional<ServeRequest> finishInputRound(InputRound round, ServeRequest current, Map<?, ?> interrupt) {
-        round.waiting = interrupt != null;
+        round.isWaiting = interrupt != null;
         var next = interrupt == null
-                ? Optional.<A2ADeferredInputQueue.Lease<ServeRequest>>empty()
+                ? Optional.<A2ADeferredInputQueue.Lease>empty()
                 : deferredInputs.advance(round.lease);
         if (next.isEmpty()) {
             return Optional.empty();
@@ -721,30 +734,34 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
 
     private void releaseInputRound(InputRound round, ServeRequest request) {
         // Output projection/draining has finished before the idle slot becomes observable.
-        boolean pending = deferredInputs.release(round.lease, !round.waiting);
-        if (pending) {
+        boolean hasPendingInput = deferredInputs.release(round.lease, !round.isWaiting);
+        if (hasPendingInput) {
             deferredDispatch.accept(request);
         }
     }
 
     private static final class InputRound {
-        private A2ADeferredInputQueue.Lease<ServeRequest> lease;
-        private boolean waiting;
-        private boolean started;
+        private final boolean isNewTask;
+        private A2ADeferredInputQueue.Lease lease;
+        private boolean isWaiting;
+        private boolean hasStarted;
 
-        private InputRound(A2ADeferredInputQueue.Lease<ServeRequest> lease) {
+        private InputRound(A2ADeferredInputQueue.Lease lease, boolean isNewTask) {
             this.lease = lease;
+            this.isNewTask = isNewTask;
         }
     }
 
-    /** Holds only the terminal signal until the execution owner can choose the next queued input. */
+    /**
+     * Holds only the terminal signal until the execution owner can choose the next queued input.
+     */
     private static final class RoundObserver implements QueryStreamObserver {
         private final QueryStreamObserver downstream;
         private Map<?, ?> interrupt;
         private QueryChunk interruptChunk;
         private QueryResponse response;
-        private boolean complete;
-        private boolean failed;
+        private boolean isComplete;
+        private boolean hasFailed;
 
         private RoundObserver(QueryStreamObserver downstream) {
             this.downstream = downstream;
@@ -752,16 +769,16 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
 
         @Override
         public void onNext(QueryChunk chunk) {
-            if (failed || interruptChunk != null || complete) {
+            if (hasFailed || interruptChunk != null || isComplete) {
                 return;
             }
-            if (chunk.getType().equals(QueryChunk.TYPE_INTERRUPT) && chunk.getData() instanceof Map<?, ?> data) {
+            if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType()) && chunk.getData() instanceof Map<?, ?> data) {
                 interrupt = data;
                 interruptChunk = chunk;
             } else {
                 downstream.onNext(chunk);
-                if (chunk.getType().equals(QueryChunk.TYPE_ERROR) || chunk.getType().equals(QueryChunk.TYPE_CANCEL)) {
-                    failed = true;
+                if (QueryChunk.TYPE_ERROR.equals(chunk.getType()) || QueryChunk.TYPE_CANCEL.equals(chunk.getType())) {
+                    hasFailed = true;
                     interrupt = null;
                 }
             }
@@ -769,22 +786,22 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
 
         @Override
         public void onError(Throwable error) {
-            if (failed || interruptChunk != null || complete) {
+            if (hasFailed || interruptChunk != null || isComplete) {
                 return;
             }
-            failed = true;
+            hasFailed = true;
             interrupt = null;
             downstream.onError(error);
         }
 
         @Override
         public void onComplete() {
-            complete = true;
+            isComplete = true;
         }
 
         @Override
         public void onComplete(QueryResponse value) {
-            complete = true;
+            isComplete = true;
             response = value;
         }
 
@@ -794,10 +811,10 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
         }
 
         private void flush() {
-            if (!failed && interruptChunk != null) {
+            if (!hasFailed && interruptChunk != null) {
                 downstream.onNext(interruptChunk);
             }
-            if (complete) {
+            if (isComplete) {
                 if (response == null) {
                     downstream.onComplete();
                 } else {

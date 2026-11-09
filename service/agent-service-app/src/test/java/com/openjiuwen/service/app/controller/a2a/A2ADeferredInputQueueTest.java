@@ -1,9 +1,12 @@
 /*
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  */
+
 package com.openjiuwen.service.app.controller.a2a;
 
 import static org.assertj.core.api.Assertions.assertThat;
+
+import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import org.junit.jupiter.api.Test;
 
@@ -17,7 +20,7 @@ class A2ADeferredInputQueueTest {
 
     @Test
     void parallelTasksMakeUntargetedInputAmbiguous() {
-        var queue = new A2ADeferredInputQueue<String>(4, 4);
+        var queue = new A2ADeferredInputQueue(4, 4);
         var first = queue.begin(SCOPE, "task-a").orElseThrow();
         var second = queue.begin(SCOPE, "task-b").orElseThrow();
         assertThat(queue.task(SCOPE)).isEmpty();
@@ -28,24 +31,24 @@ class A2ADeferredInputQueueTest {
 
     @Test
     void inputWaitsForCurrentOwnerAndRunsInOrder() {
-        var queue = new A2ADeferredInputQueue<String>(4, 4);
+        var queue = new A2ADeferredInputQueue(4, 4);
         var first = queue.begin(SCOPE, "task-a").orElseThrow();
-        assertThat(queue.offer(SCOPE, "task-a", "m1", "暂停")).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
-        assertThat(queue.offer(SCOPE, "task-a", "m2", "answer")).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
+        assertThat(queue.offer(SCOPE, "task-a", "m1", input("暂停"))).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
+        assertThat(queue.offer(SCOPE, "task-a", "m2", input("answer"))).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
         assertThat(queue.begin(SCOPE, "task-a")).isEmpty();
         var next = queue.finish(first, false).orElseThrow();
-        assertThat(next.input()).isEqualTo("暂停");
+        assertThat(next.input().lastUserQuery()).isEqualTo("暂停");
         assertThat(queue.begin(SCOPE, "task-a")).isEmpty();
-        assertThat(queue.finish(next, false).orElseThrow().input()).isEqualTo("answer");
+        assertThat(queue.finish(next, false).orElseThrow().input().lastUserQuery()).isEqualTo("answer");
     }
 
     @Test
     void finalTaskDropsQueuedInputAndOldOwnerCannotReleaseSuccessor() {
-        var queue = new A2ADeferredInputQueue<String>(4, 4);
+        var queue = new A2ADeferredInputQueue(4, 4);
         var old = queue.begin(SCOPE, "task-a").orElseThrow();
-        queue.offer(SCOPE, "task-a", "m1", "暂停");
+        queue.offer(SCOPE, "task-a", "m1", input("暂停"));
         assertThat(queue.finish(old, true)).isEmpty();
-        assertThat(queue.offer(SCOPE, "task-a", "m2", "late")).isEqualTo(A2ADeferredInputQueue.Offer.NO_TARGET);
+        assertThat(queue.offer(SCOPE, "task-a", "m2", input("late"))).isEqualTo(A2ADeferredInputQueue.Offer.NO_TARGET);
         var successor = queue.begin(SCOPE, "task-b").orElseThrow();
         assertThat(queue.finish(old, true)).isEmpty();
         assertThat(queue.begin(SCOPE, "task-b")).isEmpty();
@@ -54,37 +57,39 @@ class A2ADeferredInputQueueTest {
 
     @Test
     void idleTaskCanClaimQueuedInputWithoutReplayingDuplicate() {
-        var queue = new A2ADeferredInputQueue<String>(4, 4);
+        var queue = new A2ADeferredInputQueue(4, 4);
         var first = queue.begin(SCOPE, "task-a").orElseThrow();
         queue.finish(first, false);
-        assertThat(queue.offer(SCOPE, "task-a", "m1", "暂停")).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
+        assertThat(queue.offer(SCOPE, "task-a", "m1", input("暂停"))).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
         var next = queue.claim(SCOPE, "task-a").orElseThrow();
-        assertThat(next.input()).isEqualTo("暂停");
-        assertThat(queue.offer(SCOPE, "task-a", "m1", "暂停")).isEqualTo(A2ADeferredInputQueue.Offer.DUPLICATE);
+        assertThat(next.input().lastUserQuery()).isEqualTo("暂停");
+        assertThat(queue.offer(SCOPE, "task-a", "m1", input("暂停"))).isEqualTo(A2ADeferredInputQueue.Offer.DUPLICATE);
         assertThat(queue.finish(next, false)).isEmpty();
     }
 
     @Test
     void identityAndCapacityAreEnforcedWithoutEvictingPendingInput() {
-        var queue = new A2ADeferredInputQueue<String>(1, 1);
+        var queue = new A2ADeferredInputQueue(1, 1);
         var first = queue.begin(SCOPE, "task-a").orElseThrow();
-        assertThat(queue.offer(SCOPE, "task-b", "m1", "wrong task")).isEqualTo(A2ADeferredInputQueue.Offer.NO_TARGET);
+        assertThat(queue.offer(SCOPE, "task-b", "m1", input("wrong task")))
+                .isEqualTo(A2ADeferredInputQueue.Offer.NO_TARGET);
         var other = new A2ADeferredInputQueue.Scope("tenant", "space", "agent", "other-user", "conversation");
-        assertThat(queue.offer(other, "task-a", "m1", "wrong user")).isEqualTo(A2ADeferredInputQueue.Offer.NO_TARGET);
-        assertThat(queue.offer(SCOPE, "task-a", "m1", "暂停")).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
-        assertThat(queue.offer(SCOPE, "task-a", "m2", "overflow")).isEqualTo(A2ADeferredInputQueue.Offer.FULL);
+        assertThat(queue.offer(other, "task-a", "m1", input("wrong user")))
+                .isEqualTo(A2ADeferredInputQueue.Offer.NO_TARGET);
+        assertThat(queue.offer(SCOPE, "task-a", "m1", input("暂停"))).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
+        assertThat(queue.offer(SCOPE, "task-a", "m2", input("overflow"))).isEqualTo(A2ADeferredInputQueue.Offer.FULL);
         assertThat(queue.begin(other, "task-b")).isEmpty();
-        assertThat(queue.finish(first, false).orElseThrow().input()).isEqualTo("暂停");
+        assertThat(queue.finish(first, false).orElseThrow().input().lastUserQuery()).isEqualTo("暂停");
     }
 
     @Test
     void simultaneousReleaseAndEnqueueNeverLoseAcceptedInput() throws Exception {
-        var queue = new A2ADeferredInputQueue<String>(4, 4);
+        var queue = new A2ADeferredInputQueue(4, 4);
         var first = queue.begin(SCOPE, "task-a").orElseThrow();
         var start = new CountDownLatch(1);
         var offer = CompletableFuture.supplyAsync(() -> {
             await(start);
-            return queue.offer(SCOPE, "task-a", "m1", "暂停");
+            return queue.offer(SCOPE, "task-a", "m1", input("暂停"));
         });
         var finish = CompletableFuture.supplyAsync(() -> {
             await(start);
@@ -93,13 +98,13 @@ class A2ADeferredInputQueueTest {
         start.countDown();
         assertThat(offer.get(5, TimeUnit.SECONDS)).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
         var next = finish.get(5, TimeUnit.SECONDS).or(() -> queue.claim(SCOPE, "task-a")).orElseThrow();
-        assertThat(next.input()).isEqualTo("暂停");
+        assertThat(next.input().lastUserQuery()).isEqualTo("暂停");
         assertThat(queue.claim(SCOPE, "task-a")).isEmpty();
     }
 
     @Test
     void idleWaitingRecordsDoNotExhaustExecutionCapacity() {
-        var queue = new A2ADeferredInputQueue<String>(1, 4);
+        var queue = new A2ADeferredInputQueue(1, 4);
         var first = queue.begin(SCOPE, "old-waiting").orElseThrow();
         queue.release(first, false);
         assertThat(queue.begin(SCOPE, "new-task")).isPresent();
@@ -107,29 +112,32 @@ class A2ADeferredInputQueueTest {
 
     @Test
     void capacityReclamationNeverDropsAcceptedIdleInput() {
-        var queue = new A2ADeferredInputQueue<String>(1, 4);
+        var queue = new A2ADeferredInputQueue(1, 4);
         var first = queue.begin(SCOPE, "waiting").orElseThrow();
         queue.release(first, false);
-        assertThat(queue.offer(SCOPE, "waiting", "m1", "answer")).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
+        assertThat(queue.offer(SCOPE, "waiting", "m1", input("answer")))
+                .isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
         assertThat(queue.begin(SCOPE, "new-task")).isEmpty();
-        assertThat(queue.claim(SCOPE, "waiting").orElseThrow().input()).isEqualTo("answer");
+        assertThat(queue.claim(SCOPE, "waiting").orElseThrow().input().lastUserQuery()).isEqualTo("answer");
     }
 
     @Test
     void restoredWaitingRecordRetainsDeduplicationAndCancellationFreesIt() {
-        var queue = new A2ADeferredInputQueue<String>(1, 4);
+        var queue = new A2ADeferredInputQueue(1, 4);
         assertThat(queue.restore(SCOPE, "waiting", java.util.Set.of("used"))).isTrue();
-        assertThat(queue.offer(SCOPE, "waiting", "used", "old")).isEqualTo(A2ADeferredInputQueue.Offer.DUPLICATE);
-        assertThat(queue.offer(SCOPE, "waiting", "new", "pause")).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
+        assertThat(queue.offer(SCOPE, "waiting", "used", input("old")))
+                .isEqualTo(A2ADeferredInputQueue.Offer.DUPLICATE);
+        assertThat(queue.offer(SCOPE, "waiting", "new", input("pause")))
+                .isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
         queue.cancelTask("waiting");
         assertThat(queue.begin(SCOPE, "next")).isPresent();
     }
 
     @Test
     void cancellationDuringRoundDropsInputAfterOwnerRelease() {
-        var queue = new A2ADeferredInputQueue<String>(1, 4);
+        var queue = new A2ADeferredInputQueue(1, 4);
         var owner = queue.begin(SCOPE, "task").orElseThrow();
-        queue.offer(SCOPE, "task", "m1", "pause");
+        queue.offer(SCOPE, "task", "m1", input("pause"));
         queue.cancelTask("task");
         assertThat(queue.begin(SCOPE, "task")).isEmpty();
         assertThat(queue.release(owner, false)).isFalse();
@@ -139,13 +147,49 @@ class A2ADeferredInputQueueTest {
 
     @Test
     void closeDropsPendingInputAndRejectsNewWork() {
-        var queue = new A2ADeferredInputQueue<String>(4, 4);
+        var queue = new A2ADeferredInputQueue(4, 4);
         var first = queue.begin(SCOPE, "task-a").orElseThrow();
-        queue.offer(SCOPE, "task-a", "m1", "暂停");
+        queue.offer(SCOPE, "task-a", "m1", input("暂停"));
         queue.close();
         assertThat(queue.finish(first, false)).isEmpty();
         assertThat(queue.begin(SCOPE, "task-b")).isEmpty();
-        assertThat(queue.offer(SCOPE, "task-a", "m2", "暂停")).isEqualTo(A2ADeferredInputQueue.Offer.CLOSED);
+        assertThat(queue.offer(SCOPE, "task-a", "m2", input("暂停"))).isEqualTo(A2ADeferredInputQueue.Offer.CLOSED);
+    }
+
+    @Test
+    void interruptedResumePreservesCancellationAndOwnership() throws Exception {
+        var queue = new A2ADeferredInputQueue(1, 4);
+        var owner = queue.begin(SCOPE, "task-a").orElseThrow();
+        var entered = new CountDownLatch(1);
+        var finished = new CountDownLatch(1);
+        var isInterrupted = new java.util.concurrent.atomic.AtomicBoolean();
+        var hasLease = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var resume = executor.submit(() -> {
+                entered.countDown();
+                hasLease.set(queue.resume(SCOPE, "task-a").isPresent());
+                isInterrupted.set(Thread.currentThread().isInterrupted());
+                finished.countDown();
+            });
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            resume.cancel(true);
+            assertThat(finished.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(hasLease).isFalse();
+            assertThat(isInterrupted).isTrue();
+            assertThat(queue.begin(SCOPE, "task-a")).isEmpty();
+            queue.release(owner, false);
+            assertThat(queue.resume(SCOPE, "task-a")).isPresent();
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private static ServeRequest input(String text) {
+        var request = new ServeRequest();
+        request.setMessages(java.util.List.of(java.util.Map.of("role", "user", "content", text)));
+        return request;
     }
 
     private static void await(CountDownLatch latch) {

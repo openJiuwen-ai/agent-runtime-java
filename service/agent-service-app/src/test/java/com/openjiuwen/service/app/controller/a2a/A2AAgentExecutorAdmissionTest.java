@@ -42,6 +42,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  * consequence-landed release model — DFX-006 test plan U-09..U-12.
  */
 class A2AAgentExecutorAdmissionTest {
+    /**
+     * TTL disabled: leases stay pending until consequenceLanded, keeping attribution deterministic.
+     */
+    private static final AdmissionReleaseCoordinator.Timing NO_TTL = new AdmissionReleaseCoordinator.Timing(-1L, 50L,
+            250L, 80L);
+
     @Test
     void deferredInputSurvivesAdmissionRejectionAndExecutesOnceOnRetry() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
@@ -70,10 +76,6 @@ class A2AAgentExecutorAdmissionTest {
         assertThat(capture.getAllValues().get(1).lastUserQuery()).isEqualTo("暂停");
         assertThat(executor.hasDeferredInput(input, "task-1")).isFalse();
     }
-
-    /** TTL disabled: leases stay pending until consequenceLanded, keeping attribution deterministic. */
-    private static final AdmissionReleaseCoordinator.Timing NO_TTL = new AdmissionReleaseCoordinator.Timing(-1L, 50L,
-            250L, 80L);
 
     @Test
     void stalledEventProcessorRejectsBeforeQuotaWithStateUnavailable() {
