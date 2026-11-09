@@ -97,6 +97,60 @@ class A2ATaskContinuationTest {
     }
 
     @Test
+    void deferredInputNeverRunsBusinessOnReceiptCaller() throws Exception {
+        when(agentExecutor.hasDeferredInput(any(), any())).thenReturn(true);
+        Thread caller = Thread.currentThread();
+        var businessThread = new java.util.concurrent.CompletableFuture<Thread>();
+        doAnswer(invocation -> {
+            businessThread.complete(Thread.currentThread());
+            return null;
+        }).when(agentExecutor).executeDeferred(any(), any(), any());
+        // Runnable::run models the inline path of a saturated CallerRuns executor.
+        continuation.submitInput(request());
+        assertThat(businessThread.get(5, TimeUnit.SECONDS)).isNotSameAs(caller);
+    }
+
+    @Test
+    void exhaustedDeferredInputCanBeResubmitted() throws Exception {
+        when(agentExecutor.hasDeferredInput(any(), any())).thenReturn(true);
+        AtomicInteger calls = new AtomicInteger();
+        var succeeded = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            if (calls.incrementAndGet() <= 6) {
+                throw admissionRejected();
+            }
+            succeeded.countDown();
+            return null;
+        }).when(agentExecutor).executeDeferred(any(), any(), any());
+        continuation.submitInput(request());
+        awaitCallCount(calls, 6, 10);
+        Thread.sleep(QUIET_PERIOD_MS);
+        continuation.submitInput(request());
+        assertThat(succeeded.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(calls.get()).isEqualTo(7);
+    }
+
+    @Test
+    void wakeDuringDeliveryIsNotLostOrDuplicated() throws Exception {
+        when(agentExecutor.hasDeferredInput(any(), any())).thenReturn(true);
+        var delivered = new CountDownLatch(2);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                continuation.submitInput(request());
+                continuation.submitInput(request());
+            } else {
+                when(agentExecutor.hasDeferredInput(any(), any())).thenReturn(false);
+            }
+            delivered.countDown();
+            return null;
+        }).when(agentExecutor).executeDeferred(any(), any(), any());
+        continuation.submitInput(request());
+        assertThat(delivered.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @Test
     void admissionRejectionRetriesWithBackoffAndSucceeds() throws Exception {
         CountDownLatch succeeded = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
@@ -222,7 +276,6 @@ class A2ATaskContinuationTest {
             verifyInlineShutdown(releaseContinuation, continuationEntered, releaseWorker);
             worker.get(5, TimeUnit.SECONDS);
             queued.get(5, TimeUnit.SECONDS);
-
         } finally {
             releaseContinuation.countDown();
             releaseWorker.countDown();

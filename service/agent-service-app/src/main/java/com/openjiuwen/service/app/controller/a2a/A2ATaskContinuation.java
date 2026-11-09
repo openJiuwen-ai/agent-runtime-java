@@ -93,6 +93,10 @@ public class A2ATaskContinuation {
 
     private final Set<ScheduledFuture<?>> pendingRetries = new HashSet<>();
 
+    private final Set<String> activeInputs = ConcurrentHashMap.newKeySet();
+
+    private final Set<String> inputWakeups = ConcurrentHashMap.newKeySet();
+
     private volatile boolean isStopped;
 
     /**
@@ -192,7 +196,17 @@ public class A2ATaskContinuation {
         if (isStopped || !(raw instanceof String taskId) || taskId.isBlank()) {
             return;
         }
-        dispatchInput(taskId, request, 0);
+        synchronized (lifecycleLock) {
+            if (isStopped) {
+                return;
+            }
+            if (activeInputs.add(taskId)) {
+                // Never let CallerRunsPolicy execute business on the ingress receipt thread.
+                scheduleInput(taskId, request, 0, 0);
+            } else {
+                inputWakeups.add(taskId);
+            }
+        }
     }
 
     private void dispatchInput(String taskId, ServeRequest request, int attempt) {
@@ -209,11 +223,13 @@ public class A2ATaskContinuation {
     private void deliverInput(String taskId, ServeRequest request, int attempt) {
         A2AAgentExecutor agentExecutor = agentExecutorProvider.getIfAvailable();
         if (isStopped || agentExecutor == null || !agentExecutor.hasDeferredInput(request, taskId)) {
+            finishInput(taskId, request, true);
             return; // Active owner consumes it, or wakes us again after completing projection.
         }
         Task task = taskStore.get(taskId);
         if (task == null || task.status() == null || task.status().state().isFinal()) {
             agentExecutor.discardDeferredInput(request, taskId);
+            finishInput(taskId, request, false);
             return;
         }
         if (task.status().state() != TaskState.TASK_STATE_INPUT_REQUIRED) {
@@ -223,10 +239,14 @@ public class A2ATaskContinuation {
         RequestContext context = new RequestContext.Builder().setTaskId(taskId).setContextId(task.contextId())
                 .setTask(task).build();
         EventQueue queue = queueManager.createOrTap(taskId);
+        boolean retry = false;
+        boolean delivered = false;
         try {
             agentExecutor.executeDeferred(context, request, new AgentEmitter(context, queue));
+            delivered = true;
         } catch (A2AError error) {
             if (isAdmissionRejection(error)) {
+                retry = true;
                 retryInput(taskId, request, attempt);
             } else {
                 log.warn("Deferred input rejected taskId={}", taskId, error);
@@ -235,26 +255,51 @@ public class A2ATaskContinuation {
             log.warn("Deferred input dispatch failed taskId={}", taskId, error);
         } finally {
             queue.close(false, true);
+            if (!retry) {
+                finishInput(taskId, request, delivered);
+            }
+        }
+    }
+
+    private void finishInput(String taskId, ServeRequest request, boolean delivered) {
+        synchronized (lifecycleLock) {
+            activeInputs.remove(taskId);
+            boolean wake = inputWakeups.remove(taskId);
+            // Release may request another dispatch while the current delivery is still active.
+            if (delivered && wake) {
+                submitInput(request);
+            }
         }
     }
 
     private void retryInput(String taskId, ServeRequest request, int attempt) {
         if (attempt >= MAX_ADMISSION_RETRIES) {
-            log.warn("Deferred input remains pending after dispatch retries taskId={}", taskId);
+            finishInput(taskId, request, false);
+            log.warn("Deferred input remains pending after dispatch retries taskId={}; client may resubmit", taskId);
             return;
         }
+        scheduleInput(taskId, request, attempt + 1, retryBaseDelayMs << attempt);
+    }
+
+    private void scheduleInput(String taskId, ServeRequest request, int attempt, long delayMs) {
         synchronized (lifecycleLock) {
             if (isStopped) {
+                activeInputs.remove(taskId);
                 return;
             }
             final ScheduledFuture<?>[] scheduled = new ScheduledFuture<?>[1];
-            scheduled[0] = retryScheduler.schedule(() -> {
-                synchronized (lifecycleLock) {
-                    pendingRetries.remove(scheduled[0]);
-                }
-                dispatchInput(taskId, request, attempt + 1);
-            }, retryBaseDelayMs << attempt, TimeUnit.MILLISECONDS);
-            pendingRetries.add(scheduled[0]);
+            try {
+                scheduled[0] = retryScheduler.schedule(() -> {
+                    synchronized (lifecycleLock) {
+                        pendingRetries.remove(scheduled[0]);
+                    }
+                    dispatchInput(taskId, request, attempt);
+                }, delayMs, TimeUnit.MILLISECONDS);
+                pendingRetries.add(scheduled[0]);
+            } catch (RejectedExecutionException rejected) {
+                finishInput(taskId, request, false);
+                log.warn("Deferred input scheduler unavailable taskId={}; client may resubmit", taskId);
+            }
         }
     }
 
@@ -268,6 +313,8 @@ public class A2ATaskContinuation {
             pendingRetries.forEach(future -> future.cancel(false));
             pendingRetries.clear();
             activeContinuations.clear();
+            activeInputs.clear();
+            inputWakeups.clear();
             if (isRetrySchedulerOwned) {
                 retryScheduler.shutdownNow();
             }

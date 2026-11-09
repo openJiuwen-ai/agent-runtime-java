@@ -246,7 +246,8 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
         metadata.put("runtime.parentTaskId", task.get());
         request.setMetadata(metadata);
         var result = deferredInputs.offer(scope, task.get(), messageId, request);
-        if (result == A2ADeferredInputQueue.Offer.ACCEPTED) {
+        if (result == A2ADeferredInputQueue.Offer.ACCEPTED
+                || result == A2ADeferredInputQueue.Offer.DUPLICATE && hasDeferredInput(request, task.get())) {
             deferredDispatch.accept(request);
         }
         return result.name();

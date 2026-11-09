@@ -123,6 +123,9 @@ class A2AAgentExecutorTest {
         input.setMessages(List.of(Map.of("role", "user", "content", "暂停")));
         assertThat(executor.deferInput(input, "m-pause")).isEqualTo("ACCEPTED");
         assertThat(dispatches).hasSize(1);
+        // An idle accepted input can be retried after its dispatch budget expires.
+        assertThat(executor.deferInput(input, "m-pause")).isEqualTo("DUPLICATE");
+        assertThat(dispatches).hasSize(2);
         RequestContext resumed = requestContext("task-1", "ctx-1", false);
         when(resumed.getTask()).thenReturn(Task.builder().id("task-1").contextId("ctx-1")
                 .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, inputRequiredMessage(initialQueue), null))
