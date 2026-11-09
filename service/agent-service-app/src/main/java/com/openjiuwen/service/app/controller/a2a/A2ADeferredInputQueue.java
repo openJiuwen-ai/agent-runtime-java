@@ -13,6 +13,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Bounded task-bound input mailbox. It never invokes agents or inspects remote state.
@@ -22,6 +24,7 @@ final class A2ADeferredInputQueue implements AutoCloseable {
     private final int maxSessions;
     private final int maxInputs;
     private final Map<TaskKey, Slot> slots = new LinkedHashMap<>();
+    private final Set<Thread> waiters = new HashSet<>();
     private boolean isClosed;
 
     A2ADeferredInputQueue(int maxSessions, int maxInputs) {
@@ -181,7 +184,7 @@ final class A2ADeferredInputQueue implements AutoCloseable {
                 }
             }
         }
-        notifyAll();
+        wakeWaiters();
     }
 
     /**
@@ -191,27 +194,41 @@ final class A2ADeferredInputQueue implements AutoCloseable {
      * @param taskId waiting task identity
      * @return ownership after cleanup, or empty when unavailable or interrupted
      */
-    synchronized Optional<Lease> resume(Scope scope, String taskId) {
-        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+    Optional<Lease> resume(Scope scope, String taskId) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         TaskKey key = new TaskKey(scope, taskId);
-        while (!isClosed) {
-            Slot slot = slots.get(key);
-            if (slot == null || slot.owner == null) {
-                return begin(scope, taskId);
+        Thread current = Thread.currentThread();
+        try {
+            while (true) {
+                long remaining;
+                synchronized (this) {
+                    if (isClosed || current.isInterrupted()) {
+                        return Optional.empty();
+                    }
+                    Slot slot = slots.get(key);
+                    if (slot == null || slot.owner == null) {
+                        return begin(scope, taskId);
+                    }
+                    remaining = deadline - System.nanoTime();
+                    if (remaining <= 0) {
+                        return Optional.empty();
+                    }
+                    // Register under the state lock so release cannot lose a wake before park.
+                    waiters.add(current);
+                }
+                // Parking releases no monitor and preserves the interruption flag on return.
+                // Recheck state after every wake, including spurious returns.
+                LockSupport.parkNanos(this, remaining);
             }
-            long remaining = deadline - System.nanoTime();
-            if (remaining <= 0) {
-                return Optional.empty();
-            }
-            try {
-                java.util.concurrent.TimeUnit.NANOSECONDS.timedWait(this, remaining);
-            } catch (InterruptedException exception) {
-                // Preserve cancellation for the execution owner; waiting must not consume it.
-                Thread.currentThread().interrupt();
-                return Optional.empty();
+        } finally {
+            synchronized (this) {
+                waiters.remove(current);
             }
         }
-        return Optional.empty();
+    }
+
+    private void wakeWaiters() {
+        waiters.forEach(LockSupport::unpark);
     }
 
     /**
@@ -289,7 +306,7 @@ final class A2ADeferredInputQueue implements AutoCloseable {
         if (isClosed || slot == null || slot.owner != lease) {
             return Optional.empty();
         }
-        notifyAll();
+        wakeWaiters();
         if (isTerminal || slot.isCancelled) {
             slots.remove(lease.key);
             return Optional.empty();
@@ -303,7 +320,7 @@ final class A2ADeferredInputQueue implements AutoCloseable {
         if (isClosed || slot == null || slot.owner != lease) {
             return false;
         }
-        notifyAll();
+        wakeWaiters();
         if (isTerminal || slot.isCancelled) {
             slots.remove(lease.key);
             return false;
@@ -322,6 +339,7 @@ final class A2ADeferredInputQueue implements AutoCloseable {
         if (!isClosed && slot != null && slot.owner == lease && lease.input != null) {
             slot.pending.addFirst(lease.input);
             slot.owner = null;
+            wakeWaiters();
         }
     }
 
@@ -338,7 +356,7 @@ final class A2ADeferredInputQueue implements AutoCloseable {
     public synchronized void close() {
         isClosed = true;
         slots.clear();
-        notifyAll();
+        wakeWaiters();
     }
 
     private static void requireIdentity(String value, String name) {

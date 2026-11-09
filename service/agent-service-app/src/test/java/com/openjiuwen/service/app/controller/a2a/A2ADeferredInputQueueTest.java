@@ -168,11 +168,12 @@ class A2ADeferredInputQueueTest {
 
     @Test
     void interruptedResumePreservesCancellationAndOwnership() throws Exception {
-        var queue = new A2ADeferredInputQueue(1, 4);
+        var queue = new A2ADeferredInputQueue(2, 4);
         var owner = queue.begin(SCOPE, "task-a").orElseThrow();
         var entered = new CountDownLatch(1);
         var finished = new CountDownLatch(1);
         var isInterrupted = new java.util.concurrent.atomic.AtomicBoolean();
+        var hasIdleLease = new java.util.concurrent.atomic.AtomicBoolean(true);
         var hasLease = new java.util.concurrent.atomic.AtomicBoolean(true);
         var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
@@ -180,12 +181,14 @@ class A2ADeferredInputQueueTest {
                 entered.countDown();
                 hasLease.set(queue.resume(SCOPE, "task-a").isPresent());
                 isInterrupted.set(Thread.currentThread().isInterrupted());
+                hasIdleLease.set(queue.resume(SCOPE, "task-b").isPresent());
                 finished.countDown();
             });
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             resume.cancel(true);
             assertThat(finished.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(hasLease).isFalse();
+            assertThat(hasIdleLease).isFalse();
             assertThat(isInterrupted).isTrue();
             assertThat(queue.begin(SCOPE, "task-a")).isEmpty();
             queue.release(owner, false);
@@ -196,10 +199,37 @@ class A2ADeferredInputQueueTest {
         }
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void waitingResumeWakesWhenOwnerReleasesOrQueueCloses(boolean shouldClose) throws Exception {
+        var queue = new A2ADeferredInputQueue(2, 4);
+        var owner = queue.begin(SCOPE, "task-a").orElseThrow();
+        var entered = new CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var resumed = executor.submit(() -> {
+                entered.countDown();
+                return queue.resume(SCOPE, "task-a");
+            });
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(resumed.isDone()).isFalse();
+            if (shouldClose) {
+                queue.close();
+            } else {
+                queue.release(owner, false);
+            }
+            assertThat(resumed.get(2, TimeUnit.SECONDS).isPresent()).isEqualTo(!shouldClose);
+            assertThat(queue.begin(SCOPE, "task-a")).isEmpty();
+        } finally {
+            queue.close();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
     private static ServeRequest input(String text) {
         var request = new ServeRequest();
         request.setMessages(java.util.List.of(java.util.Map.of("role", "user", "content", text)));
         return request;
     }
-
 }
