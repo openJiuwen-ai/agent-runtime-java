@@ -10,7 +10,6 @@ import com.openjiuwen.service.spec.dto.ServeRequest;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -90,19 +89,27 @@ class A2ADeferredInputQueueTest {
         var queue = new A2ADeferredInputQueue(4, 4);
         var first = queue.begin(SCOPE, "task-a").orElseThrow();
         var start = new CountDownLatch(1);
-        var offer = CompletableFuture.supplyAsync(() -> {
-            await(start);
-            return queue.offer(SCOPE, "task-a", "m1", input("暂停"));
-        });
-        var finish = CompletableFuture.supplyAsync(() -> {
-            await(start);
-            return queue.finish(first, false);
-        });
-        start.countDown();
-        assertThat(offer.get(5, TimeUnit.SECONDS)).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
-        var next = finish.get(5, TimeUnit.SECONDS).or(() -> queue.claim(SCOPE, "task-a")).orElseThrow();
-        assertThat(next.input().lastUserQuery()).isEqualTo("暂停");
-        assertThat(queue.claim(SCOPE, "task-a")).isEmpty();
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            // Callable propagates interruption to Future.get instead of swallowing cancellation.
+            var offer = executor.submit(() -> {
+                assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+                return queue.offer(SCOPE, "task-a", "m1", input("暂停"));
+            });
+            var finish = executor.submit(() -> {
+                assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+                return queue.finish(first, false);
+            });
+            start.countDown();
+            assertThat(offer.get(5, TimeUnit.SECONDS)).isEqualTo(A2ADeferredInputQueue.Offer.ACCEPTED);
+            var next = finish.get(5, TimeUnit.SECONDS).or(() -> queue.claim(SCOPE, "task-a")).orElseThrow();
+            assertThat(next.input().lastUserQuery()).isEqualTo("暂停");
+            assertThat(queue.claim(SCOPE, "task-a")).isEmpty();
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test
@@ -195,14 +202,4 @@ class A2ADeferredInputQueueTest {
         return request;
     }
 
-    private static void await(CountDownLatch latch) {
-        try {
-            if (!latch.await(5, TimeUnit.SECONDS)) {
-                throw new AssertionError("Latch timed out");
-            }
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new AssertionError(exception);
-        }
-    }
 }

@@ -239,14 +239,14 @@ public class A2ATaskContinuation {
         RequestContext context = new RequestContext.Builder().setTaskId(taskId).setContextId(task.contextId())
                 .setTask(task).build();
         EventQueue queue = queueManager.createOrTap(taskId);
-        boolean retry = false;
-        boolean delivered = false;
+        boolean shouldRetry = false;
+        boolean isDelivered = false;
         try {
             agentExecutor.executeDeferred(context, request, new AgentEmitter(context, queue));
-            delivered = true;
+            isDelivered = true;
         } catch (A2AError error) {
             if (isAdmissionRejection(error)) {
-                retry = true;
+                shouldRetry = true;
                 retryInput(taskId, request, attempt);
             } else {
                 log.warn("Deferred input rejected taskId={}", taskId, error);
@@ -255,18 +255,18 @@ public class A2ATaskContinuation {
             log.warn("Deferred input dispatch failed taskId={}", taskId, error);
         } finally {
             queue.close(false, true);
-            if (!retry) {
-                finishInput(taskId, request, delivered);
+            if (!shouldRetry) {
+                finishInput(taskId, request, isDelivered);
             }
         }
     }
 
-    private void finishInput(String taskId, ServeRequest request, boolean delivered) {
+    private void finishInput(String taskId, ServeRequest request, boolean isDelivered) {
         synchronized (lifecycleLock) {
             activeInputs.remove(taskId);
-            boolean wake = inputWakeups.remove(taskId);
+            boolean shouldWake = inputWakeups.remove(taskId);
             // Release may request another dispatch while the current delivery is still active.
-            if (delivered && wake) {
+            if (isDelivered && shouldWake) {
                 submitInput(request);
             }
         }
