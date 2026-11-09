@@ -12,12 +12,6 @@ import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogProperties;
 import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogRefresher;
 import com.openjiuwen.service.app.a2a.catalog.RemoteCatalogSource;
-import com.openjiuwen.service.app.hosting.HostedAgentCardFactory;
-import com.openjiuwen.service.app.hosting.HostedInstanceCatalog;
-import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
-import com.openjiuwen.service.app.hosting.HostedRuntimeCatalog;
-import com.openjiuwen.service.app.hosting.InstanceCatalog;
-import com.openjiuwen.service.app.hosting.StandardInstanceCatalog;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
@@ -43,8 +37,16 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCardResolver;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteProjectionHook;
 import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.controller.a2a.client.WeightedRandomCandidateSelector;
+import com.openjiuwen.service.app.hosting.HostedAgentCardFactory;
+import com.openjiuwen.service.app.hosting.HostedInstanceCatalog;
+import com.openjiuwen.service.app.hosting.HostedRemoteAgentCatalogs;
+import com.openjiuwen.service.app.hosting.HostedRuntimeCatalog;
+import com.openjiuwen.service.app.hosting.InstanceCatalog;
+import com.openjiuwen.service.app.hosting.StandardInstanceCatalog;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider.TaskStoreContext;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
@@ -52,6 +54,8 @@ import com.openjiuwen.service.spec.lifecycle.AgentServiceIdentity;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.ServeOrchestrator;
+
+import jakarta.annotation.PreDestroy;
 
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
@@ -89,6 +93,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -115,6 +120,11 @@ public class A2AAutoConfiguration {
     private static final Logger log = LoggerFactory.getLogger(A2AAutoConfiguration.class);
 
     private static final Map<String, String> A2A_RUNTIME_DEFAULTS = Map.of("a2a.blocking.agent.timeout.seconds", "300");
+
+    private final List<Runnable> taskStoreCleanup = new ArrayList<>();
+
+    @Autowired
+    private ObjectProvider<ServiceProperties> servicePropertiesProvider;
 
     /**
      * Admission gate provider (optional; the gate bean typically comes from the
@@ -181,17 +191,34 @@ public class A2AAutoConfiguration {
      * @param middlewareProvider the middleware properties provider
      * @param redisClientProvider the runtime Redis client provider
      * @param a2aProperties the A2A configuration properties
+     * @param taskStoreProviders available extension task store providers
+     * @param applicationName application identity used as the default agent ID
      * @return the task store
      */
     @Bean
     @ConditionalOnMissingBean({TaskStore.class, HostedAgentDefinitions.class})
     public TaskStore a2aTaskStore(ObjectProvider<MiddlewareProperties> middlewareProvider,
-            ObjectProvider<RuntimeRedisClient> redisClientProvider, A2AProperties a2aProperties) {
+            ObjectProvider<RuntimeRedisClient> redisClientProvider, A2AProperties a2aProperties,
+            ObjectProvider<A2ATaskStoreProvider> taskStoreProviders,
+            @Value("${spring.application.name:agent}") String applicationName) {
         MiddlewareProperties middlewareProperties = middlewareProvider.getIfAvailable();
-        RuntimeRedisClient redisClient = middlewareProperties != null
-                && "redis".equals(middlewareProperties.getCheckpointer().getType())
-                ? redisClientProvider.getIfAvailable() : null;
-        return createTaskStore(middlewareProperties, redisClient, a2aProperties);
+        String configuredType = middlewareProperties == null ? null
+                : middlewareProperties.getCheckpointer().getType();
+        String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
+        RuntimeRedisClient redisClient = "redis".equals(type) ? redisClientProvider.getIfAvailable() : null;
+        String ref = "in_memory".equals(type) || "redis".equals(type) ? "default"
+                : middlewareProperties.getCheckpointer().getConnectionRef();
+        ServiceProperties service = servicePropertiesProvider.getIfAvailable();
+        String agentId = service == null || service.getAgentId() == null || service.getAgentId().isBlank()
+                ? applicationName : service.getAgentId();
+        try {
+            return createTaskStore(middlewareProperties, redisClient, a2aProperties,
+                    new TaskStoreContext(applicationName, agentId, ref, taskStoreCleanup::add),
+                    taskStoreProviders.stream().toList());
+        } catch (RuntimeException | Error failure) {
+            closeTaskStoreResources();
+            throw failure;
+        }
     }
 
     /**
@@ -204,7 +231,9 @@ public class A2AAutoConfiguration {
      */
     public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
             RuntimeRedisClient redisClient, A2AProperties a2aProperties) {
-        if (middlewareProperties != null && "redis".equals(middlewareProperties.getCheckpointer().getType())) {
+        String configuredType = middlewareProperties == null ? null : middlewareProperties.getCheckpointer().getType();
+        String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
+        if ("redis".equals(type)) {
             if (redisClient == null) {
                 throw new IllegalStateException("RuntimeRedisClient is required for redis A2A task store");
             }
@@ -215,7 +244,53 @@ public class A2AAutoConfiguration {
                     new RedisTaskStore(redisClient, middlewareProperties.getCheckpointer().getTtlSeconds()),
                     a2aProperties.getTaskStoreWriteThrottleMs());
         }
-        return new InMemoryTaskStore();
+        if ("in_memory".equals(type)) {
+            return new InMemoryTaskStore();
+        }
+        throw new IllegalStateException("Expected one A2ATaskStoreProvider for type " + type + ", found 0");
+    }
+
+    /**
+     * Creates one raw extension store in the supplied scope, then applies framework throttling once.
+     *
+     * @param middlewareProperties optional middleware and checkpoint configuration
+     * @param redisClient runtime Redis client for built-in Redis storage
+     * @param a2aProperties task store cache configuration
+     * @param context agent scope and connection reference
+     * @param providers available extension task store providers
+     * @return configured task store chain
+     */
+    public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
+            RuntimeRedisClient redisClient, A2AProperties a2aProperties, TaskStoreContext context,
+            List<A2ATaskStoreProvider> providers) {
+        String configuredType = middlewareProperties == null ? null : middlewareProperties.getCheckpointer().getType();
+        String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
+        if ("in_memory".equals(type) || "redis".equals(type)) {
+            return createTaskStore(middlewareProperties, redisClient, a2aProperties);
+        }
+        var matches = providers.stream().filter(provider -> type.equals(provider.type())).toList();
+        if (matches.size() != 1) {
+            throw new IllegalStateException("Expected one A2ATaskStoreProvider for type " + type
+                    + ", found " + matches.size());
+        }
+        TaskStore raw = matches.get(0).create(context);
+        if (raw == null || raw instanceof WriteThrottlingTaskStore) {
+            throw new IllegalStateException("A2ATaskStoreProvider must return a raw non-null store for type " + type);
+        }
+        return new WriteThrottlingTaskStore(raw, a2aProperties.getTaskStoreWriteThrottleMs());
+    }
+
+    @PreDestroy
+    void closeTaskStoreResources() {
+        for (int index = taskStoreCleanup.size() - 1; index >= 0; index--) {
+            try {
+                taskStoreCleanup.get(index).run();
+            } catch (RuntimeException failure) {
+                // Extension callbacks may throw any runtime exception; continue releasing the other resources.
+                log.warn("Task store resource cleanup failed", failure);
+            }
+        }
+        taskStoreCleanup.clear();
     }
 
     /**

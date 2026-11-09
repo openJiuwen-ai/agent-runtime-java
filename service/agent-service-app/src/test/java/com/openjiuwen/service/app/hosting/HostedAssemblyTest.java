@@ -12,6 +12,7 @@ import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.autoconfigure.HostedRuntimeAutoConfiguration;
 import com.openjiuwen.service.app.config.DefaultAgentServiceIdentity;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.AdmissionReleaseCoordinator;
 import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
@@ -75,6 +76,80 @@ class HostedAssemblyTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(HostedRuntimeAutoConfiguration.class, A2AAutoConfiguration.class))
             .withUserConfiguration(Handlers.class).withPropertyValues("spring.application.name=hosted-test");
+
+    @Test
+    void extensionStoreReceivesEachHostedScopeAndClosesExactlyOnce() {
+        var scopes = new ArrayList<A2ATaskStoreProvider.TaskStoreContext>();
+        var stores = new ArrayList<TaskStore>();
+        var closed = new java.util.concurrent.atomic.AtomicInteger();
+        var middleware = new MiddlewareProperties();
+        middleware.getCheckpointer().setType("custom");
+        middleware.getCheckpointer().setConnectionRef("primary");
+        runner.withBean(MiddlewareProperties.class, () -> middleware)
+                .withBean(A2ATaskStoreProvider.class, () -> new A2ATaskStoreProvider() {
+                    @Override
+                    public String type() {
+                        return "custom";
+                    }
+
+                    @Override
+                    public TaskStore create(TaskStoreContext scope) {
+                        scopes.add(scope);
+                        scope.onClose().accept(closed::incrementAndGet);
+                        var store = new InMemoryTaskStore();
+                        stores.add(store);
+                        return store;
+                    }
+                }).run(context -> {
+                    assertThat(context).hasNotFailed();
+                    var lifecycle = context.getBean(HostedLifecycleCoordinator.class);
+                    lifecycle.runInitPhase();
+                    assertThat(scopes).extracting(A2ATaskStoreProvider.TaskStoreContext::agentId)
+                            .containsExactly("a", "b");
+                    assertThat(scopes).allSatisfy(scope -> {
+                        assertThat(scope.applicationName()).isEqualTo("hosted-test");
+                        assertThat(scope.connectionRef()).isEqualTo("primary");
+                    });
+                    assertThat(stores.get(0)).isNotSameAs(stores.get(1));
+                    lifecycle.runShutdownPhase();
+                    lifecycle.runShutdownPhase();
+                    assertThat(closed).hasValue(2);
+                });
+        assertThat(closed).hasValue(2);
+    }
+
+    @Test
+    void extensionFailureClosesScopesBeforeStartingHandlers() {
+        var closed = new java.util.concurrent.atomic.AtomicInteger();
+        var middleware = new MiddlewareProperties();
+        middleware.getCheckpointer().setType("custom");
+        runner.withBean(MiddlewareProperties.class, () -> middleware)
+                .withBean(A2ATaskStoreProvider.class, () -> new A2ATaskStoreProvider() {
+                    @Override
+                    public String type() {
+                        return "custom";
+                    }
+
+                    @Override
+                    public TaskStore create(TaskStoreContext scope) {
+                        scope.onClose().accept(closed::incrementAndGet);
+                        if ("b".equals(scope.agentId())) {
+                            throw new IllegalStateException("provider failed");
+                        }
+                        return new InMemoryTaskStore();
+                    }
+                }).run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThatThrownBy(context.getBean(HostedLifecycleCoordinator.class)::runInitPhase)
+                            .hasRootCauseMessage("provider failed");
+                    assertThat(closed).hasValue(2);
+                    assertThat(context.getBean("first", CountingHandler.class).starts).isZero();
+                    assertThat(context.getBean("second", CountingHandler.class).starts).isZero();
+                    assertThatThrownBy(context.getBean(HostedRuntimeCatalog.class)::instances)
+                            .isInstanceOf(HostedIngressResolver.SelectionException.class);
+                });
+        assertThat(closed).hasValue(2);
+    }
 
     @ParameterizedTest
     @MethodSource("duplicateResponseHooks")

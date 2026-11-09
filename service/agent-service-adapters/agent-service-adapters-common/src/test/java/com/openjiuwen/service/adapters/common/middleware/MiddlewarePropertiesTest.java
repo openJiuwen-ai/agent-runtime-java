@@ -22,6 +22,19 @@ import java.util.Map;
  */
 class MiddlewarePropertiesTest {
     @Test
+    void extensionConnectionRefBindsIndependentlyOfRedisRef() {
+        assertThat(new MiddlewareProperties().getCheckpointer().getConnectionRef()).isEqualTo("default");
+        var source = Map.of("openjiuwen.service.middleware.checkpointer.type", "custom",
+                "openjiuwen.service.middleware.checkpointer.connection-ref", "database",
+                "openjiuwen.service.middleware.checkpointer.redis-ref", "auxiliary");
+        var properties = new Binder(new MapConfigurationPropertySource(source))
+                .bind("openjiuwen.service.middleware", Bindable.of(MiddlewareProperties.class)).get();
+        assertThat(properties.getCheckpointer().getType()).isEqualTo("custom");
+        assertThat(properties.getCheckpointer().getConnectionRef()).isEqualTo("database");
+        assertThat(properties.getCheckpointer().getRedisRef()).isEqualTo("auxiliary");
+    }
+
+    @Test
     void bindsCheckpointerAndPlaceholderCapabilitiesTogether() {
         Map<String, String> source = Map.of("openjiuwen.service.middleware.checkpointer.type", "redis",
                 "openjiuwen.service.middleware.session-store.type", "none",

@@ -24,6 +24,7 @@
 | `SANDBOX_AUTH_TOKEN` | 12 | Sandbox 出站 auth token |
 | `TLS_KEYSTORE_PASSWORD` | 13 | TLS keystore 密码（入站/出站） |
 | `TLS_TRUSTSTORE_PASSWORD` | 14 | TLS truststore 密码 |
+| `CUSTOM_PASSWORD` | 100 | 自定义密码 |
 
 ## 使用场景
 
