@@ -134,6 +134,10 @@ public class A2AAutoConfiguration {
     @Autowired
     private ObjectProvider<TaskAdmissionGate> admissionGateProvider;
 
+    // Lazy lookup avoids the orchestrator/continuation/executor dependency cycle.
+    @Autowired
+    private ObjectProvider<A2ATaskContinuation> continuationProvider;
+
     /**
      * Remote caller provider. Field-injected so the
      * {@code a2aEnabledServeOrchestrator} bean method stays within five
@@ -202,15 +206,16 @@ public class A2AAutoConfiguration {
             ObjectProvider<A2ATaskStoreProvider> taskStoreProviders,
             @Value("${spring.application.name:agent}") String applicationName) {
         MiddlewareProperties middlewareProperties = middlewareProvider.getIfAvailable();
-        String configuredType = middlewareProperties == null ? null
-                : middlewareProperties.getCheckpointer().getType();
+        String configuredType = middlewareProperties == null ? null : middlewareProperties.getCheckpointer().getType();
         String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
         RuntimeRedisClient redisClient = "redis".equals(type) ? redisClientProvider.getIfAvailable() : null;
-        String ref = "in_memory".equals(type) || "redis".equals(type) ? "default"
+        String ref = "in_memory".equals(type) || "redis".equals(type)
+                ? "default"
                 : middlewareProperties.getCheckpointer().getConnectionRef();
         ServiceProperties service = servicePropertiesProvider.getIfAvailable();
         String agentId = service == null || service.getAgentId() == null || service.getAgentId().isBlank()
-                ? applicationName : service.getAgentId();
+                ? applicationName
+                : service.getAgentId();
         try {
             return createTaskStore(middlewareProperties, redisClient, a2aProperties,
                     new TaskStoreContext(applicationName, agentId, ref, taskStoreCleanup::add),
@@ -229,8 +234,8 @@ public class A2AAutoConfiguration {
      * @param a2aProperties task store cache configuration
      * @return configured task store chain
      */
-    public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
-            RuntimeRedisClient redisClient, A2AProperties a2aProperties) {
+    public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties, RuntimeRedisClient redisClient,
+            A2AProperties a2aProperties) {
         String configuredType = middlewareProperties == null ? null : middlewareProperties.getCheckpointer().getType();
         String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
         if ("redis".equals(type)) {
@@ -260,9 +265,8 @@ public class A2AAutoConfiguration {
      * @param providers available extension task store providers
      * @return configured task store chain
      */
-    public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties,
-            RuntimeRedisClient redisClient, A2AProperties a2aProperties, TaskStoreContext context,
-            List<A2ATaskStoreProvider> providers) {
+    public static TaskStore createTaskStore(MiddlewareProperties middlewareProperties, RuntimeRedisClient redisClient,
+            A2AProperties a2aProperties, TaskStoreContext context, List<A2ATaskStoreProvider> providers) {
         String configuredType = middlewareProperties == null ? null : middlewareProperties.getCheckpointer().getType();
         String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
         if ("in_memory".equals(type) || "redis".equals(type)) {
@@ -270,8 +274,8 @@ public class A2AAutoConfiguration {
         }
         var matches = providers.stream().filter(provider -> type.equals(provider.type())).toList();
         if (matches.size() != 1) {
-            throw new IllegalStateException("Expected one A2ATaskStoreProvider for type " + type
-                    + ", found " + matches.size());
+            throw new IllegalStateException(
+                    "Expected one A2ATaskStoreProvider for type " + type + ", found " + matches.size());
         }
         TaskStore raw = matches.get(0).create(context);
         if (raw == null || raw instanceof WriteThrottlingTaskStore) {
@@ -392,8 +396,8 @@ public class A2AAutoConfiguration {
             A2AProperties properties, ObjectProvider<TaskAdmissionGate> admissionGateProvider,
             ObjectProvider<TaskAdmissionListener> admissionListenerProvider) {
         TaskStateProvider taskStateProvider = taskStore instanceof TaskStateProvider provider ? provider : null;
-        return new AdmissionReleaseCoordinator(admissionGateProvider.getIfAvailable(), mainEventBus,
-                taskStateProvider, properties, admissionListenerProvider.getIfAvailable());
+        return new AdmissionReleaseCoordinator(admissionGateProvider.getIfAvailable(), mainEventBus, taskStateProvider,
+                properties, admissionListenerProvider.getIfAvailable());
     }
 
     /**
@@ -447,8 +451,8 @@ public class A2AAutoConfiguration {
                     return;
                 }
                 admissionReleaseCoordinator.heartbeat();
-                if (event instanceof TaskStatusUpdateEvent statusUpdate
-                        && statusUpdate.isFinalOrInterrupted() && !statusUpdate.isFinal()) {
+                if (event instanceof TaskStatusUpdateEvent statusUpdate && statusUpdate.isFinalOrInterrupted()
+                        && !statusUpdate.isFinal()) {
                     admissionReleaseCoordinator.consequenceLanded(taskId);
                 }
             }
@@ -499,24 +503,25 @@ public class A2AAutoConfiguration {
      *
      * @param orchestrator the serve orchestrator
      * @param adapter the A2A protocol adapter
-     * @param admissionGateProvider the admission gate provider (optional; the
-     *        gate bean typically comes from the ext module's concurrency
-     *        auto-configuration)
      * @param admissionListenerProvider the admission lifecycle listener
      *        provider (optional; the listener bean typically comes from the
      *        ext module's concurrency auto-configuration)
      * @param admissionReleaseCoordinator the admission-release coordinator
      *        owning the permit lifecycle (DFX-006)
+     * @param taskStore existing task store used to reconstruct idle waiting tasks
      * @return the A2A agent executor
      */
     @Bean
     @ConditionalOnMissingBean({A2AAgentExecutor.class, HostedAgentDefinitions.class})
     public A2AAgentExecutor a2aAgentExecutor(ServeOrchestrator orchestrator, A2AProtocolAdapter adapter,
-            ObjectProvider<TaskAdmissionGate> admissionGateProvider,
             ObjectProvider<TaskAdmissionListener> admissionListenerProvider,
-            AdmissionReleaseCoordinator admissionReleaseCoordinator) {
-        return new A2AAgentExecutor(orchestrator, adapter, admissionGateProvider.getIfAvailable(),
+            AdmissionReleaseCoordinator admissionReleaseCoordinator, TaskStore taskStore) {
+        var executor = new A2AAgentExecutor(orchestrator, adapter, admissionGateProvider.getIfAvailable(),
                 admissionListenerProvider.getIfAvailable(), admissionReleaseCoordinator);
+        // Resolve only on dispatch: the orchestrator itself depends on the continuation.
+        executor.setDeferredTaskStore(taskStore);
+        executor.setDeferredDispatch(request -> continuationProvider.getObject().submitInput(request));
+        return executor;
     }
 
     /**
@@ -545,8 +550,7 @@ public class A2AAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean({A2ATaskContinuation.class, HostedAgentDefinitions.class})
     public A2ATaskContinuation a2aTaskContinuation(TaskStore taskStore, QueueManager queueManager,
-            ObjectProvider<A2AAgentExecutor> agentExecutorProvider,
-            A2AExecutionResources executionResources) {
+            ObjectProvider<A2AAgentExecutor> agentExecutorProvider, A2AExecutionResources executionResources) {
         return new A2ATaskContinuation(taskStore, queueManager, agentExecutorProvider,
                 executionResources.agentExecutor());
     }
@@ -579,8 +583,8 @@ public class A2AAutoConfiguration {
             ObjectProvider<ExternalOutboundSecuritySupport> securitySupportProvider,
             CandidateSelector candidateSelector) {
         A2ARemoteAgentClient client = new A2ARemoteAgentClient(registry,
-                props.getRemoteInvocation().getMaxConcurrency(),
-                securitySupportProvider.getIfAvailable(), candidateSelector,
+                props.getRemoteInvocation().getMaxConcurrency(), securitySupportProvider.getIfAvailable(),
+                candidateSelector,
                 resolveResponseHook(remoteTaskResultHookProvider, RemoteTaskResultHook.class).orElse(null));
         client.setOutboundHeaders(props.getOutboundHeaders());
         return client;
@@ -710,8 +714,8 @@ public class A2AAutoConfiguration {
             A2ATaskContinuation continuation) {
         A2AProperties.RemoteInvocationProperties limits = props.getRemoteInvocation();
         return new A2AEnabledServeOrchestrator(agentHandler, taskStore, remoteCallerProvider.getObject(),
-                streamRegistryProvider.getObject(), agentId,
-                limits.getMaxConcurrency(), limits.getMaxQueueSize(), limits.getQueueTimeoutSeconds(), continuation,
+                streamRegistryProvider.getObject(), agentId, limits.getMaxConcurrency(), limits.getMaxQueueSize(),
+                limits.getQueueTimeoutSeconds(), continuation,
                 resolveResponseHook(remoteProjectionHookProvider, RemoteProjectionHook.class).orElse(null),
                 resolveResponseHook(remoteTaskResultHookProvider, RemoteTaskResultHook.class).orElse(null));
     }
@@ -909,13 +913,11 @@ final class A2AExecutionResources {
 
     private static ExecutorService newAgentExecutor(int agentThreads) {
         if (VirtualThreadSupport.isSupported()) {
-            return VirtualThreadSupport.newVirtualExecutor("a2a-agent",
-                    (thread, error) -> log.error("Uncaught A2A agent execution error thread={}",
-                            thread.getName(), error));
+            return VirtualThreadSupport.newVirtualExecutor("a2a-agent", (thread, error) -> log
+                    .error("Uncaught A2A agent execution error thread={}", thread.getName(), error));
         }
         return new ThreadPoolExecutor(agentThreads, agentThreads, 60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(AGENT_QUEUE_CAPACITY),
-                new ThreadPoolExecutor.CallerRunsPolicy());
+                new LinkedBlockingQueue<>(AGENT_QUEUE_CAPACITY), new ThreadPoolExecutor.CallerRunsPolicy());
     }
 
     private static int eventConsumerMaxThreads(int agentThreads) {
@@ -927,20 +929,15 @@ final class A2AExecutionResources {
 
     private static ExecutorService newEventConsumerExecutor(int maximumPoolSize) {
         if (VirtualThreadSupport.isSupported()) {
-            return VirtualThreadSupport.newVirtualExecutor("a2a-event-consumer",
-                    A2AExecutionResources::logUncaught);
+            return VirtualThreadSupport.newVirtualExecutor("a2a-event-consumer", A2AExecutionResources::logUncaught);
         }
-        return new ThreadPoolExecutor(
-                0, maximumPoolSize, EVENT_CONSUMER_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
-                new SynchronousQueue<>(),
-                r -> {
-                    Thread thread = new Thread(r, "a2a-event-consumer-"
-                            + EVENT_CONSUMER_THREAD_SEQ.getAndIncrement());
+        return new ThreadPoolExecutor(0, maximumPoolSize, EVENT_CONSUMER_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
+                new SynchronousQueue<>(), r -> {
+                    Thread thread = new Thread(r, "a2a-event-consumer-" + EVENT_CONSUMER_THREAD_SEQ.getAndIncrement());
                     thread.setDaemon(true);
                     thread.setUncaughtExceptionHandler(A2AExecutionResources::logUncaught);
                     return thread;
-                },
-                new ThreadPoolExecutor.AbortPolicy());
+                }, new ThreadPoolExecutor.AbortPolicy());
     }
 
     static int autoAgentPoolSize() {
@@ -958,8 +955,7 @@ final class A2AExecutionResources {
      * @param throwable the uncaught throwable
      */
     private static void logUncaught(Thread thread, Throwable throwable) {
-        log.error("A2A event consumer thread died with uncaught exception thread={}", thread.getName(),
-                throwable);
+        log.error("A2A event consumer thread died with uncaught exception thread={}", thread.getName(), throwable);
     }
 
     int eventConsumerMaxThreads() {

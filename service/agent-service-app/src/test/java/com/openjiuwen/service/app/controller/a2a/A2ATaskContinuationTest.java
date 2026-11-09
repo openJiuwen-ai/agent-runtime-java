@@ -71,8 +71,7 @@ class A2ATaskContinuationTest {
         ObjectProvider<A2AAgentExecutor> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(agentExecutor);
         when(taskStore.get(TASK_ID)).thenReturn(inputRequiredTask());
-        continuation = new A2ATaskContinuation(taskStore, queueManager, provider, Runnable::run,
-                RETRY_BASE_DELAY_MS);
+        continuation = new A2ATaskContinuation(taskStore, queueManager, provider, Runnable::run, RETRY_BASE_DELAY_MS);
     }
 
     @AfterEach
@@ -81,7 +80,78 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void admissionRejection_retriesWithBackoff_andSucceeds() throws Exception {
+    void deferredInputRetriesAdmissionWithoutClientRetry() throws Exception {
+        when(agentExecutor.hasDeferredInput(any(), any())).thenReturn(true);
+        CountDownLatch delivered = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                throw admissionRejected();
+            }
+            delivered.countDown();
+            return null;
+        }).when(agentExecutor).executeDeferred(any(), any(), any());
+        continuation.submitInput(request());
+        assertThat(delivered.await(3, TimeUnit.SECONDS)).isTrue();
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @Test
+    void deferredInputNeverRunsBusinessOnReceiptCaller() throws Exception {
+        when(agentExecutor.hasDeferredInput(any(), any())).thenReturn(true);
+        Thread caller = Thread.currentThread();
+        var businessThread = new java.util.concurrent.CompletableFuture<Thread>();
+        doAnswer(invocation -> {
+            businessThread.complete(Thread.currentThread());
+            return null;
+        }).when(agentExecutor).executeDeferred(any(), any(), any());
+        // Runnable::run models the inline path of a saturated CallerRuns executor.
+        continuation.submitInput(request());
+        assertThat(businessThread.get(5, TimeUnit.SECONDS)).isNotSameAs(caller);
+    }
+
+    @Test
+    void exhaustedDeferredInputCanBeResubmitted() throws Exception {
+        when(agentExecutor.hasDeferredInput(any(), any())).thenReturn(true);
+        AtomicInteger calls = new AtomicInteger();
+        var succeeded = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            if (calls.incrementAndGet() <= 6) {
+                throw admissionRejected();
+            }
+            succeeded.countDown();
+            return null;
+        }).when(agentExecutor).executeDeferred(any(), any(), any());
+        continuation.submitInput(request());
+        awaitCallCount(calls, 6, 10);
+        Thread.sleep(QUIET_PERIOD_MS);
+        continuation.submitInput(request());
+        assertThat(succeeded.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(calls.get()).isEqualTo(7);
+    }
+
+    @Test
+    void wakeDuringDeliveryIsNotLostOrDuplicated() throws Exception {
+        when(agentExecutor.hasDeferredInput(any(), any())).thenReturn(true);
+        var delivered = new CountDownLatch(2);
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                continuation.submitInput(request());
+                continuation.submitInput(request());
+            } else {
+                when(agentExecutor.hasDeferredInput(any(), any())).thenReturn(false);
+            }
+            delivered.countDown();
+            return null;
+        }).when(agentExecutor).executeDeferred(any(), any(), any());
+        continuation.submitInput(request());
+        assertThat(delivered.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @Test
+    void admissionRejectionRetriesWithBackoffAndSucceeds() throws Exception {
         CountDownLatch succeeded = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
         doAnswer(invocation -> {
@@ -100,7 +170,7 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void retryBudgetExhausted_thenAcceptsResubmit() throws Exception {
+    void retryBudgetExhaustedThenAcceptsResubmit() throws Exception {
         CountDownLatch resubmitSucceeded = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
         doAnswer(invocation -> {
@@ -124,9 +194,9 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void nonAdmissionError_noRetry_thenAcceptsResubmit() throws Exception {
-        doThrow(new A2AError(A2AErrorCodes.INTERNAL.code(), "AGENT_EXECUTION_FAILED", null))
-                .when(agentExecutor).continueTask(any(), any(), any());
+    void nonAdmissionErrorNoRetryThenAcceptsResubmit() throws Exception {
+        doThrow(new A2AError(A2AErrorCodes.INTERNAL.code(), "AGENT_EXECUTION_FAILED", null)).when(agentExecutor)
+                .continueTask(any(), any(), any());
 
         continuation.submit(request());
         verify(agentExecutor, times(1)).continueTask(any(), any(), any());
@@ -140,7 +210,7 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void neutralMessageWithoutBusinessCode_noRetry() throws Exception {
+    void neutralMessageWithoutBusinessCodeNoRetry() throws Exception {
         // Identification is businessCode-based (DFX-006): the neutral message
         // alone must NOT be treated as an admission rejection.
         doThrow(new A2AError(A2AErrorCodes.INTERNAL.code(), A2AAgentExecutor.ADMISSION_REJECTED_MESSAGE, null))
@@ -153,7 +223,7 @@ class A2ATaskContinuationTest {
     }
 
     @Test
-    void retryChainHoldsMarker_duplicateSubmitSuppressed() throws Exception {
+    void retryChainHoldsMarkerDuplicateSubmitSuppressed() throws Exception {
         CountDownLatch secondAttemptStarted = new CountDownLatch(1);
         CountDownLatch releaseSecondAttempt = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
@@ -183,8 +253,8 @@ class A2ATaskContinuationTest {
         ObjectProvider<A2AAgentExecutor> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(agentExecutor);
         continuation.shutdown();
-        continuation = new A2ATaskContinuation(taskStore, new InMemoryQueueManager(null, new MainEventBus()),
-                provider, executor, RETRY_BASE_DELAY_MS);
+        continuation = new A2ATaskContinuation(taskStore, new InMemoryQueueManager(null, new MainEventBus()), provider,
+                executor, RETRY_BASE_DELAY_MS);
         var releaseContinuation = new CountDownLatch(1);
         var continuationEntered = new CountDownLatch(1);
         doAnswer(invocation -> {
@@ -193,17 +263,32 @@ class A2ATaskContinuationTest {
             return null;
         }).when(agentExecutor).continueTask(any(), any(), any());
         var releaseWorker = new CountDownLatch(1);
-        var workerEntered = new CountDownLatch(1);
-        var callers = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(2),
-                new ThreadPoolExecutor.AbortPolicy());
         try {
+            var workerEntered = new CountDownLatch(1);
             var worker = executor.submit(() -> {
                 workerEntered.countDown();
                 releaseWorker.await();
                 return null;
             });
             assertThat(workerEntered.await(5, TimeUnit.SECONDS)).isTrue();
-            var queued = executor.submit(() -> { });
+            var queued = executor.submit(() -> {
+            });
+            verifyInlineShutdown(releaseContinuation, continuationEntered, releaseWorker);
+            worker.get(5, TimeUnit.SECONDS);
+            queued.get(5, TimeUnit.SECONDS);
+        } finally {
+            releaseContinuation.countDown();
+            releaseWorker.countDown();
+            executor.shutdown();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private void verifyInlineShutdown(CountDownLatch releaseContinuation, CountDownLatch continuationEntered,
+            CountDownLatch releaseWorker) throws Exception {
+        var callers = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(2),
+                new ThreadPoolExecutor.AbortPolicy());
+        try {
             var submitted = callers.submit(() -> continuation.submit(request()));
             assertThat(continuationEntered.await(5, TimeUnit.SECONDS)).isTrue();
             // The continuation is still executing inline on the submitting thread.
@@ -214,16 +299,12 @@ class A2ATaskContinuationTest {
             releaseContinuation.countDown();
             submitted.get(5, TimeUnit.SECONDS);
             releaseWorker.countDown();
-            worker.get(5, TimeUnit.SECONDS);
-            queued.get(5, TimeUnit.SECONDS);
             verify(agentExecutor, times(1)).continueTask(any(), any(), any());
         } finally {
             releaseContinuation.countDown();
             releaseWorker.countDown();
             callers.shutdown();
-            executor.shutdown();
             assertThat(callers.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }
     }
 
@@ -323,8 +404,8 @@ class A2ATaskContinuationTest {
     }
 
     private static Task inputRequiredTask() {
-        return Task.builder().id(TASK_ID).contextId("ctx-1")
-                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED)).build();
+        return Task.builder().id(TASK_ID).contextId("ctx-1").status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED))
+                .build();
     }
 
     private static ServeRequest request() {

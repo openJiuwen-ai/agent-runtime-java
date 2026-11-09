@@ -59,11 +59,136 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 class A2AAgentExecutorTest {
     @Test
+    void evictedWaitingTaskIsRecoveredFromStoreOnlyForItsOriginalIdentity() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        var adapter = requestAdapter(false, Map.of());
+        adapter.toServeRequest(null).setSpaceId("space-a");
+        var executor = new A2AAgentExecutor(orchestrator, adapter);
+        when(orchestrator.query(any()))
+                .thenReturn(new QueryResponse(Map.of("_interrupt", Map.of("message", "date?")), "ctx-1"));
+        RequestContext initial = requestContext("task-1", "ctx-1", false);
+        var queue = new CapturingEventQueue();
+        executor.execute(initial, new AgentEmitter(initial, queue));
+        var store = new org.a2aproject.sdk.server.tasks.InMemoryTaskStore();
+        store.save(Task.builder().id("task-1").contextId("ctx-1")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, inputRequiredMessage(queue), null)).build(),
+                false);
+        executor.setDeferredTaskStore(store);
+        ServeRequest input = new ServeRequest();
+        input.setConversationId("ctx-1");
+        input.setSpaceId("space-a");
+        input.setMessages(List.of(Map.of("role", "user", "content", "暂停")));
+        executor.discardDeferredInput(input, "task-1");
+        input.setSpaceId("space-b");
+        assertThat(executor.deferInput(input, "wrong-space")).isEqualTo("NO_TARGET");
+        input.setSpaceId("space-a");
+        assertThat(executor.deferInput(input, "pause-after-eviction")).isEqualTo("ACCEPTED");
+        assertThat(executor.hasDeferredInput(input, "task-1")).isTrue();
+    }
+
+    @Test
+    void deferredInputCannotCrossSpaceBoundary() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        var adapter = requestAdapter(false, Map.of());
+        adapter.toServeRequest(null).setSpaceId("space-a");
+        var executor = new A2AAgentExecutor(orchestrator, adapter);
+        when(orchestrator.query(any()))
+                .thenReturn(new QueryResponse(Map.of("_interrupt", Map.of("message", "date?")), "ctx-1"));
+        RequestContext initial = requestContext("task-1", "ctx-1", false);
+        executor.execute(initial, new AgentEmitter(initial, new CapturingEventQueue()));
+        ServeRequest input = new ServeRequest();
+        input.setConversationId("ctx-1");
+        input.setSpaceId("space-b");
+        input.setMessages(List.of(Map.of("role", "user", "content", "暂停")));
+        assertThat(executor.deferInput(input, "cross-space")).isEqualTo("NO_TARGET");
+        input.setSpaceId("space-a");
+        assertThat(executor.deferInput(input, "same-space")).isEqualTo("ACCEPTED");
+    }
+
+    @Test
+    void idleInputDispatchesWithoutAnotherUserRequest() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        var executor = new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()));
+        when(orchestrator.query(any())).thenReturn(
+                new QueryResponse(Map.of("_interrupt", Map.of("message", "date?")), "ctx-1"),
+                new QueryResponse(Map.of("content", "paused"), "ctx-1"));
+        RequestContext initial = requestContext("task-1", "ctx-1", false);
+        var initialQueue = new CapturingEventQueue();
+        executor.execute(initial, new AgentEmitter(initial, initialQueue));
+        List<ServeRequest> dispatches = new ArrayList<>();
+        executor.setDeferredDispatch(dispatches::add);
+        ServeRequest input = new ServeRequest();
+        input.setStream(false);
+        input.setConversationId("ctx-1");
+        input.setMessages(List.of(Map.of("role", "user", "content", "暂停")));
+        assertThat(executor.deferInput(input, "m-pause")).isEqualTo("ACCEPTED");
+        assertThat(dispatches).hasSize(1);
+        // An idle accepted input can be retried after its dispatch budget expires.
+        assertThat(executor.deferInput(input, "m-pause")).isEqualTo("DUPLICATE");
+        assertThat(dispatches).hasSize(2);
+        RequestContext resumed = requestContext("task-1", "ctx-1", false);
+        when(resumed.getTask()).thenReturn(Task.builder().id("task-1").contextId("ctx-1")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, inputRequiredMessage(initialQueue), null))
+                .build());
+        var resumedQueue = new CapturingEventQueue();
+        executor.executeDeferred(resumed, dispatches.get(0), new AgentEmitter(resumed, resumedQueue));
+        var capture = org.mockito.ArgumentCaptor.forClass(ServeRequest.class);
+        verify(orchestrator, times(2)).query(capture.capture());
+        assertThat(capture.getAllValues().get(1).lastUserQuery()).isEqualTo("暂停");
+        assertThat(capture.getAllValues().get(1).getMetadata()).containsKey("_interrupt");
+        assertThat(executor.hasDeferredInput(input, "task-1")).isFalse();
+    }
+
+    @Test
+    void deferredTextWaitsForExclusiveExecution() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        var adapter = requestAdapter(false, Map.of());
+        var executor = new A2AAgentExecutor(orchestrator, adapter);
+        List<String> calls = new ArrayList<>();
+        when(orchestrator.query(any())).thenAnswer(invocation -> {
+            ServeRequest request = invocation.getArgument(0);
+            calls.add(request.lastUserQuery());
+            if (calls.size() == 1) {
+                ServeRequest input = new ServeRequest();
+                input.setConversationId("ctx-1");
+                input.setMessages(List.of(Map.of("role", "user", "content", "暂停")));
+                assertThat(executor.deferInput(input, "m-pause")).isEqualTo("ACCEPTED");
+                assertThat(calls).hasSize(1);
+                return new QueryResponse(Map.of("_interrupt", Map.of("message", "date?")), "ctx-1");
+            }
+            assertThat(request.getMetadata()).containsKey("_interrupt");
+            return new QueryResponse(Map.of("content", "paused"), "ctx-1");
+        });
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        var queue = new CapturingEventQueue();
+        executor.execute(context, new AgentEmitter(context, queue));
+        assertThat(calls).containsExactly("", "暂停");
+        assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
+                .map(TaskStatusUpdateEvent.class::cast).map(event -> event.status().state())
+                .contains(TaskState.TASK_STATE_COMPLETED).doesNotContain(TaskState.TASK_STATE_INPUT_REQUIRED);
+    }
+
+    @Test
+    void deferredTextIsDiscardedWhenOriginalRoundCompletes() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        var executor = new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()));
+        when(orchestrator.query(any())).thenAnswer(invocation -> {
+            ServeRequest input = new ServeRequest();
+            input.setConversationId("ctx-1");
+            input.setMessages(List.of(Map.of("role", "user", "content", "暂停")));
+            assertThat(executor.deferInput(input, "m-pause")).isEqualTo("ACCEPTED");
+            return new QueryResponse(Map.of("content", "done"), "ctx-1");
+        });
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        executor.execute(context, new AgentEmitter(context, new CapturingEventQueue()));
+        verify(orchestrator, times(1)).query(any());
+    }
+
+    @Test
     void terminalSignalsSuppressLateChunksErrorsAndResponseMetadata() {
-        Map<String, TaskState> terminalStates = Map.of(
-                QueryChunk.TYPE_CANCEL, TaskState.TASK_STATE_CANCELED,
-                QueryChunk.TYPE_ERROR, TaskState.TASK_STATE_FAILED,
-                QueryChunk.TYPE_INTERRUPT, TaskState.TASK_STATE_INPUT_REQUIRED);
+        Map<String, TaskState> terminalStates = Map.of(QueryChunk.TYPE_CANCEL, TaskState.TASK_STATE_CANCELED,
+                QueryChunk.TYPE_ERROR, TaskState.TASK_STATE_FAILED, QueryChunk.TYPE_INTERRUPT,
+                TaskState.TASK_STATE_INPUT_REQUIRED);
         for (Map.Entry<String, TaskState> terminal : terminalStates.entrySet()) {
             ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
             doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
@@ -76,15 +201,14 @@ class A2AAgentExecutorTest {
             RequestContext context = requestContext("task-1", "ctx-1", true);
             CapturingEventQueue queue = new CapturingEventQueue();
 
-            new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of()))
-                    .execute(context, new AgentEmitter(context, queue));
+            new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of())).execute(context,
+                    new AgentEmitter(context, queue));
 
             assertThat(queue.events).noneMatch(TaskArtifactUpdateEvent.class::isInstance);
-            List<TaskStatusUpdateEvent> statuses = queue.events.stream()
-                    .filter(TaskStatusUpdateEvent.class::isInstance)
+            List<TaskStatusUpdateEvent> statuses = queue.events.stream().filter(TaskStatusUpdateEvent.class::isInstance)
                     .map(TaskStatusUpdateEvent.class::cast).toList();
-            assertThat(statuses).extracting(event -> event.status().state())
-                    .contains(terminal.getValue()).doesNotContain(TaskState.TASK_STATE_COMPLETED);
+            assertThat(statuses).extracting(event -> event.status().state()).contains(terminal.getValue())
+                    .doesNotContain(TaskState.TASK_STATE_COMPLETED);
             assertThat(statuses).allSatisfy(event -> {
                 if (event.metadata() != null) {
                     assertThat(event.metadata()).doesNotContainKey(A2aPartContent.RESPONSE_METADATA);
@@ -96,13 +220,13 @@ class A2AAgentExecutorTest {
     @Test
     void syncExecutionCancellationSuppressesResponseMetadata() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
-        when(orchestrator.query(any())).thenReturn(new QueryResponse(
-                Map.of("_cancel", Map.of("reason", "cancelled")), "ctx-1", Map.of("leadOut", "not-final")));
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("_cancel", Map.of("reason", "cancelled")),
+                "ctx-1", Map.of("leadOut", "not-final")));
         RequestContext context = requestContext("task-1", "ctx-1", false);
         CapturingEventQueue queue = new CapturingEventQueue();
 
-        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()))
-                .execute(context, new AgentEmitter(context, queue));
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of())).execute(context,
+                new AgentEmitter(context, queue));
 
         assertThat(queue.events).noneMatch(TaskArtifactUpdateEvent.class::isInstance);
         assertThat(queue.events.stream().filter(TaskStatusUpdateEvent.class::isInstance)
@@ -144,8 +268,8 @@ class A2AAgentExecutorTest {
         RequestContext context = requestContext("task-1", "ctx-1", true);
         CapturingEventQueue queue = new CapturingEventQueue();
 
-        new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of()))
-                .execute(context, new AgentEmitter(context, queue));
+        new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of())).execute(context,
+                new AgentEmitter(context, queue));
 
         List<Artifact> artifacts = queue.events.stream().filter(TaskArtifactUpdateEvent.class::isInstance)
                 .map(TaskArtifactUpdateEvent.class::cast).map(TaskArtifactUpdateEvent::artifact).toList();
@@ -176,8 +300,8 @@ class A2AAgentExecutorTest {
         RequestContext context = requestContext("task-1", "ctx-1", false);
         CapturingEventQueue queue = new CapturingEventQueue();
 
-        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()))
-                .execute(context, new AgentEmitter(context, queue));
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of())).execute(context,
+                new AgentEmitter(context, queue));
 
         List<Artifact> artifacts = queue.events.stream().filter(TaskArtifactUpdateEvent.class::isInstance)
                 .map(TaskArtifactUpdateEvent.class::cast).map(TaskArtifactUpdateEvent::artifact).toList();
@@ -201,8 +325,8 @@ class A2AAgentExecutorTest {
             RequestContext context = requestContext("task-1", "ctx-1", true);
             CapturingEventQueue queue = new CapturingEventQueue();
 
-            new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of()))
-                    .execute(context, new AgentEmitter(context, queue));
+            new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of())).execute(context,
+                    new AgentEmitter(context, queue));
 
             assertThat(queue.events).noneMatch(TaskArtifactUpdateEvent.class::isInstance);
         }
@@ -282,8 +406,7 @@ class A2AAgentExecutorTest {
                 .filter(TaskArtifactUpdateEvent.class::isInstance).map(TaskArtifactUpdateEvent.class::cast).toList();
         assertThat(artifacts).hasSize(2);
         assertThat(artifacts.get(0).artifact().metadata()).isNullOrEmpty();
-        assertThat(artifacts.get(1).artifact().metadata())
-                .containsEntry(A2aPartContent.TERMINAL_RESULT_METADATA, true)
+        assertThat(artifacts.get(1).artifact().metadata()).containsEntry(A2aPartContent.TERMINAL_RESULT_METADATA, true)
                 .doesNotContainKey("agentEvent");
     }
 
@@ -295,16 +418,15 @@ class A2AAgentExecutorTest {
                 .metadata(Map.of("business", "kept")).build();
         Map<String, Object> eventMetadata = Map.of("trace", "remote-event");
         doAnswer(answerVoid((ServeRequest request, QueryStreamObserver observer) -> {
-            observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT,
-                    new TaskArtifactUpdateEvent("remote-task", artifact, "remote-context", true, false,
-                            eventMetadata)));
+            observer.onNext(new QueryChunk(QueryChunk.TYPE_REMOTE_AGENT_OUTPUT, new TaskArtifactUpdateEvent(
+                    "remote-task", artifact, "remote-context", true, false, eventMetadata)));
             observer.onComplete();
         })).when(orchestrator).streamQuery(any(), any());
         RequestContext context = requestContext("parent-task", "parent-context", true);
         CapturingEventQueue queue = new CapturingEventQueue();
 
-        new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of()))
-                .execute(context, new AgentEmitter(context, queue));
+        new A2AAgentExecutor(orchestrator, requestAdapter(true, Map.of())).execute(context,
+                new AgentEmitter(context, queue));
 
         List<TaskArtifactUpdateEvent> artifacts = queue.events.stream()
                 .filter(TaskArtifactUpdateEvent.class::isInstance).map(TaskArtifactUpdateEvent.class::cast).toList();
@@ -332,7 +454,10 @@ class A2AAgentExecutorTest {
 
         new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
 
-        assertThat(inputRequiredMessage(queue).metadata()).containsOnly(Map.entry("_interrupt", interaction));
+        assertThat(inputRequiredMessage(queue).metadata()).containsOnly(Map.entry("_interrupt", interaction),
+                Map.entry("runtime.deferredInputScope", Map.of("tenant", "", "space", "default", "agent", "local",
+                        "user", "anonymous", "conversation", "ctx-1")),
+                Map.entry("runtime.deferredInputIds", List.of()));
     }
 
     @Test
@@ -352,7 +477,10 @@ class A2AAgentExecutorTest {
         new A2AAgentExecutor(orchestrator, adapter).execute(context, new AgentEmitter(context, queue));
 
         Message message = inputRequiredMessage(queue);
-        assertThat(message.metadata()).containsOnly(Map.entry("_interrupt", interaction));
+        assertThat(message.metadata()).containsOnly(Map.entry("_interrupt", interaction),
+                Map.entry("runtime.deferredInputScope", Map.of("tenant", "", "space", "default", "agent", "local",
+                        "user", "anonymous", "conversation", "ctx-1")),
+                Map.entry("runtime.deferredInputIds", List.of()));
         assertThat(message.parts().get(0)).isInstanceOfSatisfying(TextPart.class,
                 textPart -> assertThat(textPart.text()).isEqualTo("Input required"));
     }
@@ -400,8 +528,8 @@ class A2AAgentExecutorTest {
                 .map(TaskStatusUpdateEvent.class::cast)
                 .filteredOn(event -> event.status().state() == TaskState.TASK_STATE_FAILED).singleElement()
                 .satisfies(event -> {
-                    assertThat(event.status().message().parts()).singleElement().isInstanceOfSatisfying(
-                            TextPart.class, part -> assertThat(part.text()).isEqualTo("Agent execution failed"));
+                    assertThat(event.status().message().parts()).singleElement().isInstanceOfSatisfying(TextPart.class,
+                            part -> assertThat(part.text()).isEqualTo("Agent execution failed"));
                     assertThat(event.status().message().metadata()).containsEntry(A2aErrorMetadata.KEY,
                             Map.of("schemaVersion", "1", "code", "AGENT_EXECUTION_FAILED", "retryable", false));
                 });
@@ -420,9 +548,8 @@ class A2AAgentExecutorTest {
         assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
                 .map(TaskStatusUpdateEvent.class::cast)
                 .filteredOn(event -> event.status().state() == TaskState.TASK_STATE_FAILED).singleElement()
-                .satisfies(event -> assertThat(event.status().message().parts()).singleElement()
-                        .isInstanceOfSatisfying(TextPart.class,
-                                part -> assertThat(part.text()).isEqualTo("remote boom")));
+                .satisfies(event -> assertThat(event.status().message().parts()).singleElement().isInstanceOfSatisfying(
+                        TextPart.class, part -> assertThat(part.text()).isEqualTo("remote boom")));
     }
 
     @Test
@@ -439,8 +566,8 @@ class A2AAgentExecutorTest {
         assertThat(queue.events).filteredOn(TaskStatusUpdateEvent.class::isInstance)
                 .map(TaskStatusUpdateEvent.class::cast)
                 .filteredOn(event -> event.status().state() == TaskState.TASK_STATE_FAILED).singleElement()
-                .satisfies(event -> assertThat(event.status().message().metadata())
-                        .containsEntry(A2aErrorMetadata.KEY, A2aErrorMetadata.encode(failure)));
+                .satisfies(event -> assertThat(event.status().message().metadata()).containsEntry(A2aErrorMetadata.KEY,
+                        A2aErrorMetadata.encode(failure)));
     }
 
     @Test
@@ -567,7 +694,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void execute_rejectedWithA2AError_whenAdmissionGateFull() {
+    void executeRejectedWithA2AErrorWhenAdmissionGateFull() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
         when(gate.tryAcquire()).thenReturn(false);
@@ -577,8 +704,7 @@ class A2AAgentExecutorTest {
         A2AAgentExecutor executor = new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null,
                 releaseCoordinator(gate));
 
-        assertThatThrownBy(() -> executor.execute(context, emitter))
-                .isInstanceOf(A2AError.class)
+        assertThatThrownBy(() -> executor.execute(context, emitter)).isInstanceOf(A2AError.class)
                 .hasMessageContaining("temporarily unavailable");
         verify(orchestrator, never()).query(any());
         verify(orchestrator, never()).streamQuery(any(), any());
@@ -588,7 +714,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void execute_admissionAcquired_releasedExactlyOnce_onSuccess() {
+    void executeAdmissionAcquiredReleasedExactlyOnceOnSuccess() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
@@ -597,8 +723,8 @@ class A2AAgentExecutorTest {
         RequestContext context = requestContext("task-1", "ctx-1", false);
         CapturingEventQueue queue = new CapturingEventQueue();
 
-        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null, coordinator)
-                .execute(context, new AgentEmitter(context, queue));
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null, coordinator).execute(context,
+                new AgentEmitter(context, queue));
 
         verify(orchestrator).query(any());
         verify(gate, never()).release();
@@ -607,7 +733,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void execute_admissionAcquired_releasedExactlyOnce_onAgentFailure() {
+    void executeAdmissionAcquiredReleasedExactlyOnceOnAgentFailure() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenThrow(new IllegalStateException("agent failed"));
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
@@ -616,8 +742,8 @@ class A2AAgentExecutorTest {
         RequestContext context = requestContext("task-1", "ctx-1", false);
         CapturingEventQueue queue = new CapturingEventQueue();
 
-        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null, coordinator)
-                .execute(context, new AgentEmitter(context, queue));
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null, coordinator).execute(context,
+                new AgentEmitter(context, queue));
 
         verify(gate, never()).release();
         coordinator.consequenceLanded("task-1");
@@ -625,7 +751,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void execute_preAcquiredPermit_skipsAcquire_andReleasesOnce() {
+    void executePreAcquiredPermitSkipsAcquireAndReleasesOnce() {
         // Transport handover: the controller already holds the permit, so the
         // executor must not acquire a second one (which could falsely reject)
         // but still owns the exactly-once release via the consequence-landed
@@ -638,20 +764,19 @@ class A2AAgentExecutorTest {
         RequestContext context = requestContextWithPreAcquiredPermit("task-1", "ctx-1", false);
         CapturingEventQueue queue = new CapturingEventQueue();
 
-        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null, coordinator)
-                .execute(context, new AgentEmitter(context, queue));
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null, coordinator).execute(context,
+                new AgentEmitter(context, queue));
 
         verify(gate, never()).tryAcquire();
         verify(orchestrator).query(any());
         verify(gate, never()).release();
-        assertThat(context.getCallContext().getState())
-                .doesNotContainKey(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY);
+        assertThat(context.getCallContext().getState()).doesNotContainKey(A2AAgentExecutor.PRE_ACQUIRED_ADMISSION_KEY);
         coordinator.consequenceLanded("task-1");
         verify(gate, times(1)).release();
     }
 
     @Test
-    void execute_preAcquiredPermit_listenerStillNotified() {
+    void executePreAcquiredPermitListenerStillNotified() {
         // The quota-occupancy listener must bracket the handed-over permit too,
         // otherwise listener-backed snapshots would under-report active tasks.
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
@@ -676,7 +801,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void execute_preAcquiredPermit_onAgentFailure_releasesOnce() {
+    void executePreAcquiredPermitOnAgentFailureReleasesOnce() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenThrow(new IllegalStateException("agent failed"));
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
@@ -684,8 +809,8 @@ class A2AAgentExecutorTest {
         RequestContext context = requestContextWithPreAcquiredPermit("task-1", "ctx-1", false);
         CapturingEventQueue queue = new CapturingEventQueue();
 
-        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null, coordinator)
-                .execute(context, new AgentEmitter(context, queue));
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null, coordinator).execute(context,
+                new AgentEmitter(context, queue));
 
         verify(gate, never()).release();
         coordinator.consequenceLanded("task-1");
@@ -693,7 +818,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void execute_admissionAcquired_releasedExactlyOnce_onAgentError() {
+    void executeAdmissionAcquiredReleasedExactlyOnceOnAgentError() {
         // S-22 quota semantics: an Error (e.g. OOM) escapes the executor
         // unchanged, but the finally block still marks the round
         // execution-done, so the failure does not permanently consume quota —
@@ -706,31 +831,30 @@ class A2AAgentExecutorTest {
         RequestContext context = requestContext("task-1", "ctx-1", false);
         CapturingEventQueue queue = new CapturingEventQueue();
 
-        assertThatThrownBy(() -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null,
-                coordinator)
-                .execute(context, new AgentEmitter(context, queue)))
-                .isInstanceOf(AssertionError.class)
-                .hasMessage("simulated OOM");
+        assertThatThrownBy(
+                () -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, null, coordinator)
+                        .execute(context, new AgentEmitter(context, queue)))
+                .isInstanceOf(AssertionError.class).hasMessage("simulated OOM");
         verify(gate, never()).release();
         coordinator.consequenceLanded("task-1");
         verify(gate, times(1)).release();
     }
 
     @Test
-    void execute_nullGate_executesWithoutAdmission() {
+    void executeNullGateExecutesWithoutAdmission() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
         RequestContext context = requestContext("task-1", "ctx-1", false);
         CapturingEventQueue queue = new CapturingEventQueue();
 
-        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()))
-                .execute(context, new AgentEmitter(context, queue));
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of())).execute(context,
+                new AgentEmitter(context, queue));
 
         verify(orchestrator).query(any());
     }
 
     @Test
-    void execute_admissionListenerNotified_beforeExecutionAndAfterRelease() {
+    void executeAdmissionListenerNotifiedBeforeExecutionAndAfterRelease() {
         // Probe-alignment contract: onAdmitted fires right after tryAcquire
         // (before the handler runs) and onReleased fires with the release()
         // triggered by the consequence landing — so a listener-backed snapshot
@@ -758,7 +882,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void execute_admissionListenerReleased_onAgentFailure() {
+    void executeAdmissionListenerReleasedOnAgentFailure() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         when(orchestrator.query(any())).thenThrow(new IllegalStateException("agent failed"));
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
@@ -778,7 +902,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void execute_listenerThrows_releasesPermitAndCompensates() {
+    void executeListenerThrowsReleasesPermitAndCompensates() {
         // onAdmitted runs inside the admission try-finally scope, so a
         // throwing listener must not leak the quota slot — the round is
         // still marked execution-done and the permit is released exactly
@@ -795,9 +919,9 @@ class A2AAgentExecutorTest {
 
         // The listener failure propagates as the request failure (SDK error
         // path); the permit is returned once the consequence lands.
-        catchThrowable(() -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener,
-                coordinator)
-                .execute(context, new AgentEmitter(context, queue)));
+        catchThrowable(
+                () -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener, coordinator)
+                        .execute(context, new AgentEmitter(context, queue)));
 
         verify(gate, never()).release();
         coordinator.consequenceLanded("task-leak");
@@ -812,7 +936,7 @@ class A2AAgentExecutorTest {
     }
 
     @Test
-    void execute_admissionListenerSkipped_whenAdmissionRejected() {
+    void executeAdmissionListenerSkippedWhenAdmissionRejected() {
         ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
         TaskAdmissionGate gate = mock(TaskAdmissionGate.class);
         when(gate.tryAcquire()).thenReturn(false);
@@ -821,9 +945,10 @@ class A2AAgentExecutorTest {
         RequestContext context = requestContext("task-reject", "ctx-1", false);
         AgentEmitter emitter = mock(AgentEmitter.class);
 
-        assertThatThrownBy(() -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener,
-                coordinator)
-                .execute(context, emitter)).isInstanceOf(A2AError.class);
+        assertThatThrownBy(
+                () -> new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of()), gate, listener, coordinator)
+                        .execute(context, emitter))
+                .isInstanceOf(A2AError.class);
 
         verify(listener, never()).onAdmitted(any(), any());
         verify(listener, never()).onReleased(any(), any());

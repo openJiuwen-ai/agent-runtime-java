@@ -5,12 +5,10 @@
 package com.openjiuwen.service.app.hosting;
 
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
+import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration.HostedResources;
-import com.openjiuwen.service.app.a2a.catalog.A2ARemoteAgentCardRegistry;
 import com.openjiuwen.service.app.config.A2AProperties;
-import com.openjiuwen.service.app.storage.A2ATaskStoreProvider;
-import com.openjiuwen.service.app.storage.A2ATaskStoreProvider.TaskStoreContext;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
 import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
@@ -24,6 +22,8 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteTaskResultHook;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.app.orchestrator.RemoteInvocationDispatcher;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider;
+import com.openjiuwen.service.app.storage.A2ATaskStoreProvider.TaskStoreContext;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionGate;
 import com.openjiuwen.service.spec.concurrency.TaskAdmissionListener;
 import com.openjiuwen.service.spec.hosting.HostedAgentDefinitions;
@@ -79,7 +79,8 @@ public final class HostedRuntimeAssembler {
     }
 
     HostedAgentRuntime assemble(String applicationName, HostedAgentDefinitions.Entry entry) {
-        RuntimeRedisClient scoped = dependencies.redisClient() == null ? null
+        RuntimeRedisClient scoped = dependencies.redisClient() == null
+                ? null
                 : new ScopedRuntimeRedisClient(dependencies.redisClient(),
                         ScopedRuntimeRedisClient.namespace(applicationName, entry.agentId()));
         Assembly assembly = new Assembly(entry, scoped);
@@ -87,14 +88,16 @@ public final class HostedRuntimeAssembler {
             assembly.bind(A2ARemoteAgentCardRegistry.class, remoteCatalogs.catalog(entry.agentId()));
         }
         try {
-            String configuredType = dependencies.middleware() == null ? null
+            String configuredType = dependencies.middleware() == null
+                    ? null
                     : dependencies.middleware().getCheckpointer().getType();
             String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
-            String ref = "in_memory".equals(type) || "redis".equals(type) ? "default"
+            String ref = "in_memory".equals(type) || "redis".equals(type)
+                    ? "default"
                     : dependencies.middleware().getCheckpointer().getConnectionRef();
             TaskStore store = A2AAutoConfiguration.createTaskStore(dependencies.middleware(), scoped,
-                    dependencies.properties(), new TaskStoreContext(applicationName, entry.agentId(),
-                            ref, assembly::onClose),
+                    dependencies.properties(),
+                    new TaskStoreContext(applicationName, entry.agentId(), ref, assembly::onClose),
                     dependencies.taskStoreProviders());
             assembly.taskStateProvider = store instanceof TaskStateProvider provider ? provider : null;
             for (Extension extension : extensions) {
@@ -105,8 +108,8 @@ public final class HostedRuntimeAssembler {
             for (Extension extension : extensions) {
                 extension.configureHandler(assembly);
             }
-            return new HostedAgentRuntime(entry.agentId(), entry.handler(), assembly.execution,
-                    assembly.components, assembly.cleanup);
+            return new HostedAgentRuntime(entry.agentId(), entry.handler(), assembly.execution, assembly.components,
+                    assembly.cleanup);
         } catch (RuntimeException | Error failure) {
             cleanup(assembly.cleanup);
             throw failure;
@@ -117,7 +120,8 @@ public final class HostedRuntimeAssembler {
         TaskStore store = assembly.taskStore;
         var bus = new MainEventBus();
         TaskStateProvider provider = store instanceof TaskStateProvider stateProvider
-                ? stateProvider : assembly.taskStateProvider;
+                ? stateProvider
+                : assembly.taskStateProvider;
         var queues = new InMemoryQueueManager(provider, bus);
         AtomicReference<A2AAgentExecutor> localExecutor = new AtomicReference<>();
         ObjectProvider<A2AAgentExecutor> executorProvider = new ObjectProvider<>() {
@@ -139,9 +143,13 @@ public final class HostedRuntimeAssembler {
                 dependencies.remoteTaskResultHook());
         assembly.onClose(orchestrator::stopDispatching);
         var listener = assembly.component(TaskAdmissionListener.class).orElse(null);
-        var executor = new A2AAgentExecutor(orchestrator, dependencies.protocol(),
-                dependencies.admissionGate(), listener, dependencies.admissionCoordinator());
+        var executor = new A2AAgentExecutor(orchestrator, dependencies.protocol(), dependencies.admissionGate(),
+                listener, dependencies.admissionCoordinator());
         localExecutor.set(executor);
+        assembly.onClose(executor::close);
+        executor.setDeferredTaskStore(store);
+        executor.setDeferredDispatch(continuation::submitInput);
+        assembly.bind(A2AAgentExecutor.class, executor);
         var pushConfigs = new InMemoryPushNotificationConfigStore();
         var sender = new HttpPushNotificationSender(pushConfigs, dependencies.httpClient(),
                 dependencies.properties().getCallbackAllowedHosts());
@@ -152,14 +160,13 @@ public final class HostedRuntimeAssembler {
         // Only the new SDK object needs @Inject/@PostConstruct. User handlers and
         // explicitly decorated stores never re-enter Spring bean post-processing.
         dependencies.beanFactory().autowireBean(sdkHandler);
-        Object initialized = dependencies.beanFactory()
-                .initializeBean(sdkHandler, "hostedSdkRequestHandler:" + assembly.agentId());
+        Object initialized = dependencies.beanFactory().initializeBean(sdkHandler,
+                "hostedSdkRequestHandler:" + assembly.agentId());
         if (!(initialized instanceof RequestHandler requestHandler)) {
             throw new IllegalStateException("Initialized SDK handler must implement RequestHandler");
         }
         assembly.execution = new HostedAgentRuntime.Execution(orchestrator, requestHandler, store, streams,
-                continuation, processor,
-                new InMemoryA2aPushNotificationCallbackStore());
+                continuation, processor, new InMemoryA2aPushNotificationCallbackStore());
     }
 
     private RemoteAgentCaller boundCaller(String agentId) {
@@ -202,20 +209,20 @@ public final class HostedRuntimeAssembler {
             taskStoreProviders = List.copyOf(taskStoreProviders);
         }
 
-        public Dependencies(A2AProperties properties, MiddlewareProperties middleware,
-                RuntimeRedisClient redisClient, RemoteAgentCaller remoteCaller, A2AProtocolAdapter protocol,
-                TaskAdmissionGate admissionGate, HostedResources resources, RemoteInvocationDispatcher dispatcher,
-                HostedAgentCardFactory cards, AutowireCapableBeanFactory beanFactory, HttpClient httpClient,
+        public Dependencies(A2AProperties properties, MiddlewareProperties middleware, RuntimeRedisClient redisClient,
+                RemoteAgentCaller remoteCaller, A2AProtocolAdapter protocol, TaskAdmissionGate admissionGate,
+                HostedResources resources, RemoteInvocationDispatcher dispatcher, HostedAgentCardFactory cards,
+                AutowireCapableBeanFactory beanFactory, HttpClient httpClient,
                 AdmissionReleaseCoordinator admissionCoordinator, RemoteProjectionHook remoteProjectionHook,
                 RemoteTaskResultHook remoteTaskResultHook) {
             this(properties, middleware, redisClient, remoteCaller, protocol, admissionGate, resources, dispatcher,
-                    cards, beanFactory, httpClient, admissionCoordinator, remoteProjectionHook,
-                    remoteTaskResultHook, List.of());
+                    cards, beanFactory, httpClient, admissionCoordinator, remoteProjectionHook, remoteTaskResultHook,
+                    List.of());
         }
-        public Dependencies(A2AProperties properties, MiddlewareProperties middleware,
-                RuntimeRedisClient redisClient, RemoteAgentCaller remoteCaller, A2AProtocolAdapter protocol,
-                TaskAdmissionGate admissionGate, HostedResources resources, RemoteInvocationDispatcher dispatcher,
-                HostedAgentCardFactory cards, AutowireCapableBeanFactory beanFactory, HttpClient httpClient,
+        public Dependencies(A2AProperties properties, MiddlewareProperties middleware, RuntimeRedisClient redisClient,
+                RemoteAgentCaller remoteCaller, A2AProtocolAdapter protocol, TaskAdmissionGate admissionGate,
+                HostedResources resources, RemoteInvocationDispatcher dispatcher, HostedAgentCardFactory cards,
+                AutowireCapableBeanFactory beanFactory, HttpClient httpClient,
                 AdmissionReleaseCoordinator admissionCoordinator) {
             this(properties, middleware, redisClient, remoteCaller, protocol, admissionGate, resources, dispatcher,
                     cards, beanFactory, httpClient, admissionCoordinator, null, null);

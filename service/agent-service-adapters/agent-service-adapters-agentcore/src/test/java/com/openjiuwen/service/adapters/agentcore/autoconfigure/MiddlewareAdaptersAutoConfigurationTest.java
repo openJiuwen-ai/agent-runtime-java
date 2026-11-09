@@ -7,14 +7,14 @@ package com.openjiuwen.service.adapters.agentcore.autoconfigure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
-import com.openjiuwen.core.runner.RunnerConfig;
-import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
-import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
-import com.openjiuwen.service.adapters.agentcore.middleware.CheckpointKVStoreProvider;
 import com.openjiuwen.core.foundation.store.BaseKVStore;
 import com.openjiuwen.core.foundation.store.kv.InMemoryKVStore;
+import com.openjiuwen.core.runner.RunnerConfig;
+import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
 import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.core.session.checkpointer.PersistenceCheckpointer;
+import com.openjiuwen.service.adapters.agentcore.middleware.CheckpointKVStoreProvider;
+import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
@@ -55,8 +55,7 @@ class MiddlewareAdaptersAutoConfigurationTest {
                 "openjiuwen.service.middleware.redis.default.port=6380",
                 "openjiuwen.service.middleware.redis.default.database=0",
                 "openjiuwen.service.middleware.redis.default.encrypted-password=").run(context -> {
-                    Map<String, Object> conf = RunnerConfig.getRunnerConfig()
-                            .getCheckpointerConfig().getConf();
+                    Map<String, Object> conf = RunnerConfig.getRunnerConfig().getCheckpointerConfig().getConf();
                     @SuppressWarnings("unchecked")
                     Map<String, Object> connection = (Map<String, Object>) conf.get("connection");
                     assertThat(connection.get("url")).asString().contains("redis.local:6380");
@@ -88,8 +87,9 @@ class MiddlewareAdaptersAutoConfigurationTest {
     void extensionProvidesExactStoreAndReusesItBeforeRunnerStart() {
         InMemoryKVStore store = new InMemoryKVStore();
         var calls = new java.util.concurrent.atomic.AtomicInteger();
-        contextRunner.withPropertyValues("openjiuwen.service.middleware.checkpointer.type=custom",
-                "openjiuwen.service.middleware.checkpointer.connection-ref=primary")
+        contextRunner
+                .withPropertyValues("openjiuwen.service.middleware.checkpointer.type=custom",
+                        "openjiuwen.service.middleware.checkpointer.connection-ref=primary")
                 .withBean(CheckpointKVStoreProvider.class, () -> new CheckpointKVStoreProvider() {
                     @Override
                     public String type() {

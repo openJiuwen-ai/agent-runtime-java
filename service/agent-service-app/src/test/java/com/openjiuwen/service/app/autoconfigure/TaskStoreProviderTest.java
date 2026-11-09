@@ -42,8 +42,7 @@ class TaskStoreProviderTest {
                 .withBean(ServeOrchestrator.class, () -> mock(ServeOrchestrator.class))
                 .withBean(RequestHandler.class, () -> mock(RequestHandler.class))
                 .withBean(MiddlewareProperties.class, () -> properties(" redis "))
-                .withBean(RuntimeRedisClient.class, () -> mock(RuntimeRedisClient.class))
-                .run(context -> {
+                .withBean(RuntimeRedisClient.class, () -> mock(RuntimeRedisClient.class)).run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context.getBean(TaskStore.class)).isInstanceOf(WriteThrottlingTaskStore.class);
                 });
@@ -59,8 +58,7 @@ class TaskStoreProviderTest {
                 .withBean(ServeOrchestrator.class, () -> mock(ServeOrchestrator.class))
                 .withBean(RequestHandler.class, () -> mock(RequestHandler.class))
                 .withBean(MiddlewareProperties.class, () -> properties("custom"))
-                .withBean(ServiceProperties.class, () -> service)
-                .withPropertyValues("spring.application.name=business")
+                .withBean(ServiceProperties.class, () -> service).withPropertyValues("spring.application.name=business")
                 .withBean(A2ATaskStoreProvider.class, () -> provider(ctx -> {
                     scope.set(ctx);
                     ctx.onClose().accept(closed::incrementAndGet);
@@ -79,7 +77,8 @@ class TaskStoreProviderTest {
 
     @Test
     void extensionRejectsMissingDuplicateNullAndAlreadyWrappedStores() {
-        var ctx = new TaskStoreContext("app", "agent", "primary", cleanup -> { });
+        var ctx = new TaskStoreContext("app", "agent", "primary", cleanup -> {
+        });
         var props = properties("custom");
         var a2a = new A2AProperties();
         var valid = provider(scope -> new InMemoryTaskStore());
@@ -100,7 +99,8 @@ class TaskStoreProviderTest {
     void builtinsIgnoreExtensionProvidersAndConnectionReference() {
         var props = properties("in_memory");
         props.getCheckpointer().setConnectionRef(null);
-        var ctx = new TaskStoreContext("app", "agent", "default", cleanup -> { });
+        var ctx = new TaskStoreContext("app", "agent", "default", cleanup -> {
+        });
         TaskStore result = A2AAutoConfiguration.createTaskStore(props, null, new A2AProperties(), ctx,
                 List.of(provider(scope -> {
                     throw new AssertionError("Must not select extension");

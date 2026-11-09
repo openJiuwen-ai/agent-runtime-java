@@ -131,9 +131,9 @@ class MiddlewarePropertiesTest {
         source.put("openjiuwen.service.middleware.memory.circuit-breaker.reset-timeout-ms", "120000");
         source.put("openjiuwen.service.middleware.memory.audit.enabled", "true");
 
-        MiddlewareProperties properties = new Binder(new MapConfigurationPropertySource(source)).bind(
-                "openjiuwen.service.middleware", Bindable.of(MiddlewareProperties.class))
-            .orElseGet(MiddlewareProperties::new);
+        MiddlewareProperties properties = new Binder(new MapConfigurationPropertySource(source))
+                .bind("openjiuwen.service.middleware", Bindable.of(MiddlewareProperties.class))
+                .orElseGet(MiddlewareProperties::new);
 
         MiddlewareProperties.Memory memory = properties.getMemory();
         assertThat(memory.isEnabled()).isTrue();
@@ -153,30 +153,30 @@ class MiddlewarePropertiesTest {
     @Test
     void memoryRejectsInvalidTimeoutOnBinding() {
         assertThatThrownBy(() -> bindMemory(Map.of("openjiuwen.service.middleware.memory.timeout-ms", "0")))
-            .hasRootCauseMessage("memory.timeout-ms must be greater than zero");
+                .hasRootCauseMessage("memory.timeout-ms must be greater than zero");
     }
 
     @Test
     void memoryRejectsInvalidRetryOnBinding() {
         assertThatThrownBy(() -> bindMemory(Map.of("openjiuwen.service.middleware.memory.retry.max", "-1")))
-            .hasRootCauseMessage("retry.max must be greater than or equal to zero");
+                .hasRootCauseMessage("retry.max must be greater than or equal to zero");
         assertThatThrownBy(() -> bindMemory(Map.of("openjiuwen.service.middleware.memory.retry.backoff-ms", "-1")))
-            .hasRootCauseMessage("retry.backoff-ms must be greater than or equal to zero");
+                .hasRootCauseMessage("retry.backoff-ms must be greater than or equal to zero");
     }
 
     @Test
     void memoryRejectsInvalidCircuitBreakerOnBinding() {
         assertThatThrownBy(
-            () -> bindMemory(Map.of("openjiuwen.service.middleware.memory.circuit-breaker.failure-threshold", "0")))
-            .hasRootCauseMessage("circuit-breaker.failure-threshold must be greater than zero");
+                () -> bindMemory(Map.of("openjiuwen.service.middleware.memory.circuit-breaker.failure-threshold", "0")))
+                .hasRootCauseMessage("circuit-breaker.failure-threshold must be greater than zero");
         assertThatThrownBy(
-            () -> bindMemory(Map.of("openjiuwen.service.middleware.memory.circuit-breaker.reset-timeout-ms", "0")))
-            .hasRootCauseMessage("circuit-breaker.reset-timeout-ms must be greater than zero");
+                () -> bindMemory(Map.of("openjiuwen.service.middleware.memory.circuit-breaker.reset-timeout-ms", "0")))
+                .hasRootCauseMessage("circuit-breaker.reset-timeout-ms must be greater than zero");
     }
 
     private static MiddlewareProperties bindMemory(Map<String, String> source) {
-        return new Binder(new MapConfigurationPropertySource(source)).bind(
-                "openjiuwen.service.middleware", Bindable.of(MiddlewareProperties.class))
-            .orElseGet(MiddlewareProperties::new);
+        return new Binder(new MapConfigurationPropertySource(source))
+                .bind("openjiuwen.service.middleware", Bindable.of(MiddlewareProperties.class))
+                .orElseGet(MiddlewareProperties::new);
     }
 }

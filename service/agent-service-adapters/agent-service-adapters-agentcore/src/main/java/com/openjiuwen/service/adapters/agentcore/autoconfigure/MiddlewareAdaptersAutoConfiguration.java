@@ -15,10 +15,10 @@ import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.openjiuwen.service.adapters.common.middleware.redis.RedisMiddlewareAutoConfiguration;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 
 import java.util.Map;
@@ -52,13 +52,13 @@ public class MiddlewareAdaptersAutoConfiguration {
         String type = configuredType == null || configuredType.isBlank() ? "in_memory" : configuredType.trim();
         MiddlewareAdapterRegistrar registrar;
         if ("in_memory".equals(type) || "redis".equals(type)) {
-            registrar = new DefaultMiddlewareAdapterRegistrar(middlewareProperties,
-                    credentialDecryptor, redisClientProvider.getIfAvailable());
+            registrar = new DefaultMiddlewareAdapterRegistrar(middlewareProperties, credentialDecryptor,
+                    redisClientProvider.getIfAvailable());
         } else {
             var matches = storeProviders.stream().filter(provider -> type.equals(provider.type())).toList();
             if (matches.size() != 1) {
-                throw new IllegalStateException("Expected one CheckpointKVStoreProvider for type " + type
-                        + ", found " + matches.size());
+                throw new IllegalStateException(
+                        "Expected one CheckpointKVStoreProvider for type " + type + ", found " + matches.size());
             }
             String ref = middlewareProperties.getCheckpointer().getConnectionRef();
             if (ref == null || ref.isBlank()) {
@@ -68,8 +68,8 @@ public class MiddlewareAdaptersAutoConfiguration {
             if (store == null) {
                 throw new IllegalStateException("CheckpointKVStoreProvider returned null for type " + type);
             }
-            CheckpointerConfig config = CheckpointerConfig.fromMap(
-                    Map.of("type", "persistence", "conf", Map.of("kv_store", store)));
+            CheckpointerConfig config = CheckpointerConfig
+                    .fromMap(Map.of("type", "persistence", "conf", Map.of("kv_store", store)));
             registrar = runnerConfig -> runnerConfig.setCheckpointerConfig(config);
         }
         registrar.applyToRunnerConfig(RunnerConfig.getRunnerConfig());

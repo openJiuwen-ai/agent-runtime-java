@@ -27,6 +27,15 @@ $env:OPENJIUWEN_API_CONFIG = "C:\path\to\apiconfig.json"
 
 未设置 `OPENJIUWEN_API_CONFIG` 时，脚本会自动使用仓库内已有的 `service/agent-service-demo/apiconfig.json`。
 
+验证当前源码前，先在 Runtime 仓库根目录编译并安装示例及其依赖，避免启动时使用本地 Maven 缓存中的旧 Runtime 制品：
+
+```bash
+cd /path/to/agent-runtime-java
+mvn -B -ntp -pl service/agent-service-demo/example/a2a -am install
+```
+
+以下 smoke 会实际调用配置的 LLM，不使用固定模型响应。需要保留本轮请求、响应和服务日志时，运行 Bash 脚本前设置 `A2A_KEEP_EVIDENCE=1`；不要把包含凭证的配置或原始日志提交到仓库。
+
 Linux 或 Git Bash：
 
 ```bash
