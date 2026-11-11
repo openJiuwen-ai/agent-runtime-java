@@ -96,7 +96,9 @@ public class ServeRequest {
      * @return the latest user message content, or empty string if none found
      */
     public String lastUserQuery() {
-        return lastMessageWithContent().map(message -> String.valueOf(message.get("content"))).orElse("");
+        return lastMessageWithContent()
+                .map(message -> message.get("content") == null ? "" : String.valueOf(message.get("content")))
+                .orElse("");
     }
 
     /**
@@ -140,18 +142,24 @@ public class ServeRequest {
                 continue;
             }
             Object role = m.get("role");
-            Object content = m.get("content");
-            if (role != null && "user".equalsIgnoreCase(String.valueOf(role)) && content != null) {
+            if (role != null && "user".equalsIgnoreCase(String.valueOf(role)) && hasContentOrParts(m)) {
                 return Optional.of(m);
             }
         }
         if (!messages.isEmpty()) {
             Map<String, Object> last = messages.get(messages.size() - 1);
-            if (last != null && last.get("content") != null) {
+            if (last != null && hasContentOrParts(last)) {
                 return Optional.of(last);
             }
         }
         return Optional.empty();
+    }
+
+    private static boolean hasContentOrParts(Map<String, Object> message) {
+        if (message.get("content") != null) {
+            return true;
+        }
+        return message.get("parts") instanceof List<?> parts && !parts.isEmpty();
     }
 
     /**

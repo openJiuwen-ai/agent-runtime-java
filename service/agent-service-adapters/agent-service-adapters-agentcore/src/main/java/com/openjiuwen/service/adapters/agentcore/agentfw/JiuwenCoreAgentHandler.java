@@ -30,6 +30,7 @@ import com.openjiuwen.core.singleagent.interrupt.ToolCallInterruptRequest;
 import com.openjiuwen.core.workflow.WorkflowOutput;
 import com.openjiuwen.harness.deep_agent.DeepAgent;
 import com.openjiuwen.harness.tools.CheckpointerRedisTodoStorageProvider;
+import com.openjiuwen.harness.tools.multimodal.ImageMimeSniffer;
 import com.openjiuwen.service.adapters.agentcore.external.ExternalSvcAdapterRegistrar;
 import com.openjiuwen.service.adapters.agentcore.middleware.MiddlewareAdapterRegistrar;
 import com.openjiuwen.service.adapters.common.llm.LlmModelCatalog;
@@ -52,6 +53,7 @@ import java.util.Base64;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
@@ -821,14 +823,95 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return inputs;
         }
         String query = request.lastUserQuery();
-        List<Map<String, Object>> requestParts = nonTextParts(request.lastUserParts());
+        List<Map<String, Object>> parts = request.lastUserParts();
+        List<Map<String, Object>> requestParts = nonTextParts(parts);
         if (!requestParts.isEmpty()) {
             inputs.put(INPUT_RUN_CONTEXT, Map.of(RUN_CONTEXT_REQUEST_PARTS, requestParts));
         }
-        if (query != null && !query.isBlank()) {
-            inputs.put(INPUT_QUERY, query);
+        Object modelQuery = multimodalQuery(parts, query);
+        if (modelQuery instanceof List || (query != null && !query.isBlank())) {
+            inputs.put(INPUT_QUERY, modelQuery);
         }
         return inputs;
+    }
+
+    /**
+     * Builds an agent-core structured query when the inbound message carries raw image
+     * parts. All non-text parts remain available through {@code run_context.request_parts}.
+     *
+     * @param parts normalized message parts
+     * @param query fallback text query
+     * @return a content block list for image input, otherwise the original text query
+     */
+    private static Object multimodalQuery(List<Map<String, Object>> parts, String query) {
+        List<Object> blocks = new ArrayList<>();
+        boolean hasImage = false;
+        boolean hasText = false;
+        for (Map<String, Object> part : parts) {
+            if (part == null) {
+                continue;
+            }
+            if ("text".equals(part.get("kind"))) {
+                Object text = part.get("text");
+                if (text instanceof String value && !value.isBlank()) {
+                    hasText = true;
+                    Map<String, Object> block = new LinkedHashMap<>();
+                    block.put("type", "text");
+                    block.put("text", value);
+                    blocks.add(block);
+                }
+            } else if (isRawImage(part)) {
+                hasImage = true;
+                blocks.add(imageBlock(part));
+            } else {
+                log.debug("Skipping non-image part kind={}", part.get("kind"));
+            }
+        }
+        if (!hasImage) {
+            return query;
+        }
+        if (!hasText && query != null && !query.isBlank()) {
+            blocks.add(0, Map.of("type", "text", "text", query));
+        }
+        return blocks;
+    }
+
+    private static boolean isRawImage(Map<String, Object> part) {
+        if (!"raw".equals(part.get("kind"))) {
+            return false;
+        }
+        Object bytes = part.get("bytesBase64");
+        if (!(bytes instanceof String encoded) || encoded.isBlank()) {
+            return false;
+        }
+        Object mediaType = part.get("mediaType");
+        if (mediaType instanceof String type && !type.isBlank()) {
+            return type.trim().toLowerCase(Locale.ROOT).startsWith("image/");
+        }
+        try {
+            return ImageMimeSniffer.sniff(Base64.getMimeDecoder().decode(encoded)).isPresent();
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private static Map<String, Object> imageBlock(Map<String, Object> part) {
+        Map<String, Object> source = new LinkedHashMap<>();
+        source.put("kind", "raw");
+        source.put("bytes", part.get("bytesBase64"));
+        Map<String, Object> block = new LinkedHashMap<>();
+        block.put("type", "image");
+        block.put("source", source);
+        copyPartField(block, part, "mediaType");
+        copyPartField(block, part, "filename");
+        return block;
+    }
+
+    private static void copyPartField(Map<String, Object> target, Map<String, Object> part, String key) {
+        Object value = part.get(key);
+        if (value instanceof String text && !text.isBlank()) {
+            target.put(key, text);
+        }
     }
 
     /**

@@ -66,6 +66,21 @@ class ServeRequestTest {
         assertThat(request.lastUserParts()).isEmpty();
     }
 
+    @Test
+    void lastUserPartsSupportsMessageWithoutContent() {
+        Map<String, Object> latest = message("user", null, Map.of());
+        latest.put("parts", List.of(Map.of("kind", "raw", "bytesBase64", "aW1hZ2U=")));
+        Map<String, Object> older = message("user", "older", Map.of());
+        ServeRequest request = new ServeRequest();
+        request.setMessages(List.of(older, latest));
+
+        assertThat(request.lastUserQuery()).isEmpty();
+        assertThat(request.lastUserParts()).hasSize(1);
+        assertThat(request.lastUserParts().get(0))
+                .containsEntry("kind", "raw")
+                .containsEntry("bytesBase64", "aW1hZ2U=");
+    }
+
     private static Map<String, Object> message(String role, String content, Map<String, Object> metadata) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("role", role);
