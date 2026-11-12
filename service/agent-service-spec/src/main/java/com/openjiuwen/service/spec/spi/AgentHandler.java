@@ -8,6 +8,7 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.exception.AgentExecutionException;
 
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -56,6 +57,55 @@ public interface AgentHandler {
      * @param conversationId conversationId
      */
     default void clearSession(String conversationId) {
+    }
+
+    /**
+     * Resumes a user-paused session from the persisted paused boundary
+     * (issue #117): the implementation locates the PAUSED step cursor of the
+     * session, flips it back to RUNNING, and continues the execution from
+     * that boundary without replaying completed rounds.
+     *
+     * @param sessionId session id of the paused session
+     * @throws UnsupportedOperationException when the handler cannot resume
+     *         paused sessions
+     * @since 0.1.5
+     */
+    default void resumeSession(String sessionId) {
+        throw new UnsupportedOperationException("resumeSession is not supported by this handler");
+    }
+
+    /**
+     * Publishes a user pause intent for a running session (issue #117): the
+     * executing agent loop observes the intent at its next step boundary,
+     * persists the PAUSED step cursor there, and stops without replaying
+     * completed rounds. A handler without pause support silently ignores the
+     * intent, matching the optional nature of the capability.
+     *
+     * @param sessionId session id of the running session
+     * @param pauseInfo pause metadata persisted with the paused cursor
+     *                  (operator, reason, timestamps), may be null
+     * @since 0.1.5
+     */
+    default void requestPause(String sessionId, Map<String, Object> pauseInfo) {
+    }
+
+    /**
+     * Compacts the persisted context of an idle session (issue #117): the
+     * implementation restores the session state from the checkpoint, runs the
+     * context compression processors, and persists the compacted state back
+     * so the next invocation continues from the compacted context.
+     *
+     * @param sessionId session id of the idle session
+     * @param options compression options (processor types, thresholds); may
+     *                be null for the default strategy
+     * @return a result map with the compression outcome (e.g. {@code result}
+     *         and token footprint), never null
+     * @throws UnsupportedOperationException when the handler cannot compact
+     *         sessions
+     * @since 0.1.5
+     */
+    default Map<String, Object> compactSession(String sessionId, Map<String, Object> options) {
+        throw new UnsupportedOperationException("compactSession is not supported by this handler");
     }
 
     /**

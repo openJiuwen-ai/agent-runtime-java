@@ -30,6 +30,20 @@ REST 与 A2A 的完整请求、响应、SSE、`TextPart`/`DataPart` 和中断恢
 
 完整说明见 [A2A 开发指导 · A2A Server](A2A/开发指导.md#a2a-server)。
 
+### Session 管控（Issue #117）
+
+| Path | 方法 | 说明 |
+| --- | --- | --- |
+| `/api/sessions` | GET | 会话列表（分页 + state 过滤） |
+| `/api/sessions/{sessionId}` | GET | 单会话生命周期详情 |
+| `/api/sessions/{sessionId}/messages` | GET | 会话消息历史（默认关闭，数据面 T1 未交付前 501） |
+| `/api/sessions/{sessionId}/pause` | POST | 暂停运行中会话（202 异步受理） |
+| `/api/sessions/{sessionId}/resume` | POST | 恢复已暂停会话（202 异步受理） |
+| `/api/sessions/{sessionId}/terminate` | POST | 终止会话（202 异步受理，幂等） |
+| `/api/sessions/{sessionId}/compact` | POST | 压缩空闲会话（编排 T5 未交付前 501） |
+
+详细契约与状态机见 [Session 管控面](#session-管控面api-sessions)。
+
 ## GET /health
 
 响应字段（`HealthResponse`）：
@@ -88,6 +102,110 @@ Servlet 栈使用 `/v1/query`；WebFlux 栈流式使用 `/v1/query/reactive`。
 行为：调用 `AgentHandler.clearSession(conversationId)`（Core 路径为 `Runner.release`）。**不删除** `conversation_id` 本身。
 
 与 **interrupt**（停止当前流式 run）独立；interrupt 无 HTTP，见 [生命周期与探针](生命周期与探针.md)。
+
+## Session 管控面（`/api/sessions`）
+
+Session 管控是管理面接口，与 `/v1/query` 数据面独立：它不发起对话，而是回答“现在有哪些会话、它们处于什么状态、如何暂停 / 恢复 / 终止一个正在执行的会话”。
+
+调用链：
+
+```text
+SessionManageMvcController / SessionManageWebFluxController
+  → SessionManageService（状态机判定）
+  → SessionPauseResumeCoordinator（编排 + 准入闸 + 中断链路）
+  → ServeOrchestrator.resumeSession / ActiveStreamInterruptor（terminate 共享）
+  → Core Runner
+```
+
+### 会话状态机
+
+管控层视角的会话状态只有四个值，由 `SessionManageService.sessionState(...)` 解析：
+
+| 状态 | 来源 |
+| --- | --- |
+| `PAUSED` / `TERMINATED` | 管控层登记表：pause / terminate 编排的最新判定优先 |
+| `RUNNING` | 活跃任务注册表（`ActiveTaskQuery`）中存在该会话的活动任务 |
+| `IDLE` | 以上都不命中 |
+
+```text
+running ──pause──▶ paused ──resume──▶ running
+   │                 │
+   └──────┬──────────┘
+          ▼
+     terminated（终态，pause/resume 均不可达）
+```
+
+### POST pause / resume / terminate（异步受理）
+
+三个操作端点都是**异步受理**语义：202 表示编排层已受理并在后台执行，不代表执行已到达目标状态。
+
+| 操作 | 202 受理 | 200 幂等 | 409 冲突 | 429 | 404 |
+| --- | --- | --- | --- | --- | --- |
+| pause | running → 发起暂停 | 已是 paused（`alreadyPaused=true`） | terminated / idle | — | 会话不存在 / 功能关闭 |
+| resume | paused → 发起恢复 | — | running / terminated | 准入闸满（`ADMISSION_REJECTED`，状态保持 paused） | 会话不存在 / 功能关闭 |
+| terminate | running / paused → 发起中断 | 已是 terminated（`alreadyTerminated=true`） | — | — | 会话不存在 |
+
+要点：
+
+- **pause**：受理后编排层走与 terminate 相同的中断链路（`ActiveStreamInterruptor`），执行停在下一条步边界；core 侧游标落 `PAUSED` 状态并保存全量快照。受理链路带 1 秒去抖窗口，窗口内对同一会话的重复 pause 合并为一次执行。可选 Header：`X-User-Id`（操作人）、`X-Pause-Reason`（暂停原因），进入审计日志。
+- **resume**：只有 `paused` 状态可恢复。受理前先过 `TaskAdmissionGate` 准入闸——闸满时返回 429 且会话**保持 paused**，稍后可重试；受理后经 `ServeOrchestrator.resumeSession(sessionId)` 从持久化的暂停边界续跑。
+- **terminate**：running 与 paused 会话都可终止，重复请求幂等；终止后的会话不可恢复（resume 返回 409）。
+
+202 响应体示例：
+
+```json
+{
+  "accepted": true,
+  "state": "PAUSED",
+  "detail": "pause accepted; suspension will take effect at the next step boundary"
+}
+```
+
+409 响应体示例：
+
+```json
+{
+  "error": "INVALID_SESSION_STATE",
+  "state": "RUNNING"
+}
+```
+
+### GET 列表与详情
+
+- `GET /api/sessions?state=running&page=0&size=20`：分页列表；列表能力（活跃任务注册表与协调器登记拼装）交付前返回空集合。
+- `GET /api/sessions/{sessionId}`：单会话详情，返回 `{"sessionId": "...", "state": "..."}`；会话不存在返回 404。
+- `GET /api/sessions/{sessionId}/messages`：消息历史端点；数据面存储列举能力交付前统一返回 501。
+
+### POST compact
+
+压缩空闲会话上下文，仅接受非运行态会话（运行中 / 已暂停返回 409）；压缩编排能力交付前统一返回 501。
+
+### 鉴权与租户
+
+管控端点全部标注 `@AuthorizedResource(resource="session", action=...)`，action 取值 `list` / `read` / `pause` / `resume` / `terminate` / `compact`，**没有匿名豁免**——即使 `security.auth.enabled` 未开启的默认链路外，管控面也始终走细粒度鉴权装配。
+
+对 `/api/sessions/{sessionId}/...` 这类会话级路径，路径变量 `sessionId` 会被注入鉴权请求的 extensions（键 `resource.id`），`FineGrainedAuthorizer` SPI 实现可据此做“只允许操作自己的会话”这类资源级判权：
+
+```java
+public AuthorizationDecision authorize(AuthorizationRequest request) {
+    String sessionId = request.getExtensions().get("resource.id");
+    // 业务自定义判权逻辑
+}
+```
+
+Servlet 栈从 `request.getRequestURI()` 解析 lookupPath 提取路径变量；WebFlux 栈因无 `HttpServletRequest`，lookupPath 缺省为 null，extensions 为空，鉴权实现需自行降级（fail-closed）。
+
+### 配置项（`openjiuwen.service.session-api`）
+
+| 属性 | 默认值 | 说明 |
+| --- | --- | --- |
+| `pause-enabled` | `true` | 是否提供 pause / resume 端点；关闭时返回 404 |
+
+### 边界与注意事项
+
+- 管控层的 `PAUSED` / `TERMINATED` 登记目前保存在**进程内存**中，实例重启后丢失，会话状态回退到由活跃任务注册表推断；跨实例共享登记是后续演进项。
+- pause / resume 依赖 core 的步级断点内核（`step_cursor` / `step_cursor_paused`），键结构、扫描跳过与显式恢复语义见 Core 仓文档《Checkpointer 检查点机制》的「断点续跑与用户暂停」小节。
+- 审计日志当前输出到应用日志（`Session audit: action=..., session_id=..., operator=...`），未落独立审计存储。
 
 ## 调用链
 
@@ -170,3 +288,4 @@ curl -s http://localhost:8090/.well-known/agent-card.json
 - [开发 Agent Service](开发Agent Service.md) — `application.yml` 装配
 - [安全加固](开发与扩展/安全加固.md) — 入站 TLS/mTLS 与细粒度鉴权
 - [A2A 与平台边界](A2A/平台边界.md)
+- [AaaS](AaaS.md) — 服务化形态与模块总览

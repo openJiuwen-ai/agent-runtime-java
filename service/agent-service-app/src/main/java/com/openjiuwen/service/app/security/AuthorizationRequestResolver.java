@@ -7,11 +7,14 @@ package com.openjiuwen.service.app.security;
 import com.openjiuwen.service.spec.security.AuthorizationRequest;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Optional;
 
@@ -25,7 +28,9 @@ public final class AuthorizationRequestResolver {
     }
 
     /**
-     * Resolves an authorization request from the current join point.
+     * Resolves an authorization request from the current join point, extracting
+     * the target session id from the request path when the matched endpoint is
+     * session-scoped.
      *
      * @param joinPoint AOP join point
      * @param authorizedResource resource annotation
@@ -34,10 +39,12 @@ public final class AuthorizationRequestResolver {
     public static AuthorizationRequest resolve(ProceedingJoinPoint joinPoint, AuthorizedResource authorizedResource) {
         RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
         if (attributes instanceof ServletRequestAttributes servletAttributes) {
-            return AuthorizationRequestBuilder.build(authorizedResource, servletAttributes.getRequest());
+            HttpServletRequest request = servletAttributes.getRequest();
+            String lookupPath = UriComponentsBuilder.fromPath(request.getRequestURI()).build().getPath();
+            return AuthorizationRequestBuilder.build(authorizedResource, request, lookupPath);
         }
         return findArgument(joinPoint, HttpHeaders.class)
-            .map(headers -> AuthorizationRequestBuilder.build(authorizedResource, headers))
+            .map(headers -> AuthorizationRequestBuilder.build(authorizedResource, headers, null))
             .orElseThrow(() -> new IllegalStateException("No ingress request context available for authorization"));
     }
 

@@ -111,6 +111,50 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
         agentHandler.clearSession(conversationId);
     }
 
+    /**
+     * Resumes a user-paused session by delegating to the handler's explicit
+     * resume entry (issue #117): the handler flips the persisted PAUSED step
+     * cursor back to RUNNING and continues the execution from that boundary.
+     *
+     * @param sessionId session id of the paused session
+     */
+    @Override
+    public void resumeSession(String sessionId) {
+        log.info("Resuming paused session for session_id={}", sessionId);
+        agentHandler.resumeSession(sessionId);
+    }
+
+    /**
+     * Publishes the user pause intent through the handler (issue #117): the
+     * executing agent loop stops at its next step boundary with the PAUSED
+     * cursor persisted.
+     *
+     * @param sessionId session id of the running session
+     * @param pauseInfo pause metadata persisted with the paused cursor
+     */
+    @Override
+    public void requestPause(String sessionId, Map<String, Object> pauseInfo) {
+        log.info("Requesting pause for session_id={}", sessionId);
+        agentHandler.requestPause(sessionId, pauseInfo);
+    }
+
+    /**
+     * Compacts the persisted context of an idle session by delegating to the
+     * handler (issue #117): the handler restores the session from the
+     * checkpoint, runs the compression processors, and persists the compacted
+     * state.
+     *
+     * @param sessionId session id of the idle session
+     * @param options compression options (processor types, thresholds); may
+     *                be null for the default strategy
+     * @return a result map with the compression outcome
+     */
+    @Override
+    public Map<String, Object> compactSession(String sessionId, Map<String, Object> options) {
+        log.info("Compacting session for session_id={}", sessionId);
+        return agentHandler.compactSession(sessionId, options);
+    }
+
     private QueryStreamObserver wrapObserver(QueryStreamObserver observer, StreamCancellationHandle handle) {
         return new QueryStreamObserver() {
             @Override
