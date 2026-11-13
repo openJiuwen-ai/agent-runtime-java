@@ -43,12 +43,12 @@ import java.util.concurrent.Executor;
  * @since 0.1.5
  */
 public class SessionPauseResumeCoordinator {
+    /** Metadata key carrying the caller tenant id inside the pause intent. */
+    static final String TENANT_ID_KEY = "tenant_id";
+
     private static final Logger log = LoggerFactory.getLogger(SessionPauseResumeCoordinator.class);
 
     private static final long DEBOUNCE_MILLIS = 1000L;
-
-    /** Metadata key carrying the caller tenant id inside the pause intent. */
-    static final String TENANT_ID_KEY = "tenant_id";
 
     /** Maximum size of the debounce bookkeeping before it is reset wholesale. */
     private static final int DEBOUNCE_MAP_LIMIT = 10_000;
