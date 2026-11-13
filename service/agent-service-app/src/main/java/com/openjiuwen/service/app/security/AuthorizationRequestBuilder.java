@@ -5,22 +5,47 @@
 package com.openjiuwen.service.app.security;
 
 import com.openjiuwen.service.app.controller.query.QueryIngressSupport;
+import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizationRequest;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
 
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.http.HttpHeaders;
+import org.springframework.web.util.UriTemplate;
 
+import java.util.List;
 import java.util.Map;
 
 /**
  * Builds {@link AuthorizationRequest} instances for the authorization aspect.
  *
+ * <p>When the matched endpoint declares a {@code sessionId} path variable the
+ * builder injects it under {@link AgentServicePaths#EXTENSION_RESOURCE_ID} so
+ * authorizers can enforce resource-level ("may this subject touch this
+ * session") checks on top of subject-level decisions. All session management
+ * endpoints (detail, messages, pause, resume, terminate, compact) carry the
+ * extension; other paths keep the extensions map empty.</p>
+ *
  * @since 0.1.0
  */
 public final class AuthorizationRequestBuilder {
     private static final Map<String, Object> EMPTY_EXTENSIONS = Map.of();
+
+    private static final String SESSION_ID_VARIABLE = "sessionId";
+
+    /**
+     * Session path templates carrying the {@code sessionId} path variable,
+     * ordered from the most specific sub-resource paths to the detail path so
+     * the first match resolves the exact endpoint template.
+     */
+    private static final List<UriTemplate> SESSION_PATH_TEMPLATES = List.of(
+            new UriTemplate(AgentServicePaths.SESSION_MESSAGES),
+            new UriTemplate(AgentServicePaths.SESSION_PAUSE),
+            new UriTemplate(AgentServicePaths.SESSION_RESUME),
+            new UriTemplate(AgentServicePaths.SESSION_TERMINATE),
+            new UriTemplate(AgentServicePaths.SESSION_COMPACT),
+            new UriTemplate(AgentServicePaths.SESSION_DETAIL));
 
     private AuthorizationRequestBuilder() {
     }
@@ -30,10 +55,12 @@ public final class AuthorizationRequestBuilder {
      *
      * @param authorizedResource resource annotation
      * @param request current HTTP servlet request
+     * @param lookupPath request path without context or servlet prefix, may be null
      * @return authorization request
      */
-    public static AuthorizationRequest build(AuthorizedResource authorizedResource, HttpServletRequest request) {
-        return build(authorizedResource, toHeaders(request));
+    public static AuthorizationRequest build(AuthorizedResource authorizedResource, HttpServletRequest request,
+            String lookupPath) {
+        return build(authorizedResource, toHeaders(request), lookupPath);
     }
 
     /**
@@ -41,13 +68,66 @@ public final class AuthorizationRequestBuilder {
      *
      * @param authorizedResource resource annotation
      * @param headers HTTP headers
+     * @param lookupPath request path without context or servlet prefix, may be null
      * @return authorization request
      */
-    public static AuthorizationRequest build(AuthorizedResource authorizedResource, HttpHeaders headers) {
+    public static AuthorizationRequest build(AuthorizedResource authorizedResource, HttpHeaders headers,
+            String lookupPath) {
         return new AuthorizationRequest(authorizedResource.resource(), authorizedResource.action(),
             blankToNull(headers.getFirst(QueryIngressSupport.HEADER_USER_ID)),
             blankToNull(headers.getFirst(QueryIngressSupport.HEADER_SPACE_ID)),
-            blankToNull(headers.getFirst(QueryIngressSupport.HEADER_TENANT_ID)), EMPTY_EXTENSIONS);
+            blankToNull(headers.getFirst(QueryIngressSupport.HEADER_TENANT_ID)), extensions(lookupPath));
+    }
+
+    /**
+     * Builds an authorization request from the current servlet request and resource
+     * annotation, without path-variable extension extraction.
+     *
+     * @param authorizedResource resource annotation
+     * @param request current HTTP servlet request
+     * @return authorization request
+     */
+    public static AuthorizationRequest build(AuthorizedResource authorizedResource, HttpServletRequest request) {
+        return build(authorizedResource, toHeaders(request), null);
+    }
+
+    /**
+     * Builds an authorization request from HTTP headers and resource annotation,
+     * without path-variable extension extraction.
+     *
+     * @param authorizedResource resource annotation
+     * @param headers HTTP headers
+     * @return authorization request
+     */
+    public static AuthorizationRequest build(AuthorizedResource authorizedResource, HttpHeaders headers) {
+        return build(authorizedResource, headers, null);
+    }
+
+    /**
+     * Extracts the {@code sessionId} path variable from the lookup path and
+     * exposes it under the {@code resource.id} extension key; endpoints without
+     * a session-scoped path keep the empty extensions map. All session path
+     * templates are tried, so sub-resource endpoints (pause / resume /
+     * terminate / compact / messages) resolve the session id of their target.
+     *
+     * @param lookupPath request path without context or servlet prefix, may be null
+     * @return extensions map carrying the target session id when resolvable
+     */
+    static Map<String, Object> extensions(String lookupPath) {
+        if (lookupPath == null || lookupPath.isBlank()) {
+            return EMPTY_EXTENSIONS;
+        }
+        for (UriTemplate template : SESSION_PATH_TEMPLATES) {
+            Map<String, String> variables = template.match(lookupPath);
+            if (variables == null) {
+                continue;
+            }
+            String sessionId = variables.get(SESSION_ID_VARIABLE);
+            if (sessionId != null && !sessionId.isBlank()) {
+                return Map.of(AgentServicePaths.EXTENSION_RESOURCE_ID, sessionId);
+            }
+        }
+        return EMPTY_EXTENSIONS;
     }
 
     private static HttpHeaders toHeaders(HttpServletRequest request) {

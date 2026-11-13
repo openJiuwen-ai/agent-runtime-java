@@ -5,18 +5,26 @@
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import com.openjiuwen.core.common.exception.BaseError;
+import com.openjiuwen.core.common.logging.LoggingUtils;
 import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
 import com.openjiuwen.core.foundation.llm.Model;
 import com.openjiuwen.core.foundation.llm.schema.ModelClientConfig;
 import com.openjiuwen.core.foundation.llm.schema.ModelRequestConfig;
+import com.openjiuwen.core.multitenant.TenantContext;
+import com.openjiuwen.core.multitenant.TenantContextHolder;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.runner.base.Tag;
 import com.openjiuwen.core.session.AgentSession;
 import com.openjiuwen.core.session.AgentSessionApi;
+import com.openjiuwen.core.session.checkpointer.Checkpointer;
 import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
+import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
+import com.openjiuwen.core.session.checkpointer.step.PauseRequestRegistry;
+import com.openjiuwen.core.session.checkpointer.step.StepCheckpointRecoveryService;
+import com.openjiuwen.core.session.checkpointer.step.StepCursor;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
@@ -55,6 +63,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -102,6 +111,13 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     private static final String DEFAULT_AGENT_SESSION_ID = "default_session";
 
     private static final String SYNTHETIC_AGENT_ID_PREFIX = "service-agentcore:";
+
+    /**
+     * Placeholder query driving the continuation invoke of an explicitly
+     * resumed session: the checkpointed state carries the task context, so
+     * the query only needs to satisfy the non-empty-input contract.
+     */
+    private static final String RESUME_QUERY = "[resume]";
 
     private static final List<String> INVOKE_CONTENT_KEYS = List.of("output", "content", "response", "result", "data",
             "payload");
@@ -482,8 +498,299 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             return;
         }
         log.info("Releasing AgentCore session for conversation_id={}", conversationId);
+        PauseRequestRegistry.clearPauseRequest(conversationId);
         Runner.release(conversationId).toCompletableFuture().join();
         contextEngine(resolveAgent()).ifPresent(engine -> engine.clearContext(null, conversationId));
+    }
+
+    /**
+     * This handler implements the issue #117 session operations
+     * ({@link #resumeSession(String)}, {@link #requestPause(String, Map)},
+     * {@link #compactSession(String, Map)} have real implementations), so
+     * the capability probe returns {@code true} and callers may rely on the
+     * operations instead of rejecting them.
+     *
+     * @return {@code true}, always
+     */
+    @Override
+    public boolean supportsSessionOperations() {
+        return true;
+    }
+
+    /**
+     * Resumes a user-paused session from the persisted paused boundary
+     * (issue #117): the paused step cursor is flipped back to RUNNING and
+     * the execution continues from that boundary on the same session id, so
+     * the context and business state restored from the checkpoint keep every
+     * completed round and no round is replayed. The continuation runs
+     * synchronously and its result is audited; a missing paused cursor or an
+     * unsupported checkpoint backend surfaces as {@link IllegalStateException}.
+     *
+     * <p>When the continuation fails before reaching the first step
+     * boundary, the persisted paused evidence is restored so the session
+     * stays resumable; a continuation that already advanced past a boundary
+     * leaves its snapshots in place, because such a session holds a real
+     * mid-flight state a fresh resume must not rewind.</p>
+     *
+     * @param sessionId session id of the paused session
+     * @throws IllegalStateException when no paused cursor exists for the
+     *         session or the explicit resume was rejected
+     */
+    @Override
+    public void resumeSession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new IllegalStateException("Cannot resume a blank session id");
+        }
+        StepCheckpointRecoveryService recovery = new StepCheckpointRecoveryService(
+                CheckpointerFactory.getCheckpointer(), null);
+        StepCheckpointRecoveryService.RecoveryAction action = recovery.resumePaused(sessionId);
+        if (action.type() != StepCheckpointRecoveryService.RecoveryActionType.RESUMED_EXPLICITLY) {
+            throw new IllegalStateException("Resume rejected for session_id " + sessionId + ": " + action.detail());
+        }
+        log.info("Paused session resumed from boundary {}: session_id={}, seq={}",
+                action.cursor(), sessionId, action.cursor() == null ? null : action.cursor().getSeq());
+        try {
+            continueFromBoundary(sessionId);
+        } catch (RuntimeException exception) {
+            if (!restorePausedEvidence(sessionId)) {
+                exception.addSuppressed(new IllegalStateException(
+                        "Paused evidence not restored for session_id " + sessionId
+                                + "; the continuation already advanced past a step boundary"));
+            }
+            throw exception;
+        }
+    }
+
+    /**
+     * Restores the persisted paused evidence of a session whose resume
+     * continuation failed: a request-scoped session recovers the persisted
+     * snapshot (the resume flipped it to RUNNING), the original paused
+     * cursor is written back onto that live state, and the regular save
+     * transaction republishes it. A backend that has no paused cursor
+     * anymore (the continuation already saved a newer boundary) is skipped,
+     * so a genuinely mid-flight session is never rewound to its pause point.
+     *
+     * @param sessionId session id whose paused evidence is restored
+     * @return true when the paused evidence was persisted again
+     */
+    private boolean restorePausedEvidence(String sessionId) {
+        Checkpointer checkpointer = CheckpointerFactory.getCheckpointer();
+        StepCheckpointRecoveryService recovery = new StepCheckpointRecoveryService(checkpointer, null);
+        StepCursor paused = recovery.pausedCursor(sessionId);
+        if (paused == null) {
+            return false;
+        }
+        try {
+            AgentSessionApi session = AgentSession.createAgentSession(sessionId, Map.of(), resolveSessionCard());
+            session.preRun(Map.of());
+            Map<String, Object> pausedMap = new LinkedHashMap<>();
+            pausedMap.put(StepCursor.PAUSED_STATE_KEY, paused.toMap());
+            // The paused evidence lives in the agent-state partition (the
+            // partition the checkpointer reads cursors from), so the write
+            // goes through the session's agent-state collection rather than
+            // the facade's global-state updater.
+            if (session instanceof AgentSession agentSession) {
+                agentSession.getInner().state().update(pausedMap);
+            } else {
+                session.updateState(pausedMap);
+            }
+            session.commit();
+            log.info("Paused evidence restored after failed resume: session_id={}, seq={}", sessionId,
+                    paused.getSeq());
+            return true;
+        } catch (RuntimeException restoreFailure) {
+            log.warn("Paused evidence restore failed for session_id={}: {}", sessionId,
+                    restoreFailure.getMessage());
+            return false;
+        } finally {
+            LoggingUtils.setSessionId();
+        }
+    }
+
+    /**
+     * Continues the paused task on the same session id: a placeholder query
+     * drives a fresh invoke that restores the checkpointed state through the
+     * regular pre-run path, so the ReAct/Deep task loops resume after the
+     * persisted boundary.
+     *
+     * @param sessionId session id carrying the restored state
+     */
+    protected void continueFromBoundary(String sessionId) {
+        ServeRequest request = new ServeRequest();
+        request.setConversationId(sessionId);
+        request.setMessages(List.of(Map.of("role", "user", "content", RESUME_QUERY)));
+        request.setStream(false);
+        executeAgent(buildExecutionInputs(request), runnerSession(request));
+    }
+
+    /**
+     * Publishes the user pause intent to the core step-checkpoint layer
+     * (issue #117): the executing agent loop consumes the intent at its next
+     * step boundary, persists the PAUSED cursor there, and stops. The intent
+     * registry is process-local and mirrors the cancel-flag pattern.
+     *
+     * <p>The intent registry keys carry the calling thread's tenant context.
+     * This method runs on the session-operations pool whose threads hold no
+     * tenant binding, while the executing loop consumes intents under the
+     * tenant context the Runner resolves for the session - so the caller's
+     * tenant id travels inside the pause metadata and is bound to the
+     * publishing thread for the duration of the write, keeping both sides on
+     * the same tenant-scoped key.</p>
+     *
+     * @param sessionId session id of the running session
+     * @param pauseInfo pause metadata persisted with the paused cursor; may
+     *        carry {@code tenant_id} identifying the calling tenant
+     */
+    @Override
+    public void requestPause(String sessionId, Map<String, Object> pauseInfo) {
+        if (sessionId == null || sessionId.isBlank()) {
+            log.warn("requestPause ignored: blank session id");
+            return;
+        }
+        TenantContext tenantCtx = extractPauseTenantContext(pauseInfo);
+        TenantContext previous = TenantContextHolder.getCurrentTenant();
+        boolean isBound = tenantCtx != null;
+        if (isBound) {
+            TenantContextHolder.setCurrentTenant(tenantCtx);
+        }
+        try {
+            boolean isNewIntent = PauseRequestRegistry.requestPause(sessionId, pauseInfo);
+            log.info("Pause intent {} for session_id={}", isNewIntent ? "published" : "merged (already pending)",
+                    sessionId);
+        } finally {
+            if (isBound) {
+                restorePreviousTenant(previous);
+            }
+        }
+    }
+
+    /**
+     * Extracts the tenant context carried by the pause metadata, null when
+     * the caller provided no usable tenant id.
+     *
+     * @param pauseInfo pause metadata published by the coordination layer
+     * @return the tenant context, or null when tenant-less
+     */
+    private static TenantContext extractPauseTenantContext(Map<String, Object> pauseInfo) {
+        if (pauseInfo == null) {
+            return null;
+        }
+        Object tenantId = pauseInfo.get("tenant_id");
+        if (tenantId instanceof String id && !id.isBlank()) {
+            return TenantContext.builder().tenantId(id).build();
+        }
+        return null;
+    }
+
+    /**
+     * Restores the publishing thread's previous tenant binding after a
+     * tenant-scoped publication, clearing instead when none existed: pooled
+     * threads are reused and a leaked binding would contaminate unrelated
+     * work.
+     *
+     * @param previous the tenant context held before the scoped binding
+     */
+    private static void restorePreviousTenant(TenantContext previous) {
+        if (previous != null) {
+            TenantContextHolder.setCurrentTenant(previous);
+        } else {
+            TenantContextHolder.clearCurrentTenant();
+        }
+    }
+
+    /**
+     * Compacts the persisted context of an idle session (issue #117): the
+     * session state is restored from the checkpoint through the regular
+     * pre-run path, the core compression processors run against the live
+     * context, and the compacted state is persisted back through the same
+     * checkpoint save path, so the next invocation continues from the
+     * compacted context without replaying anything.
+     *
+     * <p>The compaction result follows the core active-compression contract:
+     * {@code compressed} when the context shrank, {@code noop} when nothing
+     * changed, and the checkpoint save still runs so the session snapshot
+     * stays consistent.</p>
+     *
+     * @param sessionId session id of the idle session
+     * @param options compression options ({@code context_id}, {@code
+     *                processor_types}, compression thresholds); may be null
+     *                for the default strategy
+     * @return a result map with {@code result} and {@code session_id}, never
+     *         null
+     * @throws IllegalStateException when the session context cannot be located
+     *         or the compression execution fails
+     */
+    @Override
+    public Map<String, Object> compactSession(String sessionId, Map<String, Object> options) {
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new IllegalStateException("Cannot compact a blank session id");
+        }
+        Map<String, Object> effectiveOptions = options == null ? Map.of() : options;
+        Map<String, Object> kwargs = new LinkedHashMap<>(effectiveOptions);
+        kwargs.remove("context_id");
+        kwargs.remove("processor_types");
+        kwargs.putIfAbsent("compression_trigger", "manual");
+
+        // Restore the checkpointed session state before compressing so the
+        // processors operate on the persisted conversation, then persist the
+        // compacted state through the same checkpoint save path.
+        AgentSession session = compactRunnerSession(sessionId);
+        ContextEngine engine = contextEngine(resolveAgent())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Session context engine is unavailable for session_id " + sessionId));
+        String contextId = effectiveOptions.get("context_id") instanceof String value && !value.isBlank()
+                ? value : null;
+        List<String> processorTypes = effectiveOptions.get("processor_types") instanceof List<?> list
+                ? list.stream().filter(Objects::nonNull).map(String::valueOf).toList()
+                : null;
+        Object rawResult;
+        try {
+            rawResult = engine.compressContext(contextId, session, sessionId, processorTypes, kwargs);
+            engine.saveContexts(session);
+            session.commit();
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("Session compaction failed for session_id " + sessionId
+                    + ": " + exception.getMessage(), exception);
+        } finally {
+            LoggingUtils.setSessionId();
+        }
+        String result = rawResult instanceof Map<?, ?> map && map.get("result") != null
+                ? String.valueOf(map.get("result"))
+                : String.valueOf(rawResult);
+        log.info("Session compaction finished: session_id={}, result={}", sessionId, result);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("session_id", sessionId);
+        body.put("result", result);
+        if (rawResult instanceof Map<?, ?> map && map.get("state") != null) {
+            body.put("state", map.get("state"));
+        }
+        return body;
+    }
+
+    /**
+     * Builds the compaction session through the same request-scoped path as a
+     * regular query: {@code preRun} restores the checkpointed state, so the
+     * compression processors see the persisted conversation.
+     *
+     * <p>Compaction always forces an explicit session object: the context
+     * engine resolves the owning session from the object's identity, reads
+     * and writes context state through it, and persists the compacted state
+     * through its checkpoint commit, none of which a bare session-id string
+     * can carry.</p>
+     *
+     * @param sessionId session id to restore
+     * @return the restored request-scoped session
+     */
+    private AgentSession compactRunnerSession(String sessionId) {
+        ServeRequest request = new ServeRequest();
+        request.setConversationId(sessionId);
+        request.setMessages(List.of(Map.of("role", "user", "content", "[compact]")));
+        request.setStream(false);
+        Object card = resolveSessionCard();
+        AgentSession session = AgentSession.createAgentSession(sessionId, sessionEnvs(request), card);
+        session.preRun(Map.of("inputs", Map.of()));
+        session.markPreRunDone();
+        return session;
     }
 
     private Object resolveAgent() {

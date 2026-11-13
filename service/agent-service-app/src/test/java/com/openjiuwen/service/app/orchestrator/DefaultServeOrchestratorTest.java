@@ -281,4 +281,86 @@ class DefaultServeOrchestratorTest {
         assertThat(streamRegistry.activeCount()).isZero();
         assertThat(streamRegistry.awaitDrain(0L)).isTrue();
     }
+
+    @Test
+    void resumeSessionDelegatesToHandler() {
+        List<String> resumed = new ArrayList<>();
+        AgentHandler handler = new AgentHandler() {
+            @Override
+            public QueryResponse query(ServeRequest req) {
+                return null;
+            }
+
+            @Override
+            public void streamQuery(ServeRequest req, QueryStreamObserver observer) {
+            }
+
+            @Override
+            public boolean supportsSessionOperations() {
+                return true;
+            }
+
+            @Override
+            public void resumeSession(String sessionId) {
+                resumed.add(sessionId);
+            }
+        };
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
+        orchestrator.resumeSession("session-resume");
+        assertThat(resumed).containsExactly("session-resume");
+    }
+
+    @Test
+    void resumeSessionSurfacesHandlerRejection() {
+        AgentHandler handler = new AgentHandler() {
+            @Override
+            public QueryResponse query(ServeRequest req) {
+                return null;
+            }
+
+            @Override
+            public void streamQuery(ServeRequest req, QueryStreamObserver observer) {
+            }
+
+            @Override
+            public boolean supportsSessionOperations() {
+                return true;
+            }
+
+            @Override
+            public void resumeSession(String sessionId) {
+                throw new IllegalStateException("No paused session found for session_id " + sessionId);
+            }
+        };
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
+        assertThatThrownBy(() -> orchestrator.resumeSession("no-such-session"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No paused session found");
+    }
+
+    @Test
+    void resumeSessionWithoutHandlerSupportFailsLoud() {
+        // The anonymous handler keeps the default probe (false): the
+        // delegation must fail before touching the handler instead of
+        // silently running a no-op resume.
+        AgentHandler handler = new AgentHandler() {
+            @Override
+            public QueryResponse query(ServeRequest req) {
+                return null;
+            }
+
+            @Override
+            public void streamQuery(ServeRequest req, QueryStreamObserver observer) {
+            }
+
+            @Override
+            public void resumeSession(String sessionId) {
+                throw new AssertionError("resume must not be delegated to an unsupported handler");
+            }
+        };
+        DefaultServeOrchestrator orchestrator = new DefaultServeOrchestrator(handler, streamRegistry);
+        assertThatThrownBy(() -> orchestrator.resumeSession("no-such-session"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not supported by the configured agent handler");
+    }
 }

@@ -36,6 +36,7 @@ Client / Gateway
 | 能力 | 本仓状态 | 说明 |
 | --- | --- | --- |
 | Agent Service | 已实现 | `service/` 模块，提供 HTTP Query、health、reset、生命周期 |
+| Session 管控面 | 已实现（部分） | `/api/sessions` 列表/详情/暂停/恢复/终止；消息与压缩待数据面能力交付 |
 | Agent Core 执行 | 已接入 | 通过 `agent-service-adapters-agentcore` 调用 `agent-core-java` |
 | 进程内 A2A | 已实现 | Agent Card、JSON-RPC、远端 Agent 调用见 A2A 专篇 |
 | Deploy Manager | 规划中 | 负责部署、实例记录、服务发现、平台路由 |
@@ -372,3 +373,4 @@ AaaS 是服务化形态，A2A 是 Agent 间互联协议。
 - [生命周期与探针](生命周期与探针.md)：init、shutdown、readiness、interrupt。
 - [A2A 与平台边界](A2A/平台边界.md)：进程内 A2A 与平台 A2A 的边界。
 - [A2A 开发指导](A2A/开发指导.md)：Agent Card、JSON-RPC、远端调用、中断恢复。
+- [HTTP 对话面 · Session 管控面](HTTP对话面.md#session-管控面api-sessions)：`/api/sessions` 契约、状态机与鉴权。
