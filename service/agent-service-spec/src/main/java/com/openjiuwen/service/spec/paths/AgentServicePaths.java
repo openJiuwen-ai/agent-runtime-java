@@ -31,6 +31,30 @@ public final class AgentServicePaths {
     /** Active task query path (DFX-002). */
     public static final String CURRENT_ACTIVE_TASKS = "/v1/current_active_tasks";
 
+    /** Session management list path (issue #117). */
+    public static final String SESSIONS = "/api/sessions";
+
+    /** Session detail path prefix; the session id follows as a path segment. */
+    public static final String SESSION_DETAIL = "/api/sessions/{sessionId}";
+
+    /** Session messages path; the session id follows as a path segment. */
+    public static final String SESSION_MESSAGES = "/api/sessions/{sessionId}/messages";
+
+    /** Session pause path; the session id follows as a path segment. */
+    public static final String SESSION_PAUSE = "/api/sessions/{sessionId}/pause";
+
+    /** Session resume path; the session id follows as a path segment. */
+    public static final String SESSION_RESUME = "/api/sessions/{sessionId}/resume";
+
+    /** Session terminate path; the session id follows as a path segment. */
+    public static final String SESSION_TERMINATE = "/api/sessions/{sessionId}/terminate";
+
+    /** Session compact path; the session id follows as a path segment. */
+    public static final String SESSION_COMPACT = "/api/sessions/{sessionId}/compact";
+
+    /** Extension key under which the target session id is exposed to authorizers. */
+    public static final String EXTENSION_RESOURCE_ID = "resource.id";
+
     private AgentServicePaths() {
     }
 }

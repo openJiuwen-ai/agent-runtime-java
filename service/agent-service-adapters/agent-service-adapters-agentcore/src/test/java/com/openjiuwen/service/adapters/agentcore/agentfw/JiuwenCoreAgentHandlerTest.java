@@ -19,12 +19,24 @@ import com.openjiuwen.core.common.exception.BaseError;
 import com.openjiuwen.core.common.exception.StatusCode;
 import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
+import com.openjiuwen.core.multitenant.TenantContext;
+import com.openjiuwen.core.multitenant.TenantContextHolder;
 import com.openjiuwen.core.runner.Runner;
 import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.session.AgentSession;
 import com.openjiuwen.core.session.AgentSessionApi;
+import com.openjiuwen.core.session.BaseSession;
+import com.openjiuwen.core.session.checkpointer.Checkpointer;
+import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
+import com.openjiuwen.core.session.checkpointer.InMemoryCheckpointer;
+import com.openjiuwen.core.session.checkpointer.step.PauseRequestRegistry;
+import com.openjiuwen.core.session.checkpointer.step.StepCursor;
+import com.openjiuwen.core.session.checkpointer.step.StepStatus;
+import com.openjiuwen.core.session.config.Config;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.interaction.InteractiveInput;
+import com.openjiuwen.core.session.state.AgentStateCollection;
+import com.openjiuwen.core.session.state.SessionStateAccess;
 import com.openjiuwen.core.session.stream.OutputSchema;
 import com.openjiuwen.core.session.stream.StreamMode;
 import com.openjiuwen.core.singleagent.BaseAgent;
@@ -1097,6 +1109,274 @@ class JiuwenCoreAgentHandlerTest {
 
         QueryResponse third = handler.query(request("c-blank-clear", "c"));
         assertThat((Map<String, Object>) third.getResult()).containsEntry("content", "turn3:c|prev=a,b");
+    }
+
+    @Test
+    void resumeSessionContinuesFromPersistedBoundary() {
+        InMemoryCheckpointer checkpointer = new InMemoryCheckpointer();
+        CheckpointerFactory.setDefaultCheckpointer(checkpointer);
+        String sessionId = "c-resume-boundary";
+        seedPausedCursor(checkpointer, sessionId, 4L, "TOOL_CALL", "search");
+        List<Map<String, Object>> capturedInputs = new ArrayList<>();
+        List<Object> capturedSessions = new ArrayList<>();
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new ResumeCapturingAgent()) {
+            @Override
+            protected Object executeAgent(Map<String, Object> inputs, Object session) {
+                capturedInputs.add(inputs);
+                capturedSessions.add(session);
+                return Map.of("output", "resumed-ok");
+            }
+        };
+
+        try {
+            handler.resumeSession(sessionId);
+
+            assertThat(capturedInputs).hasSize(1);
+            assertThat(capturedSessions).hasSize(1);
+            assertThat(capturedSessions.get(0)).isEqualTo(sessionId);
+            assertThat(capturedInputs.get(0)).containsEntry("query", "[resume]");
+            assertThat(capturedInputs.get(0)).containsEntry("conversation_id", sessionId);
+            // The paused evidence is cleared and a second resume is rejected.
+            assertThatThrownBy(() -> handler.resumeSession(sessionId))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Resume rejected");
+        } finally {
+            CheckpointerFactory.setDefaultCheckpointer(null);
+            TenantContextHolder.clearCurrentTenant();
+        }
+    }
+
+    @Test
+    void resumeSessionRejectsSessionWithoutPausedCursor() {
+        CheckpointerFactory.setDefaultCheckpointer(new InMemoryCheckpointer());
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());
+
+        try {
+            assertThatThrownBy(() -> handler.resumeSession("c-resume-none"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Resume rejected")
+                    .hasMessageContaining("no paused cursor");
+        } finally {
+            CheckpointerFactory.setDefaultCheckpointer(null);
+        }
+    }
+
+    @Test
+    void resumeSessionRejectsBlankSessionId() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());
+
+        assertThatThrownBy(() -> handler.resumeSession(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Cannot resume a blank session id");
+        assertThatThrownBy(() -> handler.resumeSession("  "))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Cannot resume a blank session id");
+    }
+
+    @Test
+    void requestPausePublishesIntentToCoreRegistry() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());
+
+        try {
+            handler.requestPause("c-pause-intent", Map.of("reason", "quota"));
+            assertThat(PauseRequestRegistry.hasPauseRequest("c-pause-intent")).isTrue();
+            assertThat(PauseRequestRegistry.consumePauseRequest("c-pause-intent")).containsEntry("reason", "quota");
+
+            // Blank ids are ignored and never enter the registry.
+            handler.requestPause("  ", null);
+            handler.requestPause(null, null);
+            assertThat(PauseRequestRegistry.hasPauseRequest("")).isFalse();
+        } finally {
+            PauseRequestRegistry.clearPauseRequest("c-pause-intent");
+        }
+    }
+
+    @Test
+    void requestPauseCarriesTenantFromPauseInfoIntoRegistryKey() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());
+
+        try {
+            // Publishing thread carries no tenant binding; the tenant travels
+            // inside the pause info and must land on the tenant-scoped key the
+            // executing side resolves from the session.
+            handler.requestPause("c-pause-tenant", Map.of("reason", "quota", "tenant_id", "tenant-a"));
+
+            var scoped = TenantContext.builder().tenantId("tenant-a").build();
+            TenantContextHolder.setCurrentTenant(scoped);
+            assertThat(PauseRequestRegistry.hasPauseRequest("c-pause-tenant")).isTrue();
+            assertThat(PauseRequestRegistry.consumePauseRequest("c-pause-tenant"))
+                    .containsEntry("reason", "quota")
+                    .containsEntry("tenant_id", "tenant-a");
+
+            // A different tenant (or none) must not observe the intent: its
+            // consume resolves the bare session key and finds nothing there.
+            TenantContextHolder.clearCurrentTenant();
+            assertThat(PauseRequestRegistry.consumePauseRequest("c-pause-tenant")).isNull();
+        } finally {
+            TenantContextHolder.clearCurrentTenant();
+            PauseRequestRegistry.clearPauseRequest("c-pause-tenant");
+        }
+    }
+
+    @Test
+    void requestPauseRestoresPreviousTenantBindingAfterPublication() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());
+        var previous = TenantContext.builder().tenantId("tenant-prev").build();
+        TenantContextHolder.setCurrentTenant(previous);
+
+        try {
+            handler.requestPause("c-pause-restore", Map.of("tenant_id", "tenant-a"));
+
+            var current = TenantContextHolder.getCurrentTenant();
+            assertThat(current).isNotNull();
+            assertThat(current.safeTenantId()).isEqualTo("tenant-prev");
+        } finally {
+            TenantContextHolder.clearCurrentTenant();
+            PauseRequestRegistry.clearPauseRequest("c-pause-restore");
+        }
+    }
+
+    @Test
+    void compactSessionRejectsBlankSessionId() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());
+
+        assertThatThrownBy(() -> handler.compactSession(null, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Cannot compact a blank session id");
+        assertThatThrownBy(() -> handler.compactSession("  ", null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Cannot compact a blank session id");
+    }
+
+    @Test
+    void compactSessionRejectsAgentWithoutContextEngine() {
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(new SessionEchoAgent());
+
+        assertThatThrownBy(() -> handler.compactSession("c-compact-no-engine", null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("context engine is unavailable");
+    }
+
+    @Test
+    void compactSessionCompressesThroughContextEngineAndPersists() {
+        ReActAgent agent = mock(ReActAgent.class);
+        ContextEngine contextEngine = mock(ContextEngine.class);
+        when(agent.getContextEngine()).thenReturn(contextEngine);
+        when(contextEngine.compressContext(any(), any(), any(), any(), anyMap()))
+                .thenReturn(Map.of("result", "compressed"));
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
+
+        Map<String, Object> result = handler.compactSession("c-compact-ok", null);
+
+        assertThat(result).containsEntry("session_id", "c-compact-ok");
+        assertThat(result).containsEntry("result", "compressed");
+        verify(contextEngine).compressContext(any(), any(), any(), any(), anyMap());
+        verify(contextEngine).saveContexts(any());
+    }
+
+    @Test
+    void compactSessionForwardsProcessorTypesAndDefaultsManualTrigger() {
+        ReActAgent agent = mock(ReActAgent.class);
+        ContextEngine contextEngine = mock(ContextEngine.class);
+        when(agent.getContextEngine()).thenReturn(contextEngine);
+        when(contextEngine.compressContext(any(), any(), any(), any(), anyMap()))
+                .thenReturn("noop");
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
+
+        Map<String, Object> result = handler.compactSession("c-compact-opts",
+                Map.of("processor_types", List.of("FullCompactProcessor"), "context_id", "main"));
+
+        assertThat(result).containsEntry("result", "noop");
+        org.mockito.ArgumentCaptor<Map<String, Object>> kwargsCaptor =
+                org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(contextEngine).compressContext(
+                org.mockito.ArgumentMatchers.eq("main"), any(), org.mockito.ArgumentMatchers.eq("c-compact-opts"),
+                org.mockito.ArgumentMatchers.eq(List.of("FullCompactProcessor")), kwargsCaptor.capture());
+        assertThat(kwargsCaptor.getValue()).containsEntry("compression_trigger", "manual");
+        verify(contextEngine).saveContexts(any());
+    }
+
+    @Test
+    void compactSessionWrapsCompressionFailure() {
+        ReActAgent agent = mock(ReActAgent.class);
+        ContextEngine contextEngine = mock(ContextEngine.class);
+        when(agent.getContextEngine()).thenReturn(contextEngine);
+        when(contextEngine.compressContext(any(), any(), any(), any(), anyMap()))
+                .thenThrow(new IllegalStateException("cannot find context"));
+        JiuwenCoreAgentHandler handler = new JiuwenCoreAgentHandler(agent);
+
+        assertThatThrownBy(() -> handler.compactSession("c-compact-fail", null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Session compaction failed")
+                .hasMessageContaining("cannot find context");
+        verify(contextEngine, org.mockito.Mockito.never()).saveContexts(any());
+    }
+
+    /**
+     * Seeds a PAUSED step cursor and its pause metadata into the checkpointer
+     * for the given session, mirroring what a runtime pause would persist.
+     *
+     * @param checkpointer checkpointer receiving the paused evidence
+     * @param sessionId session id owning the paused cursor
+     * @param seq last completed step seq at pause time
+     * @param stepType step type recorded on the cursor
+     * @param stepName step name recorded on the cursor
+     */
+    private static void seedPausedCursor(InMemoryCheckpointer checkpointer, String sessionId, long seq,
+            String stepType, String stepName) {
+        AgentStateCollection state = new AgentStateCollection();
+        TestCheckpointerSession session = new TestCheckpointerSession(sessionId, "agent-resume", state);
+        checkpointer.preAgentExecute(session, null);
+        checkpointer.stepPaused(session, new StepCursor(seq, stepType, stepName, StepStatus.COMPLETED, 7L),
+                Map.of("pausedBy", "test"));
+        TenantContextHolder.clearCurrentTenant();
+    }
+
+    /** Session fixture for the checkpointer pause seeding, mirroring the core test fixture. */
+    private static final class TestCheckpointerSession extends BaseSession {
+        private final String fixtureSessionId;
+        private final String fixtureAgentId;
+        private final SessionStateAccess fixtureState;
+        private final Config fixtureConfig;
+
+        private TestCheckpointerSession(String sessionId, String agentId, SessionStateAccess state) {
+            this.fixtureSessionId = sessionId;
+            this.fixtureAgentId = agentId;
+            this.fixtureState = state;
+            this.fixtureConfig = new Config();
+        }
+
+        @Override
+        public String sessionId() {
+            return fixtureSessionId;
+        }
+
+        @Override
+        public SessionStateAccess state() {
+            return fixtureState;
+        }
+
+        @Override
+        public Config config() {
+            return fixtureConfig;
+        }
+
+        @Override
+        public Checkpointer checkpointer() {
+            return null;
+        }
+    }
+
+    /** Test agent instance only used to construct the handler for resume tests. */
+    public static class ResumeCapturingAgent extends BaseAgent {
+        ResumeCapturingAgent() {
+            super(new AgentCard("resume-capture-agent", "resume-capture-agent", "test"));
+        }
+
+        @Override
+        public BaseAgent configure(Object config) {
+            return this;
+        }
     }
 
     /** Test agent that captures the last runner inputs. */

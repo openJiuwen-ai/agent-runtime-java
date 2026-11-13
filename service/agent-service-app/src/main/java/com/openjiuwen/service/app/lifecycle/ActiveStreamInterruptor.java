@@ -38,11 +38,24 @@ public final class ActiveStreamInterruptor {
      * @param conversationId the conversation identifier
      */
     public void interrupt(String conversationId) {
+        interrupt(conversationId, InterruptReason.LIFECYCLE_INTERRUPT);
+    }
+
+    /**
+     * Interrupts active execution for the given conversation and notifies the
+     * interrupt handlers with the given reason, so pause and terminate share
+     * the same cancellation chain while staying auditable.
+     *
+     * @param conversationId the conversation identifier
+     * @param reason interrupt reason forwarded to the interrupt handlers
+     */
+    public void interrupt(String conversationId, InterruptReason reason) {
         if (conversationId == null || conversationId.isBlank()) {
             log.warn("interrupt ignored: conversation_id is blank");
             return;
         }
-        log.info("Interrupting active execution for conversation_id={}", conversationId);
+        InterruptReason effectiveReason = reason == null ? InterruptReason.OTHER : reason;
+        log.info("Interrupting active execution for conversation_id={}, reason={}", conversationId, effectiveReason);
         ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
         if (orchestrator != null) {
             orchestrator.cancelActive(conversationId);
@@ -51,7 +64,7 @@ public final class ActiveStreamInterruptor {
         }
         for (AgentInterruptHandler handler : interruptHandlers) {
             try {
-                handler.interrupt(conversationId, InterruptReason.LIFECYCLE_INTERRUPT);
+                handler.interrupt(conversationId, effectiveReason);
             } catch (Exception ex) {
                 log.warn("AgentInterruptHandler failed: {}, conversation_id={}", handler.getClass().getName(),
                     conversationId, ex);

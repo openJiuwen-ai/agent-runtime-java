@@ -74,6 +74,19 @@ public final class AgentHandlerHolder implements AgentHandler {
         }
     }
 
+    /**
+     * Delegates the session-operations capability probe to the loaded
+     * handler; an unloaded holder reports no session operations support.
+     *
+     * @return {@code true} when the delegate handler implements the session
+     *         operations
+     */
+    @Override
+    public boolean supportsSessionOperations() {
+        AgentHandler handler = delegate;
+        return handler != null && handler.supportsSessionOperations();
+    }
+
     private AgentHandler requireHandler() {
         AgentHandler handler = delegate;
         if (handler == null) {
