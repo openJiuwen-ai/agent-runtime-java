@@ -47,11 +47,11 @@ public class SessionPauseResumeCoordinator {
 
     private static final long DEBOUNCE_MILLIS = 1000L;
 
-    /** Maximum size of the debounce bookkeeping before it is reset wholesale. */
-    private static final int DEBOUNCE_MAP_LIMIT = 10_000;
-
     /** Metadata key carrying the caller tenant id inside the pause intent. */
     static final String TENANT_ID_KEY = "tenant_id";
+
+    /** Maximum size of the debounce bookkeeping before it is reset wholesale. */
+    private static final int DEBOUNCE_MAP_LIMIT = 10_000;
 
     /** Maximum number of terminated-session records the LRU registry retains. */
     private static final int TERMINATED_SET_LIMIT = 10_000;
@@ -62,6 +62,7 @@ public class SessionPauseResumeCoordinator {
     private final Executor pauseExecutor;
     private final Map<String, Long> lastPauseRequestMillis = new ConcurrentHashMap<>();
     private final Set<String> pausedSessions = ConcurrentHashMap.newKeySet();
+
     /** Insertion-ordered ids mirroring the entries of {@link #terminatedSessions} for LRU eviction. */
     private final ConcurrentLinkedDeque<String> terminatedOrder = new ConcurrentLinkedDeque<>();
     private final Set<String> terminatedSessions = ConcurrentHashMap.newKeySet();
@@ -397,14 +398,14 @@ public class SessionPauseResumeCoordinator {
      */
     private void doResume(String sessionId, String operator) {
         log.info("Resume requested: session_id={}, operator={}", sessionId, operator);
-        boolean wasSessionPaused = pausedSessions.remove(sessionId);
+        boolean hasPausedRecord = pausedSessions.remove(sessionId);
         // A pause accepted after this resume must not merge against the stale
         // debounce timestamp of the pre-resume pause request.
         lastPauseRequestMillis.remove(sessionId);
         ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
         if (orchestrator == null) {
             log.warn("No ServeOrchestrator available, resume continuation skipped for session_id={}", sessionId);
-            rollbackPausedState(sessionId, wasSessionPaused);
+            rollbackPausedState(sessionId, hasPausedRecord);
             releaseAdmission(sessionId);
             return;
         }
@@ -412,7 +413,7 @@ public class SessionPauseResumeCoordinator {
             orchestrator.resumeSession(sessionId);
         } catch (RuntimeException exception) {
             log.warn("Resume continuation failed for session_id={}: {}", sessionId, exception.getMessage());
-            rollbackPausedState(sessionId, wasSessionPaused);
+            rollbackPausedState(sessionId, hasPausedRecord);
         } finally {
             releaseAdmission(sessionId);
         }
@@ -424,11 +425,11 @@ public class SessionPauseResumeCoordinator {
      * pause record.
      *
      * @param sessionId target session id
-     * @param wasSessionPaused whether the session was recorded as paused
+     * @param hasPausedRecord whether the session was recorded as paused
      *        before the transition removed the record
      */
-    private void rollbackPausedState(String sessionId, boolean wasSessionPaused) {
-        if (wasSessionPaused) {
+    private void rollbackPausedState(String sessionId, boolean hasPausedRecord) {
+        if (hasPausedRecord) {
             pausedSessions.add(sessionId);
         }
     }

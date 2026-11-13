@@ -22,6 +22,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -118,7 +119,7 @@ public final class AuthorizationRequestResolver {
         if (pattern == null || pattern.isEmpty()) {
             return null;
         }
-        return substitutePathVariables(method, joinPoint.getArgs(), pattern);
+        return substitutePathVariables(method, List.of(joinPoint.getArgs()), pattern);
     }
 
     /**
@@ -170,16 +171,16 @@ public final class AuthorizationRequestResolver {
      * @param pattern the mapping path pattern
      * @return the concrete request path
      */
-    private static String substitutePathVariables(Method method, Object[] arguments, String pattern) {
+    private static String substitutePathVariables(Method method, List<Object> arguments, String pattern) {
         Parameter[] parameters = method.getParameters();
         String resolved = pattern;
         for (int i = 0; i < parameters.length; i++) {
             PathVariable variable = parameters[i].getAnnotation(PathVariable.class);
-            if (variable == null || arguments[i] == null) {
+            if (variable == null || arguments.get(i) == null) {
                 continue;
             }
             String name = !variable.value().isEmpty() ? variable.value() : parameters[i].getName();
-            resolved = resolved.replace("{" + name + "}", String.valueOf(arguments[i]));
+            resolved = resolved.replace("{" + name + "}", String.valueOf(arguments.get(i)));
         }
         return resolved;
     }

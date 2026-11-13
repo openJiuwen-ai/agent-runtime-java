@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 
 import java.lang.reflect.Method;
+import java.util.List;
 
 /**
  * Tests for the reactive authorization request resolution (issue #117
@@ -32,7 +33,6 @@ import java.lang.reflect.Method;
  * @since 0.1.5
  */
 class AuthorizationRequestResolverWebFluxTest {
-
     @Test
     void reactiveSessionPauseResolvesResourceIdExtension() throws Exception {
         AuthorizedResource annotation = ReactiveSessionStub.class
@@ -42,7 +42,7 @@ class AuthorizationRequestResolverWebFluxTest {
         headers.add("X-User-Id", "op-flux");
 
         AuthorizationRequest request = AuthorizationRequestResolver.resolve(
-                joinPointOf(new ReactiveSessionStub(), "pause", headers, "session-77"), annotation);
+                joinPointOf(new ReactiveSessionStub(), "pause", List.of(headers, "session-77")), annotation);
 
         assertThat(request.extensions())
                 .containsEntry(AgentServicePaths.EXTENSION_RESOURCE_ID, "session-77");
@@ -56,7 +56,7 @@ class AuthorizationRequestResolverWebFluxTest {
                 .getAnnotation(AuthorizedResource.class);
 
         AuthorizationRequest request = AuthorizationRequestResolver.resolve(
-                joinPointOf(new ReactiveSessionStub(), "query", new HttpHeaders()), annotation);
+                joinPointOf(new ReactiveSessionStub(), "query", List.of(new HttpHeaders())), annotation);
 
         assertThat(request.extensions()).isEmpty();
     }
@@ -68,15 +68,15 @@ class AuthorizationRequestResolverWebFluxTest {
                 .getAnnotation(AuthorizedResource.class);
 
         assertThatThrownBy(() -> AuthorizationRequestResolver.resolve(
-                joinPointOf(new ReactiveSessionStub(), "pause", "x", "session-1"), annotation))
+                joinPointOf(new ReactiveSessionStub(), "pause", List.of("x", "session-1")), annotation))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("No ingress request context");
     }
 
-    private static ProceedingJoinPoint joinPointOf(Object target, String methodName, Object... args)
+    private static ProceedingJoinPoint joinPointOf(Object target, String methodName, List<Object> args)
             throws Exception {
         for (Method method : target.getClass().getDeclaredMethods()) {
-            if (method.getName().equals(methodName) && method.getParameterCount() == args.length) {
+            if (method.getName().equals(methodName) && method.getParameterCount() == args.size()) {
                 return new StubJoinPoint(target, method, args);
             }
         }
@@ -87,9 +87,9 @@ class AuthorizationRequestResolverWebFluxTest {
     private static final class StubJoinPoint implements ProceedingJoinPoint {
         private final Object target;
         private final Method declared;
-        private final Object[] args;
+        private final List<Object> args;
 
-        StubJoinPoint(Object target, Method declared, Object[] args) {
+        StubJoinPoint(Object target, Method declared, List<Object> args) {
             this.target = target;
             this.declared = declared;
             this.args = args;
@@ -102,7 +102,7 @@ class AuthorizationRequestResolverWebFluxTest {
 
         @Override
         public Object[] getArgs() {
-            return args;
+            return args.toArray();
         }
 
         @Override

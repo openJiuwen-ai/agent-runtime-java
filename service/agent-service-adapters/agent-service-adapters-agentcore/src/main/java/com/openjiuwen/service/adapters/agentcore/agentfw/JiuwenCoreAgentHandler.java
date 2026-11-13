@@ -726,11 +726,6 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
             throw new IllegalStateException("Cannot compact a blank session id");
         }
         Map<String, Object> effectiveOptions = options == null ? Map.of() : options;
-        String contextId = effectiveOptions.get("context_id") instanceof String value && !value.isBlank()
-                ? value : null;
-        List<String> processorTypes = effectiveOptions.get("processor_types") instanceof List<?> list
-                ? list.stream().filter(Objects::nonNull).map(String::valueOf).toList()
-                : null;
         Map<String, Object> kwargs = new LinkedHashMap<>(effectiveOptions);
         kwargs.remove("context_id");
         kwargs.remove("processor_types");
@@ -743,6 +738,11 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         ContextEngine engine = contextEngine(resolveAgent())
                 .orElseThrow(() -> new IllegalStateException(
                         "Session context engine is unavailable for session_id " + sessionId));
+        String contextId = effectiveOptions.get("context_id") instanceof String value && !value.isBlank()
+                ? value : null;
+        List<String> processorTypes = effectiveOptions.get("processor_types") instanceof List<?> list
+                ? list.stream().filter(Objects::nonNull).map(String::valueOf).toList()
+                : null;
         Object rawResult;
         try {
             rawResult = engine.compressContext(contextId, session, sessionId, processorTypes, kwargs);

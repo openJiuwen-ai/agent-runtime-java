@@ -32,6 +32,10 @@ import java.util.Objects;
 public class SessionManageService {
     private static final Logger log = LoggerFactory.getLogger(SessionManageService.class);
 
+    /** Shared detail text of the 503 bodies returned when the task-store query fails. */
+    private static final String STATE_UNAVAILABLE_DETAIL =
+            "the session state could not be determined; retry after the task store recovers";
+
     private final SessionPauseResumeCoordinator pauseResumeCoordinator;
     private final ObjectProvider<ActiveTaskQuery> activeTaskQueryProvider;
     private final ObjectProvider<AgentReadiness> readinessProvider;
@@ -313,7 +317,6 @@ public class SessionManageService {
      * @since 0.1.5
      */
     public static class SessionStateException extends RuntimeException {
-
         private static final long serialVersionUID = 1L;
 
         /**
@@ -349,7 +352,7 @@ public class SessionManageService {
         static PauseOutcome unavailable() {
             return new PauseOutcome(HttpStatus.SERVICE_UNAVAILABLE, false,
                     Map.of("error", "SESSION_STATE_UNAVAILABLE",
-                            "detail", "the session state could not be determined; retry after the task store recovers"));
+                            "detail", STATE_UNAVAILABLE_DETAIL));
         }
 
         static PauseOutcome idempotent() {
@@ -389,7 +392,7 @@ public class SessionManageService {
         static ResumeOutcome unavailable() {
             return new ResumeOutcome(HttpStatus.SERVICE_UNAVAILABLE,
                     Map.of("error", "SESSION_STATE_UNAVAILABLE",
-                            "detail", "the session state could not be determined; retry after the task store recovers"));
+                            "detail", STATE_UNAVAILABLE_DETAIL));
         }
 
         static ResumeOutcome conflict(SessionState current) {
@@ -447,7 +450,7 @@ public class SessionManageService {
         static CompactOutcome unavailable() {
             return new CompactOutcome(HttpStatus.SERVICE_UNAVAILABLE,
                     Map.of("error", "SESSION_STATE_UNAVAILABLE",
-                            "detail", "the session state could not be determined; retry after the task store recovers"));
+                            "detail", STATE_UNAVAILABLE_DETAIL));
         }
 
         static CompactOutcome conflict(SessionState current) {

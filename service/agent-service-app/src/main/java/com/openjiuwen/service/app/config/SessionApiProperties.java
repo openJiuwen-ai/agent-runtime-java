@@ -18,7 +18,7 @@ public class SessionApiProperties {
      * served. Disabling the flag hides all three transitions behind a 404,
      * while the read-only endpoints (list, detail, messages) stay available.
      */
-    private boolean operationsEnabled = true;
+    private boolean isOperationsEnabled = true;
 
     /**
      * Whether the session-operations endpoints (pause, resume, compact) are
@@ -27,15 +27,15 @@ public class SessionApiProperties {
      * @return true when pause, resume, and compact are enabled
      */
     public boolean isOperationsEnabled() {
-        return operationsEnabled;
+        return isOperationsEnabled;
     }
 
     /**
      * Sets whether the session-operations endpoints are enabled.
      *
-     * @param operationsEnabled new enabled flag
+     * @param isOperationsEnabled new enabled flag
      */
-    public void setOperationsEnabled(boolean operationsEnabled) {
-        this.operationsEnabled = operationsEnabled;
+    public void setOperationsEnabled(boolean isOperationsEnabled) {
+        this.isOperationsEnabled = isOperationsEnabled;
     }
 }
