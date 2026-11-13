@@ -1,0 +1,27 @@
+server:
+  port: 3001
+spring:
+  application:
+    name: moa-demo-mock
+  autoconfigure:
+    exclude:
+      - com.openjiuwen.service.app.autoconfigure.AgentServiceAutoConfiguration
+      - com.openjiuwen.service.app.autoconfigure.HostedRuntimeAutoConfiguration
+      - com.openjiuwen.service.bus.consumer.autoconfigure.BusConsumerAutoConfiguration
+      - com.openjiuwen.service.bus.consumer.autoconfigure.RuntimeRegistryAutoConfiguration
+      - com.openjiuwen.service.app.directregistry.config.ExtRegistryAutoConfiguration
+      - com.openjiuwen.service.adapters.agentcore.ext.autoconfigure.AgentCoreExtAutoConfiguration
+      - com.openjiuwen.service.adapters.agentcore.ext.autoconfigure.IntentAutoConfiguration
+      - com.openjiuwen.service.adapters.agentcore.ext.autoconfigure.ConcurrencyAutoConfiguration
+      - com.moaagent.runtime.orchestration.MoaRuntimeAutoConfiguration
+      - com.moaagent.runtime.orchestration.IntentCandidateConfiguration
+      - com.moaagent.runtime.script.ScriptEnvironmentConfiguration
+      - com.moaagent.runtime.narration.ProgressNarrationConfiguration
+      - com.moaagent.runtime.interaction.ConversationInteractionConfiguration
+      - com.moaagent.runtime.skill.NativeSkillConfiguration
+      - com.moaagent.runtime.leadout.ServiceLeadOutConfiguration
+      - com.moaagent.runtime.customrest.MoaCustomRestConfiguration
+      - com.openjiuwen.service.app.custom.rest.CustomRestAutoConfiguration
+      - com.openjiuwen.service.app.autoconfigure.LlmAutoConfiguration
+      - com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration
+      - com.openjiuwen.service.adapters.agentcore.autoconfigure.AgentCoreAdaptersAutoConfiguration

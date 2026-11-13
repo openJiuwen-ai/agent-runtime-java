@@ -1,0 +1,50 @@
+server:
+  address: 127.0.0.1
+spring:
+  application:
+    name: moa-agent-demo
+  profiles:
+    default: mock
+openjiuwen:
+  service:
+    agentcore:
+      response-metadata:
+        enabled: true
+      request-context:
+        enabled: true
+    a2a:
+      streaming: true
+      default-input-modes: [text]
+      default-output-modes: [text]
+    external:
+      sandbox:
+        enabled: false
+moa:
+  skill-agent:
+    enabled: false
+  orchestration:
+    analysis-timeout: 30s
+    arbitration-timeout: 30s
+  service-lead-out:
+    delivery: FRONTEND
+    skill-enabled: false
+    rules: []
+---
+spring:
+  config:
+    activate:
+      on-profile: "l1 | l2"
+openjiuwen:
+  service:
+    llm:
+      provider: ${LLM_PROVIDER}
+      api-key: ${LLM_API_KEY}
+      api-base: ${LLM_API_BASE}
+      model-name: ${LLM_MODEL}
+moa:
+  skill-agent:
+    enabled: true
+    root: ${MOA_DEMO_ASSET_ROOT:${user.dir}/assets/tourism/skills}
+    workspace: ./target/workspaces/${spring.application.name}/skill
+  orchestration:
+    workspace: ./target/workspaces/${spring.application.name}/main

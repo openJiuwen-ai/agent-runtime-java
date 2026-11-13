@@ -1,0 +1,25 @@
+candidates:
+  - id: cap.attractions
+    name: 查询演示景点
+    description: 查询杭州或北京的虚构演示景点
+    kind: AGENT
+    risk: LOW
+    keywords: [景点, 景区, 游玩]
+    utterances: [查询杭州有哪些演示景点]
+    versatile: {adapter: mock-tourism, intent: attractions.search}
+  - id: cap.trip
+    name: 生成简单旅行安排
+    description: 收集城市、日期、天数和人数，查询虚构景点并生成简单安排
+    kind: SKILL
+    risk: LOW
+    keywords: [旅行, 旅游, 行程, 规划, 三日游]
+    utterances: [给我安排杭州三天旅行]
+    versatile: {adapter: travel-skill, intent: trip.plan}
+  - id: cap.hotel
+    name: 酒店查询与模拟预订
+    description: 委派酒店 MOA 查询房型、报价并在原生确认后模拟预订
+    kind: AGENT
+    risk: LOW
+    keywords: [酒店, 住宿, 房型, 入住, 退房, 报价, 预订]
+    utterances: [查询杭州酒店]
+    versatile: {adapter: moa-demo-l2, intent: hotel.service}

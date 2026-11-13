@@ -1,0 +1,16 @@
+input:
+  type: object
+  properties:
+    room_selection_id: {type: string, minLength: 1}
+  required: [room_selection_id]
+  additionalProperties: false
+result: &result
+  type: object
+  properties:
+    quote_id: {type: string}
+    confirmation_text: {type: string}
+    total_cents: {type: integer}
+    simulated: {type: boolean}
+  required: [quote_id, confirmation_text, total_cents, simulated]
+  additionalProperties: false
+summary: *result

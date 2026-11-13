@@ -1,0 +1,27 @@
+input:
+  type: object
+  properties:
+    selection_id: {type: string, minLength: 1}
+    start_date: {type: string, description: 出发日期，YYYY-MM-DD}
+    days: {type: integer, minimum: 1, maximum: 14}
+    people: {type: integer, minimum: 1, maximum: 10}
+  required: [selection_id, start_date, days, people]
+  additionalProperties: false
+result: &result
+  type: object
+  properties:
+    city: {type: string}
+    people: {type: integer}
+    itinerary:
+      type: array
+      items:
+        type: object
+        properties:
+          date: {type: string}
+          activity: {type: string}
+        required: [date, activity]
+        additionalProperties: false
+    simulated: {type: boolean}
+  required: [city, people, itinerary, simulated]
+  additionalProperties: false
+summary: *result
