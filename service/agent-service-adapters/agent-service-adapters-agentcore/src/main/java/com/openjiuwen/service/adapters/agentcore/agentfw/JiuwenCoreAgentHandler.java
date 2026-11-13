@@ -5,6 +5,7 @@
 package com.openjiuwen.service.adapters.agentcore.agentfw;
 
 import com.openjiuwen.core.common.exception.BaseError;
+import com.openjiuwen.core.common.logging.LoggingUtils;
 import com.openjiuwen.core.common.schema.BaseCard;
 import com.openjiuwen.core.context.ContextEngine;
 import com.openjiuwen.core.controller.schema.ControllerOutput;
@@ -18,10 +19,12 @@ import com.openjiuwen.core.runner.RunnerConfig;
 import com.openjiuwen.core.runner.base.Tag;
 import com.openjiuwen.core.session.AgentSession;
 import com.openjiuwen.core.session.AgentSessionApi;
+import com.openjiuwen.core.session.checkpointer.Checkpointer;
 import com.openjiuwen.core.session.checkpointer.CheckpointerConfig;
 import com.openjiuwen.core.session.checkpointer.CheckpointerFactory;
 import com.openjiuwen.core.session.checkpointer.step.PauseRequestRegistry;
 import com.openjiuwen.core.session.checkpointer.step.StepCheckpointRecoveryService;
+import com.openjiuwen.core.session.checkpointer.step.StepCursor;
 import com.openjiuwen.core.session.interaction.InteractionOutput;
 import com.openjiuwen.core.session.interaction.InteractiveInput;
 import com.openjiuwen.core.session.stream.OutputSchema;
@@ -501,6 +504,20 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
     }
 
     /**
+     * This handler implements the issue #117 session operations
+     * ({@link #resumeSession(String)}, {@link #requestPause(String, Map)},
+     * {@link #compactSession(String, Map)} have real implementations), so
+     * the capability probe returns {@code true} and callers may rely on the
+     * operations instead of rejecting them.
+     *
+     * @return {@code true}, always
+     */
+    @Override
+    public boolean supportsSessionOperations() {
+        return true;
+    }
+
+    /**
      * Resumes a user-paused session from the persisted paused boundary
      * (issue #117): the paused step cursor is flipped back to RUNNING and
      * the execution continues from that boundary on the same session id, so
@@ -508,6 +525,12 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * completed round and no round is replayed. The continuation runs
      * synchronously and its result is audited; a missing paused cursor or an
      * unsupported checkpoint backend surfaces as {@link IllegalStateException}.
+     *
+     * <p>When the continuation fails before reaching the first step
+     * boundary, the persisted paused evidence is restored so the session
+     * stays resumable; a continuation that already advanced past a boundary
+     * leaves its snapshots in place, because such a session holds a real
+     * mid-flight state a fresh resume must not rewind.</p>
      *
      * @param sessionId session id of the paused session
      * @throws IllegalStateException when no paused cursor exists for the
@@ -526,7 +549,62 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         }
         log.info("Paused session resumed from boundary {}: session_id={}, seq={}",
                 action.cursor(), sessionId, action.cursor() == null ? null : action.cursor().getSeq());
-        continueFromBoundary(sessionId);
+        try {
+            continueFromBoundary(sessionId);
+        } catch (RuntimeException exception) {
+            if (!restorePausedEvidence(sessionId)) {
+                exception.addSuppressed(new IllegalStateException(
+                        "Paused evidence not restored for session_id " + sessionId
+                                + "; the continuation already advanced past a step boundary"));
+            }
+            throw exception;
+        }
+    }
+
+    /**
+     * Restores the persisted paused evidence of a session whose resume
+     * continuation failed: a request-scoped session recovers the persisted
+     * snapshot (the resume flipped it to RUNNING), the original paused
+     * cursor is written back onto that live state, and the regular save
+     * transaction republishes it. A backend that has no paused cursor
+     * anymore (the continuation already saved a newer boundary) is skipped,
+     * so a genuinely mid-flight session is never rewound to its pause point.
+     *
+     * @param sessionId session id whose paused evidence is restored
+     * @return true when the paused evidence was persisted again
+     */
+    private boolean restorePausedEvidence(String sessionId) {
+        Checkpointer checkpointer = CheckpointerFactory.getCheckpointer();
+        StepCheckpointRecoveryService recovery = new StepCheckpointRecoveryService(checkpointer, null);
+        StepCursor paused = recovery.pausedCursor(sessionId);
+        if (paused == null) {
+            return false;
+        }
+        try {
+            AgentSessionApi session = AgentSession.createAgentSession(sessionId, Map.of(), resolveSessionCard());
+            session.preRun(Map.of());
+            Map<String, Object> pausedMap = new LinkedHashMap<>();
+            pausedMap.put(StepCursor.PAUSED_STATE_KEY, paused.toMap());
+            // The paused evidence lives in the agent-state partition (the
+            // partition the checkpointer reads cursors from), so the write
+            // goes through the session's agent-state collection rather than
+            // the facade's global-state updater.
+            if (session instanceof AgentSession agentSession) {
+                agentSession.getInner().state().update(pausedMap);
+            } else {
+                session.updateState(pausedMap);
+            }
+            session.commit();
+            log.info("Paused evidence restored after failed resume: session_id={}, seq={}", sessionId,
+                    paused.getSeq());
+            return true;
+        } catch (RuntimeException restoreFailure) {
+            log.warn("Paused evidence restore failed for session_id={}: {}", sessionId,
+                    restoreFailure.getMessage());
+            return false;
+        } finally {
+            LoggingUtils.setSessionId();
+        }
     }
 
     /**
@@ -647,9 +725,6 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         if (sessionId == null || sessionId.isBlank()) {
             throw new IllegalStateException("Cannot compact a blank session id");
         }
-        ContextEngine engine = contextEngine(resolveAgent())
-                .orElseThrow(() -> new IllegalStateException(
-                        "Session context engine is unavailable for session_id " + sessionId));
         Map<String, Object> effectiveOptions = options == null ? Map.of() : options;
         String contextId = effectiveOptions.get("context_id") instanceof String value && !value.isBlank()
                 ? value : null;
@@ -664,14 +739,20 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
         // Restore the checkpointed session state before compressing so the
         // processors operate on the persisted conversation, then persist the
         // compacted state through the same checkpoint save path.
-        Object session = compactRunnerSession(sessionId);
+        AgentSession session = compactRunnerSession(sessionId);
+        ContextEngine engine = contextEngine(resolveAgent())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Session context engine is unavailable for session_id " + sessionId));
         Object rawResult;
         try {
             rawResult = engine.compressContext(contextId, session, sessionId, processorTypes, kwargs);
             engine.saveContexts(session);
+            session.commit();
         } catch (RuntimeException exception) {
             throw new IllegalStateException("Session compaction failed for session_id " + sessionId
                     + ": " + exception.getMessage(), exception);
+        } finally {
+            LoggingUtils.setSessionId();
         }
         String result = rawResult instanceof Map<?, ?> map && map.get("result") != null
                 ? String.valueOf(map.get("result"))
@@ -691,15 +772,25 @@ public class JiuwenCoreAgentHandler implements AgentHandler {
      * regular query: {@code preRun} restores the checkpointed state, so the
      * compression processors see the persisted conversation.
      *
+     * <p>Compaction always forces an explicit session object: the context
+     * engine resolves the owning session from the object's identity, reads
+     * and writes context state through it, and persists the compacted state
+     * through its checkpoint commit, none of which a bare session-id string
+     * can carry.</p>
+     *
      * @param sessionId session id to restore
      * @return the restored request-scoped session
      */
-    private Object compactRunnerSession(String sessionId) {
+    private AgentSession compactRunnerSession(String sessionId) {
         ServeRequest request = new ServeRequest();
         request.setConversationId(sessionId);
         request.setMessages(List.of(Map.of("role", "user", "content", "[compact]")));
         request.setStream(false);
-        return runnerSession(request);
+        Object card = resolveSessionCard();
+        AgentSession session = AgentSession.createAgentSession(sessionId, sessionEnvs(request), card);
+        session.preRun(Map.of("inputs", Map.of()));
+        session.markPreRunDone();
+        return session;
     }
 
     private Object resolveAgent() {

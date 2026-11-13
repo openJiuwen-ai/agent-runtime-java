@@ -39,7 +39,17 @@ class SessionManageServiceTest {
     @BeforeEach
     void setUp() {
         coordinator = Mockito.mock(SessionPauseResumeCoordinator.class);
+        // Default stub: the coordinator reports session-operations support, so
+        // pause/resume/compact pass the capability gate. Individual tests
+        // override this to exercise the 501 unsupported path.
+        when(coordinator.supportsSessionOperations()).thenReturn(true);
         activeTaskQuery = Mockito.mock(ActiveTaskQuery.class);
+        // Default stub: a successful query reporting no active tasks, i.e.
+        // every unmanaged session resolves to IDLE. Individual tests override
+        // the snapshot to simulate running sessions or query failures.
+        ConcurrencyLoadSnapshot emptySnapshot = Mockito.mock(ConcurrencyLoadSnapshot.class);
+        when(emptySnapshot.getTasks()).thenReturn(List.of());
+        when(activeTaskQuery.snapshot()).thenReturn(emptySnapshot);
         activeTaskQueryProvider = providerOf(activeTaskQuery);
         readinessProvider = providerOf(null);
         properties = new SessionApiProperties();
@@ -55,7 +65,7 @@ class SessionManageServiceTest {
         SessionManageService.PauseOutcome outcome = service.pause("s-running", "op-1", null);
 
         assertThat(outcome.status().value()).isEqualTo(202);
-        assertThat(outcome.alreadyInState()).isFalse();
+        assertThat(outcome.isAlreadyInState()).isFalse();
     }
 
     @Test
@@ -199,14 +209,65 @@ class SessionManageServiceTest {
     }
 
     @Test
-    void compactDisabledWhenPauseDisabled() {
-        properties.setPauseEnabled(false);
+    void compactDisabledWhenOperationsDisabled() {
+        properties.setOperationsEnabled(false);
         SessionManageService service = newService();
 
         SessionManageService.CompactOutcome outcome = service.compact("s-idle", "op-1", null);
 
         assertThat(outcome.status()).isEqualTo(org.springframework.http.HttpStatus.NOT_FOUND);
         Mockito.verify(coordinator, Mockito.never()).compactSession(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void unsupportedOperationsMapTo501() {
+        when(coordinator.supportsSessionOperations()).thenReturn(false);
+        SessionManageService service = newService();
+
+        SessionManageService.PauseOutcome pauseOutcome = service.pause("s-1", "op-1", null);
+        SessionManageService.ResumeOutcome resumeOutcome = service.resume("s-1", "op-1");
+        SessionManageService.CompactOutcome compactOutcome = service.compact("s-1", "op-1", null);
+
+        assertThat(pauseOutcome.status()).isEqualTo(org.springframework.http.HttpStatus.NOT_IMPLEMENTED);
+        assertThat(pauseOutcome.body().get("error")).isEqualTo("SESSION_OPERATION_UNSUPPORTED");
+        assertThat(resumeOutcome.status()).isEqualTo(org.springframework.http.HttpStatus.NOT_IMPLEMENTED);
+        assertThat(compactOutcome.status()).isEqualTo(org.springframework.http.HttpStatus.NOT_IMPLEMENTED);
+        Mockito.verify(coordinator, Mockito.never()).pause(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any());
+        Mockito.verify(coordinator, Mockito.never()).resume(Mockito.any(), Mockito.any());
+        Mockito.verify(coordinator, Mockito.never()).compactSession(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void stateQueryFailureMapsTo503ForPauseResumeCompact() {
+        when(activeTaskQuery.snapshot()).thenThrow(new IllegalStateException("task store down"));
+        SessionManageService service = newService();
+
+        SessionManageService.PauseOutcome pauseOutcome = service.pause("s-1", "op-1", null);
+        SessionManageService.ResumeOutcome resumeOutcome = service.resume("s-1", "op-1");
+        SessionManageService.CompactOutcome compactOutcome = service.compact("s-1", "op-1", null);
+
+        assertThat(pauseOutcome.status().value()).isEqualTo(503);
+        assertThat(pauseOutcome.body().get("error")).isEqualTo("SESSION_STATE_UNAVAILABLE");
+        assertThat(resumeOutcome.status().value()).isEqualTo(503);
+        assertThat(compactOutcome.status().value()).isEqualTo(503);
+        Mockito.verify(coordinator, Mockito.never()).pause(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any());
+        Mockito.verify(coordinator, Mockito.never()).resume(Mockito.any(), Mockito.any());
+        Mockito.verify(coordinator, Mockito.never()).compactSession(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void stateQueryFailureStillTerminates() {
+        when(activeTaskQuery.snapshot()).thenThrow(new IllegalStateException("task store down"));
+        SessionOperationResult accepted = SessionOperationResult.accepted(SessionState.TERMINATED, "ok");
+        when(coordinator.terminate("s-1", "op-1")).thenReturn(accepted);
+        SessionManageService service = newService();
+
+        SessionManageService.TerminateOutcome outcome = service.terminate("s-1", "op-1");
+
+        assertThat(outcome.status().value()).isEqualTo(202);
+        Mockito.verify(coordinator).terminate("s-1", "op-1");
     }
 
     private SessionManageService newService() {

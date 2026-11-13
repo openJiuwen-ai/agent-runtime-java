@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executor;
 
 /**
@@ -49,11 +50,11 @@ public class SessionPauseResumeCoordinator {
     /** Maximum size of the debounce bookkeeping before it is reset wholesale. */
     private static final int DEBOUNCE_MAP_LIMIT = 10_000;
 
-    /** Maximum size of the terminated-session registry before it is reset wholesale. */
-    private static final int TERMINATED_SET_LIMIT = 10_000;
-
     /** Metadata key carrying the caller tenant id inside the pause intent. */
     static final String TENANT_ID_KEY = "tenant_id";
+
+    /** Maximum number of terminated-session records the LRU registry retains. */
+    private static final int TERMINATED_SET_LIMIT = 10_000;
 
     private final ObjectProvider<ServeOrchestrator> orchestratorProvider;
     private final ActiveStreamInterruptor streamInterruptor;
@@ -61,6 +62,8 @@ public class SessionPauseResumeCoordinator {
     private final Executor pauseExecutor;
     private final Map<String, Long> lastPauseRequestMillis = new ConcurrentHashMap<>();
     private final Set<String> pausedSessions = ConcurrentHashMap.newKeySet();
+    /** Insertion-ordered ids mirroring the entries of {@link #terminatedSessions} for LRU eviction. */
+    private final ConcurrentLinkedDeque<String> terminatedOrder = new ConcurrentLinkedDeque<>();
     private final Set<String> terminatedSessions = ConcurrentHashMap.newKeySet();
 
     /**
@@ -78,6 +81,19 @@ public class SessionPauseResumeCoordinator {
         this.streamInterruptor = Objects.requireNonNull(streamInterruptor, "streamInterruptor");
         this.admissionGateProvider = Objects.requireNonNull(admissionGateProvider, "admissionGateProvider");
         this.pauseExecutor = Objects.requireNonNull(pauseExecutor, "pauseExecutor");
+    }
+
+    /**
+     * Whether the configured orchestrator implements the issue #117 session
+     * operations (pause/resume/compact). Exposed so the session management
+     * service can reject the operations up front (HTTP 501) instead of
+     * recording a paused state that no orchestrator will ever consume.
+     *
+     * @return {@code true} when the orchestrator supports the operations
+     */
+    public boolean supportsSessionOperations() {
+        ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
+        return orchestrator != null && orchestrator.supportsSessionOperations();
     }
 
     /**
@@ -101,16 +117,27 @@ public class SessionPauseResumeCoordinator {
      * intent can resolve the same tenant-scoped registry key the executing
      * loop consumes under tenant-aware deployments.
      *
+     * <p>Orchestrators without session-operations support are rejected
+     * synchronously before any registry bookkeeping: publishing no intent
+     * but interrupting anyway would leave the execution without a persisted
+     * pause point - unresumable.</p>
+     *
      * @param sessionId target session id, never null or blank
      * @param operator operator identity for audit, may be null
      * @param tenantId tenant identity of the calling tenant, may be null in
      *        tenant-less deployments
      * @param reason pause reason for audit, may be null
-     * @return orchestration result; {@code rejected} only for blank ids
+     * @return orchestration result; {@code rejected} for blank ids,
+     *         unsupported orchestrators, or scheduling failures
      */
     public SessionOperationResult pause(String sessionId, String operator, String tenantId, String reason) {
         if (isBlank(sessionId)) {
             return SessionOperationResult.rejected(null, "sessionId is blank");
+        }
+        ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
+        if (orchestrator == null || !orchestrator.supportsSessionOperations()) {
+            return SessionOperationResult.rejected(SessionState.RUNNING,
+                    "pause is not supported by the configured orchestrator");
         }
         long now = System.currentTimeMillis();
         Long lastRequest = lastPauseRequestMillis.get(sessionId);
@@ -123,7 +150,15 @@ public class SessionPauseResumeCoordinator {
         pausedSessions.add(sessionId);
         SessionOperationResult accepted = SessionOperationResult.accepted(SessionState.PAUSED,
                 "pause accepted; execution will be interrupted at the next step boundary");
-        pauseExecutor.execute(() -> doPause(sessionId, operator, tenantId, reason));
+        try {
+            pauseExecutor.execute(() -> doPause(sessionId, operator, tenantId, reason));
+        } catch (RuntimeException exception) {
+            log.warn("Pause scheduling failed for session_id={}: {}", sessionId, exception.getMessage());
+            rollbackPausedState(sessionId, true);
+            lastPauseRequestMillis.remove(sessionId);
+            return SessionOperationResult.rejected(SessionState.RUNNING,
+                    "pause scheduling failed; session keeps running and pause can be retried");
+        }
         return accepted;
     }
 
@@ -139,12 +174,17 @@ public class SessionPauseResumeCoordinator {
      *
      * @param sessionId target session id, never null or blank
      * @param operator operator identity for audit, may be null
-     * @return orchestration result; {@code rejected} for blank ids, admission
-     *         rejection, or state conflicts
+     * @return orchestration result; {@code rejected} for blank ids, unsupported
+     *         orchestrators, admission rejection, or state conflicts
      */
     public SessionOperationResult resume(String sessionId, String operator) {
         if (isBlank(sessionId)) {
             return SessionOperationResult.rejected(null, "sessionId is blank");
+        }
+        ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
+        if (orchestrator == null || !orchestrator.supportsSessionOperations()) {
+            return SessionOperationResult.rejected(SessionState.PAUSED,
+                    "resume is not supported by the configured orchestrator");
         }
         TaskAdmissionGate gate = admissionGateProvider.getIfAvailable();
         if (gate != null && !gate.tryAcquire()) {
@@ -154,7 +194,15 @@ public class SessionPauseResumeCoordinator {
         }
         SessionOperationResult accepted = SessionOperationResult.accepted(SessionState.RUNNING,
                 "resume accepted; continuation starts from the persisted paused boundary");
-        pauseExecutor.execute(() -> doResume(sessionId, operator));
+        try {
+            pauseExecutor.execute(() -> doResume(sessionId, operator));
+        } catch (RuntimeException exception) {
+            log.warn("Resume scheduling failed for session_id={}: {}", sessionId, exception.getMessage());
+            rollbackPausedState(sessionId, true);
+            releaseAdmission(sessionId);
+            return SessionOperationResult.rejected(SessionState.PAUSED,
+                    "resume scheduling failed; session remains paused and resume can be retried");
+        }
         return accepted;
     }
 
@@ -192,13 +240,18 @@ public class SessionPauseResumeCoordinator {
         if (isBlank(sessionId)) {
             return SessionOperationResult.rejected(null, "sessionId is blank");
         }
-        terminatedSessions.add(sessionId);
-        boundClear(terminatedSessions, TERMINATED_SET_LIMIT);
+        recordTerminated(sessionId);
         pausedSessions.remove(sessionId);
         lastPauseRequestMillis.remove(sessionId);
         SessionOperationResult accepted = SessionOperationResult.accepted(SessionState.TERMINATED,
                 "terminate accepted; active execution will be interrupted");
-        pauseExecutor.execute(() -> doInterruptOnly(sessionId, operator));
+        try {
+            pauseExecutor.execute(() -> doInterruptOnly(sessionId, operator));
+        } catch (RuntimeException exception) {
+            log.warn("Terminate scheduling failed for session_id={}: {}", sessionId, exception.getMessage());
+            return SessionOperationResult.rejected(SessionState.TERMINATED,
+                    "terminate scheduling failed; the interruption can be retried");
+        }
         return accepted;
     }
 
@@ -229,7 +282,8 @@ public class SessionPauseResumeCoordinator {
      * @param options compression options (processor types, thresholds); may
      *                be null for the default strategy
      * @return the handler's compression outcome, never null
-     * @throws IllegalStateException when no orchestrator is available or the
+     * @throws IllegalStateException when no orchestrator is available, the
+     *         orchestrator lacks session-operations support, or the
      *         compaction execution fails
      */
     public Map<String, Object> compactSession(String sessionId, String operator, Map<String, Object> options) {
@@ -237,6 +291,9 @@ public class SessionPauseResumeCoordinator {
         ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
         if (orchestrator == null) {
             throw new IllegalStateException("No ServeOrchestrator available for session_id " + sessionId);
+        }
+        if (!orchestrator.supportsSessionOperations()) {
+            throw new IllegalStateException("Session compaction is not supported by the configured orchestrator");
         }
         return orchestrator.compactSession(sessionId, options);
     }
@@ -293,6 +350,9 @@ public class SessionPauseResumeCoordinator {
             // anyway would trade a running session for an unresumable corpse.
             log.warn("Pause aborted without intent for session_id={}; session keeps running", sessionId);
             pausedSessions.remove(sessionId);
+            // A retry within the debounce window must not be merged against a
+            // pause that never took effect.
+            lastPauseRequestMillis.remove(sessionId);
             return;
         }
         try {
@@ -337,11 +397,14 @@ public class SessionPauseResumeCoordinator {
      */
     private void doResume(String sessionId, String operator) {
         log.info("Resume requested: session_id={}, operator={}", sessionId, operator);
-        boolean wasPaused = pausedSessions.remove(sessionId);
+        boolean wasSessionPaused = pausedSessions.remove(sessionId);
+        // A pause accepted after this resume must not merge against the stale
+        // debounce timestamp of the pre-resume pause request.
+        lastPauseRequestMillis.remove(sessionId);
         ServeOrchestrator orchestrator = orchestratorProvider.getIfAvailable();
         if (orchestrator == null) {
             log.warn("No ServeOrchestrator available, resume continuation skipped for session_id={}", sessionId);
-            rollbackPausedState(sessionId, wasPaused);
+            rollbackPausedState(sessionId, wasSessionPaused);
             releaseAdmission(sessionId);
             return;
         }
@@ -349,7 +412,7 @@ public class SessionPauseResumeCoordinator {
             orchestrator.resumeSession(sessionId);
         } catch (RuntimeException exception) {
             log.warn("Resume continuation failed for session_id={}: {}", sessionId, exception.getMessage());
-            rollbackPausedState(sessionId, wasPaused);
+            rollbackPausedState(sessionId, wasSessionPaused);
         } finally {
             releaseAdmission(sessionId);
         }
@@ -361,11 +424,11 @@ public class SessionPauseResumeCoordinator {
      * pause record.
      *
      * @param sessionId target session id
-     * @param wasPaused whether the session was recorded as paused before the
-     *        transition removed the record
+     * @param wasSessionPaused whether the session was recorded as paused
+     *        before the transition removed the record
      */
-    private void rollbackPausedState(String sessionId, boolean wasPaused) {
-        if (wasPaused) {
+    private void rollbackPausedState(String sessionId, boolean wasSessionPaused) {
+        if (wasSessionPaused) {
             pausedSessions.add(sessionId);
         }
     }
@@ -375,25 +438,38 @@ public class SessionPauseResumeCoordinator {
     }
 
     /**
-     * Bounds the bookkeeping collections wholesale: once the collection
-     * exceeds the limit it is emptied in one step. The debounce map losing
-     * entries only widens the merge window for one request; the terminated
-     * registry losing entries only resets repeated-terminate idempotency to
-     * a fresh interrupt, both benign against unbounded process-lifetime
-     * growth.
+     * Records a terminated session in the registry and evicts the oldest
+     * record when the registry exceeds its limit. Unlike a wholesale reset,
+     * per-entry eviction keeps every other terminated session final, so the
+     * "terminated is terminal" state machine guarantee survives high session
+     * turnover; only the least recently terminated record loses its
+     * repeated-terminate idempotency.
      *
-     * @param <T> collection value type
-     * @param collection collection to bound
-     * @param limit maximum retained entries
+     * @param sessionId session id to record
      */
-    private static <T> void boundClear(Map<String, T> collection, int limit) {
-        if (collection.size() > limit) {
-            log.warn("Session bookkeeping exceeded {} entries, resetting", limit);
-            collection.clear();
+    private void recordTerminated(String sessionId) {
+        terminatedSessions.add(sessionId);
+        terminatedOrder.addLast(sessionId);
+        while (terminatedSessions.size() > TERMINATED_SET_LIMIT) {
+            String oldest = terminatedOrder.pollFirst();
+            if (oldest == null) {
+                break;
+            }
+            terminatedSessions.remove(oldest);
         }
     }
 
-    private static void boundClear(Set<String> collection, int limit) {
+    /**
+     * Bounds the debounce bookkeeping wholesale: once the map exceeds the
+     * limit it is emptied in one step. Losing debounce entries only widens
+     * the merge window for one request, benign against unbounded
+     * process-lifetime growth.
+     *
+     * @param <T> map value type
+     * @param collection map to bound
+     * @param limit maximum retained entries
+     */
+    private static <T> void boundClear(Map<String, T> collection, int limit) {
         if (collection.size() > limit) {
             log.warn("Session bookkeeping exceeded {} entries, resetting", limit);
             collection.clear();

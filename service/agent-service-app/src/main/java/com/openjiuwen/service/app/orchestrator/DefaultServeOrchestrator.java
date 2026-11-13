@@ -112,37 +112,72 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
     }
 
     /**
+     * The capability probe follows the delegate handler: this orchestrator
+     * forwards the issue #117 session operations to the handler, so it
+     * supports them exactly when the handler does.
+     *
+     * @return {@code true} when the delegate handler implements the session
+     *         operations
+     */
+    @Override
+    public boolean supportsSessionOperations() {
+        return agentHandler.supportsSessionOperations();
+    }
+
+    /**
      * Resumes a user-paused session by delegating to the handler's explicit
      * resume entry (issue #117): the handler flips the persisted PAUSED step
      * cursor back to RUNNING and continues the execution from that boundary.
+     * The delegation drives the prepareTask/completeTask hooks like every
+     * other request-scoped delegation, so handlers relying on those
+     * resources behave identically on the resume path.
      *
      * @param sessionId session id of the paused session
      */
     @Override
     public void resumeSession(String sessionId) {
+        requireSessionOperations("resume");
         log.info("Resuming paused session for session_id={}", sessionId);
-        agentHandler.resumeSession(sessionId);
+        ServeRequest request = sessionOperationRequest(sessionId);
+        Optional<Object> taskToken = Optional.empty();
+        try {
+            taskToken = agentHandler.prepareTask(request);
+            agentHandler.resumeSession(sessionId);
+        } finally {
+            agentHandler.completeTask(taskToken);
+        }
     }
 
     /**
      * Publishes the user pause intent through the handler (issue #117): the
      * executing agent loop stops at its next step boundary with the PAUSED
-     * cursor persisted.
+     * cursor persisted. The delegation drives the prepareTask/completeTask
+     * hooks so the intent is published under the same request-scoped
+     * resources a regular query delegation would hold.
      *
      * @param sessionId session id of the running session
      * @param pauseInfo pause metadata persisted with the paused cursor
      */
     @Override
     public void requestPause(String sessionId, Map<String, Object> pauseInfo) {
+        requireSessionOperations("pause");
         log.info("Requesting pause for session_id={}", sessionId);
-        agentHandler.requestPause(sessionId, pauseInfo);
+        ServeRequest request = sessionOperationRequest(sessionId);
+        Optional<Object> taskToken = Optional.empty();
+        try {
+            taskToken = agentHandler.prepareTask(request);
+            agentHandler.requestPause(sessionId, pauseInfo);
+        } finally {
+            agentHandler.completeTask(taskToken);
+        }
     }
 
     /**
      * Compacts the persisted context of an idle session by delegating to the
      * handler (issue #117): the handler restores the session from the
      * checkpoint, runs the compression processors, and persists the compacted
-     * state.
+     * state. The delegation drives the prepareTask/completeTask hooks like
+     * every other request-scoped delegation.
      *
      * @param sessionId session id of the idle session
      * @param options compression options (processor types, thresholds); may
@@ -151,8 +186,46 @@ public class DefaultServeOrchestrator implements ServeOrchestrator {
      */
     @Override
     public Map<String, Object> compactSession(String sessionId, Map<String, Object> options) {
+        requireSessionOperations("compact");
         log.info("Compacting session for session_id={}", sessionId);
-        return agentHandler.compactSession(sessionId, options);
+        ServeRequest request = sessionOperationRequest(sessionId);
+        Optional<Object> taskToken = Optional.empty();
+        try {
+            taskToken = agentHandler.prepareTask(request);
+            return agentHandler.compactSession(sessionId, options);
+        } finally {
+            agentHandler.completeTask(taskToken);
+        }
+    }
+
+    /**
+     * Builds the minimal serve request identifying a session-operations
+     * delegation: the prepareTask hook keys its request-scoped resources on
+     * the conversation id, mirroring what a regular query delegation for the
+     * same session would carry.
+     *
+     * @param sessionId target session id
+     * @return the serve request for the delegation
+     */
+    private static ServeRequest sessionOperationRequest(String sessionId) {
+        ServeRequest request = new ServeRequest();
+        request.setConversationId(sessionId);
+        return request;
+    }
+
+    /**
+     * Guards the session-operations delegations against handlers without
+     * pause/resume/compact support: delegating anyway would make a pause a
+     * silent no-op followed by an interrupt that leaves the session without
+     * a persisted pause point - unresumable.
+     *
+     * @param operation operation name for the error message
+     */
+    private void requireSessionOperations(String operation) {
+        if (!agentHandler.supportsSessionOperations()) {
+            throw new IllegalStateException("Session operation '" + operation
+                    + "' is not supported by the configured agent handler");
+        }
     }
 
     private QueryStreamObserver wrapObserver(QueryStreamObserver observer, StreamCancellationHandle handle) {

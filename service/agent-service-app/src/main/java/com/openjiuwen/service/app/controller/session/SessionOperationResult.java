@@ -7,14 +7,15 @@ package com.openjiuwen.service.app.controller.session;
 /**
  * Result of one session management orchestration (pause / resume / terminate).
  *
- * @param accepted whether the request was accepted for asynchronous processing
+ * @param isAccepted whether the request was accepted for asynchronous processing
  * @param state session state after the orchestration decision
- * @param alreadyInState whether the session was already in the requested
+ * @param isAlreadyInState whether the session was already in the requested
  *                       state, making this call an idempotent no-op
  * @param detail human-readable orchestration detail for audit
  * @since 0.1.5
  */
-public record SessionOperationResult(boolean accepted, SessionState state, boolean alreadyInState, String detail) {
+public record SessionOperationResult(boolean isAccepted, SessionState state, boolean isAlreadyInState,
+        String detail) {
 
     /**
      * Build an accepted result for a state transition now in progress.

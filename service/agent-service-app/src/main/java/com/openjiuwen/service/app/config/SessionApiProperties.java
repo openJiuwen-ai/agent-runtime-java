@@ -13,25 +13,29 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @ConfigurationProperties(prefix = "openjiuwen.service.session-api")
 public class SessionApiProperties {
-
-    /** Whether the pause and resume endpoints are served. */
-    private boolean pauseEnabled = true;
+    /**
+     * Whether the session-operations endpoints (pause, resume, compact) are
+     * served. Disabling the flag hides all three transitions behind a 404,
+     * while the read-only endpoints (list, detail, messages) stay available.
+     */
+    private boolean operationsEnabled = true;
 
     /**
-     * Whether the pause and resume endpoints are enabled.
+     * Whether the session-operations endpoints (pause, resume, compact) are
+     * enabled.
      *
-     * @return true when pause/resume are enabled
+     * @return true when pause, resume, and compact are enabled
      */
-    public boolean isPauseEnabled() {
-        return pauseEnabled;
+    public boolean isOperationsEnabled() {
+        return operationsEnabled;
     }
 
     /**
-     * Sets whether the pause and resume endpoints are enabled.
+     * Sets whether the session-operations endpoints are enabled.
      *
-     * @param pauseEnabled new enabled flag
+     * @param operationsEnabled new enabled flag
      */
-    public void setPauseEnabled(boolean pauseEnabled) {
-        this.pauseEnabled = pauseEnabled;
+    public void setOperationsEnabled(boolean operationsEnabled) {
+        this.operationsEnabled = operationsEnabled;
     }
 }

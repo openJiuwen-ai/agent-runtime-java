@@ -19,5 +19,7 @@ public enum SessionState {
     /** The session was suspended by an explicit user pause. */
     PAUSED,
     /** The session was terminated; the state is final. */
-    TERMINATED
+    TERMINATED,
+    /** The state could not be determined (task-store query failure). */
+    UNKNOWN
 }

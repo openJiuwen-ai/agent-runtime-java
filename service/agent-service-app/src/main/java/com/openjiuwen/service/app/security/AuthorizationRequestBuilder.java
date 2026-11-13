@@ -14,6 +14,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.util.UriTemplate;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -22,7 +23,9 @@ import java.util.Map;
  * <p>When the matched endpoint declares a {@code sessionId} path variable the
  * builder injects it under {@link AgentServicePaths#EXTENSION_RESOURCE_ID} so
  * authorizers can enforce resource-level ("may this subject touch this
- * session") checks on top of subject-level decisions.</p>
+ * session") checks on top of subject-level decisions. All session management
+ * endpoints (detail, messages, pause, resume, terminate, compact) carry the
+ * extension; other paths keep the extensions map empty.</p>
  *
  * @since 0.1.0
  */
@@ -30,6 +33,19 @@ public final class AuthorizationRequestBuilder {
     private static final Map<String, Object> EMPTY_EXTENSIONS = Map.of();
 
     private static final String SESSION_ID_VARIABLE = "sessionId";
+
+    /**
+     * Session path templates carrying the {@code sessionId} path variable,
+     * ordered from the most specific sub-resource paths to the detail path so
+     * the first match resolves the exact endpoint template.
+     */
+    private static final List<UriTemplate> SESSION_PATH_TEMPLATES = List.of(
+            new UriTemplate(AgentServicePaths.SESSION_MESSAGES),
+            new UriTemplate(AgentServicePaths.SESSION_PAUSE),
+            new UriTemplate(AgentServicePaths.SESSION_RESUME),
+            new UriTemplate(AgentServicePaths.SESSION_TERMINATE),
+            new UriTemplate(AgentServicePaths.SESSION_COMPACT),
+            new UriTemplate(AgentServicePaths.SESSION_DETAIL));
 
     private AuthorizationRequestBuilder() {
     }
@@ -90,7 +106,9 @@ public final class AuthorizationRequestBuilder {
     /**
      * Extracts the {@code sessionId} path variable from the lookup path and
      * exposes it under the {@code resource.id} extension key; endpoints without
-     * a session-scoped path keep the empty extensions map.
+     * a session-scoped path keep the empty extensions map. All session path
+     * templates are tried, so sub-resource endpoints (pause / resume /
+     * terminate / compact / messages) resolve the session id of their target.
      *
      * @param lookupPath request path without context or servlet prefix, may be null
      * @return extensions map carrying the target session id when resolvable
@@ -99,12 +117,17 @@ public final class AuthorizationRequestBuilder {
         if (lookupPath == null || lookupPath.isBlank()) {
             return EMPTY_EXTENSIONS;
         }
-        String sessionId = new UriTemplate(AgentServicePaths.SESSION_DETAIL).match(lookupPath)
-                .get(SESSION_ID_VARIABLE);
-        if (sessionId == null || sessionId.isBlank()) {
-            return EMPTY_EXTENSIONS;
+        for (UriTemplate template : SESSION_PATH_TEMPLATES) {
+            Map<String, String> variables = template.match(lookupPath);
+            if (variables == null) {
+                continue;
+            }
+            String sessionId = variables.get(SESSION_ID_VARIABLE);
+            if (sessionId != null && !sessionId.isBlank()) {
+                return Map.of(AgentServicePaths.EXTENSION_RESOURCE_ID, sessionId);
+            }
         }
-        return Map.of(AgentServicePaths.EXTENSION_RESOURCE_ID, sessionId);
+        return EMPTY_EXTENSIONS;
     }
 
     private static HttpHeaders toHeaders(HttpServletRequest request) {

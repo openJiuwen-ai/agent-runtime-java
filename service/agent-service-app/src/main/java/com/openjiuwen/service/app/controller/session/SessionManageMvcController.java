@@ -18,8 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import java.util.Map;
 
 /**
@@ -47,12 +46,14 @@ public class SessionManageMvcController {
     }
 
     /**
-     * Lists managed sessions with paging and state filtering.
+     * Lists managed sessions with paging and state filtering; the storage
+     * listing capability is not wired yet, so the endpoint reports itself as
+     * not implemented instead of answering with a forged empty page.
      *
      * @param state optional state filter
      * @param page optional page index
      * @param size optional page size
-     * @return paged session list
+     * @return 501 until the storage listing capability (T1) lands
      */
     @GetMapping(value = AgentServicePaths.SESSIONS, produces = MediaType.APPLICATION_JSON_VALUE)
     @AuthorizedResource(resource = "session", action = "list")
@@ -60,8 +61,8 @@ public class SessionManageMvcController {
             @RequestParam(name = "state", required = false) String state,
             @RequestParam(name = "page", required = false, defaultValue = "0") int page,
             @RequestParam(name = "size", required = false, defaultValue = "20") int size) {
-        Map<String, Object> body = Map.of("sessions", List.of(), "page", page, "size", size);
-        return ResponseEntity.ok(body);
+        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
+                .body(Map.of("error", "sessions listing requires the storage listing capability (T1)"));
     }
 
     /**
@@ -74,7 +75,7 @@ public class SessionManageMvcController {
     @AuthorizedResource(resource = "session", action = "read")
     public ResponseEntity<Map<String, Object>> sessionDetail(@PathVariable("sessionId") String sessionId) {
         Map<String, Object> detail = service.sessionDetail(sessionId);
-        if (detail == null) {
+        if (detail.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "session not found"));
         }
@@ -162,5 +163,21 @@ public class SessionManageMvcController {
             @RequestHeader(name = "X-User-Id", required = false) String userId) {
         SessionManageService.CompactOutcome outcome = service.compact(sessionId, userId, null);
         return ResponseEntity.status(outcome.status()).body(outcome.body());
+    }
+
+    /**
+     * Maps an undecidable session state to the 503 fail-closed response:
+     * the servlet stack would otherwise answer a failed task-store query
+     * with a generic 500, losing the retryable-failure semantics.
+     *
+     * @param exception the state resolution failure
+     * @return the 503 response entity
+     */
+    @ExceptionHandler(SessionManageService.SessionStateException.class)
+    public ResponseEntity<Map<String, Object>> stateUnavailable(
+            SessionManageService.SessionStateException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Map.of("error", "SESSION_STATE_UNAVAILABLE",
+                        "detail", "the session state could not be determined; retry after the task store recovers"));
     }
 }

@@ -72,8 +72,12 @@ public class SessionManageService {
             return managed;
         }
         ActiveTaskQuery query = activeTaskQueryProvider.getIfAvailable();
-        if (query != null && hasActiveTask(query, sessionId)) {
-            return SessionState.RUNNING;
+        if (query != null) {
+            try {
+                return hasActiveTask(query, sessionId) ? SessionState.RUNNING : SessionState.IDLE;
+            } catch (SessionStateException exception) {
+                return SessionState.UNKNOWN;
+            }
         }
         return SessionState.IDLE;
     }
@@ -81,14 +85,14 @@ public class SessionManageService {
     /**
      * Validates readiness for session management operations.
      *
-     * @return error body when the agent is not ready, null otherwise
+     * @return error body when the agent is not ready, empty map otherwise
      */
     public Map<String, Object> readinessError() {
         AgentReadiness readiness = readinessProvider.getIfAvailable();
         if (readiness != null && !readiness.isAgentLoaded()) {
             return QueryIngressSupport.agentNotReady();
         }
-        return null;
+        return Map.of();
     }
 
     /**
@@ -120,12 +124,18 @@ public class SessionManageService {
      * @return the orchestration outcome for response mapping
      */
     public PauseOutcome pause(String sessionId, String operator, String tenantId, String reason) {
-        if (!properties.isPauseEnabled()) {
+        if (!properties.isOperationsEnabled()) {
             return PauseOutcome.disabled();
+        }
+        if (!pauseResumeCoordinator.supportsSessionOperations()) {
+            return PauseOutcome.unsupported();
         }
         SessionState current = sessionState(sessionId);
         if (current == null) {
             return PauseOutcome.notFound();
+        }
+        if (current == SessionState.UNKNOWN) {
+            return PauseOutcome.unavailable();
         }
         if (current == SessionState.PAUSED) {
             return PauseOutcome.idempotent();
@@ -149,12 +159,18 @@ public class SessionManageService {
      * @return the orchestration outcome for response mapping
      */
     public ResumeOutcome resume(String sessionId, String operator) {
-        if (!properties.isPauseEnabled()) {
+        if (!properties.isOperationsEnabled()) {
             return ResumeOutcome.disabled();
+        }
+        if (!pauseResumeCoordinator.supportsSessionOperations()) {
+            return ResumeOutcome.unsupported();
         }
         SessionState current = sessionState(sessionId);
         if (current == null) {
             return ResumeOutcome.notFound();
+        }
+        if (current == SessionState.UNKNOWN) {
+            return ResumeOutcome.unavailable();
         }
         if (current == SessionState.RUNNING) {
             return ResumeOutcome.conflict(SessionState.RUNNING);
@@ -163,7 +179,7 @@ public class SessionManageService {
             return ResumeOutcome.conflict(SessionState.TERMINATED);
         }
         SessionOperationResult result = pauseResumeCoordinator.resume(sessionId, operator);
-        if (!result.accepted()) {
+        if (!result.isAccepted()) {
             return ResumeOutcome.admissionRejected(result.detail());
         }
         logAudit("resume", sessionId, operator, result.detail() + " (source=explicit-api)");
@@ -187,6 +203,9 @@ public class SessionManageService {
         if (current == SessionState.TERMINATED) {
             return TerminateOutcome.idempotent();
         }
+        // An undecidable state does not block a terminate: interrupting an
+        // idle session is a no-op, and skipping the interrupt because the
+        // state query failed would leave a possibly-running session alive.
         SessionOperationResult result = pauseResumeCoordinator.terminate(sessionId, operator);
         if (result == null) {
             return TerminateOutcome.accepted(SessionOperationResult.accepted(SessionState.TERMINATED,
@@ -210,12 +229,18 @@ public class SessionManageService {
      * @return the orchestration outcome for response mapping
      */
     public CompactOutcome compact(String sessionId, String operator, Map<String, Object> options) {
-        if (!properties.isPauseEnabled()) {
+        if (!properties.isOperationsEnabled()) {
             return CompactOutcome.disabled();
+        }
+        if (!pauseResumeCoordinator.supportsSessionOperations()) {
+            return CompactOutcome.unsupported();
         }
         SessionState current = sessionState(sessionId);
         if (current == null) {
             return CompactOutcome.notFound();
+        }
+        if (current == SessionState.UNKNOWN) {
+            return CompactOutcome.unavailable();
         }
         if (current != SessionState.IDLE) {
             return CompactOutcome.conflict(current);
@@ -234,12 +259,12 @@ public class SessionManageService {
      * Builds the detail body of one session for the GET endpoints.
      *
      * @param sessionId target session id
-     * @return detail body, or null when the session does not exist
+     * @return detail body, or empty map when the session does not exist
      */
     public Map<String, Object> sessionDetail(String sessionId) {
         SessionState state = sessionState(sessionId);
         if (state == null) {
-            return null;
+            return Map.of();
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("sessionId", sessionId);
@@ -247,13 +272,28 @@ public class SessionManageService {
         return body;
     }
 
+    /**
+     * Whether the session holds an active task; the query result is
+     * authoritative for the RUNNING vs IDLE verdict. A query failure throws
+     * so callers fail closed instead of misjudging an undecidable session as
+     * idle: a compact accepted on a running session would race its
+     * checkpoint writes, a pause rejected on a truly running session leaves
+     * it unmanagable, and a resume allowed onto a running session corrupts
+     * the continuation state.
+     *
+     * @param query active task query port
+     * @param sessionId target session id
+     * @return true when the session has an active task
+     * @throws SessionStateException when the task-store query fails
+     */
     private boolean hasActiveTask(ActiveTaskQuery query, String sessionId) {
         try {
             return query.snapshot().getTasks().stream()
                     .anyMatch(task -> sessionId.equals(task.getConversationId()));
         } catch (RuntimeException exception) {
             log.warn("Active task lookup failed for session_id={}: {}", sessionId, exception.getMessage());
-            return false;
+            throw new SessionStateException("Session state is unavailable for session_id " + sessionId
+                    + ": the active task query failed", exception);
         }
     }
 
@@ -266,8 +306,29 @@ public class SessionManageService {
         return value == null || value.isBlank();
     }
 
+    /**
+     * Signals an undecidable session state so the web layer maps it to 503
+     * instead of guessing a verdict on a failed task-store query.
+     *
+     * @since 0.1.5
+     */
+    public static class SessionStateException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
+        /**
+         * Creates the failure with its cause.
+         *
+         * @param message failure description
+         * @param cause the underlying task-store failure
+         */
+        public SessionStateException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     /** Verdict of a pause orchestration, mapped by the web layer. */
-    public record PauseOutcome(HttpStatus status, boolean alreadyInState, Map<String, Object> body) {
+    public record PauseOutcome(HttpStatus status, boolean isAlreadyInState, Map<String, Object> body) {
 
         static PauseOutcome disabled() {
             return new PauseOutcome(HttpStatus.NOT_FOUND, false,
@@ -277,6 +338,18 @@ public class SessionManageService {
         static PauseOutcome notFound() {
             return new PauseOutcome(HttpStatus.NOT_FOUND, false,
                     Map.of("error", "session not found"));
+        }
+
+        static PauseOutcome unsupported() {
+            return new PauseOutcome(HttpStatus.NOT_IMPLEMENTED, false,
+                    Map.of("error", "SESSION_OPERATION_UNSUPPORTED",
+                            "detail", "pause is not supported by the configured orchestrator"));
+        }
+
+        static PauseOutcome unavailable() {
+            return new PauseOutcome(HttpStatus.SERVICE_UNAVAILABLE, false,
+                    Map.of("error", "SESSION_STATE_UNAVAILABLE",
+                            "detail", "the session state could not be determined; retry after the task store recovers"));
         }
 
         static PauseOutcome idempotent() {
@@ -307,6 +380,18 @@ public class SessionManageService {
                     Map.of("error", "session not found"));
         }
 
+        static ResumeOutcome unsupported() {
+            return new ResumeOutcome(HttpStatus.NOT_IMPLEMENTED,
+                    Map.of("error", "SESSION_OPERATION_UNSUPPORTED",
+                            "detail", "resume is not supported by the configured orchestrator"));
+        }
+
+        static ResumeOutcome unavailable() {
+            return new ResumeOutcome(HttpStatus.SERVICE_UNAVAILABLE,
+                    Map.of("error", "SESSION_STATE_UNAVAILABLE",
+                            "detail", "the session state could not be determined; retry after the task store recovers"));
+        }
+
         static ResumeOutcome conflict(SessionState current) {
             return new ResumeOutcome(HttpStatus.CONFLICT,
                     Map.of("error", "INVALID_SESSION_STATE", "state", current.name()));
@@ -323,7 +408,7 @@ public class SessionManageService {
     }
 
     /** Verdict of a terminate orchestration, mapped by the web layer. */
-    public record TerminateOutcome(HttpStatus status, boolean alreadyInState, Map<String, Object> body) {
+    public record TerminateOutcome(HttpStatus status, boolean isAlreadyInState, Map<String, Object> body) {
 
         static TerminateOutcome notFound() {
             return new TerminateOutcome(HttpStatus.NOT_FOUND, false,
@@ -353,6 +438,18 @@ public class SessionManageService {
                     Map.of("error", "session not found"));
         }
 
+        static CompactOutcome unsupported() {
+            return new CompactOutcome(HttpStatus.NOT_IMPLEMENTED,
+                    Map.of("error", "SESSION_OPERATION_UNSUPPORTED",
+                            "detail", "compact is not supported by the configured orchestrator"));
+        }
+
+        static CompactOutcome unavailable() {
+            return new CompactOutcome(HttpStatus.SERVICE_UNAVAILABLE,
+                    Map.of("error", "SESSION_STATE_UNAVAILABLE",
+                            "detail", "the session state could not be determined; retry after the task store recovers"));
+        }
+
         static CompactOutcome conflict(SessionState current) {
             return new CompactOutcome(HttpStatus.CONFLICT,
                     Map.of("error", "INVALID_SESSION_STATE", "state", current.name()));
@@ -372,7 +469,7 @@ public class SessionManageService {
 
     private static Map<String, Object> acceptedBody(SessionOperationResult result) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("accepted", result.accepted());
+        body.put("accepted", result.isAccepted());
         body.put("state", result.state() == null ? null : result.state().name());
         if (!result.detail().isBlank()) {
             body.put("detail", result.detail());

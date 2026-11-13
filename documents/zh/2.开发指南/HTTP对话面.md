@@ -199,7 +199,20 @@ Servlet 栈从 `request.getRequestURI()` 解析 lookupPath 提取路径变量；
 
 | 属性 | 默认值 | 说明 |
 | --- | --- | --- |
-| `pause-enabled` | `true` | 是否提供 pause / resume 端点；关闭时返回 404 |
+| `operations-enabled` | `true` | 是否提供 pause / resume / compact 端点；关闭时三个端点均返回 404，只读端点（list / detail / messages）不受影响 |
+
+### 能力探测（编排器不支持时）
+
+pause / resume / compact 依赖编排器侧的会话管控实现（SPI `supportsSessionOperations()`，默认 `false`）。编排器未实现时三个操作端点统一返回 501：
+
+```json
+{
+  "error": "SESSION_OPERATION_UNSUPPORTED",
+  "detail": "pause is not supported by the configured orchestrator"
+}
+```
+
+501 判定在状态机校验之前：不会登记 PAUSED 状态、不会发布暂停意图、也不会触发执行中断。
 
 ### 边界与注意事项
 

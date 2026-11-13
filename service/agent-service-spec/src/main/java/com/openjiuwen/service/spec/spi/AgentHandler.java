@@ -63,23 +63,27 @@ public interface AgentHandler {
      * Resumes a user-paused session from the persisted paused boundary
      * (issue #117): the implementation locates the PAUSED step cursor of the
      * session, flips it back to RUNNING, and continues the execution from
-     * that boundary without replaying completed rounds.
+     * that boundary without replaying completed rounds. The default
+     * implementation is a no-op for backward compatibility; handlers with
+     * resume support override this method and
+     * {@link #supportsSessionOperations()}.
      *
      * @param sessionId session id of the paused session
-     * @throws UnsupportedOperationException when the handler cannot resume
-     *         paused sessions
      * @since 0.1.5
      */
     default void resumeSession(String sessionId) {
-        throw new UnsupportedOperationException("resumeSession is not supported by this handler");
     }
 
     /**
      * Publishes a user pause intent for a running session (issue #117): the
      * executing agent loop observes the intent at its next step boundary,
      * persists the PAUSED step cursor there, and stops without replaying
-     * completed rounds. A handler without pause support silently ignores the
-     * intent, matching the optional nature of the capability.
+     * completed rounds. The default implementation is a no-op for backward
+     * compatibility; handlers with pause support override this method and
+     * {@link #supportsSessionOperations()}, so callers probe the capability
+     * first and never publish an intent that would be silently dropped -
+     * an interrupted execution without a persisted pause point is
+     * unresumable.
      *
      * @param sessionId session id of the running session
      * @param pauseInfo pause metadata persisted with the paused cursor
@@ -93,19 +97,37 @@ public interface AgentHandler {
      * Compacts the persisted context of an idle session (issue #117): the
      * implementation restores the session state from the checkpoint, runs the
      * context compression processors, and persists the compacted state back
-     * so the next invocation continues from the compacted context.
+     * so the next invocation continues from the compacted context. The
+     * default implementation is a no-op returning an empty map for backward
+     * compatibility; handlers with compaction support override this method
+     * and {@link #supportsSessionOperations()}.
      *
      * @param sessionId session id of the idle session
      * @param options compression options (processor types, thresholds); may
      *                be null for the default strategy
      * @return a result map with the compression outcome (e.g. {@code result}
-     *         and token footprint), never null
-     * @throws UnsupportedOperationException when the handler cannot compact
-     *         sessions
+     *         and token footprint); empty when the operation is not supported
      * @since 0.1.5
      */
     default Map<String, Object> compactSession(String sessionId, Map<String, Object> options) {
-        throw new UnsupportedOperationException("compactSession is not supported by this handler");
+        return Map.of();
+    }
+
+    /**
+     * Whether this handler implements the session operations introduced by
+     * issue #117 ({@link #resumeSession(String)},
+     * {@link #requestPause(String, Map)},
+     * {@link #compactSession(String, Map)}). Implementations overriding any
+     * of those methods must also override this probe to return {@code true};
+     * the default {@code false} lets callers reject the operations up front
+     * (e.g. HTTP 501) instead of silently dropping a pause intent that would
+     * leave an interrupted session unresumable.
+     *
+     * @return {@code true} when the session operations are implemented
+     * @since 0.1.5
+     */
+    default boolean supportsSessionOperations() {
+        return false;
     }
 
     /**

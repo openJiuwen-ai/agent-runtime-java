@@ -68,6 +68,24 @@ class AuthorizationRequestBuilderSessionExtensionTest {
         assertThat(request.extensions()).isEmpty();
     }
 
+    @Test
+    void terminatePathInjectsResourceIdExtension() {
+        AuthorizationRequest request = AuthorizationRequestBuilder.build(PAUSE_ANNOTATION, new HttpHeaders(),
+                "/api/sessions/session-9/terminate");
+
+        assertThat(request.extensions())
+                .containsEntry(AgentServicePaths.EXTENSION_RESOURCE_ID, "session-9");
+    }
+
+    @Test
+    void compactPathInjectsResourceIdExtension() {
+        AuthorizationRequest request = AuthorizationRequestBuilder.build(PAUSE_ANNOTATION, new HttpHeaders(),
+                "/api/sessions/session-11/compact");
+
+        assertThat(request.extensions())
+                .containsEntry(AgentServicePaths.EXTENSION_RESOURCE_ID, "session-11");
+    }
+
     private static final class SessionManageControllerStub {
         @AuthorizedResource(resource = "session", action = "pause")
         void pause() {

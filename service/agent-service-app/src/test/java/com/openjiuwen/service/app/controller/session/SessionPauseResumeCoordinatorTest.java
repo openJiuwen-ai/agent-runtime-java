@@ -48,6 +48,10 @@ class SessionPauseResumeCoordinatorTest {
         directExecutor = new DirectExecutor();
         interruptCount = new AtomicInteger();
         orchestrator = Mockito.mock(ServeOrchestrator.class);
+        // Default stub: the orchestrator reports session-operations support, so
+        // pause/resume pass the capability gate. Individual tests override this
+        // to exercise the unsupported rejection path.
+        when(orchestrator.supportsSessionOperations()).thenReturn(true);
         orchestratorProvider = providerOf(orchestrator);
         interruptor = new ActiveStreamInterruptor(orchestratorProvider,
                 List.of((conversationId, reason) -> interruptCount.incrementAndGet()));
@@ -73,9 +77,9 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = asyncCoordinator.pause("session-1", "op-1", "quota");
 
-        assertThat(result.accepted()).isTrue();
+        assertThat(result.isAccepted()).isTrue();
         assertThat(result.state()).isEqualTo(SessionState.PAUSED);
-        assertThat(result.alreadyInState()).isFalse();
+        assertThat(result.isAlreadyInState()).isFalse();
         assertThat(interrupted.await(TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
         assertThat(interruptCount.get()).isEqualTo(1);
     }
@@ -87,9 +91,9 @@ class SessionPauseResumeCoordinatorTest {
         SessionOperationResult first = coordinator.pause("session-2", "op-1", "quota");
         SessionOperationResult second = coordinator.pause("session-2", "op-2", "quota");
 
-        assertThat(first.accepted()).isTrue();
-        assertThat(second.accepted()).isTrue();
-        assertThat(second.alreadyInState()).isTrue();
+        assertThat(first.isAccepted()).isTrue();
+        assertThat(second.isAccepted()).isTrue();
+        assertThat(second.isAlreadyInState()).isTrue();
         assertThat(interruptCount.get()).isEqualTo(1);
     }
 
@@ -99,7 +103,7 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = coordinator.pause(" ", "op-1", null);
 
-        assertThat(result.accepted()).isFalse();
+        assertThat(result.isAccepted()).isFalse();
         assertThat(interruptCount.get()).isZero();
     }
 
@@ -110,7 +114,7 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = coordinator.resume("session-3", "op-1");
 
-        assertThat(result.accepted()).isTrue();
+        assertThat(result.isAccepted()).isTrue();
         assertThat(result.state()).isEqualTo(SessionState.RUNNING);
         Mockito.verify(gate).tryAcquire();
         Mockito.verify(orchestrator).resumeSession("session-3");
@@ -123,7 +127,7 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = coordinator.resume("session-4", "op-1");
 
-        assertThat(result.accepted()).isFalse();
+        assertThat(result.isAccepted()).isFalse();
         assertThat(result.state()).isEqualTo(SessionState.PAUSED);
         Mockito.verify(orchestrator, Mockito.never()).resumeSession(Mockito.anyString());
     }
@@ -135,7 +139,7 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = coordinator.resume("session-5", "op-1");
 
-        assertThat(result.accepted()).isTrue();
+        assertThat(result.isAccepted()).isTrue();
         Mockito.verify(orchestrator).resumeSession("session-5");
     }
 
@@ -148,7 +152,7 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = coordinator.resume("session-6", "op-1");
 
-        assertThat(result.accepted()).isTrue();
+        assertThat(result.isAccepted()).isTrue();
         Mockito.verify(gate).release();
     }
 
@@ -162,7 +166,7 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = coordinator.resume("session-gate-ok", "op-1");
 
-        assertThat(result.accepted()).isTrue();
+        assertThat(result.isAccepted()).isTrue();
         Mockito.verify(orchestrator).resumeSession("session-gate-ok");
         Mockito.verify(gate).release();
     }
@@ -173,7 +177,7 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = coordinator.terminate("session-7", "op-1");
 
-        assertThat(result.accepted()).isTrue();
+        assertThat(result.isAccepted()).isTrue();
         assertThat(result.state()).isEqualTo(SessionState.TERMINATED);
         assertThat(interruptCount.get()).isEqualTo(1);
     }
@@ -184,7 +188,7 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = coordinator.pause("session-pause-intent", "op-9", "quota");
 
-        assertThat(result.accepted()).isTrue();
+        assertThat(result.isAccepted()).isTrue();
         org.mockito.ArgumentCaptor<Map<String, Object>> infoCaptor =
                 org.mockito.ArgumentCaptor.forClass(Map.class);
         Mockito.verify(orchestrator).requestPause(
@@ -209,22 +213,47 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = coordinator.pause("session-pause-fail", "op-10", "quota");
 
-        assertThat(result.accepted()).isTrue();
+        assertThat(result.isAccepted()).isTrue();
         Mockito.verify(orchestrator, Mockito.never()).cancelActive("session-pause-fail");
         assertThat(interruptCount.get()).isZero();
         assertThat(coordinator.managedState("session-pause-fail")).isNull();
     }
 
     @Test
-    void pauseWithoutOrchestratorAbortsPauseAndRollsBackState() {
+    void pauseWithoutOrchestratorRejectedSynchronously() {
         orchestratorProvider = providerOf(null);
         SessionPauseResumeCoordinator coordinator = newCoordinator();
 
         SessionOperationResult result = coordinator.pause("session-pause-no-orch", "op-14", "quota");
 
-        assertThat(result.accepted()).isTrue();
+        assertThat(result.isAccepted()).isFalse();
         assertThat(interruptCount.get()).isZero();
         assertThat(coordinator.managedState("session-pause-no-orch")).isNull();
+    }
+
+    @Test
+    void pauseWithUnsupportedOrchestratorRejectedSynchronously() {
+        when(orchestrator.supportsSessionOperations()).thenReturn(false);
+        SessionPauseResumeCoordinator coordinator = newCoordinator();
+
+        SessionOperationResult result = coordinator.pause("session-pause-unsupported", "op-19", "quota");
+
+        assertThat(result.isAccepted()).isFalse();
+        Mockito.verify(orchestrator, Mockito.never()).requestPause(Mockito.anyString(), Mockito.anyMap());
+        assertThat(interruptCount.get()).isZero();
+        assertThat(coordinator.managedState("session-pause-unsupported")).isNull();
+    }
+
+    @Test
+    void resumeWithUnsupportedOrchestratorRejectedSynchronously() {
+        when(orchestrator.supportsSessionOperations()).thenReturn(false);
+        SessionPauseResumeCoordinator coordinator = newCoordinator();
+
+        SessionOperationResult result = coordinator.resume("session-resume-unsupported", "op-20");
+
+        assertThat(result.isAccepted()).isFalse();
+        Mockito.verify(orchestrator, Mockito.never()).resumeSession(Mockito.anyString());
+        Mockito.verify(gate, Mockito.never()).tryAcquire();
     }
 
     @Test
@@ -276,7 +305,7 @@ class SessionPauseResumeCoordinatorTest {
 
         SessionOperationResult result = coordinator.resume("session-idle-resume", "op-17");
 
-        assertThat(result.accepted()).isTrue();
+        assertThat(result.isAccepted()).isTrue();
         assertThat(coordinator.managedState("session-idle-resume")).isNull();
     }
 
