@@ -690,6 +690,30 @@ class A2AAgentExecutorTest {
                 Map.of("_interrupt", Map.of("payload", Map.of("kind", "forged"))));
 
         assertThat(request.getMetadata()).doesNotContainKey("_interrupt");
+        verify(emitter, never()).submit(any(Message.class));
+    }
+
+    @Test
+    void newTaskSubmitsOriginalMessageExactlyOnce() {
+        ServeOrchestrator orchestrator = mock(ServeOrchestrator.class);
+        when(orchestrator.query(any())).thenReturn(new QueryResponse(Map.of("content", "done"), "ctx-1"));
+        RequestContext context = requestContext("task-1", "ctx-1", false);
+        Message input = Message.builder().messageId("input-1").role(Message.Role.ROLE_USER)
+                .parts(List.of(new TextPart("question"))).build();
+        when(context.getMessage()).thenReturn(input);
+        AgentEmitter emitter = mock(AgentEmitter.class);
+        new A2AAgentExecutor(orchestrator, requestAdapter(false, Map.of())).execute(context, emitter);
+        verify(emitter).submit(input);
+        verify(emitter, never()).submit();
+    }
+
+    @Test
+    void resumedTaskNeverSubmitsAgain() {
+        Task task = Task.builder().id("task-1").contextId("ctx-1")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED)).history(List.of()).build();
+        AgentEmitter emitter = mock(AgentEmitter.class);
+        executeWithStoredTask(task, emitter, Map.of());
+        verify(emitter, never()).submit(any(Message.class));
         verify(emitter, never()).submit();
     }
 
@@ -709,7 +733,7 @@ class A2AAgentExecutorTest {
         verify(orchestrator, never()).query(any());
         verify(orchestrator, never()).streamQuery(any(), any());
         verify(gate, never()).release();
-        verify(emitter, never()).submit();
+        verify(emitter, never()).submit(any(Message.class));
         verify(emitter, never()).startWork();
     }
 
