@@ -30,14 +30,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Opt-in real Redis checks. Supply runtime.redis.batch.it=true, runtime.redis.it.host,
  * runtime.redis.it.port (standalone), and runtime.redis.it.cluster-port (cluster seed).
  * Only unique test namespaces are touched; the databases are never flushed.
+ *
+ * @since 0.1.4
  */
 @EnabledIfSystemProperty(named = "runtime.redis.batch.it", matches = "true")
 class RedisTaskStoreBatchIT {
@@ -45,8 +48,8 @@ class RedisTaskStoreBatchIT {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void preservesBackfillAndTtlsThroughHostedScope(boolean cluster) {
-        try (UnifiedJedis jedis = jedis(cluster)) {
+    void preservesBackfillAndTtlsThroughHostedScope(boolean isCluster) {
+        try (UnifiedJedis jedis = jedis(isCluster)) {
             RuntimeRedisClient root = client(jedis);
             String prefix = prefix();
             RuntimeRedisClient scoped = new ScopedRuntimeRedisClient(root, prefix);
@@ -81,11 +84,12 @@ class RedisTaskStoreBatchIT {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void supportsConcurrentSavesWithoutSharingPipelineConnections(boolean cluster) throws Exception {
-        try (UnifiedJedis jedis = jedis(cluster)) {
+    void supportsConcurrentSavesWithIndependentConnections(boolean isCluster) throws Exception {
+        try (UnifiedJedis jedis = jedis(isCluster)) {
             RuntimeRedisClient scoped = new ScopedRuntimeRedisClient(client(jedis), prefix());
             RedisTaskStore store = new RedisTaskStore(scoped, 3600L);
-            var executor = Executors.newFixedThreadPool(8);
+            var executor = new ThreadPoolExecutor(8, 8, 0L, TimeUnit.MILLISECONDS,
+                    new ArrayBlockingQueue<>(40), new ThreadPoolExecutor.AbortPolicy());
             try {
                 List<Future<?>> futures = new ArrayList<>();
                 for (int index = 0; index < 40; index++) {
@@ -108,16 +112,21 @@ class RedisTaskStoreBatchIT {
         }
     }
 
-    private UnifiedJedis jedis(boolean cluster) {
+    private UnifiedJedis jedis(boolean isCluster) {
         String host = System.getProperty("runtime.redis.it.host", "127.0.0.1");
-        return cluster ? new JedisCluster(Set.of(new HostAndPort(host,
+        return isCluster ? new JedisCluster(Set.of(new HostAndPort(host,
                 Integer.getInteger("runtime.redis.it.cluster-port", 16391))))
                 : new JedisPooled(host, Integer.getInteger("runtime.redis.it.port", 16390));
     }
 
     private RuntimeRedisClient client(UnifiedJedis jedis) {
-        return jedis instanceof JedisCluster cluster ? new JedisClusterRuntimeRedisClient(cluster)
-                : new JedisPooledRuntimeRedisClient((JedisPooled) jedis);
+        if (jedis instanceof JedisCluster cluster) {
+            return new JedisClusterRuntimeRedisClient(cluster);
+        }
+        if (jedis instanceof JedisPooled pooled) {
+            return new JedisPooledRuntimeRedisClient(pooled);
+        }
+        throw new IllegalArgumentException("Unsupported Redis test client");
     }
 
     private String prefix() {

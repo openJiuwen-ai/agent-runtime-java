@@ -26,6 +26,8 @@ import java.util.Map;
  * implementations written against the frozen seventeen stay source- and binary-compatible as
  * this interface evolves. A default invocation means the caller asked for a command the
  * implementation cannot serve, so throwing beats any silent non-atomic substitute.
+ * {@link #setexBatch(Map, long, List)} instead composes the existing commands sequentially
+ * by default; adapters may optimize it without adding atomicity guarantees.
  *
  * @since 0.1.0
  */

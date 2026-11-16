@@ -83,20 +83,20 @@ public class UnifiedJedisRuntimeRedisClient implements RuntimeRedisClient {
         if (values.isEmpty() && refreshKeys.isEmpty()) {
             return;
         }
-        // The delegate supplies a standalone or cluster-aware pipeline. Each invocation owns
-        // its pipeline and borrowed connections, including when used through a hosted scope.
+        // Each invocation owns its pipeline and borrowed connection, including through a
+        // hosted scope. The cluster adapter overrides this to preserve redirect handling.
         try (AbstractPipeline pipeline = delegate.pipelined()) {
             List<Response<?>> replies = new ArrayList<>(values.size() + refreshKeys.size());
             values.forEach((key, value) -> replies.add(pipeline.setex(toBytes(key), seconds, value)));
             refreshKeys.forEach(key -> replies.add(pipeline.expire(toBytes(key), seconds)));
             pipeline.sync();
-            // sync() collects replies; get() surfaces command errors (including cluster redirects).
+            // sync() collects replies; get() surfaces command errors.
             // Do not retry a partially applied batch through the sequential path.
             for (Response<?> reply : replies) {
                 try {
                     reply.get();
                 } catch (IllegalStateException failure) {
-                    // ClusterPipeline may log a connection failure without filling its replies.
+                    // Treat an unavailable command reply as a failed batch, never as success.
                     throw new JedisConnectionException("Redis batch reply unavailable after sync", failure);
                 }
             }
