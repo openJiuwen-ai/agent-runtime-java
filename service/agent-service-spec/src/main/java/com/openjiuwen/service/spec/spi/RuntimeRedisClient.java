@@ -4,6 +4,7 @@
 
 package com.openjiuwen.service.spec.spi;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -175,6 +176,31 @@ public interface RuntimeRedisClient extends AutoCloseable {
      * @return matching keys
      */
     List<String> scanIter(String pattern);
+
+    /**
+     * Writes values with a shared TTL and refreshes the TTL of existing additional keys.
+     *
+     * <p>This is a synchronous, non-transactional batch: success means all replies were checked;
+     * a failure may leave some commands applied. Missing refresh keys are never created.
+     * Callers must not assume atomicity or ordering across Redis Cluster nodes, and must not
+     * blindly retry after partial failure. Keys are text and values are binary.
+     *
+     * <p>The default executes commands sequentially for existing implementations. Adapters may
+     * pipeline them; namespace views must map both sets of keys before forwarding the batch.
+     *
+     * @param values values to write, with non-null keys and values
+     * @param seconds positive TTL for both writes and refreshes
+     * @param refreshKeys existing keys whose TTL should be refreshed
+     * @since 0.1.4
+     */
+    default void setexBatch(Map<String, byte[]> values, long seconds, List<String> refreshKeys) {
+        for (Map.Entry<String, byte[]> entry : values.entrySet()) {
+            setex(entry.getKey().getBytes(StandardCharsets.UTF_8), seconds, entry.getValue());
+        }
+        for (String key : refreshKeys) {
+            expire(key, seconds);
+        }
+    }
 
     /**
      * Sets a hash field value.

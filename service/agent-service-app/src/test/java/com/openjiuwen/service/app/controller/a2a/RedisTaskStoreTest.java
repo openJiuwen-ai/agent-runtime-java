@@ -12,6 +12,7 @@ import com.openjiuwen.service.app.controller.a2a.client.RemoteAgentCaller;
 import com.openjiuwen.service.app.lifecycle.ActiveStreamRegistry;
 import com.openjiuwen.service.app.orchestrator.A2AEnabledServeOrchestrator;
 import com.openjiuwen.service.spec.dto.QueryChunk;
+import com.openjiuwen.service.spec.hosting.ScopedRuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
@@ -46,6 +47,54 @@ import java.util.Map;
  * @since 0.1.0
  */
 class RedisTaskStoreTest {
+    private static final String READY_KEY = "a2a:task-context:v1:ready";
+
+    @Test
+    void translatesBatchFailureIntoTaskPersistenceException() {
+        InMemoryRuntimeRedisClient redis = new InMemoryRuntimeRedisClient() {
+            @Override
+            public void setexBatch(Map<String, byte[]> values, long seconds, List<String> refreshKeys) {
+                throw new JedisConnectionException("batch reset");
+            }
+        };
+        assertThatThrownBy(() -> new RedisTaskStore(redis, 3600L)
+                .save(task("task-1", "ctx-1", TaskState.TASK_STATE_COMPLETED), false))
+                .isInstanceOf(TaskPersistenceException.class).hasMessageContaining("Redis save failed")
+                .hasCauseInstanceOf(JedisConnectionException.class);
+    }
+
+    @Test
+    void retainsHostedNamespaceForTaskIndexAndReadyExpiry() {
+        InMemoryRuntimeRedisClient redis = new InMemoryRuntimeRedisClient();
+        redis.setex(READY_KEY, 12L, "1"); // Unscoped marker must remain untouched.
+        String prefix = ScopedRuntimeRedisClient.namespace("app", "agent");
+        RuntimeRedisClient scoped = new ScopedRuntimeRedisClient(redis, prefix);
+        scoped.setex(READY_KEY, 12L, "1");
+
+        new RedisTaskStore(scoped, 3600L).save(task("task-1", "ctx-1", TaskState.TASK_STATE_WORKING), false);
+
+        assertThat(redis.ttlByKey()).containsEntry(READY_KEY, 12L).containsEntry(prefix + READY_KEY, 3600L)
+                .containsEntry(prefix + "a2a:task:task-1", 3600L)
+                .containsEntry(prefix + "a2a:task-context:v1:Y3R4LTE:task-1", 3600L);
+    }
+
+    @Test
+    void renewsOnlyAnExistingReadyMarker() {
+        InMemoryRuntimeRedisClient redis = new InMemoryRuntimeRedisClient();
+        RedisTaskStore store = new RedisTaskStore(redis, 3600L);
+        store.save(task("new", "ctx-1", TaskState.TASK_STATE_WORKING), false);
+        assertThat(redis.values).doesNotContainKey(READY_KEY);
+
+        redis.setex(READY_KEY, 12L, "backfilled");
+        store.save(task("new", "ctx-1", TaskState.TASK_STATE_COMPLETED), false);
+        assertThat(redis.ttlByKey()).containsEntry(READY_KEY, 3600L);
+        assertThat(new String(redis.values.get(READY_KEY), StandardCharsets.UTF_8)).isEqualTo("backfilled");
+
+        redis.del(READY_KEY);
+        store.save(task("another", "ctx-2", TaskState.TASK_STATE_WORKING), false);
+        assertThat(redis.values).doesNotContainKey(READY_KEY);
+    }
+
     @Test
     void persistsMappedTraceWithNestedJavaTime() {
         RedisTaskStore store = new RedisTaskStore(new InMemoryRuntimeRedisClient(), 3600L);
@@ -140,6 +189,8 @@ class RedisTaskStoreTest {
         redisClient.values.put("a2a:task:legacy-task",
                 JsonUtil.OBJECT_MAPPER.toJson(legacyTask).getBytes(StandardCharsets.UTF_8));
 
+        store.save(task("new-task", "new-context", TaskState.TASK_STATE_WORKING), false);
+        assertThat(redisClient.values).doesNotContainKey(READY_KEY);
         ListTasksResult first = store.list(ListTasksParams.builder().contextId("legacy-context").build());
         redisClient.scanPatterns.clear();
         ListTasksResult second = store.list(ListTasksParams.builder().contextId("legacy-context").build());
