@@ -52,6 +52,18 @@ public class JedisClusterRuntimeRedisClient extends UnifiedJedisRuntimeRedisClie
     }
 
     @Override
+    public void setexBatch(Map<String, byte[]> values, long seconds, List<String> refreshKeys) {
+        // ClusterPipeline does not follow MOVED/ASK. Keep each command on JedisCluster's
+        // redirect-aware executor rather than retrying an already partially applied batch.
+        for (Map.Entry<String, byte[]> entry : values.entrySet()) {
+            setex(toBytes(entry.getKey()), seconds, entry.getValue());
+        }
+        for (String key : refreshKeys) {
+            expire(key, seconds);
+        }
+    }
+
+    @Override
     public List<Object> mget(String... keys) {
         Map<Integer, List<IndexedBinaryKey>> groups = new LinkedHashMap<>();
         for (int index = 0; index < keys.length; index++) {

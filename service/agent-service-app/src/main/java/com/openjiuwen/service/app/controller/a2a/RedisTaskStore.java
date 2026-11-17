@@ -28,7 +28,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -93,11 +95,12 @@ public class RedisTaskStore implements TaskStore {
         String key = KEY_PREFIX + task.id();
         byte[] data = GSON.toJson(task).getBytes(StandardCharsets.UTF_8);
         call("save", task.id(), () -> {
-            writeContextIndex(task);
-            redisClient.setex(key.getBytes(StandardCharsets.UTF_8), ttlSeconds, data);
-            if (redisClient.exists(CONTEXT_INDEX_READY_KEY)) {
-                redisClient.setex(CONTEXT_INDEX_READY_KEY, ttlSeconds, INDEX_VALUE);
-            }
+            Map<String, byte[]> values = new LinkedHashMap<>();
+            values.put(contextIndexKey(task.contextId(), task.id()), INDEX_VALUE.getBytes(StandardCharsets.UTF_8));
+            values.put(key, data);
+            // Only ensureContextIndex() may create READY after backfilling legacy tasks.
+            // EXPIRE renews an existing marker without declaring an incomplete index ready.
+            redisClient.setexBatch(values, ttlSeconds, List.of(CONTEXT_INDEX_READY_KEY));
             return null;
         });
     }

@@ -33,7 +33,8 @@ class ScopedRuntimeRedisClientTest {
         byte[] binaryKey = {(byte) 0xff, 0, 45};
         byte[] binaryValue = {9, 0, (byte) 0xfe};
         for (var method : RuntimeRedisClient.class.getMethods()) {
-            if (method.getParameterCount() == 0 || method.isVarArgs() || "scanIter".equals(method.getName())) {
+            if (method.getParameterCount() == 0 || method.isVarArgs() || "scanIter".equals(method.getName())
+                    || "setexBatch".equals(method.getName())) {
                 continue;
             }
             List<Object> arguments = new ArrayList<>();
@@ -131,6 +132,24 @@ class ScopedRuntimeRedisClientTest {
         assertThat(assertInstanceOf(List.class, calls.get(3).arguments().get(1)))
                 .containsExactly("scope:key", "scope:key2");
         assertThat(assertInstanceOf(String[].class, calls.get(3).arguments().get(2))).containsExactly("a1", "a2");
+    }
+
+    @Test
+    void forwardsOneBatchWithBothKeyGroupsScopedAndBinaryValuesUnchanged() {
+        List<Call> calls = new ArrayList<>();
+        var scoped = new ScopedRuntimeRedisClient(recordingClient(calls), "scope:");
+        byte[] payload = {0, (byte) 0xff};
+        Map<String, byte[]> values = Map.of("task", payload);
+        scoped.setexBatch(values, 41L, List.of("ready"));
+
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).name()).isEqualTo("setexBatch");
+        Map<?, ?> mapped = assertInstanceOf(Map.class, calls.get(0).arguments().get(0));
+        assertThat(mapped.get("scope:task")).isSameAs(payload);
+        assertThat(mapped).hasSize(1);
+        assertThat(calls.get(0).arguments().get(1)).isEqualTo(41L);
+        assertThat(calls.get(0).arguments().get(2)).isEqualTo(List.of("scope:ready"));
+        assertThat(values).containsOnlyKeys("task");
     }
 
     private RuntimeRedisClient recordingClient(List<Call> calls) {
