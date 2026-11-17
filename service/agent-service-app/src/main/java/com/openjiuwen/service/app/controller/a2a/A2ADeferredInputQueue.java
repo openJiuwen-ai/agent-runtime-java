@@ -48,6 +48,9 @@ final class A2ADeferredInputQueue implements AutoCloseable {
     private record TaskKey(Scope scope, String taskId) {
     }
 
+    private record PendingInput(String messageId, ServeRequest request) {
+    }
+
     enum Offer {
         ACCEPTED, DUPLICATE, NO_TARGET, FULL, CLOSED
     }
@@ -58,14 +61,20 @@ final class A2ADeferredInputQueue implements AutoCloseable {
     static final class Lease {
         private final TaskKey key;
         private final ServeRequest input;
+        private final String messageId;
 
-        private Lease(TaskKey key, ServeRequest input) {
+        private Lease(TaskKey key, ServeRequest input, String messageId) {
             this.key = key;
             this.input = input;
+            this.messageId = messageId;
         }
 
         ServeRequest input() {
             return input;
+        }
+
+        Optional<String> messageId() {
+            return Optional.ofNullable(messageId);
         }
     }
 
@@ -122,7 +131,7 @@ final class A2ADeferredInputQueue implements AutoCloseable {
         if (!slot.taskId.equals(taskId) || slot.owner != null || !slot.pending.isEmpty()) {
             return Optional.empty();
         }
-        slot.owner = new Lease(new TaskKey(scope, taskId), null);
+        slot.owner = new Lease(new TaskKey(scope, taskId), null, null);
         return Optional.of(slot.owner);
     }
 
@@ -260,7 +269,7 @@ final class A2ADeferredInputQueue implements AutoCloseable {
             return Offer.FULL;
         }
         slot.accepted.add(messageId);
-        slot.pending.addLast(input);
+        slot.pending.addLast(new PendingInput(messageId, input));
         return Offer.ACCEPTED;
     }
 
@@ -337,18 +346,18 @@ final class A2ADeferredInputQueue implements AutoCloseable {
     synchronized void retry(Lease lease) {
         Slot slot = slots.get(lease.key);
         if (!isClosed && slot != null && slot.owner == lease && lease.input != null) {
-            slot.pending.addFirst(lease.input);
+            slot.pending.addFirst(new PendingInput(lease.messageId, lease.input));
             slot.owner = null;
             wakeWaiters();
         }
     }
 
     private Optional<Lease> next(TaskKey key, Slot slot) {
-        ServeRequest input = slot.pending.pollFirst();
+        PendingInput input = slot.pending.pollFirst();
         if (input == null) {
             return Optional.empty();
         }
-        slot.owner = new Lease(key, input);
+        slot.owner = new Lease(key, input.request(), input.messageId());
         return Optional.of(slot.owner);
     }
 
@@ -367,7 +376,7 @@ final class A2ADeferredInputQueue implements AutoCloseable {
 
     private static final class Slot {
         private final String taskId;
-        private final ArrayDeque<ServeRequest> pending = new ArrayDeque<>();
+        private final ArrayDeque<PendingInput> pending = new ArrayDeque<>();
         private final Set<String> accepted = new HashSet<>();
         private Lease owner;
         private boolean isCancelled;
