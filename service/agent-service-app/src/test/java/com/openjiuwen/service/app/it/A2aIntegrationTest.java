@@ -106,12 +106,24 @@ class A2aIntegrationTest {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> body = json(resp.getBody());
         assertThat(body.get("jsonrpc")).isEqualTo("2.0");
-        assertThat(body.get("id")).isEqualTo(1.0);
+        assertThat(body.get("id")).isEqualTo(1);
 
         Map<String, Object> task = taskFrom(body);
         Map<String, Object> status = (Map<String, Object>) task.get("status");
         assertThat(status.get("state")).isEqualTo("TASK_STATE_COMPLETED");
         assertThat(firstArtifactText(task)).contains("turn1:hello");
+    }
+
+    @Test
+    void sendMessageEchoesLargeNumericIdExactly() throws Exception {
+        var resp = postA2a("{\"jsonrpc\":\"2.0\",\"id\":9007199254740993,\"method\":\"SendMessage\","
+                + "\"params\":{\"message\":{\"role\":\"ROLE_USER\",\"parts\":[{\"text\":\"big-id\"}],"
+                + "\"contextId\":\"c-big-id\"}}}");
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody()).contains("\"id\":9007199254740993");
+        Map<String, Object> body = json(resp.getBody());
+        assertThat(body.get("id")).isEqualTo(9007199254740993L);
     }
 
     @Test
@@ -195,7 +207,7 @@ class A2aIntegrationTest {
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> body = json(resp.getBody());
-        assertThat(body).containsEntry("jsonrpc", "2.0").containsEntry("id", 9.0);
+        assertThat(body).containsEntry("jsonrpc", "2.0").containsEntry("id", 9);
         assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.INVALID_PARAMS.code())
                 .containsEntry("message",
                         "Invalid params: params.message.parts is required and must be a non-empty array");
@@ -222,7 +234,7 @@ class A2aIntegrationTest {
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, Object> body = json(resp.getBody());
-        assertThat(body).containsEntry("jsonrpc", "2.0").containsEntry("id", 11.0);
+        assertThat(body).containsEntry("jsonrpc", "2.0").containsEntry("id", 11);
         assertThat((Map<String, Object>) body.get("error")).containsEntry("code", A2AErrorCodes.INVALID_PARAMS.code())
                 .containsEntry("message", "Invalid params: params.id is required and must be a non-blank string");
     }

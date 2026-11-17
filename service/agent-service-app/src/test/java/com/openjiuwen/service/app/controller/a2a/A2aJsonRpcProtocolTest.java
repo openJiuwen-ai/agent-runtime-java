@@ -15,13 +15,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Map;
 
 /**
  * Unit tests for the JSON-RPC error-envelope post-processing in
  * {@link A2aJsonRpcProtocol} — the {@code error.details} to
  * {@code error.data} relocation for businessCode-carrying details
- * (DFX-006 §4.6).
+ * (DFX-006 §4.6) — plus the request-id echo contract: JSON-RPC 2.0 requires
+ * the response {@code id} to equal the request {@code id}, so numeric ids
+ * must keep their exact value and integer shape (no Double rounding, no
+ * {@code .0} suffix, no scientific notation).
  */
 class A2aJsonRpcProtocolTest {
     @Test
@@ -64,5 +69,67 @@ class A2aJsonRpcProtocolTest {
         JsonObject errorObject = body.getAsJsonObject("error");
         assertThat(errorObject.has("details")).isFalse();
         assertThat(errorObject.has("data")).isFalse();
+    }
+
+    @Test
+    void parseRequestKeepsSmallNumericIdAsExactInteger() {
+        A2aJsonRpcProtocol.Request request = A2aJsonRpcProtocol
+                .parseRequest("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"SendMessage\",\"params\":{}}");
+
+        assertThat(request.id()).isEqualTo(BigInteger.ONE);
+        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject())).contains("\"id\":1");
+    }
+
+    @Test
+    void parseRequestPreservesIdsBeyondDoublePrecision() {
+        A2aJsonRpcProtocol.Request request = A2aJsonRpcProtocol
+                .parseRequest("{\"jsonrpc\":\"2.0\",\"id\":9007199254740993,\"method\":\"SendMessage\",\"params\":{}}");
+
+        assertThat(request.id()).isEqualTo(new BigInteger("9007199254740993"));
+        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject()))
+                .contains("\"id\":9007199254740993");
+    }
+
+    @Test
+    void parseRequestPreservesLongMaxIdWithoutScientificNotation() {
+        A2aJsonRpcProtocol.Request request = A2aJsonRpcProtocol.parseRequest(
+                "{\"jsonrpc\":\"2.0\",\"id\":9223372036854775807," + "\"method\":\"SendMessage\",\"params\":{}}");
+
+        assertThat(request.id()).isEqualTo(new BigInteger("9223372036854775807"));
+        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject()))
+                .contains("\"id\":9223372036854775807");
+    }
+
+    @Test
+    void parseRequestKeepsStringIdUnchanged() {
+        A2aJsonRpcProtocol.Request request = A2aJsonRpcProtocol.parseRequest(
+                "{\"jsonrpc\":\"2.0\",\"id\":\"my-string-id-1\",\"method\":\"SendMessage\",\"params\":{}}");
+
+        assertThat(request.id()).isEqualTo("my-string-id-1");
+        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject()))
+                .contains("\"id\":\"my-string-id-1\"");
+    }
+
+    @Test
+    void parseRequestParsesFractionalIdAsDecimal() {
+        A2aJsonRpcProtocol.Request request = A2aJsonRpcProtocol
+                .parseRequest("{\"jsonrpc\":\"2.0\",\"id\":1.5,\"method\":\"SendMessage\",\"params\":{}}");
+
+        assertThat(request.id()).isEqualTo(new BigDecimal("1.5"));
+        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject())).contains("\"id\":1.5");
+    }
+
+    @Test
+    void invalidRequestEchoesNumericIdAsInteger() {
+        try {
+            A2aJsonRpcProtocol.parseRequest(
+                    "{\"jsonrpc\":\"2.0\",\"id\":9007199254740993,\"method\":\"SendMessage\",\"params\":\"bad\"}");
+            throw new AssertionError("expected RequestException");
+        } catch (A2aJsonRpcProtocol.RequestException exception) {
+            assertThat(exception.getRequestId()).isEqualTo(new BigInteger("9007199254740993"));
+            ResponseEntity<String> response = A2aJsonRpcProtocol.errorResponse(exception.getRequestId(),
+                    exception.getError());
+            assertThat(response.getBody()).contains("\"id\":9007199254740993");
+        }
     }
 }

@@ -9,6 +9,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
@@ -52,7 +53,7 @@ final class A2aJsonRpcProtocol {
         }
 
         JsonObject payload = document.getAsJsonObject();
-        Object id = hasValidId(payload) && payload.has("id") ? GSON.fromJson(payload.get("id"), Object.class) : null;
+        Object id = hasValidId(payload) && payload.has("id") ? parseId(payload.get("id")) : null;
         if (!isValidRequest(payload)) {
             throw new RequestException(id, new InvalidRequestError("Invalid Request"));
         }
@@ -168,6 +169,31 @@ final class A2aJsonRpcProtocol {
         JsonElement id = request.get("id");
         return id == null || id.isJsonNull()
                 || (id.isJsonPrimitive() && (id.getAsJsonPrimitive().isString() || id.getAsJsonPrimitive().isNumber()));
+    }
+
+    /**
+     * Converts the JSON-RPC request id element to an exact Java value: string
+     * ids stay strings, integral number literals become BigInteger and other
+     * number forms become BigDecimal. Gson's default {@code Object.class}
+     * binding would fold every number into a Double, which both rescales
+     * integer ids (1 → 1.0) and silently rounds values beyond 2^53 — breaking
+     * the JSON-RPC 2.0 requirement that the response id equals the request
+     * id. Serializing BigInteger or BigDecimal through Gson writes the exact
+     * literal back without a decimal suffix or scientific notation.
+     *
+     * @param id the request id element; the caller guarantees a string or number primitive
+     * @return the exact id value; never null
+     */
+    private static Object parseId(JsonElement id) {
+        JsonPrimitive primitive = id.getAsJsonPrimitive();
+        if (primitive.isString()) {
+            return primitive.getAsString();
+        }
+        try {
+            return primitive.getAsBigInteger();
+        } catch (NumberFormatException exception) {
+            return primitive.getAsBigDecimal();
+        }
     }
 
     private static String internalErrorResponse() {
