@@ -472,17 +472,8 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
         log.info("A2A execute START taskId={} contextId={} conversationId={} resume={} stream={}", msgCtx.getTaskId(),
                 msgCtx.getContextId(), req.getConversationId(), !round.isNewTask, req.isStream());
 
-        if (round.isNewTask) {
-            emitter.submit();
-        }
-        emitter.startWork();
-
         FutureTask<Void> execution = new FutureTask<>(() -> {
-            if (req.isStream()) {
-                executeStreaming(msgCtx, ctx, req, emitter, round);
-            } else {
-                executeQuery(msgCtx, ctx, req, emitter, round);
-            }
+            runAdmittedRound(ctx, msgCtx, req, emitter, round);
             return null;
         });
         execution.run();
@@ -505,7 +496,22 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
                     ? runtimeException
                     : new IllegalStateException("Unexpected A2A execution failure", cause);
             log.error("Agent execution failed for contextId={}", ctx.getContextId(), runtimeFailure);
+            round.isWaiting = false;
             failAndDrain(emitter, msgCtx, runtimeFailure);
+        }
+    }
+
+    private void runAdmittedRound(RequestContext ctx, A2AMessageContext msgCtx, ServeRequest req,
+            AgentEmitter emitter, InputRound round) {
+        if (round.isNewTask) {
+            emitter.submit(msgCtx.getA2aMessage());
+        }
+        recordDeferredInput(round.lease, emitter, msgCtx);
+        emitter.startWork();
+        if (req.isStream()) {
+            executeStreaming(msgCtx, ctx, req, emitter, round);
+        } else {
+            executeQuery(msgCtx, ctx, req, emitter, round);
         }
     }
 
@@ -520,6 +526,8 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
                 orchestrator.streamQuery(current, observer);
                 Optional<ServeRequest> next = finishInputRound(round, current, observer.interrupt);
                 if (next.isPresent()) {
+                    state.history.finish(emitter, null);
+                    recordDeferredRound(next.get(), round.lease, emitter, msgCtx);
                     current = next.get();
                     continue;
                 }
@@ -576,6 +584,7 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
         }
         if (!state.cancelled.get()) {
             log.info("A2A stream complete taskId={}", state.msgCtx.getTaskId());
+            state.history.finish(state.emitter, response);
             completeAndDrain(state.emitter, state.msgCtx.getTaskId(), response);
             return;
         }
@@ -615,6 +624,7 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
         if (QueryChunk.TYPE_INTERRUPT.equals(chunk.getType())) {
             log.info("A2A interrupt detected taskId={} contextId={} message={}", state.msgCtx.getTaskId(),
                     state.msgCtx.getContextId(), chunk.getData() instanceof Map<?, ?> map ? map.get("message") : null);
+            state.history.finish(state.emitter, null);
             if (chunk.getData() instanceof Map<?, ?> interruptData) {
                 state.emitter.requiresInput(statusMessage(interruptData, state.scope, state.msgCtx.getTaskId()));
             } else {
@@ -631,8 +641,10 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
             return;
         }
         List<Part<?>> parts = chunkMapper.toParts(chunk);
+        boolean isTerminal = chunkMapper.isTerminalResult(chunk);
+        state.history.accept(parts, isTerminal);
         if (!parts.isEmpty()) {
-            if (chunkMapper.isTerminalResult(chunk)) {
+            if (isTerminal) {
                 state.emitter.addArtifact(parts, null, null, Map.of(A2aPartContent.TERMINAL_RESULT_METADATA, true));
             } else {
                 state.emitter.addArtifact(parts);
@@ -648,6 +660,7 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
         private final AtomicBoolean interrupted = new AtomicBoolean(false);
         private final AtomicBoolean failed = new AtomicBoolean(false);
         private final AtomicBoolean completed = new AtomicBoolean(false);
+        private final A2AReplyHistory history = new A2AReplyHistory();
 
         private StreamingState(A2AMessageContext msgCtx, AgentEmitter emitter, A2ADeferredInputQueue.Scope scope) {
             this.msgCtx = msgCtx;
@@ -681,18 +694,25 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
 
     private void executeQuery(A2AMessageContext msgCtx, RequestContext ctx, ServeRequest req, AgentEmitter emitter,
             InputRound round) {
-        QueryResponse response;
         ServeRequest current = req;
         while (true) {
-            response = orchestrator.query(current);
+            QueryResponse response = orchestrator.query(current);
             Map<?, ?> interrupt = response.getResult() instanceof Map<?, ?> result
                     && result.get(INTERRUPT) instanceof Map<?, ?> value ? value : null;
+            if (interrupt != null) {
+                recordInterruptedReply(emitter, response, interrupt);
+            }
             Optional<ServeRequest> next = finishInputRound(round, current, interrupt);
             if (next.isEmpty()) {
-                break;
+                finishQuery(msgCtx, req, emitter, response);
+                return;
             }
+            recordDeferredRound(next.get(), round.lease, emitter, msgCtx);
             current = next.get();
         }
+    }
+
+    private void finishQuery(A2AMessageContext msgCtx, ServeRequest req, AgentEmitter emitter, QueryResponse response) {
         if (response.getResult() instanceof Map<?, ?> cancelResult && cancelResult.containsKey(CANCEL)) {
             log.info("A2A cancel requested by the execution side taskId={} contextId={} reason={}", msgCtx.getTaskId(),
                     msgCtx.getContextId(), cancelReason(cancelResult.get(CANCEL)));
@@ -704,16 +724,53 @@ public class A2AAgentExecutor implements AgentExecutor, AutoCloseable {
             log.info("A2A query interrupt detected taskId={} contextId={}", msgCtx.getTaskId(), msgCtx.getContextId());
             emitter.requiresInput(statusMessage(interruptData, inputScope(req), msgCtx.getTaskId()));
             closeEventQueue(emitter, msgCtx.getTaskId());
-        } else if (response.getResult() instanceof Map<?, ?> result) {
+            return;
+        }
+        if (response.getResult() instanceof Map<?, ?> result) {
             Object content = result.get("content");
             if (content != null) {
                 emitter.addArtifact(List.of(new TextPart(String.valueOf(content))), null, null,
                         Map.of(A2aPartContent.TERMINAL_RESULT_METADATA, true));
             }
-            completeAndDrain(emitter, msgCtx.getTaskId(), response);
-        } else {
-            completeAndDrain(emitter, msgCtx.getTaskId(), response);
         }
+        new A2AReplyHistory().finish(emitter, response);
+        completeAndDrain(emitter, msgCtx.getTaskId(), response);
+    }
+
+    private static void recordInterruptedReply(AgentEmitter emitter, QueryResponse response, Map<?, ?> interrupt) {
+        if (response.getResult() instanceof Map<?, ?> result && result.containsKey(CANCEL)) {
+            return;
+        }
+        String question = interrupt.get("message") instanceof String text && !text.isBlank() ? text : "Input required";
+
+        // Some orchestrators project the input prompt into content; its status message already records it.
+        AgentCoreEnvelopeText.businessText(response.getResult()).filter(reply -> !question.equals(reply))
+                .ifPresent(reply -> new A2AReplyHistory().finish(emitter, response));
+    }
+
+    private void recordDeferredRound(ServeRequest request, A2ADeferredInputQueue.Lease lease,
+            AgentEmitter emitter, A2AMessageContext context) {
+        if (request.getMetadata().get(INTERRUPT) instanceof Map<?, ?> interrupt) {
+            emitter.updateStatus(TaskState.TASK_STATE_WORKING,
+                    statusMessage(interrupt, inputScope(request), context.getTaskId()));
+        }
+        recordDeferredInput(lease, emitter, context);
+        emitter.startWork();
+    }
+
+    private static void recordDeferredInput(A2ADeferredInputQueue.Lease lease, AgentEmitter emitter,
+            A2AMessageContext context) {
+        lease.messageId().ifPresent(messageId -> {
+            ServeRequest request = lease.input();
+            List<Part<?>> parts = A2aJsonRpcParamsParser.toSdkParts(request.lastUserParts());
+            if (parts.isEmpty()) {
+                parts = List.of(new TextPart(request.lastUserQuery()));
+            }
+            Message message = Message.builder().messageId(messageId).taskId(context.getTaskId())
+                    .contextId(context.getContextId()).role(Message.Role.ROLE_USER).parts(parts)
+                    .metadata(request.lastUserMessageMetadata()).build();
+            emitter.updateStatus(TaskState.TASK_STATE_WORKING, message);
+        });
     }
 
     private static A2ADeferredInputQueue.Scope inputScope(ServeRequest request) {

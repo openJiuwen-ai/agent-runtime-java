@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -97,6 +98,13 @@ public final class ScopedRuntimeRedisClient implements RuntimeRedisClient {
     @Override
     public String setex(byte[] key, long seconds, byte[] value) {
         return delegate.setex(physical(key), seconds, value);
+    }
+
+    @Override
+    public void setexBatch(Map<String, byte[]> values, long seconds, List<String> refreshKeys) {
+        Map<String, byte[]> mapped = new LinkedHashMap<>();
+        values.forEach((key, value) -> mapped.put(physical(key), value));
+        delegate.setexBatch(mapped, seconds, refreshKeys.stream().map(this::physical).toList());
     }
 
     @Override
