@@ -119,7 +119,7 @@
             <dependency>
                 <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-core-java</artifactId>
-                <version>${agent-core.version}</version>
+                <version>0.1.18</version>
             </dependency>
 
             <!-- ② Service leaf modules（${revision} 是 CI-friendly，flatten 会展开为字面值） -->
