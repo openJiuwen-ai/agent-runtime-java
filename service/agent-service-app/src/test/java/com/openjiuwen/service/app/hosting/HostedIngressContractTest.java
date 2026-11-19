@@ -162,6 +162,20 @@ class HostedIngressContractTest {
         assertThat(catalog.resolve("a").taskStore().get(taskId)).isSameAs(task);
     }
 
+    @Test
+    void cancelTaskRemainsUnsupportedForHostedAgents() throws com.fasterxml.jackson.core.JsonProcessingException {
+        String taskId = UUID.randomUUID().toString();
+        Task waiting = Task.builder().id(taskId).contextId("cancel-context")
+                .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED)).build();
+        catalog.resolve("a").taskStore().save(waiting, false);
+        for (String path : List.of("/a2a", "/a2a/agents/a", "/a2a/agents/b")) {
+            JsonNode rejected = mapper.readTree(post(path, rpc("CancelTask", taskId, null)).getBody());
+            assertThat(rejected.path("error").path("code").asInt()).isEqualTo(-32601);
+        }
+        assertThat(catalog.resolve("a").taskStore().get(taskId)).isEqualTo(waiting);
+        assertThat(catalog.resolve("b").taskStore().get(taskId)).isNull();
+    }
+
     private ResponseEntity<String> post(String path, Object body) {
         var headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -185,7 +199,7 @@ class HostedIngressContractTest {
 
     private static Map<String, Object> rpc(String method, String taskId, String context) {
         Map<String, Object> params = new LinkedHashMap<>();
-        if ("GetTask".equals(method) || "SubscribeToTask".equals(method)) {
+        if ("GetTask".equals(method) || "SubscribeToTask".equals(method) || "CancelTask".equals(method)) {
             params.put("id", taskId);
         } else {
             Map<String, Object> message = new LinkedHashMap<>();

@@ -302,7 +302,7 @@ final class A2aJsonRpcParamsParser {
         return value.getAsString();
     }
 
-    private static List<Part<?>> toSdkParts(List<Map<String, Object>> normalized) {
+    static List<Part<?>> toSdkParts(List<Map<String, Object>> normalized) {
         List<Part<?>> parts = new ArrayList<>();
         for (Map<String, Object> part : normalized) {
             String kind = String.valueOf(part.get("kind"));
