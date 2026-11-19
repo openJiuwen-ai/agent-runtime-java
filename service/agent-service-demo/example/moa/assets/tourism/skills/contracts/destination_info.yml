@@ -1,0 +1,24 @@
+input:
+  type: object
+  properties:
+    city: {type: string, enum: [杭州, 北京]}
+  required: [city]
+  additionalProperties: false
+result: &result
+  type: object
+  properties:
+    selection_id: {type: string, minLength: 1}
+    city: {type: string}
+    attractions:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string}
+          name: {type: string}
+        required: [id, name]
+        additionalProperties: false
+    simulated: {type: boolean}
+  required: [selection_id, city, attractions, simulated]
+  additionalProperties: false
+summary: *result

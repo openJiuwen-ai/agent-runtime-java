@@ -1,0 +1,34 @@
+input:
+  type: object
+  properties:
+    city: {type: string, enum: [杭州, 北京]}
+    check_in: {type: string, description: 入住日期，YYYY-MM-DD}
+    check_out: {type: string, description: 退房日期，YYYY-MM-DD}
+    people: {type: integer, minimum: 1, maximum: 10}
+    rooms: {type: integer, minimum: 1, maximum: 5}
+  required: [city, check_in, check_out, people, rooms]
+  additionalProperties: false
+result: &result
+  type: object
+  properties:
+    room_selection_id: {type: string}
+    city: {type: string}
+    check_in: {type: string}
+    check_out: {type: string}
+    people: {type: integer}
+    room_count: {type: integer}
+    rooms:
+      type: array
+      items:
+        type: object
+        properties:
+          room_id: {type: string}
+          name: {type: string}
+          capacity: {type: integer}
+          nightly_price_cents: {type: integer}
+        required: [room_id, name, capacity, nightly_price_cents]
+        additionalProperties: false
+    simulated: {type: boolean}
+  required: [room_selection_id, city, check_in, check_out, people, room_count, rooms, simulated]
+  additionalProperties: false
+summary: *result

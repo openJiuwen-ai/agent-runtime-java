@@ -1,0 +1,60 @@
+server:
+  port: 18229
+spring:
+  application:
+    name: moa-demo-l2
+openjiuwen:
+  service:
+    agent-id: moa-demo-l2
+    a2a:
+      remote-agents:
+        - name: mock-tourism
+          url: http://127.0.0.1:3001/a2a/mock
+          streaming: true
+          timeout-seconds: 120
+moa:
+  skill-agent:
+    agent-id: hotel-skill
+    entry: hotel-entry
+    operations:
+      search:
+        type: A2A
+        title: 查询演示酒店
+        adapter: mock-tourism
+        intent: hotel.search
+        query-template: |-
+          city={city}
+          check_in={check_in}
+          check_out={check_out}
+          people={people}
+          rooms={rooms}
+        max-calls: 3
+        contract-file: contracts/hotel_search.yml
+      quote:
+        type: A2A
+        title: 生成演示报价
+        adapter: mock-tourism
+        intent: hotel.quote
+        query-template: 'room_selection_id={room_selection_id}'
+        input-bindings:
+          room_selection_id: {operation: search, path: /room_selection_id}
+        max-calls: 3
+        contract-file: contracts/hotel_quote.yml
+      book:
+        type: A2A
+        title: 模拟预订
+        adapter: mock-tourism
+        intent: hotel.book
+        query-template: |-
+          quote_id={quote_id}
+          confirmation_text={confirmation_text}
+        input-bindings:
+          quote_id: {operation: quote, path: /quote_id}
+        confirmation-required: true
+        max-calls: 2
+        contract-file: contracts/hotel_book.yml
+  orchestration:
+    candidate-pack: classpath:candidates/l2.yaml
+  service-lead-out:
+    follow-up:
+      enabled: false

@@ -1,0 +1,9 @@
+candidates:
+  - id: cap.hotel
+    name: 酒店查询与模拟预订
+    description: 查询虚构房型、报价并在确认后模拟预订
+    kind: SKILL
+    risk: LOW
+    keywords: [酒店, 住宿, 房型, 入住, 退房, 报价, 预订]
+    utterances: [查询杭州酒店]
+    versatile: {adapter: hotel-skill, intent: hotel.service}
