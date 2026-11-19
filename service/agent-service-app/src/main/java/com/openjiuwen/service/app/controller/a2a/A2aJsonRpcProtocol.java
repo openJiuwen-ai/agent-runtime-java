@@ -195,19 +195,21 @@ final class A2aJsonRpcProtocol {
      * @return the exact id value, or {@code null} for an explicit JSON null id
      */
     private static Object parseId(JsonElement id) {
-        if (id.isJsonNull()) {
-            return null;
+        Object parsed = null;
+        if (!id.isJsonNull()) {
+            JsonPrimitive primitive = id.getAsJsonPrimitive();
+            if (primitive.isString()) {
+                parsed = primitive.getAsString();
+            } else {
+                BigDecimal value = primitive.getAsBigDecimal();
+                try {
+                    parsed = value.toBigIntegerExact();
+                } catch (ArithmeticException exception) {
+                    parsed = value;
+                }
+            }
         }
-        JsonPrimitive primitive = id.getAsJsonPrimitive();
-        if (primitive.isString()) {
-            return primitive.getAsString();
-        }
-        BigDecimal value = primitive.getAsBigDecimal();
-        try {
-            return value.toBigIntegerExact();
-        } catch (ArithmeticException exception) {
-            return value;
-        }
+        return parsed;
     }
 
     private static String internalErrorResponse() {
