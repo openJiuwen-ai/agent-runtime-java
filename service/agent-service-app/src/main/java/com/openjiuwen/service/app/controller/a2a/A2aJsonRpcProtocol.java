@@ -9,6 +9,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
 
 import org.a2aproject.sdk.jsonrpc.common.json.JsonUtil;
@@ -23,6 +24,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+
+import java.math.BigDecimal;
 
 /**
  * Adapts the A2A SDK JSON-RPC model to the HTTP binding used by the service.
@@ -52,7 +55,7 @@ final class A2aJsonRpcProtocol {
         }
 
         JsonObject payload = document.getAsJsonObject();
-        Object id = hasValidId(payload) && payload.has("id") ? GSON.fromJson(payload.get("id"), Object.class) : null;
+        Object id = hasValidId(payload) && payload.has("id") ? parseId(payload.get("id")) : null;
         if (!isValidRequest(payload)) {
             throw new RequestException(id, new InvalidRequestError("Invalid Request"));
         }
@@ -168,6 +171,45 @@ final class A2aJsonRpcProtocol {
         JsonElement id = request.get("id");
         return id == null || id.isJsonNull()
                 || (id.isJsonPrimitive() && (id.getAsJsonPrimitive().isString() || id.getAsJsonPrimitive().isNumber()));
+    }
+
+    /**
+     * Converts the JSON-RPC request id element to an exact Java value: string
+     * ids stay strings, integral number literals become BigInteger and other
+     * number forms become BigDecimal. Gson's default {@code Object.class}
+     * binding would fold every number into a Double, which both rescales
+     * integer ids (1 → 1.0) and silently rounds values beyond 2^53 — breaking
+     * the JSON-RPC 2.0 requirement that the response id equals the request
+     * id. Serializing BigInteger or BigDecimal through Gson writes the exact
+     * literal back without a decimal suffix or scientific notation.
+     *
+     * <p>An explicit JSON null id maps to {@code null}: JSON-RPC 2.0 permits
+     * a NULL id on requests and requires the response to echo it, so it must
+     * be accepted like any other valid id, not rejected as a parse failure.
+     * The integer/decimal split is decided on the exact {@link BigDecimal}
+     * value because Gson does not specify whether {@code getAsBigInteger()}
+     * throws or truncates for fractional literals.
+     *
+     * @param id the request id element; a string or number primitive, or an
+     *     explicit JSON null (see {@link #hasValidId(JsonObject)})
+     * @return the exact id value, or {@code null} for an explicit JSON null id
+     */
+    private static Object parseId(JsonElement id) {
+        Object parsed = null;
+        if (!id.isJsonNull()) {
+            JsonPrimitive primitive = id.getAsJsonPrimitive();
+            if (primitive.isString()) {
+                parsed = primitive.getAsString();
+            } else {
+                BigDecimal value = primitive.getAsBigDecimal();
+                try {
+                    parsed = value.toBigIntegerExact();
+                } catch (ArithmeticException exception) {
+                    parsed = value;
+                }
+            }
+        }
+        return parsed;
     }
 
     private static String internalErrorResponse() {
