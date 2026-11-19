@@ -26,7 +26,8 @@ import java.util.Map;
  * (DFX-006 §4.6) — plus the request-id echo contract: JSON-RPC 2.0 requires
  * the response {@code id} to equal the request {@code id}, so numeric ids
  * must keep their exact value and integer shape (no Double rounding, no
- * {@code .0} suffix, no scientific notation).
+ * {@code .0} suffix, no scientific notation), and an explicit JSON null id
+ * must be accepted and echoed per JSON-RPC 2.0.
  */
 class A2aJsonRpcProtocolTest {
     @Test
@@ -77,7 +78,7 @@ class A2aJsonRpcProtocolTest {
                 .parseRequest("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"SendMessage\",\"params\":{}}");
 
         assertThat(request.id()).isEqualTo(BigInteger.ONE);
-        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject())).contains("\"id\":1");
+        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject())).contains("\"id\":1,");
     }
 
     @Test
@@ -87,7 +88,7 @@ class A2aJsonRpcProtocolTest {
 
         assertThat(request.id()).isEqualTo(new BigInteger("9007199254740993"));
         assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject()))
-                .contains("\"id\":9007199254740993");
+                .contains("\"id\":9007199254740993,");
     }
 
     @Test
@@ -97,7 +98,7 @@ class A2aJsonRpcProtocolTest {
 
         assertThat(request.id()).isEqualTo(new BigInteger("9223372036854775807"));
         assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject()))
-                .contains("\"id\":9223372036854775807");
+                .contains("\"id\":9223372036854775807,");
     }
 
     @Test
@@ -107,7 +108,7 @@ class A2aJsonRpcProtocolTest {
 
         assertThat(request.id()).isEqualTo("my-string-id-1");
         assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject()))
-                .contains("\"id\":\"my-string-id-1\"");
+                .contains("\"id\":\"my-string-id-1\",");
     }
 
     @Test
@@ -116,7 +117,42 @@ class A2aJsonRpcProtocolTest {
                 .parseRequest("{\"jsonrpc\":\"2.0\",\"id\":1.5,\"method\":\"SendMessage\",\"params\":{}}");
 
         assertThat(request.id()).isEqualTo(new BigDecimal("1.5"));
-        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject())).contains("\"id\":1.5");
+        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject())).contains("\"id\":1.5,");
+    }
+
+    @Test
+    void parseRequestAcceptsExplicitNullId() {
+        A2aJsonRpcProtocol.Request request = A2aJsonRpcProtocol.parseRequest(
+                "{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"SendMessage\",\"params\":{}}");
+
+        assertThat(request.id()).isNull();
+        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject()))
+                .contains("\"id\":null,");
+    }
+
+    @Test
+    void invalidRequestWithExplicitNullIdEchoesNullId() {
+        try {
+            A2aJsonRpcProtocol.parseRequest(
+                    "{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"SendMessage\",\"params\":\"bad\"}");
+            throw new AssertionError("expected RequestException");
+        } catch (A2aJsonRpcProtocol.RequestException exception) {
+            assertThat(exception.getRequestId()).isNull();
+            ResponseEntity<String> response = A2aJsonRpcProtocol.errorResponse(exception.getRequestId(),
+                    exception.getError());
+            JsonObject body = JsonParser.parseString(response.getBody()).getAsJsonObject();
+            assertThat(body.get("id").isJsonNull()).isTrue();
+        }
+    }
+
+    @Test
+    void parseRequestNormalizesExponentIntegerIdToExactInteger() {
+        A2aJsonRpcProtocol.Request request = A2aJsonRpcProtocol
+                .parseRequest("{\"jsonrpc\":\"2.0\",\"id\":1e3,\"method\":\"SendMessage\",\"params\":{}}");
+
+        assertThat(request.id()).isEqualTo(new BigInteger("1000"));
+        assertThat(A2aJsonRpcProtocol.resultEnvelope(request.id(), new JsonObject()))
+                .contains("\"id\":1000,");
     }
 
     @Test
@@ -129,7 +165,8 @@ class A2aJsonRpcProtocolTest {
             assertThat(exception.getRequestId()).isEqualTo(new BigInteger("9007199254740993"));
             ResponseEntity<String> response = A2aJsonRpcProtocol.errorResponse(exception.getRequestId(),
                     exception.getError());
-            assertThat(response.getBody()).contains("\"id\":9007199254740993");
+            JsonObject body = JsonParser.parseString(response.getBody()).getAsJsonObject();
+            assertThat(body.get("id").getAsString()).isEqualTo("9007199254740993");
         }
     }
 }

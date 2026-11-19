@@ -25,6 +25,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
+import java.math.BigDecimal;
+
 /**
  * Adapts the A2A SDK JSON-RPC model to the HTTP binding used by the service.
  */
@@ -181,18 +183,30 @@ final class A2aJsonRpcProtocol {
      * id. Serializing BigInteger or BigDecimal through Gson writes the exact
      * literal back without a decimal suffix or scientific notation.
      *
-     * @param id the request id element; the caller guarantees a string or number primitive
-     * @return the exact id value; never null
+     * <p>An explicit JSON null id maps to {@code null}: JSON-RPC 2.0 permits
+     * a NULL id on requests and requires the response to echo it, so it must
+     * be accepted like any other valid id, not rejected as a parse failure.
+     * The integer/decimal split is decided on the exact {@link BigDecimal}
+     * value because Gson does not specify whether {@code getAsBigInteger()}
+     * throws or truncates for fractional literals.
+     *
+     * @param id the request id element; a string or number primitive, or an
+     *     explicit JSON null (see {@link #hasValidId(JsonObject)})
+     * @return the exact id value, or {@code null} for an explicit JSON null id
      */
     private static Object parseId(JsonElement id) {
+        if (id.isJsonNull()) {
+            return null;
+        }
         JsonPrimitive primitive = id.getAsJsonPrimitive();
         if (primitive.isString()) {
             return primitive.getAsString();
         }
+        BigDecimal value = primitive.getAsBigDecimal();
         try {
-            return primitive.getAsBigInteger();
-        } catch (NumberFormatException exception) {
-            return primitive.getAsBigDecimal();
+            return value.toBigIntegerExact();
+        } catch (ArithmeticException exception) {
+            return value;
         }
     }
 
