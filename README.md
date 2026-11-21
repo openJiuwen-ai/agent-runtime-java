@@ -110,9 +110,11 @@ More examples (LLM mode, custom handlers, MCP/A2A samples): [service/agent-servi
 </dependencies>
 ```
 
-The Runtime POM imports its matching Core POM. If your application imports the
-Spring Boot BOM, list it after Runtime. If it inherits a Boot parent, check the
-effective POM for inherited constraints and any explicit application overrides.
+The Runtime POM imports its matching Core POM and includes dependency management
+from Spring Boot 4.0.7. If your application also imports the Spring Boot BOM,
+list it after Runtime to give Runtime precedence for shared coordinates. If your
+application inherits a Boot parent, check `mvn help:effective-pom` for the
+resolved versions and declare any required application overrides explicitly.
 
 Provide a `@Bean AgentHandler` or set `openjiuwen.service.agent-id` for the default Core handler.
 

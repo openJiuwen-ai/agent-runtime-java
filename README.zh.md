@@ -84,17 +84,36 @@ curl -s http://localhost:8090/.well-known/agent-card.json
 ### 作为依赖使用
 
 ```xml
-<dependency>
-    <groupId>com.openjiuwen</groupId>
-    <artifactId>agent-service-app</artifactId>
-    <version>0.1.5</version>
-</dependency>
-<dependency>
-    <groupId>com.openjiuwen</groupId>
-    <artifactId>agent-service-adapters-agentcore</artifactId>
-    <version>0.1.5</version>
-</dependency>
+<properties>
+    <agent-runtime.version>0.1.5</agent-runtime.version>
+</properties>
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>com.openjiuwen</groupId>
+            <artifactId>agent-runtime-java</artifactId>
+            <version>${agent-runtime.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+<dependencies>
+    <dependency>
+        <groupId>com.openjiuwen</groupId>
+        <artifactId>agent-service-app</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>com.openjiuwen</groupId>
+        <artifactId>agent-service-adapters-agentcore</artifactId>
+    </dependency>
+</dependencies>
 ```
+
+Runtime POM 导入同版本线的 Core POM，并包含 Spring Boot 4.0.7 的依赖管理。
+如果应用也导入 Spring Boot BOM，请将其放在 Runtime 之后，使共同管理的坐标优先
+使用 Runtime 的版本。如果应用继承 Boot parent，请用 `mvn help:effective-pom`
+核对实际版本，并按需显式声明应用级覆盖。
 
 并提供 `@Bean AgentHandler` 或配置 `openjiuwen.service.agent-id` 使用默认 Core Handler。
 
