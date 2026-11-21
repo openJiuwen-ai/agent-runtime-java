@@ -115,11 +115,21 @@
                 <version>1.0.0.Final</version>
             </dependency>
 
+            <!-- Import the published Core POM for shared library constraints.
+                 Keep the import and the JAR coordinate on the same version. -->
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-core-java</artifactId>
+                <version>${agent-core.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- OpenJiuwen Agent Core -->
             <dependency>
                 <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-core-java</artifactId>
-                <version>0.1.18</version>
+                <version>${agent-core.version}</version>
             </dependency>
 
             <!-- ② Service leaf modules（${revision} 是 CI-friendly，flatten 会展开为字面值） -->
@@ -179,12 +189,10 @@
               显式声明在此处，install 后 POM 的 depMgmt 保留字面条目，消费方
               import 时内联到其有效 depMgmt，版本锁随之传播。
 
-              flattenMode=resolveCiFriendliesOnly 只展开 ${revision}/${sha1}/
-              ${changelist} 三个 CI-friendly 占位符，不展开 ${xxx.version} 等
-              自定义属性。故此处版本必须用字面值，与 <properties> 里同名属性值
-              重复——这是 flatten 机制限制下的必要妥协（properties 保留用于
-              runtime 自身构建期覆盖 Boot BOM；depMgmt 字面值用于 BOM 传播到
-              消费方）。根治方案是拆独立 BOM 模块（方案 B），暂未实施。
+              resolveCiFriendliesOnly 展开 CI-friendly 占位符并保留自定义属性。
+              Maven 在导入 Runtime POM 时先用该 POM 的 properties 解析
+              agent-core.version，再导入 Core 的版本约束。下方显式条目继续
+              用于将 Runtime 对 Boot 的版本覆盖传递给消费者。
 
               scope 约定：
               - 运行时依赖（slf4j/jackson/otel/snakeyaml/logback/postgresql/
