@@ -84,17 +84,35 @@ More examples (LLM mode, custom handlers, MCP/A2A samples): [service/agent-servi
 ### Use as a Maven Dependency
 
 ```xml
-<dependency>
-    <groupId>com.openjiuwen</groupId>
-    <artifactId>agent-service-app</artifactId>
-    <version>0.1.5</version>
-</dependency>
-<dependency>
-    <groupId>com.openjiuwen</groupId>
-    <artifactId>agent-service-adapters-agentcore</artifactId>
-    <version>0.1.5</version>
-</dependency>
+<properties>
+    <agent-runtime.version>0.1.5</agent-runtime.version>
+</properties>
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>com.openjiuwen</groupId>
+            <artifactId>agent-runtime-java</artifactId>
+            <version>${agent-runtime.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+<dependencies>
+    <dependency>
+        <groupId>com.openjiuwen</groupId>
+        <artifactId>agent-service-app</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>com.openjiuwen</groupId>
+        <artifactId>agent-service-adapters-agentcore</artifactId>
+    </dependency>
+</dependencies>
 ```
+
+The Runtime POM imports its matching Core POM. If your application imports the
+Spring Boot BOM, list it after Runtime. If it inherits a Boot parent, check the
+effective POM for inherited constraints and any explicit application overrides.
 
 Provide a `@Bean AgentHandler` or set `openjiuwen.service.agent-id` for the default Core handler.
 

@@ -115,11 +115,21 @@
                 <version>1.0.0.Final</version>
             </dependency>
 
+            <!-- Import the published Core POM for shared library constraints.
+                 Keep the import and the JAR coordinate on the same version. -->
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-core-java</artifactId>
+                <version>${agent-core.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- OpenJiuwen Agent Core -->
             <dependency>
                 <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-core-java</artifactId>
-                <version>0.1.18</version>
+                <version>${agent-core.version}</version>
             </dependency>
 
             <!-- ② Service leaf modules（${revision} 是 CI-friendly，flatten 会展开为字面值） -->
