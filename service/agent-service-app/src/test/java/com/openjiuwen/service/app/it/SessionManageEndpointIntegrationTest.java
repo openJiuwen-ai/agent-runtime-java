@@ -14,7 +14,9 @@ import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
+import com.openjiuwen.service.spec.spi.ServeOrchestrator;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -35,6 +37,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -66,6 +69,11 @@ class SessionManageEndpointIntegrationTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
+    @AfterEach
+    void clearRunningRegistry() {
+        StubActiveTaskQuery.clear();
+    }
+
     @Test
     @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
     void terminateUnknownSessionIsAcceptedAsNoOpInterrupt() {
@@ -82,17 +90,17 @@ class SessionManageEndpointIntegrationTest {
 
     @Test
     @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
-    void compactUnknownSessionResolvesIdleThenConflictsOnTerminatedFlow() {
+    void compactUnknownSessionResolvesIdleThenCompactsOnOrchestratorStub() {
         // 4.2 (current semantics): an unknown session id resolves through
         // the state machine to IDLE (no registry record, no active task), so
-        // the compaction runs through the orchestrator path; the 404
-        // distinction requires the T1 storage-listing capability. The test
-        // pins the current contract: compact does not fail with 5xx on an
-        // unknown id and the state machine stays consistent afterwards.
+        // the compaction runs through the orchestrator path and succeeds on
+        // the stub; the 404 distinction requires the T1 storage-listing
+        // capability. The test pins the current contract: compact does not
+        // fail with 5xx on an unknown id and the state machine stays
+        // consistent afterwards.
         ResponseEntity<String> compact = post("/api/sessions/session-unknown/compact");
 
-        assertThat(compact.getStatusCode().is2xxSuccessful()
-                || compact.getStatusCode().value() == 409).isTrue();
+        assertThat(compact.getStatusCode().is2xxSuccessful()).isTrue();
     }
 
     @Test
@@ -128,6 +136,13 @@ class SessionManageEndpointIntegrationTest {
     void terminateAcrossInitialStatesMatchesStateMachine() throws Exception {
         // 3.9 / 3.12: running -> interrupted into TERMINATED, idle ->
         // accepted no-op, already terminated -> idempotent repetition.
+        // Precondition: the running branch is only entered when an active
+        // task exists, so the session is marked RUNNING up front and the
+        // verdict is asserted before the terminate lands.
+        StubActiveTaskQuery.markRunning("session-running");
+        Map<String, Object> preconditionBody = readBody(get("/api/sessions/session-running"));
+        assertThat(preconditionBody.get("state")).isEqualTo("RUNNING");
+
         ResponseEntity<String> runningTerminate = post("/api/sessions/session-running/terminate");
         assertThat(runningTerminate.getStatusCode().value()).isEqualTo(202);
 
@@ -179,25 +194,45 @@ class SessionManageEndpointIntegrationTest {
     void pauseThenTerminateWinsAndResumeIsRejected() throws Exception {
         // 3.28 / 4.4: when pause and terminate race on one running session,
         // terminate wins, the state settles on TERMINATED, and the follow-up
-        // resume is rejected with 409.
+        // resume is rejected with 409. The pause request is issued against a
+        // genuinely RUNNING session (marked up front) and both responses are
+        // collected, so the race outcome - not just the terminate verdict -
+        // is pinned: pause may be accepted (202) and then overridden by the
+        // terminate, or rejected (409) once the terminate landed, but the
+        // session must never end up paused.
+        StubActiveTaskQuery.markRunning("session-race");
         CountDownLatch started = new CountDownLatch(2);
         ExecutorService pool = Executors.newFixedThreadPool(2);
+        List<ResponseEntity<String>> responses;
         try {
-            pool.submit(() -> {
+            Future<ResponseEntity<String>> terminate = pool.submit(() -> {
                 started.countDown();
                 return post("/api/sessions/session-race/terminate");
             });
-            pool.submit(() -> {
+            Future<ResponseEntity<String>> pause = pool.submit(() -> {
                 started.countDown();
                 return post("/api/sessions/session-race/pause");
             });
             assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+            // futures.get rethrows task failures instead of dropping them
+            responses = List.of(terminate.get(10, TimeUnit.SECONDS), pause.get(10, TimeUnit.SECONDS));
         } finally {
             pool.shutdown();
             assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
 
         awaitState("session-race", "TERMINATED");
+
+        // The pause leg of the race: with the terminate landed, the pause
+        // outcome collapses into the legal set - accepted then overridden,
+        // or rejected outright. A surviving PAUSED record would break the
+        // follow-up resume rejection below, so no residue may remain.
+        ResponseEntity<String> pauseResponse = responses.get(1);
+        int pauseStatus = pauseResponse.getStatusCode().value();
+        assertThat(pauseStatus == 202 || pauseStatus == 200 || pauseStatus == 409)
+                .as("race pause response stays in the legal set, got %s with body %s",
+                        pauseStatus, pauseResponse.getBody())
+                .isTrue();
 
         ResponseEntity<String> resume = post("/api/sessions/session-race/resume");
         assertThat(resume.getStatusCode().value()).isEqualTo(409);
@@ -238,9 +273,14 @@ class SessionManageEndpointIntegrationTest {
     }
 
     /**
-     * Minimal application: a session-operations-capable handler plus a
-     * controllable active-task registry, wired through the real
-     * auto-configuration so the HTTP layer resolves genuine state verdicts.
+     * Minimal application: a session-operations-capable handler, a
+     * forwarding orchestrator, and a controllable active-task registry,
+     * wired through the real auto-configuration so the HTTP layer resolves
+     * genuine state verdicts. The orchestrator bean is explicit (not a
+     * side effect of the A2A auto-configuration): the capability gate of
+     * {@code SessionPauseResumeCoordinator.supportsSessionOperations()}
+     * probes the ServeOrchestrator bean, so pinning it here keeps the
+     * pause/resume/compact verdicts independent of A2A wiring conditions.
      */
     @SpringBootConfiguration
     @EnableAutoConfiguration
@@ -251,8 +291,66 @@ class SessionManageEndpointIntegrationTest {
         }
 
         @Bean
+        ServeOrchestrator sessionOpsOrchestrator(AgentHandler sessionOpsAgentHandler) {
+            return new SessionOpsForwardingOrchestrator(sessionOpsAgentHandler);
+        }
+
+        @Bean
         ActiveTaskQuery activeTaskQuery() {
             return new StubActiveTaskQuery();
+        }
+    }
+
+    /**
+     * Orchestrator stub that forwards the issue #117 session operations to
+     * the handler and reports the support flag, so the capability gate
+     * resolves through an explicit bean instead of the A2A wiring.
+     */
+    static final class SessionOpsForwardingOrchestrator implements ServeOrchestrator {
+        private final AgentHandler delegate;
+
+        SessionOpsForwardingOrchestrator(AgentHandler delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public QueryResponse query(ServeRequest request) {
+            return delegate.query(request);
+        }
+
+        @Override
+        public void streamQuery(ServeRequest request, QueryStreamObserver observer) {
+            delegate.streamQuery(request, observer);
+        }
+
+        @Override
+        public void cancelActive(String conversationId) {
+            // no active streams in this stub application
+        }
+
+        @Override
+        public void resetConversation(String conversationId) {
+            delegate.clearSession(conversationId);
+        }
+
+        @Override
+        public void resumeSession(String sessionId) {
+            delegate.resumeSession(sessionId);
+        }
+
+        @Override
+        public void requestPause(String sessionId, Map<String, Object> pauseInfo) {
+            delegate.requestPause(sessionId, pauseInfo);
+        }
+
+        @Override
+        public Map<String, Object> compactSession(String sessionId, Map<String, Object> options) {
+            return delegate.compactSession(sessionId, options);
+        }
+
+        @Override
+        public boolean supportsSessionOperations() {
+            return delegate.supportsSessionOperations();
         }
     }
 
@@ -296,7 +394,9 @@ class SessionManageEndpointIntegrationTest {
     /**
      * Registry-backed active-task query: sessions turn RUNNING through the
      * mark hook and stay running until terminated, exercising the real
-     * state-resolution chain.
+     * state-resolution chain. The registry is cleared between tests so a
+     * session marked RUNNING in one case never leaks into the next one
+     * (every test also runs with a fresh application context).
      */
     static final class StubActiveTaskQuery implements ActiveTaskQuery {
         private static final Map<String, Boolean> RUNNING = new ConcurrentHashMap<>();
@@ -305,8 +405,8 @@ class SessionManageEndpointIntegrationTest {
             RUNNING.put(sessionId, Boolean.TRUE);
         }
 
-        static boolean isRunning(String sessionId) {
-            return RUNNING.getOrDefault(sessionId, Boolean.FALSE);
+        static void clear() {
+            RUNNING.clear();
         }
 
         @Override
