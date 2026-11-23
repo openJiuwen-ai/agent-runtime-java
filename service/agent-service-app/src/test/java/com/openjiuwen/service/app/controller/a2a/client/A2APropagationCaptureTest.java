@@ -78,6 +78,45 @@ class A2APropagationCaptureTest {
         }
     }
 
+    @Test
+    void capturesEveryProviderBeforeHandoffAndRestoresAfterExit() throws Exception {
+        AtomicReference<String> selected = new AtomicReference<>("trace-a");
+        var tracing = new A2APropagationHeaderProvider() {
+            @Override
+            public Map<String, String> headersFor(A2AOutboundRequest request) {
+                return Map.of("traceparent", selected.get());
+            }
+
+            @Override
+            public A2APropagationHeaderProvider capture() {
+                String captured = selected.get();
+                return request -> Map.of("traceparent", captured);
+            }
+        };
+        var constant = new A2APropagationHeaderProvider() {
+            @Override
+            public Map<String, String> headersFor(A2AOutboundRequest request) {
+                return Map.of("x-user-id", "u-1");
+            }
+        };
+        var executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(8));
+        try (var tracingRegistration = A2APropagationHeaderRegistry.registerProvider(tracing);
+                var constantRegistration = A2APropagationHeaderRegistry.registerProvider(constant)) {
+            var captured = A2APropagationHeaderRegistry.captureInvocation(
+                    () -> A2APropagationHeaderRegistry.provide(null));
+            selected.set("trace-b");
+            assertThat(executor.submit(captured).get(5, TimeUnit.SECONDS))
+                    .containsEntry("traceparent", "trace-a")
+                    .containsEntry("x-user-id", "u-1");
+            assertThat(A2APropagationHeaderRegistry.provide(null))
+                    .containsEntry("traceparent", "trace-b")
+                    .containsEntry("x-user-id", "u-1");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static HttpServer remoteServer(List<String> observed, boolean shouldRetry)
             throws java.io.IOException {
         var failedOnce = new AtomicBoolean();

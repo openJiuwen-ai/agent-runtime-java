@@ -108,13 +108,15 @@ class HeaderInjectingA2AHttpClientTest {
 
     @Test
     void failedInjectionCanRetryOnSameBuilder() throws Exception {
-        A2APropagationHeaderRegistry.registerProvider(request -> {
-            throw new IllegalStateException("provider boom");
-        });
+        A2APropagationHeaderRegistry.Registration failing = A2APropagationHeaderRegistry
+                .registerProvider(request -> {
+                    throw new IllegalStateException("provider boom");
+                });
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         A2AHttpClient.PostBuilder builder = client.createPost().url("http://x/a2a").body("{}");
         assertThatThrownBy(builder::post).isInstanceOf(IllegalStateException.class);
+        failing.close();
         A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-retry-r-01"));
         builder.post();
         assertThat(recording.headers).containsEntry("traceparent", "00-retry-r-01");
@@ -140,15 +142,63 @@ class HeaderInjectingA2AHttpClientTest {
     }
 
     @Test
-    void registrationCloseRemovesOnlyOwnProvider() {
-        A2APropagationHeaderRegistry.Registration stale = A2APropagationHeaderRegistry
-                .registerProvider(request -> Map.of("p", "1"));
-        A2APropagationHeaderRegistry.Registration active = A2APropagationHeaderRegistry
-                .registerProvider(request -> Map.of("p", "2"));
+    void multipleProvidersMergeDisjointHeaders() throws Exception {
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-a-b-01"));
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("x-user-id", "u-1"));
+        RecordingClient recording = new RecordingClient();
+        HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
+        client.createPost().url("http://x/a2a").body("{}").post();
+        assertThat(recording.headers)
+                .containsEntry("traceparent", "00-a-b-01")
+                .containsEntry("x-user-id", "u-1");
+    }
+
+    @Test
+    void sameHeaderNameFromTwoProvidersFailsRequest() {
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-a-b-01"));
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-c-d-01"));
+        RecordingClient recording = new RecordingClient();
+        HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
+        A2AHttpClient.PostBuilder builder = client.createPost().url("http://x/a2a").body("{}");
+        assertThatThrownBy(builder::post)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("traceparent");
+    }
+
+    @Test
+    void reRegistrationOfTheSameProviderClassReplacesTheEarlierInstance() {
+        A2APropagationHeaderRegistry.registerProvider(new StubProvider("1"));
+        A2APropagationHeaderRegistry.registerProvider(new StubProvider("2"));
         A2AOutboundRequest request = new A2AOutboundRequest("u", "POST", "b");
-        stale.close();
         assertThat(A2APropagationHeaderRegistry.provide(request)).containsEntry("p", "2");
-        active.close();
+    }
+
+    private static final class StubProvider implements A2APropagationHeaderProvider {
+        private final String value;
+
+        StubProvider(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public Map<String, String> headersFor(A2AOutboundRequest request) {
+            return Map.of("p", value);
+        }
+    }
+
+    @Test
+    void registrationCloseRemovesOnlyOwnProvider() {
+        A2APropagationHeaderRegistry.Registration first = A2APropagationHeaderRegistry
+                .registerProvider(request -> Map.of("p1", "1"));
+        A2APropagationHeaderRegistry.Registration second = A2APropagationHeaderRegistry
+                .registerProvider(request -> Map.of("p2", "2"));
+        A2AOutboundRequest request = new A2AOutboundRequest("u", "POST", "b");
+        assertThat(A2APropagationHeaderRegistry.provide(request))
+                .containsEntry("p1", "1")
+                .containsEntry("p2", "2");
+        first.close();
+        assertThat(A2APropagationHeaderRegistry.provide(request)).containsEntry("p2", "2");
+        second.close();
         assertThat(A2APropagationHeaderRegistry.provide(request)).isEmpty();
     }
 

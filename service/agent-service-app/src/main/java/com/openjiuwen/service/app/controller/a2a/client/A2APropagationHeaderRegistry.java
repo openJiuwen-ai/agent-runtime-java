@@ -4,39 +4,59 @@
 
 package com.openjiuwen.service.app.controller.a2a.client;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Registry for the outbound A2A propagation-header provider. Consumers (for example an
- * observability feature) register a provider that computes propagation headers per
- * request; {@link HeaderInjectingA2AHttpClient} invokes it at request-execution time.
+ * Registry for the outbound A2A propagation-header providers. Consumers (for example an
+ * observability feature) register providers that compute propagation headers per
+ * request; {@link HeaderInjectingA2AHttpClient} invokes them at request-execution time.
  *
  * <p>The registry is deliberately provider-shaped rather than a static key/value table:
  * values such as W3C {@code traceparent} are dynamic per request and must be computed
- * from the request coordinates at send time.
+ * from the request coordinates at send time.</p>
  *
- * <p>When no provider is registered, {@link #provide(String, String)} yields an empty
- * map and no header is injected, so behavior is identical to the plain client (opt-in
- * only).
+ * <p>Multiple providers may be registered concurrently: providers of different
+ * classes coexist (registering appends), while re-registering a provider whose class
+ * is already present replaces that earlier instance — the newest registration stands
+ * in. Modules owning disjoint header domains therefore coexist without ordering
+ * agreements, and several application contexts sharing one JVM (each instantiating
+ * the same module) collapse onto one live registration per provider class instead of
+ * stacking duplicates. Passing {@code null} clears every registered provider and
+ * disables injection again. The returned {@link Registration} removes only its own
+ * provider on close, so an outdated handle cannot remove a newer registration.</p>
+ *
+ * <p>When no provider is registered, {@link #provide(A2AOutboundRequest)} yields an
+ * empty map and no header is injected, so behavior is identical to the plain client
+ * (opt-in only).</p>
  *
  * <p>Provider contract:
  * <ul>
- *   <li>Only one provider is active per JVM; registering again overwrites the previous
- *   one. The returned {@link Registration} removes only its own provider on close
- *   (compare-and-set), so an outdated handle cannot clear a newer registration even
- *   when registration and close race.</li>
+ *   <li>Providers are consulted in registration order and their headers merged into
+ *   one map. A header name contributed by two different providers fails the request
+ *   before any HTTP I/O ({@link IllegalStateException}): header namespaces are
+ *   disjoint by owning domain (observation headers, security headers, ...), so a
+ *   collision is a wiring mistake that must surface instead of silently resolving.
+ *   To replace a module's contribution, close its {@link Registration} first and then
+ *   register the new provider.</li>
  *   <li>The provider receives the outbound A-&gt;B request coordinates as an
  *   {@link A2AOutboundRequest} — not the inbound user-to-runtime request.</li>
  *   <li>{@link A2APropagationHeaderProvider#capture()} runs before the remote call is
- *   scheduled. A provider may capture the caller's current propagation state and
- *   return a provider bound to that invocation. Its headers are then computed on the
- *   I/O worker for the call and its retries, and the binding is restored on exit.
+ *   scheduled. Every registered provider is captured and the captured list is bound
+ *   to the invocation. A provider may capture the caller's current propagation state
+ *   and return a provider bound to that invocation. Its headers are then computed on
+ *   the I/O worker for the call and its retries, and the binding is restored on exit.
  *   The default capture method returns the original provider, preserving existing
  *   behavior. Header computation must be thread-safe; uncaptured caller-thread state
- *   such as MDC, OpenTelemetry context or Spring request context is unavailable on
- *   the I/O worker.</li>
+ *   such as MDC, OpenTelemetry context or Spring request context is unavailable on the
+ *   I/O worker.</li>
  *   <li>Provider headers are added after SDK-set headers via
  *   {@code addHeader}; the outcome for a same-named header is defined by the underlying
  *   HTTP client implementation (the JDK client keeps the last written value; custom
@@ -45,7 +65,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *   {@code baggage}, {@code tenant-id}, {@code request-id}) and must not override
  *   protocol or credential headers such as {@code Content-Type}, {@code A2A-Version},
  *   {@code Host}, {@code Content-Length}, {@code Cookie} or {@code Authorization}.</li>
- *   <li>Exceptions propagate (fail-closed): a {@code RuntimeException} from the
+ *   <li>Exceptions propagate (fail-closed): a {@code RuntimeException} from any
  *   provider fails the request before any HTTP I/O. Pure-observability providers should
  *   handle their own errors and return an empty map instead of throwing.</li>
  * </ul>
@@ -53,61 +73,103 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 0.1.2
  */
 public final class A2APropagationHeaderRegistry {
-    private static final AtomicReference<A2APropagationHeaderProvider> PROVIDER = new AtomicReference<>();
-    private static final ThreadLocal<A2APropagationHeaderProvider> INVOCATION = new ThreadLocal<>();
+    private static final Logger LOGGER = LoggerFactory.getLogger(A2APropagationHeaderRegistry.class);
+
+    private static final List<A2APropagationHeaderProvider> PROVIDERS = new CopyOnWriteArrayList<>();
+    private static final ThreadLocal<List<A2APropagationHeaderProvider>> INVOCATION = new ThreadLocal<>();
 
     private A2APropagationHeaderRegistry() {
     }
 
     /**
-     * Registers the propagation-header provider. Passing {@code null} disables
-     * injection again.
+     * Registers the propagation-header provider. Providers of different classes
+     * coexist (append); re-registering a provider whose class is already registered
+     * replaces that earlier instance (the newest stands in — several application
+     * contexts in one JVM each register their instance of the same module). Passing
+     * {@code null} clears every registered provider and disables injection again.
      *
      * @param headerProvider provider computing headers per request; may be null
      * @return handle for this registration; closing it removes only this provider
      */
     public static Registration registerProvider(A2APropagationHeaderProvider headerProvider) {
-        PROVIDER.set(headerProvider);
+        if (headerProvider == null) {
+            PROVIDERS.clear();
+            return new Registration(null);
+        }
+        Class<?> providerClass = headerProvider.getClass();
+        boolean replacedEarlier = PROVIDERS.removeIf(provider -> provider.getClass() == providerClass);
+        if (replacedEarlier) {
+            LOGGER.warn("propagation header provider class {} re-registered: the earlier instance was"
+                    + " replaced and the newest stands in (multiple application contexts sharing one"
+                    + " JVM collapse onto one live registration per provider class); unexpected here?"
+                    + " check the wiring", providerClass.getName());
+        }
+        PROVIDERS.add(headerProvider);
         return new Registration(headerProvider);
     }
 
     /**
-     * Computes the headers to inject for one request.
+     * Computes the headers to inject for one request by consulting every registered
+     * provider in registration order and merging their headers.
      *
      * @param request the outbound request coordinates
-     * @return headers to inject (empty when no provider is registered or it returns null)
+     * @return headers to inject (empty when no provider is registered or all of them
+     *         return null)
+     * @throws IllegalStateException when two providers contribute the same header name
      */
     public static Map<String, String> provide(A2AOutboundRequest request) {
-        A2APropagationHeaderProvider current = INVOCATION.get();
+        List<A2APropagationHeaderProvider> current = INVOCATION.get();
         if (current == null) {
-            current = PROVIDER.get();
+            current = PROVIDERS;
         }
-        if (current == null) {
+        if (current.isEmpty()) {
             return Map.of();
         }
-        Map<String, String> headers = current.headersFor(request);
-        return headers != null ? headers : Map.of();
+        Map<String, String> merged = null;
+        for (A2APropagationHeaderProvider provider : current) {
+            Map<String, String> headers = provider.headersFor(request);
+            if (headers == null || headers.isEmpty()) {
+                continue;
+            }
+            if (merged == null) {
+                merged = new LinkedHashMap<>();
+            }
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                String earlier = merged.putIfAbsent(entry.getKey(), entry.getValue());
+                if (earlier != null) {
+                    throw new IllegalStateException("propagation header '" + entry.getKey()
+                            + "' is contributed by more than one provider; header namespaces"
+                            + " must be disjoint per owning domain");
+                }
+            }
+        }
+        return merged == null ? Map.of() : merged;
     }
 
     /**
-     * Captures before scheduling; restores the worker's prior binding even on failure or interruption.
+     * Captures every registered provider before scheduling; restores the worker's
+     * prior binding even on failure or interruption.
      *
      * @param <T> action result type
-     * @param action invocation to execute with the captured provider
+     * @param action invocation to execute with the captured providers
      * @return invocation with worker binding restoration
      */
     static <T> Callable<T> captureInvocation(Callable<T> action) {
-        A2APropagationHeaderProvider provider = INVOCATION.get();
-        if (provider == null) {
-            provider = PROVIDER.get();
+        List<A2APropagationHeaderProvider> current = INVOCATION.get();
+        if (current == null) {
+            current = PROVIDERS;
         }
-        if (provider == null) {
+        if (current.isEmpty()) {
             return action;
         }
-        A2APropagationHeaderProvider captured = provider.capture();
+        List<A2APropagationHeaderProvider> captured = new ArrayList<>(current.size());
+        for (A2APropagationHeaderProvider provider : current) {
+            captured.add(provider.capture());
+        }
+        List<A2APropagationHeaderProvider> bound = List.copyOf(captured);
         return () -> {
-            A2APropagationHeaderProvider previous = INVOCATION.get();
-            INVOCATION.set(captured);
+            List<A2APropagationHeaderProvider> previous = INVOCATION.get();
+            INVOCATION.set(bound);
             try {
                 return action.call();
             } finally {
@@ -122,8 +184,8 @@ public final class A2APropagationHeaderRegistry {
 
     /**
      * Handle for one provider registration. {@link #close()} unregisters the provider
-     * only if it is still the active one (compare-and-set), so an outdated handle
-     * cannot remove a newer registration even when registration and close race.
+     * only if it is still registered, so an outdated handle cannot remove a newer
+     * registration.
      *
      * @since 0.1.2
      */
@@ -136,7 +198,9 @@ public final class A2APropagationHeaderRegistry {
 
         @Override
         public void close() {
-            PROVIDER.compareAndSet(registered, null);
+            if (registered != null) {
+                PROVIDERS.remove(registered);
+            }
         }
     }
 }
