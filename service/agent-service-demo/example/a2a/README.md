@@ -70,9 +70,9 @@ python3 service/agent-service-demo/example/a2a/test_smoke_assertions.py
 
 ## 版本与兼容性
 
-构建依赖以仓库根 `pom.xml` 为准，详见 [Agent Core 依赖](../../../../documents/zh/2.开发指南/Agent%20Core%20依赖.md)。当前开发基线为 Runtime `0.1.6`、Core `0.1.18`、A2A Java SDK `1.0.0.Final`。更新 Core develop 后须先在 Core 仓执行 `mvn -B -ntp install -DskipTests`，再从 Runtime 仓构建验证；同名本地快照/开发版本不能证明源码已更新。
+构建依赖以仓库根 `pom.xml` 为准，详见 [Agent Core 依赖](../../../../documents/zh/2.开发指南/Agent%20Core%20依赖.md)。当前开发基线为 Runtime `0.1.5`、Core `0.1.18`、A2A Java SDK `1.0.0.Final`。更新 Core develop 后须先在 Core 仓执行 `mvn -B -ntp install -DskipTests`，再从 Runtime 仓构建验证；同名本地快照/开发版本不能证明源码已更新。
 
-Agent Card 和健康接口默认使用 `ServiceProperties` 中维护的版本（当前为 `0.1.6`），可通过已有的 `openjiuwen.service.version` 显式覆盖。发布时需同步维护默认版本；不引入专用版本资源文件。共享配置不再固定旧版本号。此次兼容维护不改变 A2A 方法或业务字段，也不单独提升示例依赖版本；发布时随 Runtime 统一版本管理。
+Agent Card 和健康接口默认使用 `ServiceProperties` 中维护的版本（当前为 `0.1.5`），可通过已有的 `openjiuwen.service.version` 显式覆盖。发布时需同步维护默认版本；不引入专用版本资源文件。共享配置不再固定旧版本号。此次兼容维护不改变 A2A 方法或业务字段，也不单独提升示例依赖版本；发布时随 Runtime 统一版本管理。
 
 Core 工作流 trace 含 Java 时间对象。Runtime 在 A2A 输出边界将嵌套对象规范化为 JSON 数据，时间写为 ISO 字符串，保留既有 Gson 字段映射，并排除标注 `@JsonIgnore` 的字段，使 SSE 和任务存储使用同一数据表示，无需 JVM `--add-opens`。
 
