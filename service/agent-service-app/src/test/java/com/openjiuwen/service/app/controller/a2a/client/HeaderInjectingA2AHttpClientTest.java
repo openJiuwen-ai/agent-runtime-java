@@ -18,6 +18,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Future;
@@ -173,6 +174,29 @@ class HeaderInjectingA2AHttpClientTest {
     }
 
     @Test
+    void sameHeaderNameInDifferentCaseStillFailsRequest() {
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-a-b-01"));
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("TraceParent", "00-c-d-01"));
+        RecordingClient recording = new RecordingClient();
+        HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
+        A2AHttpClient.PostBuilder builder = client.createPost().url("http://x/a2a").body("{}");
+        assertThatThrownBy(builder::post)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("TraceParent");
+    }
+
+    @Test
+    void nullValuedHeaderFromOneProviderStillDetectsConflict() {
+        Map<String, String> nullValued = new HashMap<>();
+        nullValued.put("p", null);
+        A2APropagationHeaderRegistry.registerProvider(request -> nullValued);
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("p", "2"));
+        assertThatThrownBy(
+                () -> A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b")))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void reRegistrationOfTheSameProviderClassReplacesTheEarlierInstance() {
         A2APropagationHeaderRegistry.registerProvider(new StubProvider("1"));
         A2APropagationHeaderRegistry.registerProvider(new StubProvider("2"));
@@ -228,6 +252,24 @@ class HeaderInjectingA2AHttpClientTest {
         public Map<String, String> headersFor(A2AOutboundRequest request) {
             return Map.of("p", value);
         }
+    }
+
+    @Test
+    void providerWithNullCaptureFallsBackToLiveInstance() throws Exception {
+        A2APropagationHeaderRegistry.registerProvider(new A2APropagationHeaderProvider() {
+            @Override
+            public Map<String, String> headersFor(A2AOutboundRequest request) {
+                return Map.of("p", "live");
+            }
+
+            @Override
+            public A2APropagationHeaderProvider capture() {
+                return null;
+            }
+        });
+        Callable<Map<String, String>> invocation = A2APropagationHeaderRegistry.captureInvocation(
+                () -> A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b")));
+        assertThat(invocation.call()).containsEntry("p", "live");
     }
 
     @Test

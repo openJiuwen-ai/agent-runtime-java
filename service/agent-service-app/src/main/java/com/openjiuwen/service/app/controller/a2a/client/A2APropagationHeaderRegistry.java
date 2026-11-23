@@ -8,9 +8,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -42,10 +42,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <p>Provider contract:
  * <ul>
  *   <li>Providers are consulted in registration order and their headers merged into
- *   one map. A header name contributed by two different providers fails the request
- *   before any HTTP I/O ({@link IllegalStateException}): header namespaces are
- *   disjoint by owning domain (observation headers, security headers, ...), so a
- *   collision is a wiring mistake that must surface instead of silently resolving.
+ *   one map, with header names compared case-insensitively. A header name
+ *   contributed by two different providers fails the request before any HTTP I/O
+ *   ({@link IllegalStateException}): header namespaces are disjoint by owning
+ *   domain (observation headers, security headers, ...), so a collision is a
+ *   wiring mistake that must surface instead of silently resolving.
  *   To swap in a different provider class, close the earlier {@link Registration}
  *   first and then register the new provider; re-registering the same provider class
  *   replaces the earlier instance directly.</li>
@@ -54,7 +55,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *   <li>{@link A2APropagationHeaderProvider#capture()} runs before the remote call is
  *   scheduled. Every registered provider is captured and the captured list is bound
  *   to the invocation. A provider may capture the caller's current propagation state
- *   and return a provider bound to that invocation. Its headers are then computed on
+ *   and return a provider bound to that invocation; a {@code capture()} returning
+ *   null keeps the live instance bound. Its headers are then computed on
  *   the I/O worker for the call and its retries, and the binding is restored on exit.
  *   The default capture method returns the original provider, preserving existing
  *   behavior. Header computation must be thread-safe; uncaptured caller-thread state
@@ -132,7 +134,8 @@ public final class A2APropagationHeaderRegistry {
      * @param request the outbound request coordinates
      * @return headers to inject (empty when no provider is registered or all of them
      *         return null)
-     * @throws IllegalStateException when two providers contribute the same header name
+     * @throws IllegalStateException when two providers contribute the same header
+     *         name (header names are compared case-insensitively)
      */
     public static Map<String, String> provide(A2AOutboundRequest request) {
         List<Entry> current = INVOCATION.get();
@@ -149,15 +152,15 @@ public final class A2APropagationHeaderRegistry {
                 continue;
             }
             if (merged == null) {
-                merged = new LinkedHashMap<>();
+                merged = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
             }
             for (Map.Entry<String, String> entry : headers.entrySet()) {
-                String earlier = merged.putIfAbsent(entry.getKey(), entry.getValue());
-                if (earlier != null) {
+                if (merged.containsKey(entry.getKey())) {
                     throw new IllegalStateException("propagation header '" + entry.getKey()
                             + "' is contributed by more than one provider; header namespaces"
-                            + " must be disjoint per owning domain");
+                            + " must be disjoint per owning domain (names are case-insensitive)");
                 }
+                merged.put(entry.getKey(), entry.getValue());
             }
         }
         return merged == null ? Map.of() : merged;
@@ -180,13 +183,15 @@ public final class A2APropagationHeaderRegistry {
             return action;
         }
         List<Entry> captured = new ArrayList<>(current.size());
-        for (Entry entry : current) {
-            captured.add(new Entry(entry.registration(), entry.provider().capture()));
+        for (Entry slot : current) {
+            A2APropagationHeaderProvider live = slot.provider();
+            A2APropagationHeaderProvider bound = live.capture();
+            captured.add(new Entry(slot.registration(), bound != null ? bound : live));
         }
-        List<Entry> bound = List.copyOf(captured);
+        List<Entry> snapshot = List.copyOf(captured);
         return () -> {
             List<Entry> previous = INVOCATION.get();
-            INVOCATION.set(bound);
+            INVOCATION.set(snapshot);
             try {
                 return action.call();
             } finally {
