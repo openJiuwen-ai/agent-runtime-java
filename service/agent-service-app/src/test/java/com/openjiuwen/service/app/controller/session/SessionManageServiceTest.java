@@ -126,6 +126,89 @@ class SessionManageServiceTest {
     }
 
     @Test
+    void terminateAcrossInitialStatesMatchesStateMachine() {
+        // 3.9 matrix: running delegates to the coordinator, idle terminates
+        // through the no-op interrupt path, terminated collapses into the
+        // idempotent verdict without re-invoking the coordinator.
+        mockSessionRunning("s-matrix-running");
+        when(coordinator.managedState("s-matrix-terminated")).thenReturn(SessionState.TERMINATED);
+        SessionOperationResult accepted = SessionOperationResult.accepted(SessionState.TERMINATED, "ok");
+        when(coordinator.terminate("s-matrix-running", "op-1")).thenReturn(accepted);
+        SessionManageService service = newService();
+
+        SessionManageService.TerminateOutcome runningOutcome = service.terminate("s-matrix-running", "op-1");
+        SessionManageService.TerminateOutcome idleOutcome = service.terminate("s-matrix-idle", "op-1");
+        SessionManageService.TerminateOutcome terminatedOutcome = service.terminate("s-matrix-terminated", "op-1");
+
+        assertThat(runningOutcome.status().value()).isEqualTo(202);
+        assertThat(runningOutcome.isAlreadyInState()).isFalse();
+        assertThat(idleOutcome.status().value()).isEqualTo(202);
+        Mockito.verify(coordinator).terminate("s-matrix-idle", "op-1");
+        assertThat(terminatedOutcome.status().value()).isEqualTo(200);
+        assertThat(terminatedOutcome.isAlreadyInState()).isTrue();
+        assertThat(terminatedOutcome.body().get("state")).isEqualTo("TERMINATED");
+        Mockito.verify(coordinator, Mockito.never()).terminate("s-matrix-terminated", "op-1");
+    }
+
+    @Test
+    void terminateThenPauseConflictsAndCompactIsRejected() {
+        // 3.11 / 3.28 follow-up: after a terminate settles the TERMINATED
+        // state, compact answers the state conflict and pause never runs.
+        when(coordinator.managedState("s-after-terminate")).thenReturn(SessionState.TERMINATED);
+        SessionManageService service = newService();
+
+        SessionManageService.CompactOutcome compactOutcome = service.compact("s-after-terminate", "op-1", null);
+        SessionManageService.PauseOutcome pauseOutcome = service.pause("s-after-terminate", "op-1", null);
+
+        assertThat(compactOutcome.status()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+        assertThat(compactOutcome.body().get("error")).isEqualTo("INVALID_SESSION_STATE");
+        assertThat(pauseOutcome.status()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+        Mockito.verify(coordinator, Mockito.never()).compactSession(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(coordinator, Mockito.never()).pause(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any());
+    }
+
+    @Test
+    void pauseAfterTerminateLosesTheRaceAndReturnsConflict() {
+        // 4.4 service layer: terminate records TERMINATED synchronously, so
+        // a pause issued after the terminate call observes the final state
+        // and answers 409 - the session must never end up paused after a
+        // terminate was accepted.
+        SessionOperationResult accepted = SessionOperationResult.accepted(SessionState.TERMINATED, "ok");
+        when(coordinator.terminate(Mockito.anyString(), Mockito.anyString())).thenAnswer(invocation -> {
+            when(coordinator.managedState(invocation.getArgument(0)))
+                    .thenReturn(SessionState.TERMINATED);
+            return accepted;
+        });
+        SessionManageService service = newService();
+
+        SessionManageService.TerminateOutcome terminateOutcome = service.terminate("s-race", "op-1");
+        SessionManageService.PauseOutcome pauseOutcome = service.pause("s-race", "op-2", null);
+
+        assertThat(terminateOutcome.status().value()).isEqualTo(202);
+        assertThat(pauseOutcome.status()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+        assertThat(pauseOutcome.body().get("error")).isEqualTo("INVALID_SESSION_STATE");
+        Mockito.verify(coordinator, Mockito.never()).pause(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any());
+    }
+
+    @Test
+    void resumeOfIdleUnknownSessionDelegatesToCoordinator() {
+        // 4.3 companion: resume of an unresolved (idle) session id is not a
+        // 404 at the service layer; it delegates to the coordinator which
+        // owns the paused-cursor evidence verdict.
+        SessionOperationResult rejected = SessionOperationResult.rejected(SessionState.PAUSED,
+                "no paused cursor for session");
+        when(coordinator.resume("s-idle-resume", "op-1")).thenReturn(rejected);
+        SessionManageService service = newService();
+
+        SessionManageService.ResumeOutcome outcome = service.resume("s-idle-resume", "op-1");
+
+        assertThat(outcome.status().value()).isEqualTo(429);
+        Mockito.verify(coordinator).resume("s-idle-resume", "op-1");
+    }
+
+    @Test
     void coordinatorRecordedPauseWinsOverActiveTaskLookup() {
         when(coordinator.managedState("s-paused")).thenReturn(SessionState.PAUSED);
         SessionManageService service = newService();
