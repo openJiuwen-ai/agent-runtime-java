@@ -32,6 +32,8 @@ import java.util.function.Consumer;
  * HeaderInjectingA2AHttpClient 与 A2APropagationHeaderRegistry 的单元测试。
  */
 class HeaderInjectingA2AHttpClientTest {
+    private static final A2APropagationHeaderProvider nullCapture = null;
+
     @AfterEach
     void resetProvider() {
         A2APropagationHeaderRegistry.registerProvider(null);
@@ -264,7 +266,7 @@ class HeaderInjectingA2AHttpClientTest {
 
             @Override
             public A2APropagationHeaderProvider capture() {
-                return null;
+                return nullCapture;
             }
         });
         Callable<Map<String, String>> invocation = A2APropagationHeaderRegistry.captureInvocation(
