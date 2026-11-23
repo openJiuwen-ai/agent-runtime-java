@@ -115,8 +115,7 @@ public final class A2APropagationHeaderRegistry {
             }
             Registration registration = new Registration();
             Class<?> providerClass = headerProvider.getClass();
-            boolean replacedEarlier = PROVIDERS.removeIf(entry -> entry.provider().getClass() == providerClass);
-            if (replacedEarlier) {
+            if (PROVIDERS.removeIf(entry -> entry.provider().getClass() == providerClass)) {
                 LOGGER.warn("propagation header provider class {} re-registered: the earlier instance was"
                         + " replaced and the newest stands in (multiple application contexts sharing one"
                         + " JVM collapse onto one live registration per provider class); unexpected here?"
