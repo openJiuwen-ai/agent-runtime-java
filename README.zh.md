@@ -145,7 +145,7 @@ Controller **禁止**绕过 Orchestrator 直连 `Runner`。
 - **Agent Card**：`GET /.well-known/agent-card.json`（及 `/a2a` 下兼容路径）。
 - **JSON-RPC**：`POST /a2a/` — `SendMessage`、`SendStreamingMessage`。
 - **TaskStore**：内存或 Redis；增强 Orchestrator 支持远端 Agent 发现与委派。
-- 详见 [A2A 开发指导](documents/zh/2.开发指南/A2A开发指导.md)。
+- 详见 [A2A 开发指导](documents/zh/2.开发指南/A2A/开发指导.md)。
 
 ### Adapters（执行后端与 egress）
 
@@ -205,7 +205,7 @@ agent-runtime-java/                 # Agent Distributed Runtime（Java）
 |------|------|
 | 本地跑 Demo | [快速开始](documents/zh/2.开发指南/快速开始.md) · [demo README](service/agent-service-demo/README.md) |
 | HTTP API 与 SSE | [HTTP 对话面](documents/zh/2.开发指南/HTTP对话面.md) |
-| A2A Server / Client | [A2A 开发指导](documents/zh/2.开发指南/A2A开发指导.md) · [A2A 与平台边界](documents/zh/2.开发指南/A2A与平台边界.md) |
+| A2A Server / Client | [A2A 开发指导](documents/zh/2.开发指南/A2A/开发指导.md) · [A2A 与平台边界](documents/zh/2.开发指南/A2A/平台边界.md) |
 | 自定义 Handler | [Adapters 与 Handler](documents/zh/2.开发指南/Adapters与Handler.md) |
 | 生命周期与探针 | [生命周期与探针](documents/zh/2.开发指南/生命周期与探针.md) |
 | 全局理解 | [开发指南总入口](documents/zh/2.开发指南/README.md) · [逻辑架构](documents/zh/2.开发指南/逻辑架构.md) |
