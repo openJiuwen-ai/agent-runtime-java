@@ -8,11 +8,12 @@ REST 与 A2A 的完整请求、响应、SSE、`TextPart`/`DataPart` 和中断恢
 
 ## 端点一览
 
-### Query 与健康
+### Query 与运行状态
 
 | Path | 方法 | 说明 |
 | --- | --- | --- |
 | `/health` | GET | 进程与 Agent 就绪 |
+| `/v1/current_active_tasks` | GET | [活动任务负载](#活动任务负载)；按实例查询取决于部署 |
 | `/v1/query` | POST | 主路径；JSON body；`stream=true` 时 SSE |
 | `/query` | POST | 兼容路径（`legacy-path-enabled`） |
 | `/v1/query/reactive` | POST | WebFlux 流式（需 reactive 应用类型） |
@@ -66,6 +67,20 @@ REST 与 A2A 的完整请求、响应、SSE、`TextPart`/`DataPart` 和中断恢
 ```bash
 curl -s http://localhost:8090/health
 ```
+
+## 活动任务负载
+
+`GET /v1/current_active_tasks` 查询当前 Runtime 进程的活动任务负载。实际快照由部署的 `ActiveTaskQuery` 组件提供；若该组件支持按托管实例查询，可用 `?agentId=<注册 ID>` 筛选任务和计数。此时并发上限仍是进程共享的，不是单实例配额。
+
+| 响应字段 | 含义 |
+| --- | --- |
+| `maxConcurrentTasks` | 进程共享的任务并发上限；实际快照中 `-1` 表示不限额。 |
+| `currentActiveTasks` | 查询范围内仍占用准入名额的任务数，可能包含已结束执行但尚未释放名额的任务。 |
+| `tasks[]` | 活动任务列表；每项包含 `taskId`、`conversationId`、`status`（如 `WORKING`）和 `startedAt`（ISO-8601 开始时间）。 |
+
+未装配 `ActiveTaskQuery` 时，不带 `agentId` 的请求返回 HTTP 200 和降级快照 `{"maxConcurrentTasks":-1,"currentActiveTasks":0,"tasks":[]}`。这些是占位值，不能据此认定不限额或没有活动任务。`agentId` 为空白时返回 HTTP 400，实例不存在或部署不支持按实例查询时返回 HTTP 404。
+
+此运维接口不经过 Runtime 内置的 L1 细粒度鉴权，`agentId` 是筛选条件，不是授权边界。响应含任务和会话标识，请在网关或部署侧限制访问。
 
 ## POST /query（QueryRequest）
 
@@ -263,7 +278,7 @@ Controller **禁止**绕过 Orchestrator 直连 `Runner`。A2A JSON-RPC 经 `A2A
 | **L0 传输** | `security.tls.enabled` | HTTPS / mTLS；映射 Spring `server.ssl.*` |
 | **L1 鉴权** | `security.auth.enabled` | `@AuthorizedResource` + `FineGrainedAuthorizer`；拒绝 **403**（`code=ACCESS_DENIED`） |
 
-`/health` 不受 L1 鉴权影响。租户 Header 进入鉴权链的行为见 [对话接口输入与输出 · 租户 Header 与鉴权链](对话接口输入与输出.md#租户-header-与鉴权链)。完整配置与 demo 见 [安全加固](开发与扩展/安全加固.md)。
+`/health` 和[活动任务负载接口](#活动任务负载)不受 L1 鉴权影响。租户 Header 进入鉴权链的行为见 [对话接口输入与输出 · 租户 Header 与鉴权链](对话接口输入与输出.md#租户-header-与鉴权链)。完整配置与 demo 见 [安全加固](开发与扩展/安全加固.md)。
 
 ## 示例
 

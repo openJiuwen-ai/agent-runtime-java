@@ -23,6 +23,8 @@ agent-service-adapters/
 
 ## SPI：AgentHandler
 
+以下节选常用方法；请求处理前后的资源钩子见 [AgentHandler API 参考](API文档/com.openjiuwen.service/spec/spi/AgentHandler.md)。
+
 ```java
 public interface AgentHandler {
     QueryResponse query(ServeRequest request);
