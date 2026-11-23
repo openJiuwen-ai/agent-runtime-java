@@ -52,6 +52,11 @@
 | `public-url` | `null` | Agent Card 中对外 URL。 |
 | `skills` | `[]` | Agent Card skills。 |
 | `remote-agents` | `[]` | 远端 A2A Agent 配置。 |
+| `agent-threads` | `0` | 平台线程路径下的 A2A 执行池大小。 |
+| `admission-release-ttl` | `10m` | A2A 准入额度的超时回收配置。 |
+| `task-store-write-throttle-ms` | `200` | TaskStore 中间快照写合并窗口，单位为毫秒。 |
+
+使用说明见 [任务级并发准入](../../../A2A/开发指导.md#任务级并发准入)和 [Task 持久化](../../../A2A/开发指导.md#task-持久化)。
 
 ## SecurityProperties
 

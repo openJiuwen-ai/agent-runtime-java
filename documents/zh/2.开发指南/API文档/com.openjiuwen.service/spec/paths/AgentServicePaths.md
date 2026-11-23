@@ -13,6 +13,7 @@ HTTP Agent Service 路径常量。
 | Constant | Value | Description |
 | --- | --- | --- |
 | `HEALTH` | `/health` | 健康探针。 |
+| `CURRENT_ACTIVE_TASKS` | `/v1/current_active_tasks` | 活动任务负载查询。 |
 | `QUERY_V1` | `/v1/query` | 主 Query 路径。 |
 | `QUERY_LEGACY` | `/query` | 兼容 Query 路径。 |
 | `QUERY_V1_REACTIVE` | `/v1/query/reactive` | WebFlux reactive Query 路径。 |
