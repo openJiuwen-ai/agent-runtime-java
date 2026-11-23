@@ -29,9 +29,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * in. Modules owning disjoint header domains therefore coexist without ordering
  * agreements, and several application contexts sharing one JVM (each instantiating
  * the same module) collapse onto one live registration per provider class instead of
- * stacking duplicates. Passing {@code null} clears every registered provider and
+ * stacking duplicates. Registration, same-class replacement and clearing are
+ * serialized on one lock, so concurrent registrations of one class always collapse
+ * onto one live instance. Passing {@code null} clears every registered provider and
  * disables injection again. The returned {@link Registration} removes only its own
- * provider on close, so an outdated handle cannot remove a newer registration.</p>
+ * entry on close, so an outdated handle cannot remove a newer registration.</p>
  *
  * <p>When no provider is registered, {@link #provide(A2AOutboundRequest)} yields an
  * empty map and no header is injected, so behavior is identical to the plain client
@@ -44,8 +46,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *   before any HTTP I/O ({@link IllegalStateException}): header namespaces are
  *   disjoint by owning domain (observation headers, security headers, ...), so a
  *   collision is a wiring mistake that must surface instead of silently resolving.
- *   To replace a module's contribution, close its {@link Registration} first and then
- *   register the new provider.</li>
+ *   To swap in a different provider class, close the earlier {@link Registration}
+ *   first and then register the new provider; re-registering the same provider class
+ *   replaces the earlier instance directly.</li>
  *   <li>The provider receives the outbound A-&gt;B request coordinates as an
  *   {@link A2AOutboundRequest} — not the inbound user-to-runtime request.</li>
  *   <li>{@link A2APropagationHeaderProvider#capture()} runs before the remote call is
@@ -75,37 +78,51 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class A2APropagationHeaderRegistry {
     private static final Logger LOGGER = LoggerFactory.getLogger(A2APropagationHeaderRegistry.class);
 
-    private static final List<A2APropagationHeaderProvider> PROVIDERS = new CopyOnWriteArrayList<>();
-    private static final ThreadLocal<List<A2APropagationHeaderProvider>> INVOCATION = new ThreadLocal<>();
+    private static final Object LOCK = new Object();
+    private static final List<Entry> PROVIDERS = new CopyOnWriteArrayList<>();
+    private static final ThreadLocal<List<Entry>> INVOCATION = new ThreadLocal<>();
 
     private A2APropagationHeaderRegistry() {
+    }
+
+    /**
+     * One live registration slot: the owning handle plus the provider it registered.
+     * Removal matches the handle, so neither re-registration nor a value-equal
+     * provider can remove another registration's entry through {@code equals()}.
+     */
+    private record Entry(Registration registration, A2APropagationHeaderProvider provider) {
     }
 
     /**
      * Registers the propagation-header provider. Providers of different classes
      * coexist (append); re-registering a provider whose class is already registered
      * replaces that earlier instance (the newest stands in — several application
-     * contexts in one JVM each register their instance of the same module). Passing
-     * {@code null} clears every registered provider and disables injection again.
+     * contexts in one JVM each register their instance of the same module, and
+     * concurrent registrations of one class are serialized so exactly one instance
+     * stays live). Passing {@code null} clears every registered provider and
+     * disables injection again.
      *
      * @param headerProvider provider computing headers per request; may be null
-     * @return handle for this registration; closing it removes only this provider
+     * @return handle for this registration; closing it removes only this registration
      */
     public static Registration registerProvider(A2APropagationHeaderProvider headerProvider) {
-        if (headerProvider == null) {
-            PROVIDERS.clear();
-            return new Registration(null);
+        synchronized (LOCK) {
+            if (headerProvider == null) {
+                PROVIDERS.clear();
+                return new Registration();
+            }
+            Registration registration = new Registration();
+            Class<?> providerClass = headerProvider.getClass();
+            boolean replacedEarlier = PROVIDERS.removeIf(entry -> entry.provider().getClass() == providerClass);
+            if (replacedEarlier) {
+                LOGGER.warn("propagation header provider class {} re-registered: the earlier instance was"
+                        + " replaced and the newest stands in (multiple application contexts sharing one"
+                        + " JVM collapse onto one live registration per provider class); unexpected here?"
+                        + " check the wiring", providerClass.getName());
+            }
+            PROVIDERS.add(new Entry(registration, headerProvider));
+            return registration;
         }
-        Class<?> providerClass = headerProvider.getClass();
-        boolean replacedEarlier = PROVIDERS.removeIf(provider -> provider.getClass() == providerClass);
-        if (replacedEarlier) {
-            LOGGER.warn("propagation header provider class {} re-registered: the earlier instance was"
-                    + " replaced and the newest stands in (multiple application contexts sharing one"
-                    + " JVM collapse onto one live registration per provider class); unexpected here?"
-                    + " check the wiring", providerClass.getName());
-        }
-        PROVIDERS.add(headerProvider);
-        return new Registration(headerProvider);
     }
 
     /**
@@ -118,7 +135,7 @@ public final class A2APropagationHeaderRegistry {
      * @throws IllegalStateException when two providers contribute the same header name
      */
     public static Map<String, String> provide(A2AOutboundRequest request) {
-        List<A2APropagationHeaderProvider> current = INVOCATION.get();
+        List<Entry> current = INVOCATION.get();
         if (current == null) {
             current = PROVIDERS;
         }
@@ -126,8 +143,8 @@ public final class A2APropagationHeaderRegistry {
             return Map.of();
         }
         Map<String, String> merged = null;
-        for (A2APropagationHeaderProvider provider : current) {
-            Map<String, String> headers = provider.headersFor(request);
+        for (Entry slot : current) {
+            Map<String, String> headers = slot.provider().headersFor(request);
             if (headers == null || headers.isEmpty()) {
                 continue;
             }
@@ -155,20 +172,20 @@ public final class A2APropagationHeaderRegistry {
      * @return invocation with worker binding restoration
      */
     static <T> Callable<T> captureInvocation(Callable<T> action) {
-        List<A2APropagationHeaderProvider> current = INVOCATION.get();
+        List<Entry> current = INVOCATION.get();
         if (current == null) {
             current = PROVIDERS;
         }
         if (current.isEmpty()) {
             return action;
         }
-        List<A2APropagationHeaderProvider> captured = new ArrayList<>(current.size());
-        for (A2APropagationHeaderProvider provider : current) {
-            captured.add(provider.capture());
+        List<Entry> captured = new ArrayList<>(current.size());
+        for (Entry entry : current) {
+            captured.add(new Entry(entry.registration(), entry.provider().capture()));
         }
-        List<A2APropagationHeaderProvider> bound = List.copyOf(captured);
+        List<Entry> bound = List.copyOf(captured);
         return () -> {
-            List<A2APropagationHeaderProvider> previous = INVOCATION.get();
+            List<Entry> previous = INVOCATION.get();
             INVOCATION.set(bound);
             try {
                 return action.call();
@@ -183,23 +200,21 @@ public final class A2APropagationHeaderRegistry {
     }
 
     /**
-     * Handle for one provider registration. {@link #close()} unregisters the provider
-     * only if it is still registered, so an outdated handle cannot remove a newer
-     * registration.
+     * Handle for one provider registration. {@link #close()} removes this handle's
+     * registration only while it is still the live one: re-registering the same
+     * provider class replaces the earlier entry together with its handle, so an
+     * outdated handle (or a value-equal provider) cannot remove a newer registration.
      *
      * @since 0.1.2
      */
     public static final class Registration implements AutoCloseable {
-        private final A2APropagationHeaderProvider registered;
-
-        private Registration(A2APropagationHeaderProvider registered) {
-            this.registered = registered;
+        private Registration() {
         }
 
         @Override
         public void close() {
-            if (registered != null) {
-                PROVIDERS.remove(registered);
+            synchronized (LOCK) {
+                PROVIDERS.removeIf(entry -> entry.registration() == this);
             }
         }
     }

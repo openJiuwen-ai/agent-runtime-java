@@ -14,9 +14,16 @@ import org.a2aproject.sdk.client.http.ServerSentEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -173,6 +180,43 @@ class HeaderInjectingA2AHttpClientTest {
         assertThat(A2APropagationHeaderRegistry.provide(request)).containsEntry("p", "2");
     }
 
+    @Test
+    void closingOutdatedHandleKeepsTheReRegisteredInstance() {
+        A2APropagationHeaderProvider provider = new StubProvider("1");
+        A2APropagationHeaderRegistry.Registration first = A2APropagationHeaderRegistry.registerProvider(provider);
+        A2APropagationHeaderRegistry.Registration second = A2APropagationHeaderRegistry.registerProvider(provider);
+        A2AOutboundRequest request = new A2AOutboundRequest("u", "POST", "b");
+        first.close();
+        assertThat(A2APropagationHeaderRegistry.provide(request)).containsEntry("p", "1");
+        second.close();
+        assertThat(A2APropagationHeaderRegistry.provide(request)).isEmpty();
+    }
+
+    @Test
+    void concurrentSameClassRegistrationsKeepOneLiveInstance() throws Exception {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(8));
+        try {
+            for (int round = 0; round < 50; round++) {
+                CyclicBarrier barrier = new CyclicBarrier(2);
+                Future<?> first = executor.submit(() -> {
+                    barrier.await(5, TimeUnit.SECONDS);
+                    return A2APropagationHeaderRegistry.registerProvider(new StubProvider("a"));
+                });
+                Future<?> second = executor.submit(() -> {
+                    barrier.await(5, TimeUnit.SECONDS);
+                    return A2APropagationHeaderRegistry.registerProvider(new StubProvider("b"));
+                });
+                first.get(5, TimeUnit.SECONDS);
+                second.get(5, TimeUnit.SECONDS);
+                assertThat(A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b")))
+                        .containsKey("p");
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static final class StubProvider implements A2APropagationHeaderProvider {
         private final String value;
 
@@ -218,6 +262,7 @@ class HeaderInjectingA2AHttpClientTest {
         final Map<String, String> headers = new HashMap<>();
         String url;
         String body;
+        final Deque<A2AHttpResponse> queuedResponses = new ArrayDeque<>();
 
         @Override
         public GetBuilder createGet() {
@@ -292,7 +337,7 @@ class HeaderInjectingA2AHttpClientTest {
 
         @Override
         public A2AHttpResponse post() {
-            return null;
+            return client.queuedResponses.poll();
         }
 
         @Override
@@ -314,7 +359,7 @@ class HeaderInjectingA2AHttpClientTest {
 
         @Override
         public A2AHttpResponse get() {
-            return null;
+            return client.queuedResponses.poll();
         }
 
         @Override
@@ -337,7 +382,7 @@ class HeaderInjectingA2AHttpClientTest {
 
         @Override
         public A2AHttpResponse delete() {
-            return null;
+            return client.queuedResponses.poll();
         }
 
         @Override
