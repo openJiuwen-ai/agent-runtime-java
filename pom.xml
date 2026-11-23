@@ -32,7 +32,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <a2a-sdk.version>1.0.0.Final</a2a-sdk.version>
-        <!-- Agent Core：Maven 版本与本地源码分支，文档仅引用此处，勿在多处写死版本号 -->
+        <!-- 本地构建与文档使用的 Core 版本，升级时与下方两个字面版本同步。 -->
         <agent-core.version>0.1.18</agent-core.version>
         <agent-core.git.branch>develop</agent-core.git.branch>
         <agent-core.repo.url>https://gitcode.com/openJiuwen/agent-core-java</agent-core.repo.url>
@@ -115,12 +115,12 @@
                 <version>1.0.0.Final</version>
             </dependency>
 
-            <!-- Import the published Core POM for shared library constraints.
-                 Keep the import and the JAR coordinate on the same version. -->
+            <!-- Use literal versions for both Core entries so consumer -D properties
+                 cannot change the Core version managed by this BOM. -->
             <dependency>
                 <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-core-java</artifactId>
-                <version>${agent-core.version}</version>
+                <version>0.1.18</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -129,7 +129,7 @@
             <dependency>
                 <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-core-java</artifactId>
-                <version>${agent-core.version}</version>
+                <version>0.1.18</version>
             </dependency>
 
             <!-- ② Service leaf modules（${revision} 是 CI-friendly，flatten 会展开为字面值） -->
@@ -190,9 +190,8 @@
               import 时内联到其有效 depMgmt，版本锁随之传播。
 
               resolveCiFriendliesOnly 展开 CI-friendly 占位符并保留自定义属性。
-              Maven 在导入 Runtime POM 时先用该 POM 的 properties 解析
-              agent-core.version，再导入 Core 的版本约束。下方显式条目继续
-              用于将 Runtime 对 Boot 的版本覆盖传递给消费者。
+              Core POM 导入和 JAR 管理条目使用同一字面版本，避免消费方的
+              -Dagent-core.version 改写 Runtime BOM 使用的 Core 版本。
 
               scope 约定：
               - 运行时依赖（slf4j/jackson/otel/snakeyaml/logback/postgresql/
