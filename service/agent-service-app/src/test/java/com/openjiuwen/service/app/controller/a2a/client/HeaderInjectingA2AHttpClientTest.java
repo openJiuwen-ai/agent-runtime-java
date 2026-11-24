@@ -14,9 +14,17 @@ import org.a2aproject.sdk.client.http.ServerSentEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -24,6 +32,8 @@ import java.util.function.Consumer;
  * HeaderInjectingA2AHttpClient 与 A2APropagationHeaderRegistry 的单元测试。
  */
 class HeaderInjectingA2AHttpClientTest {
+    private static final A2APropagationHeaderProvider NULL_CAPTURE = null;
+
     @AfterEach
     void resetProvider() {
         A2APropagationHeaderRegistry.registerProvider(null);
@@ -108,13 +118,15 @@ class HeaderInjectingA2AHttpClientTest {
 
     @Test
     void failedInjectionCanRetryOnSameBuilder() throws Exception {
-        A2APropagationHeaderRegistry.registerProvider(request -> {
-            throw new IllegalStateException("provider boom");
-        });
+        A2APropagationHeaderRegistry.Registration failing = A2APropagationHeaderRegistry
+                .registerProvider(request -> {
+                    throw new IllegalStateException("provider boom");
+                });
         RecordingClient recording = new RecordingClient();
         HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
         A2AHttpClient.PostBuilder builder = client.createPost().url("http://x/a2a").body("{}");
         assertThatThrownBy(builder::post).isInstanceOf(IllegalStateException.class);
+        failing.close();
         A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-retry-r-01"));
         builder.post();
         assertThat(recording.headers).containsEntry("traceparent", "00-retry-r-01");
@@ -140,15 +152,141 @@ class HeaderInjectingA2AHttpClientTest {
     }
 
     @Test
-    void registrationCloseRemovesOnlyOwnProvider() {
-        A2APropagationHeaderRegistry.Registration stale = A2APropagationHeaderRegistry
-                .registerProvider(request -> Map.of("p", "1"));
-        A2APropagationHeaderRegistry.Registration active = A2APropagationHeaderRegistry
-                .registerProvider(request -> Map.of("p", "2"));
+    void multipleProvidersMergeDisjointHeaders() throws Exception {
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-a-b-01"));
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("x-user-id", "u-1"));
+        RecordingClient recording = new RecordingClient();
+        HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
+        client.createPost().url("http://x/a2a").body("{}").post();
+        assertThat(recording.headers)
+                .containsEntry("traceparent", "00-a-b-01")
+                .containsEntry("x-user-id", "u-1");
+    }
+
+    @Test
+    void sameHeaderNameFromTwoProvidersFailsRequest() {
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-a-b-01"));
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-c-d-01"));
+        RecordingClient recording = new RecordingClient();
+        HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
+        A2AHttpClient.PostBuilder builder = client.createPost().url("http://x/a2a").body("{}");
+        assertThatThrownBy(builder::post)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("traceparent");
+    }
+
+    @Test
+    void sameHeaderNameInDifferentCaseStillFailsRequest() {
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("traceparent", "00-a-b-01"));
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("TraceParent", "00-c-d-01"));
+        RecordingClient recording = new RecordingClient();
+        HeaderInjectingA2AHttpClient client = new HeaderInjectingA2AHttpClient(recording);
+        A2AHttpClient.PostBuilder builder = client.createPost().url("http://x/a2a").body("{}");
+        assertThatThrownBy(builder::post)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("TraceParent");
+    }
+
+    @Test
+    void nullValuedHeaderFromOneProviderStillDetectsConflict() {
+        Map<String, String> nullValued = new HashMap<>();
+        nullValued.put("p", null);
+        A2APropagationHeaderRegistry.registerProvider(request -> nullValued);
+        A2APropagationHeaderRegistry.registerProvider(request -> Map.of("p", "2"));
+        assertThatThrownBy(
+                () -> A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b")))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void reRegistrationOfTheSameProviderClassReplacesTheEarlierInstance() {
+        A2APropagationHeaderRegistry.registerProvider(new StubProvider("1"));
+        A2APropagationHeaderRegistry.registerProvider(new StubProvider("2"));
         A2AOutboundRequest request = new A2AOutboundRequest("u", "POST", "b");
-        stale.close();
         assertThat(A2APropagationHeaderRegistry.provide(request)).containsEntry("p", "2");
-        active.close();
+    }
+
+    @Test
+    void closingOutdatedHandleKeepsTheReRegisteredInstance() {
+        A2APropagationHeaderProvider provider = new StubProvider("1");
+        A2APropagationHeaderRegistry.Registration first = A2APropagationHeaderRegistry.registerProvider(provider);
+        A2APropagationHeaderRegistry.Registration second = A2APropagationHeaderRegistry.registerProvider(provider);
+        A2AOutboundRequest request = new A2AOutboundRequest("u", "POST", "b");
+        first.close();
+        assertThat(A2APropagationHeaderRegistry.provide(request)).containsEntry("p", "1");
+        second.close();
+        assertThat(A2APropagationHeaderRegistry.provide(request)).isEmpty();
+    }
+
+    @Test
+    void concurrentSameClassRegistrationsKeepOneLiveInstance() throws Exception {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(8));
+        try {
+            for (int round = 0; round < 50; round++) {
+                CyclicBarrier barrier = new CyclicBarrier(2);
+                Future<?> first = executor.submit(() -> {
+                    barrier.await(5, TimeUnit.SECONDS);
+                    return A2APropagationHeaderRegistry.registerProvider(new StubProvider("a"));
+                });
+                Future<?> second = executor.submit(() -> {
+                    barrier.await(5, TimeUnit.SECONDS);
+                    return A2APropagationHeaderRegistry.registerProvider(new StubProvider("b"));
+                });
+                first.get(5, TimeUnit.SECONDS);
+                second.get(5, TimeUnit.SECONDS);
+                assertThat(A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b")))
+                        .containsKey("p");
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static final class StubProvider implements A2APropagationHeaderProvider {
+        private final String value;
+
+        StubProvider(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public Map<String, String> headersFor(A2AOutboundRequest request) {
+            return Map.of("p", value);
+        }
+    }
+
+    @Test
+    void providerWithNullCaptureFallsBackToLiveInstance() throws Exception {
+        A2APropagationHeaderRegistry.registerProvider(new A2APropagationHeaderProvider() {
+            @Override
+            public Map<String, String> headersFor(A2AOutboundRequest request) {
+                return Map.of("p", "live");
+            }
+
+            @Override
+            public A2APropagationHeaderProvider capture() {
+                return NULL_CAPTURE;
+            }
+        });
+        Callable<Map<String, String>> invocation = A2APropagationHeaderRegistry.captureInvocation(
+                () -> A2APropagationHeaderRegistry.provide(new A2AOutboundRequest("u", "POST", "b")));
+        assertThat(invocation.call()).containsEntry("p", "live");
+    }
+
+    @Test
+    void registrationCloseRemovesOnlyOwnProvider() {
+        A2APropagationHeaderRegistry.Registration first = A2APropagationHeaderRegistry
+                .registerProvider(request -> Map.of("p1", "1"));
+        A2APropagationHeaderRegistry.Registration second = A2APropagationHeaderRegistry
+                .registerProvider(request -> Map.of("p2", "2"));
+        A2AOutboundRequest request = new A2AOutboundRequest("u", "POST", "b");
+        assertThat(A2APropagationHeaderRegistry.provide(request))
+                .containsEntry("p1", "1")
+                .containsEntry("p2", "2");
+        first.close();
+        assertThat(A2APropagationHeaderRegistry.provide(request)).containsEntry("p2", "2");
+        second.close();
         assertThat(A2APropagationHeaderRegistry.provide(request)).isEmpty();
     }
 
@@ -168,6 +306,7 @@ class HeaderInjectingA2AHttpClientTest {
         final Map<String, String> headers = new HashMap<>();
         String url;
         String body;
+        final Deque<A2AHttpResponse> queuedResponses = new ArrayDeque<>();
 
         @Override
         public GetBuilder createGet() {
@@ -242,7 +381,7 @@ class HeaderInjectingA2AHttpClientTest {
 
         @Override
         public A2AHttpResponse post() {
-            return null;
+            return client.queuedResponses.poll();
         }
 
         @Override
@@ -264,7 +403,7 @@ class HeaderInjectingA2AHttpClientTest {
 
         @Override
         public A2AHttpResponse get() {
-            return null;
+            return client.queuedResponses.poll();
         }
 
         @Override
@@ -287,7 +426,7 @@ class HeaderInjectingA2AHttpClientTest {
 
         @Override
         public A2AHttpResponse delete() {
-            return null;
+            return client.queuedResponses.poll();
         }
 
         @Override
