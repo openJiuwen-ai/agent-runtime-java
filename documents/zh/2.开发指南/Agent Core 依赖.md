@@ -12,7 +12,7 @@ Runtime 仓通过 Maven 依赖独立仓库 **[agent-core-java](https://gitcode.c
 | `agent-core.git.branch` | 从源码本地安装 Core 时 checkout 的分支 |
 | `agent-core.repo.url` | Core 仓库地址 |
 
-升级 Core 时，同步更新根 `pom.xml` 中的 `agent-core.version`、Core POM 导入版本和 Core JAR 管理版本，再按下方步骤重装 Core（或从私服拉取同版本制品）。BOM 中的两处版本使用字面量，消费方传入同名 `-D` 参数时仍会使用 Runtime 锁定的 Core 版本。
+升级 Core 时，更新根 `pom.xml` 中的 `agent-core.version`，再按下方步骤重装 Core（或从私服拉取同版本制品）。打包时，Maven 会把 Core POM 导入和 JAR 管理条目的版本解析为同一个具体值。
 
 查看当前值（在 `agent-runtime-java` 根目录）：
 
