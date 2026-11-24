@@ -32,41 +32,15 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <a2a-sdk.version>1.0.0.Final</a2a-sdk.version>
-        <!-- Agent Core：Maven 版本与本地源码分支，文档仅引用此处，勿在多处写死版本号 -->
+        <!-- Core POM 导入和 JAR 使用同一版本属性。 -->
         <agent-core.version>0.1.18</agent-core.version>
         <agent-core.git.branch>develop</agent-core.git.branch>
         <agent-core.repo.url>https://gitcode.com/openJiuwen/agent-core-java</agent-core.repo.url>
 
-        <!--
-          ============ 依赖版本归一：与 agent-core-java 严格一致 ============
-          以下属性显式覆盖 spring-boot-dependencies 4.0.7 的同名属性（parent 的
-          dependencyManagement 优先于传递依赖，若不做覆盖，runtime 实际解析版本
-          会被 Boot BOM 抬升/压降，与 core 不一致）。取值与 agent-core-java/pom.xml
-          <properties> 完全对齐；若 core 调整版本，此处需同步更新。
-
-          历史例外项（均已通过升级 core 消除，两边现在严格一致）：
-          - reactor：core 已升 3.8.6（=Boot 的 reactor-bom 2025.0.6），无需再覆盖。
-          - protobuf：core 已升 4.33.2（a2a-sdk 1.0.0.Final 由 protoc 4.x 生成），
-            下方 dependencyManagement 的 pin 与 core 值一致，保留作显式声明。
-          - junit-jupiter：core 已升 6.0.3（=Boot 管理值），两边一致。
-          - jackson-annotations：core 已升 jackson-bom 2.21.5，annotations 随 BOM
-            为 2.21（含 a2a-sdk 需要的 JsonSerializeAs），不再需要单独 pin。
-          - jedis：core 已升 7.0.0（=Boot 管理值），不再覆盖。
-          - bouncy-castle：Memory 拆包前 core 直接引入 bcprov 1.85；拆包后
-            bcprov 只会经 pulsar 回落到 1.84，因此 runtime 继续锁定 1.85。
-          gson 例外：core 未声明 gson；a2a-sdk 需 2.11.0+，runtime 独立 pin 2.11.0，
-          见下方 dependencyManagement。
-
-          对齐范围约定：仅对 main/compile 运行时依赖严格一致；test scope 组件
-          （如 surefire/maven 插件自带带入的 byte-buddy 1.18.3、spring-boot-test
-          传递的测试侧依赖）不纳入对齐，有风险/改动大的保持现状即可。
-          -->
+        <!-- Keep Boot's inherited management aligned with the Core import.
+             These properties govern Boot's model when Runtime uses it as a parent. -->
         <jackson-2-bom.version>2.21.5</jackson-2-bom.version>
-        <!-- opentelemetry：core 声明 1.64.0，Boot 4.0.7 BOM 管理 1.55.0 会压降 core 传递的 OTel，
-             导致 runtime 侧 OTel 版本与 core 不一致（潜在 NoSuchMethodError 风险）。覆盖为 1.64.0 对齐 core。 -->
         <opentelemetry.version>1.64.0</opentelemetry.version>
-        <!-- jedis：core 已升 7.0.0（=Boot 管理值），无需覆盖 -->
-        <!-- <jedis.version>5.1.5</jedis.version> -->
         <pulsar.version>4.2.3</pulsar.version>
         <bouncy-castle.version>1.85</bouncy-castle.version>
         <mockito.version>5.14.2</mockito.version>
@@ -87,8 +61,6 @@
         <log4j2.version>2.26.1</log4j2.version>
         <kotlin.version>2.4.10</kotlin.version>
 
-        <!-- okhttp：Boot 4 BOM 不管理，adapters-common 直接依赖，pin 在此供统一管控 -->
-        <okhttp.version>4.12.0</okhttp.version>
     </properties>
 
     <dependencyManagement>
@@ -115,11 +87,20 @@
                 <version>1.0.0.Final</version>
             </dependency>
 
+            <!-- Use the same Core release for the imported POM and the managed JAR. -->
+            <dependency>
+                <groupId>com.openjiuwen</groupId>
+                <artifactId>agent-core-java</artifactId>
+                <version>${agent-core.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- OpenJiuwen Agent Core -->
             <dependency>
                 <groupId>com.openjiuwen</groupId>
                 <artifactId>agent-core-java</artifactId>
-                <version>0.1.18</version>
+                <version>${agent-core.version}</version>
             </dependency>
 
             <!-- ② Service leaf modules（${revision} 是 CI-friendly，flatten 会展开为字面值） -->
@@ -146,7 +127,7 @@
 
             <!--
               Gson / Protobuf：
-              - protobuf：core 已升 4.33.2，此处显式声明与 core 严格一致
+              - protobuf：Core 管理 protobuf-java，Runtime 管理同版的 protobuf-java-util
                 （a2a-sdk 1.0.0.Final 内部用 protoc 4.x 生成，protobuf 3.x 会
                 在运行期抛 NoSuchMethodError/二进制不兼容）。
               - gson：core 未声明 gson；a2a-sdk 的 JSONRPCUtils 需要 2.11.0+
@@ -160,54 +141,14 @@
 
             <dependency>
                 <groupId>com.google.protobuf</groupId>
-                <artifactId>protobuf-java</artifactId>
-                <version>4.33.2</version>
-            </dependency>
-            <dependency>
-                <groupId>com.google.protobuf</groupId>
                 <artifactId>protobuf-java-util</artifactId>
                 <version>4.33.2</version>
             </dependency>
 
             <!--
-              ============ 对外版本锁（BOM 传播）============
-              以下条目对应 <properties> 里覆盖 Boot BOM 的同名属性。
-              原先只靠 properties 覆盖，仅在 runtime 自身构建期生效；一旦消费方
-              import runtime BOM，properties 不传播 → 消费方拿不到版本 pin →
-              被 Boot BOM 原始值或 nearest-wins 仲裁覆盖，导致运行期版本不一致
-              （如 protobuf 被 milvus 路径压降、slf4j/otel 被 Boot BOM 压降）。
-              显式声明在此处，install 后 POM 的 depMgmt 保留字面条目，消费方
-              import 时内联到其有效 depMgmt，版本锁随之传播。
-
-              flattenMode=resolveCiFriendliesOnly 只展开 ${revision}/${sha1}/
-              ${changelist} 三个 CI-friendly 占位符，不展开 ${xxx.version} 等
-              自定义属性。故此处版本必须用字面值，与 <properties> 里同名属性值
-              重复——这是 flatten 机制限制下的必要妥协（properties 保留用于
-              runtime 自身构建期覆盖 Boot BOM；depMgmt 字面值用于 BOM 传播到
-              消费方）。根治方案是拆独立 BOM 模块（方案 B），暂未实施。
-
-              scope 约定：
-              - 运行时依赖（slf4j/jackson/otel/snakeyaml/logback/postgresql/
-                mysql/h2/sqlite-jdbc/commons-lang3/commons-codec/pulsar/lombok/
-                okhttp）→ 不加 scope（compile），必须对消费方可见
-              - 纯测试依赖（mockito/assertj/byte-buddy）→ 加 scope=test，
-                消费方测试侧也能继承版本锁，但不污染其 compile classpath
-              - jackson-bom 用 import 引入整套 jackson 版本对齐
+              Core imports supply the common constraints. The following entries
+              cover Runtime dependencies and explicit Spring Boot overrides.
             -->
-            <dependency>
-                <groupId>com.fasterxml.jackson</groupId>
-                <artifactId>jackson-bom</artifactId>
-                <version>2.21.5</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>io.opentelemetry</groupId>
-                <artifactId>opentelemetry-bom</artifactId>
-                <version>1.64.0</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
             <dependency>
                 <groupId>org.apache.pulsar</groupId>
                 <artifactId>pulsar-bom</artifactId>
@@ -215,40 +156,11 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <dependency>
-                <groupId>org.jetbrains.kotlin</groupId>
-                <artifactId>kotlin-bom</artifactId>
-                <version>2.4.10</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
-            <!-- Keep bcprov at its pre-split version for consumers that only depend on Core. -->
-            <dependency>
-                <groupId>org.bouncycastle</groupId>
-                <artifactId>bcprov-jdk18on</artifactId>
-                <version>1.85</version>
-            </dependency>
 
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
                 <version>2.0.12</version>
-            </dependency>
-            <dependency>
-                <groupId>ch.qos.logback</groupId>
-                <artifactId>logback-classic</artifactId>
-                <version>1.5.37</version>
-            </dependency>
-            <dependency>
-                <groupId>ch.qos.logback</groupId>
-                <artifactId>logback-core</artifactId>
-                <version>1.5.37</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.logging.log4j</groupId>
-                <artifactId>log4j-api</artifactId>
-                <version>2.26.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
@@ -265,17 +177,6 @@
                 <artifactId>lombok</artifactId>
                 <version>1.18.32</version>
                 <scope>provided</scope>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-lang3</artifactId>
-                <version>3.18.0</version>
-            </dependency>
-            <dependency>
-                <groupId>commons-codec</groupId>
-                <artifactId>commons-codec</artifactId>
-                <version>1.20.0</version>
             </dependency>
 
             <dependency>
@@ -297,12 +198,6 @@
                 <groupId>org.xerial</groupId>
                 <artifactId>sqlite-jdbc</artifactId>
                 <version>3.53.2.1</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.squareup.okhttp3</groupId>
-                <artifactId>okhttp</artifactId>
-                <version>4.12.0</version>
             </dependency>
 
             <dependency>
@@ -357,19 +252,21 @@
             </plugins>
         </pluginManagement>
         <plugins>
-            <!--
-              Required companion for the ${revision} CI-friendly version above: without it the installed/packaged
-              POMs keep the literal ${revision} and are unresolvable by downstream consumers. Bound to
-              process-resources so it runs under any command that reaches package/install/deploy (no build-command
-              change needed). resolveCiFriendliesOnly only rewrites ${revision}/${sha1}/${changelist}.
-            -->
+            <!-- Preserve the POM hierarchy and resolve release coordinates and dependency versions
+                 before Maven packages, installs, or deploys the artifacts. -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
-                <version>1.6.0</version>
+                <version>1.7.3</version>
                 <configuration>
                     <updatePomFile>true</updatePomFile>
-                    <flattenMode>resolveCiFriendliesOnly</flattenMode>
+                    <defaultOperation>keep</defaultOperation>
+                    <pomElements>
+                        <version>resolve</version>
+                        <parent>extended_interpolate</parent>
+                        <dependencies>extended_interpolate</dependencies>
+                        <dependencyManagement>expand</dependencyManagement>
+                    </pomElements>
                 </configuration>
                 <executions>
                     <execution>
