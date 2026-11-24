@@ -10,6 +10,7 @@ import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryRequest;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.lifecycle.AgentReadiness;
 import com.openjiuwen.service.spec.paths.AgentServicePaths;
 import com.openjiuwen.service.spec.security.AuthorizedResource;
@@ -183,12 +184,25 @@ public class QueryMvcController {
     }
 
     private void streamToEmitter(ServeOrchestrator orchestrator,
-            com.openjiuwen.service.spec.dto.ServeRequest serveRequest, SseEmitter emitter, AtomicBoolean cancelled) {
+            ServeRequest serveRequest, SseEmitter emitter, AtomicBoolean cancelled) {
+        QueryStreamObserver observer = createStreamObserver(emitter, cancelled, serveRequest.getConversationId());
+        try {
+            orchestrator.streamQuery(serveRequest, observer);
+        } catch (CancellationException ex) {
+            observer.onComplete();
+        } catch (RuntimeException ex) {
+            observer.onError(ex);
+        }
+    }
+
+    private QueryStreamObserver createStreamObserver(SseEmitter emitter, AtomicBoolean cancelled,
+            String conversationId) {
         AtomicBoolean errorEventSent = new AtomicBoolean(false);
-        orchestrator.streamQuery(serveRequest, new QueryStreamObserver() {
+        AtomicBoolean terminated = new AtomicBoolean(false);
+        return new QueryStreamObserver() {
             @Override
             public void onNext(QueryChunk chunk) {
-                if (isCancelled()) {
+                if (isCancelled() || terminated.get()) {
                     return;
                 }
                 try {
@@ -204,19 +218,19 @@ public class QueryMvcController {
 
             @Override
             public void onError(Throwable error) {
-                if (isCancelled()) {
+                if (isCancelled() || !terminated.compareAndSet(false, true)) {
                     return;
                 }
-                log.error("Stream query failed for conversation_id={}", serveRequest.getConversationId(), error);
+                log.error("Stream query failed for conversation_id={}", conversationId, error);
                 if (!errorEventSent.get()) {
-                    sendTerminalError(emitter, serveRequest.getConversationId(), cancelled);
+                    sendTerminalError(emitter, conversationId, cancelled, error);
                 }
                 emitter.complete();
             }
 
             @Override
             public void onComplete() {
-                if (!isCancelled()) {
+                if (!isCancelled() && terminated.compareAndSet(false, true)) {
                     emitter.complete();
                 }
             }
@@ -225,12 +239,18 @@ public class QueryMvcController {
             public boolean isCancelled() {
                 return cancelled.get();
             }
-        });
+        };
     }
 
-    private void sendTerminalError(SseEmitter emitter, String conversationId, AtomicBoolean cancelled) {
-        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_ERROR,
-                QueryIngressSupport.agentExecutionFailed(conversationId));
+    private void sendTerminalError(SseEmitter emitter, String conversationId, AtomicBoolean cancelled,
+            Throwable failure) {
+        Map<String, Object> payload = QueryIngressSupport.agentExecutionFailed(conversationId);
+        if (failure instanceof AgentExecutionException executionFailure) {
+            var descriptor = executionFailure.getDescriptor();
+            payload.put("code", descriptor.code());
+            payload.put("retryable", descriptor.isRetryable());
+        }
+        QueryChunk chunk = new QueryChunk(QueryChunk.TYPE_ERROR, payload);
         try {
             emitter.send(SseEmitter.event().data(QuerySseSupport.toSseData(chunk, objectMapper)));
         } catch (IOException | IllegalStateException ex) {
