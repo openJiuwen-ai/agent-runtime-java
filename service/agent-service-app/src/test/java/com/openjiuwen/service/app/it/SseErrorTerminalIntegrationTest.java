@@ -7,9 +7,11 @@ package com.openjiuwen.service.app.it;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openjiuwen.service.spec.dto.AgentFailureDescriptor;
 import com.openjiuwen.service.spec.dto.QueryChunk;
 import com.openjiuwen.service.spec.dto.QueryResponse;
 import com.openjiuwen.service.spec.dto.ServeRequest;
+import com.openjiuwen.service.spec.exception.AgentExecutionException;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.QueryStreamObserver;
 
@@ -22,7 +24,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
-import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -31,6 +32,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Verifies that terminal failures close MVC SSE responses without aborting the wire body.
@@ -66,6 +69,14 @@ class SseErrorTerminalIntegrationTest {
         assertThat(body).doesNotContain("uncovered boom");
     }
 
+    @Test
+    void busyPrepareFailureSendsRetryableErrorAndClosesStream() throws Exception {
+        assertThat(errorEvents(postAndRead("busy"))).singleElement().satisfies(event -> assertThat(event)
+                .containsEntry("code", "CONVERSATION_BUSY")
+                .containsEntry("retryable", true)
+                .containsEntry("conversation_id", "c-busy"));
+    }
+
     private String postAndRead(String query) throws Exception {
         String json = "{\"messages\":[{\"role\":\"user\",\"content\":\"" + query + "\"}],"
                 + "\"conversation_id\":\"c-" + query + "\",\"stream\":true}";
@@ -73,13 +84,14 @@ class SseErrorTerminalIntegrationTest {
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
                 .build();
-        HttpResponse<InputStream> response = HttpClient.newHttpClient().send(request,
-                HttpResponse.BodyHandlers.ofInputStream());
-        assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.headers().firstValue("Content-Type").orElse(""))
-                .startsWith("text/event-stream");
-        try (InputStream body = response.body()) {
-            return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+        var pending = HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        try {
+            var response = pending.get(5, TimeUnit.SECONDS);
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.headers().firstValue("Content-Type").orElse("")).startsWith("text/event-stream");
+            return response.body();
+        } finally {
+            pending.cancel(true);
         }
     }
 
@@ -108,6 +120,15 @@ class SseErrorTerminalIntegrationTest {
     }
 
     private static final class ErrorTerminalHandler implements AgentHandler {
+        @Override
+        public Optional<Object> prepareTask(ServeRequest request) {
+            if ("busy".equals(request.lastUserQuery())) {
+                throw new AgentExecutionException("Conversation already executing",
+                        new AgentFailureDescriptor("CONVERSATION_BUSY", null, true), null);
+            }
+            return Optional.empty();
+        }
+
         /**
          * Emits the requested terminal stream scenario.
          *
