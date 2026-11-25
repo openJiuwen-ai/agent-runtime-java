@@ -16,6 +16,7 @@ import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.config.ServiceProperties;
 import com.openjiuwen.service.app.config.SpringEnvironmentConfigProvider;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
+import com.openjiuwen.service.app.controller.a2a.A2AInMemoryQueueManager;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
 import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.A2aPushNotificationCallbackHandler;
@@ -60,7 +61,6 @@ import jakarta.annotation.PreDestroy;
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
 import org.a2aproject.sdk.server.config.A2AConfigProvider;
 import org.a2aproject.sdk.server.config.DefaultValuesConfigProvider;
-import org.a2aproject.sdk.server.events.InMemoryQueueManager;
 import org.a2aproject.sdk.server.events.MainEventBus;
 import org.a2aproject.sdk.server.events.MainEventBusProcessor;
 import org.a2aproject.sdk.server.events.MainEventBusProcessorCallback;
@@ -365,9 +365,9 @@ public class A2AAutoConfiguration {
     @ConditionalOnMissingBean({QueueManager.class, HostedAgentDefinitions.class})
     public QueueManager a2aQueueManager(TaskStore taskStore, MainEventBus mainEventBus) {
         if (taskStore instanceof TaskStateProvider provider) {
-            return new InMemoryQueueManager(provider, mainEventBus);
+            return new A2AInMemoryQueueManager(provider, mainEventBus);
         }
-        return new InMemoryQueueManager(null, mainEventBus);
+        return new A2AInMemoryQueueManager(null, mainEventBus);
     }
 
     /**
