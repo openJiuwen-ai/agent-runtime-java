@@ -165,7 +165,7 @@ Controllers must **not** bypass the orchestrator to call `Runner` directly.
 - **Agent Card**: `GET /.well-known/agent-card.json` (and compatible paths under `/a2a`).
 - **JSON-RPC**: `POST /a2a/` — `SendMessage`, `SendStreamingMessage`.
 - **TaskStore**: in-memory or Redis; remote-agent discovery and delegation via enhanced orchestrator.
-- Details: [A2A Guide](documents/zh/2.开发指南/A2A开发指导.md) (Chinese).
+- Details: [A2A Guide](documents/zh/2.开发指南/A2A/开发指导.md) (Chinese).
 
 ### Adapters
 
@@ -225,7 +225,7 @@ Index: [documents/zh/SUMMARY.md](documents/zh/SUMMARY.md) (Chinese).
 |------|------------|
 | Run demo locally | [Quick Start](documents/zh/2.开发指南/快速开始.md) · [demo README](service/agent-service-demo/README.md) |
 | HTTP API & SSE | [HTTP Data Plane](documents/zh/2.开发指南/HTTP对话面.md) |
-| A2A Server / Client | [A2A Guide](documents/zh/2.开发指南/A2A开发指导.md) · [A2A vs platform](documents/zh/2.开发指南/A2A与平台边界.md) |
+| A2A Server / Client | [A2A Guide](documents/zh/2.开发指南/A2A/开发指导.md) · [A2A vs platform](documents/zh/2.开发指南/A2A/平台边界.md) |
 | Custom Handler | [Adapters & Handler](documents/zh/2.开发指南/Adapters与Handler.md) |
 | Lifecycle & probes | [Lifecycle & Probes](documents/zh/2.开发指南/生命周期与探针.md) |
 | Big picture | [Development Guide](documents/zh/2.开发指南/README.md) · [Logical Architecture](documents/zh/2.开发指南/逻辑架构.md) |
