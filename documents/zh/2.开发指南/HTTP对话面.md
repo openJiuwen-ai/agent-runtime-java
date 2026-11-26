@@ -308,7 +308,7 @@ curl -s http://localhost:8090/v1/reset_conversation \
 curl -s http://localhost:8090/.well-known/agent-card.json
 ```
 
-完整 smoke 脚本：`agent-service-demo/scripts/smoke-query.sh`。Demo 更多场景见 [agent-service-demo/README.md](../../service/agent-service-demo/README.md)。
+完整 smoke 脚本：[smoke-query.sh](../../../service/agent-service-demo/example/query/smoke-query.sh)。Demo 更多场景见 [agent-service-demo/README.md](../../../service/agent-service-demo/README.md)。
 
 ## 延伸阅读
 
