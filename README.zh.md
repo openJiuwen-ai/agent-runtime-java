@@ -4,9 +4,9 @@
 
 ## 简介
 
-**openJiuwen Agent Runtime Java**（`agent-runtime-java`）是 **Agent Distributed Runtime 的 Java 实现仓库**（对应架构图中间 Runtime 大框）。当前 **已交付最多的是 `service/` 模块**，即图中的 **Agent Server**：Spring Boot HTTP 服务、进程内 A2A、Adapters 胶水，以及通过 Maven 依赖接入的 **Agent Core** 执行能力。
+**openJiuwen Agent Runtime Java**（`agent-runtime-java`）是 **Agent Distributed Runtime 的 Java 实现仓库**（对应架构图中间 Runtime 大框）。当前 **已交付最多的是 `service/` 模块**，即图中的 **Agent Server**：Spring Boot HTTP 服务、进程内 A2A、Adapters 胶水，以及通过 Maven 依赖接入的 **Agent Core** 执行能力。**Agent Core**（图执行、Agent、工作流）在独立仓库 [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java)。
 
-**Agent Core**（图执行、Agent、工作流）在独立仓库 [agent-core-java](https://gitcode.com/openJiuwen/agent-core-java)；**Agent Runtime Manager** 等将规划在 **本仓** `manager/*`。与 Python 为 **同级 Runtime 实现**（Python 侧 Agent Server 常用 FastAPI / Yuanrong FaaS）。
+**Agent Runtime Manager** 等将规划在 **本仓** `manager/*`。与 Python 为 **同级 Runtime 实现**（Python 侧 Agent Server 常用 FastAPI / Yuanrong FaaS）。
 
 详见 [范围与路线图](#范围与路线图) 与 [逻辑架构](documents/zh/2.开发指南/逻辑架构.md)。
 
