@@ -14,6 +14,7 @@ import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
 import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.memory.MemoryWriteResult;
+import com.openjiuwen.service.adapters.common.memory.ObservedMemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
 import java.util.ArrayList;
@@ -87,7 +88,8 @@ public class JiuwenMemoryStore implements MemoryStore, MemorySearchObserver.Tran
 
     @Override
     public List<MemoryRecord> search(MemorySearchRequest request, MemorySearchObserver.Call call) {
-        return getClass() == JiuwenMemoryStore.class ? searchInternal(request, call) : search(request);
+        return getClass() == JiuwenMemoryStore.class
+            ? searchInternal(request, ObservedMemoryStore.protect(call)) : search(request);
     }
 
     private List<MemoryRecord> searchInternal(MemorySearchRequest request, MemorySearchObserver.Call call) {

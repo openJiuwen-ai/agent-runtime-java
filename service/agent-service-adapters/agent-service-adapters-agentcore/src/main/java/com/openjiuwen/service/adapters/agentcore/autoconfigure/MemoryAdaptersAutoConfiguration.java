@@ -20,6 +20,8 @@ import com.openjiuwen.service.adapters.common.memory.ObservedMemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.beans.factory.BeanFactoryUtils;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -45,11 +47,11 @@ import java.util.List;
 @ConditionalOnClass(RunnerConfig.class)
 @EnableConfigurationProperties(MiddlewareProperties.class)
 public class MemoryAdaptersAutoConfiguration {
-    private ObjectProvider<MemorySearchObserver> searchObservers;
+    private ListableBeanFactory beanFactory;
 
     @Autowired
-    void setSearchObservers(ObjectProvider<MemorySearchObserver> observers) {
-        this.searchObservers = observers;
+    void setBeanFactory(ListableBeanFactory beanFactory) {
+        this.beanFactory = beanFactory;
     }
 
     /**
@@ -104,7 +106,15 @@ public class MemoryAdaptersAutoConfiguration {
                 "openjiuwen.service.middleware.memory.enabled=true but encrypted-api-key resolves to empty");
         }
         MemoryStore store = new MemoryStoreFactory(providers).create(apiKey, memory);
-        return ObservedMemoryStore.wrap(store, searchObservers == null ? null : searchObservers.getIfUnique());
+        if (beanFactory == null || BeanFactoryUtils.beanNamesForTypeIncludingAncestors(beanFactory,
+            MemorySearchObserver.class, true, false).length == 0) {
+            return store;
+        }
+        ObjectProvider<MemorySearchObserver> observers = beanFactory.getBeanProvider(MemorySearchObserver.class);
+        return ObservedMemoryStore.wrap(store, (provider, query, topK) -> {
+            MemorySearchObserver observer = observers.getIfUnique();
+            return observer == null ? null : observer.start(provider, query, topK);
+        });
     }
 
     /**

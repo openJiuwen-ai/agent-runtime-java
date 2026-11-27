@@ -36,6 +36,8 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -313,6 +315,36 @@ class Jiuwen2MemoryStoreTest {
     }
 
     @Test
+    void directTransportObserverFailuresNeitherRetryNorReplaceResult() {
+        server = LocalJiuwen2Server.start();
+        AtomicInteger starts = new AtomicInteger();
+        AtomicInteger ends = new AtomicInteger();
+        MemorySearchObserver.Call broken = new MemorySearchObserver.Call() {
+            @Override
+            public MemorySearchObserver.TraceHeaders startAttempt(int attempt) {
+                starts.incrementAndGet();
+                throw new IllegalStateException("start failed");
+            }
+
+            @Override
+            public void endAttempt(int attempt, boolean completed) {
+                assertThat(completed).isTrue();
+                ends.incrementAndGet();
+                throw new IllegalStateException("finish failed");
+            }
+
+            @Override
+            public void rawResponse(int attempt, String json) {
+                throw new IllegalStateException("capture failed");
+            }
+        };
+        assertThat(newStore(1).search(searchFor("direct"), broken)).hasSize(1);
+        assertThat(starts).hasValue(1);
+        assertThat(ends).hasValue(1);
+        assertThat(server.searchRequests()).isOne();
+    }
+
+    @Test
     void overlappingSearchesKeepCallerHeadersBoundToTheirQuery() throws Exception {
         server = LocalJiuwen2Server.start();
         CountDownLatch bothWorkers = new CountDownLatch(2);
@@ -326,9 +358,14 @@ class Jiuwen2MemoryStoreTest {
             }
         };
         MemoryStore store = ObservedMemoryStore.wrap(newStore(), observer);
-        CompletableFuture<Void> first = CompletableFuture.runAsync(() -> store.search(searchFor("1")));
-        CompletableFuture<Void> second = CompletableFuture.runAsync(() -> store.search(searchFor("2")));
-        CompletableFuture.allOf(first, second).get(10, TimeUnit.SECONDS);
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        try {
+            CompletableFuture<Void> first = CompletableFuture.runAsync(() -> store.search(searchFor("1")), callers);
+            CompletableFuture<Void> second = CompletableFuture.runAsync(() -> store.search(searchFor("2")), callers);
+            CompletableFuture.allOf(first, second).get(10, TimeUnit.SECONDS);
+        } finally {
+            callers.shutdownNow();
+        }
         assertThat(server.parentsByQuery).containsEntry("1", prefix + "1-01").containsEntry("2", prefix + "2-01");
     }
 

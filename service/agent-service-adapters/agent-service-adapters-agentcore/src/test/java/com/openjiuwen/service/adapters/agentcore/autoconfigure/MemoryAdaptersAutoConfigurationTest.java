@@ -17,6 +17,9 @@ import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -65,6 +68,38 @@ class MemoryAdaptersAutoConfigurationTest {
                 assertThat(context).hasSingleBean(MemoryStore.class);
                 assertThat(context.getBean(MemoryStore.class).isAvailable()).isTrue();
                 assertThat(scene).hasValue(CredentialSceneType.MEMORY_API_KEY);
+            });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class StoreDependentExtension {
+        final AtomicInteger creations = new AtomicInteger();
+        final AtomicInteger starts = new AtomicInteger();
+
+        @Bean
+        @Lazy
+        MemorySearchObserver observer(MemoryStore store) {
+            creations.incrementAndGet();
+            return (provider, query, depth) -> {
+                assertThat(provider).isEqualTo(store.getProvider());
+                starts.incrementAndGet();
+                return null;
+            };
+        }
+    }
+
+    @Test
+    void observerCanDependOnStoreAndIsNotResolvedWhileCreatingStore() {
+        contextRunner.withUserConfiguration(StoreDependentExtension.class).withPropertyValues(
+            "openjiuwen.service.middleware.memory.enabled=true", "openjiuwen.service.middleware.memory.provider=jiuwen2",
+            "openjiuwen.service.middleware.memory.encrypted-api-key=test-key").run(context -> {
+                assertThat(context).hasNotFailed();
+                StoreDependentExtension extension = context.getBean(StoreDependentExtension.class);
+                MemoryStore store = context.getBean(MemoryStore.class);
+                assertThat(extension.creations).hasValue(0);
+                assertThat(store.search(null)).isEmpty();
+                assertThat(extension.creations).hasValue(1);
+                assertThat(extension.starts).hasValue(1);
             });
     }
 
