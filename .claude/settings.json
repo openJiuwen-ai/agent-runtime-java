@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(mvn *)",
+      "Bash(mvnw *)",
+      "Bash(java *)",
+      "Bash(javac *)",
+      "Bash(git *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./apiconfig.json)",
+      "Read(./**/application-base_local.yml)",
+      "Read(./**/application-security_local.yml)",
+      "Read(./**/application-security-tls_local.yml)",
+      "Read(./**/secrets/**)",
+      "Read(./**/APIKEY/**)"
+    ]
+  },
+  "env": {},
+  "language": "chinese",
+  "includeGitInstructions": true
+}

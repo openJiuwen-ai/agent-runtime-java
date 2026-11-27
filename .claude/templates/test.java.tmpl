@@ -1,0 +1,88 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+ */
+package com.openjiuwen.service.app.{{subpackage}};
+
+// =================================================================
+// TEMPLATE NOTES:
+//   1. Replace {{ClassName}}, {{TargetClass}}, {{subpackage}}.
+//   2. Package-private class (no `public`) — matches repo convention.
+//   3. Programmatic Mockito: inline mock(...), NO @Mock/@InjectMocks/
+//      MockitoExtension on new tests.
+//   4. Name methods methodName_scenario_expected; Given/When/Then
+//      comments are encouraged for complex flows (X.TST.05/06).
+//   5. Optional-collaborator tests: always cover the absent path
+//      (getIfAvailable() == null) — that is a supported runtime state.
+//   6. Integration test variant: name it *IT.java and document
+//      prerequisites (Redis etc.) in the class Javadoc.
+// =================================================================
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Unit tests for {@link {{TargetClass}}}.
+ */
+class {{ClassName}}Test {
+
+    private {{TargetClass}} {{targetInstance}};
+
+    @BeforeEach
+    void setUp() {
+        {{targetInstance}} = new {{TargetClass}}(...);
+    }
+
+    // ========== Construction ==========
+
+    @Nested
+    @DisplayName("construction")
+    class Construction {
+
+        @Test
+        void constructor_withNullOptionalCollaborator_supportsAbsentState() {
+            // Given — no collaborator registered
+            {{TargetClass}} created = new {{TargetClass}}(...);
+
+            // When + Then — must not throw, must serve default behavior
+            assertThat(created.{{probe}}()).isNotNull();
+        }
+    }
+
+    // ========== Core behavior ==========
+
+    @Test
+    void {{method}}_{{scenario}}_{{expected}}() {
+        // Given
+        {{Collaborator}} collaborator = mock({{Collaborator}}.class);
+        when(collaborator.{{stubbedCall}}()).thenReturn({{stubValue}});
+
+        // When
+        {{ResultType}} result = {{targetInstance}}.{{method}}({{input}});
+
+        // Then
+        assertThat(result).{{assertion}};
+        verify(collaborator).{{stubbedCall}}();
+    }
+
+    // ========== Failure paths ==========
+
+    @Test
+    void {{method}}_whenCollaboratorThrows_{{expected}}() {
+        // Given
+        {{Collaborator}} collaborator = mock({{Collaborator}}.class);
+        when(collaborator.{{stubbedCall}}()).thenThrow(new RuntimeException("boom"));
+
+        // When + Then
+        assertThatThrownBy(() -> {{targetInstance}}.{{method}}({{input}}))
+                .isInstanceOf({{ExpectedException}}.class)
+                .hasMessageContaining("boom");
+    }
+}

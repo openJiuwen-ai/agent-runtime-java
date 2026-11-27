@@ -1,0 +1,62 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+ */
+package com.openjiuwen.service.app.{{subpackage}};
+
+// =================================================================
+// TEMPLATE NOTES:
+//   1. Replace {{ClassName}}, {{subpackage}} with real values.
+//   2. This is a plain Spring service/coordinator template. For an
+//      auto-configuration class, copy an existing *AutoConfiguration
+//      in the same package instead — bean gating order and the
+//      AutoConfiguration.imports registration are easy to miss.
+//   3. Constructor injection only. Optional collaborators arrive as
+//      ObjectProvider<T> (or @Autowired(required=false) field for
+//      legacy-style optional hooks) — absent is a valid state.
+//   4. SLF4J directly; this repo does not use Core's Loggers facade.
+//   5. Keep methods ≤5 params (G.MET.01); use a params record for more.
+// =================================================================
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.springframework.beans.factory.ObjectProvider;
+
+/**
+ * {{One-line responsibility statement.}}
+ *
+ * <p>Delegates ingress work to {@code ServeOrchestrator} — never calls
+ * Core {@code Runner} directly.</p>
+ *
+ * @since 0.1.x
+ */
+public class {{ClassName}} {
+
+    private static final Logger log = LoggerFactory.getLogger({{ClassName}}.class);
+
+    private final ObjectProvider<{{CollaboratorInterface}}> {{collaborator}}Provider;
+
+    /**
+     * Creates the {{ClassName}}.
+     *
+     * @param {{collaborator}}Provider optional {{CollaboratorInterface}} provider; null when absent is supported
+     */
+    public {{ClassName}}(ObjectProvider<{{CollaboratorInterface}}> {{collaborator}}Provider) {
+        this.{{collaborator}}Provider = {{collaborator}}Provider;
+    }
+
+    /**
+     * {{Describes the main entry behavior.}}
+     *
+     * @param input the request input, never null
+     * @return the outcome, never null
+     */
+    public {{ResultType}} {{execute}}({{InputType}} input) {
+        {{CollaboratorInterface}} {{collaborator}} = {{collaborator}}Provider.getIfAvailable();
+        if ({{collaborator}} == null) {
+            log.debug("{{CollaboratorInterface}} absent, using default behavior");
+            return {{defaultBehavior}};
+        }
+        return {{collaborator}}.{{delegateCall}}(input);
+    }
+}
