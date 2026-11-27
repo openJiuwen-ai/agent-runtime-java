@@ -33,11 +33,12 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -327,8 +328,8 @@ class Jiuwen2MemoryStoreTest {
             }
 
             @Override
-            public void endAttempt(int attempt, boolean completed) {
-                assertThat(completed).isTrue();
+            public void endAttempt(int attempt, boolean isCompleted) {
+                assertThat(isCompleted).isTrue();
                 ends.incrementAndGet();
                 throw new IllegalStateException("finish failed");
             }
@@ -358,7 +359,8 @@ class Jiuwen2MemoryStoreTest {
             }
         };
         MemoryStore store = ObservedMemoryStore.wrap(newStore(), observer);
-        ExecutorService callers = Executors.newFixedThreadPool(2);
+        ExecutorService callers = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(2));
         try {
             CompletableFuture<Void> first = CompletableFuture.runAsync(() -> store.search(searchFor("1")), callers);
             CompletableFuture<Void> second = CompletableFuture.runAsync(() -> store.search(searchFor("2")), callers);

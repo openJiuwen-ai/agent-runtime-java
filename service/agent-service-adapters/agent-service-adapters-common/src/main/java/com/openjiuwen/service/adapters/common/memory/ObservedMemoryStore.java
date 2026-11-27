@@ -39,7 +39,12 @@ public final class ObservedMemoryStore implements MemoryStore {
         return observer == null ? store : new ObservedMemoryStore(store, observer);
     }
 
-    /** Isolates observer failures for callers using a transport directly; already protected handles are reused. */
+    /**
+     * Isolates observer failures for callers using a transport directly.
+     *
+     * @param call observer handle to protect, or null
+     * @return a protected handle, reusing an already protected handle, or null if the input is null
+     */
     public static MemorySearchObserver.Call protect(MemorySearchObserver.Call call) {
         return call == null || call instanceof SafeCall ? call : new SafeCall(call);
     }

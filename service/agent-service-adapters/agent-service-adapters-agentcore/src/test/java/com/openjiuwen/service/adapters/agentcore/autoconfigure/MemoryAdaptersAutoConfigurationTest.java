@@ -91,7 +91,8 @@ class MemoryAdaptersAutoConfigurationTest {
     @Test
     void observerCanDependOnStoreAndIsNotResolvedWhileCreatingStore() {
         contextRunner.withUserConfiguration(StoreDependentExtension.class).withPropertyValues(
-            "openjiuwen.service.middleware.memory.enabled=true", "openjiuwen.service.middleware.memory.provider=jiuwen2",
+            "openjiuwen.service.middleware.memory.enabled=true",
+            "openjiuwen.service.middleware.memory.provider=jiuwen2",
             "openjiuwen.service.middleware.memory.encrypted-api-key=test-key").run(context -> {
                 assertThat(context).hasNotFailed();
                 StoreDependentExtension extension = context.getBean(StoreDependentExtension.class);
