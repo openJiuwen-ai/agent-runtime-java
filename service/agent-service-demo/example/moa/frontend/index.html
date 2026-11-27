@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MOA 旅游演示</title>
+<style>
+:root{font:15px/1.65 system-ui,"Microsoft YaHei",sans-serif;color:#26364a;background:#f3f5f9;color-scheme:light}
+*{box-sizing:border-box}body{margin:0}main{max-width:1000px;margin:0 auto;padding:24px}
+header,.section-heading,.compose-footer{display:flex;align-items:center;justify-content:space-between;gap:16px}
+h1{font-size:23px;line-height:1.3;margin:0 0 4px;font-weight:650;letter-spacing:.3px}h2{font-size:14px;margin:0;font-weight:650}
+.subtitle,.hint{font-size:12px;color:#778396}.toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+button{font:inherit;font-size:13px;padding:7px 16px;border:1px solid #d4dce7;border-radius:7px;background:#fff;color:#35465e;cursor:pointer}
+button:hover{background:#f0f5fd;border-color:#9cb7df}button:disabled{opacity:.5;cursor:default}button:focus-visible,summary:focus-visible{outline:2px solid #3979cc;outline-offset:3px}
+#send{background:#356fc0;color:white;border-color:#356fc0;min-width:88px}#send:hover{background:#2b5fa7}#send:disabled{background:#8ba8ce}
+#status{font-size:12px;color:#53647a;display:flex;align-items:center;gap:7px}#status:before{content:"";width:7px;height:7px;border-radius:50%;background:#9ba9ba}
+#status[data-state=WORKING]:before,#status[data-state=SUBMITTED]:before{background:#4d84cf}#status[data-state=INPUT_REQUIRED]:before{background:#d29a38}#status[data-state=COMPLETED]:before{background:#55a38b}#status[data-state=FAILED]:before{background:#cd6464}
+.session-info{font-size:12px;color:#718096;margin:12px 0}.session-info summary{cursor:pointer;width:fit-content}.session-info div{padding:4px 0;overflow-wrap:anywhere}
+.workspace{height:calc(100dvh - 155px);min-height:460px;max-height:900px;display:flex;flex-direction:column;overflow:hidden;background:white;border:1px solid #dfe5ee;border-radius:12px;box-shadow:0 3px 16px #223a5a05}
+#task-panel{background:#fafbfd;padding:14px 22px;border-bottom:1px solid #e7ecf3}#task-panel[hidden]{display:none}#todos{max-height:145px;overflow:auto;margin-top:8px}
+.todo{display:flex;align-items:baseline;gap:16px;justify-content:space-between;font-size:13px;padding:5px 0}.todo>span:first-child{overflow-wrap:anywhere}.badge{font-size:11px;white-space:nowrap;color:#627895;background:#edf2f8;border-radius:4px;padding:1px 7px}
+.conversation{flex:1;min-height:0;display:flex;flex-direction:column}.section-heading{padding:15px 22px 10px}.section-heading .hint{font-weight:400}
+#messages{flex:1;min-height:0;overflow:auto;padding:0 22px 20px;scrollbar-gutter:stable}#empty{text-align:center;color:#8b96a6;padding:65px 15px;font-size:14px}#empty[hidden]{display:none}
+.message{margin:14px 0;max-width:94%;padding:13px 16px;background:#f6f8fb;border:1px solid #e8edf4;border-radius:10px;overflow-wrap:anywhere}.message.user{margin-left:auto;background:#edf4ff;border-color:#dce9fc}.message.error{background:#fff5f4;border-color:#f1dbd8}.label{font-size:11px;color:#7b8ba0;margin-bottom:5px}.user .label{color:#567dab}.error .label{color:#b5635c}.content{white-space:pre-wrap}.message button{margin:12px 8px 0 0}
+.question-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}.question-fields label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:#62738a}.question-fields select,.question-fields input{width:100%;min-height:36px;border:1px solid #d4dce7;border-radius:6px;padding:6px 8px;background:white;font:inherit;color:#26364a}.scenario-buttons{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.scenario-buttons button{font-size:12px;padding:4px 10px}
+.composer{border-top:1px solid #e7ecf3;padding:15px 22px;background:#fff}textarea{display:block;width:100%;height:76px;resize:vertical;max-height:180px;border:1px solid #d7dfe9;border-radius:8px;padding:10px 12px;font:inherit;font-size:14px;color:inherit;background:#fcfdff}textarea:focus{outline:none;border-color:#719cd6;box-shadow:0 0 0 3px #3979cc10}.compose-footer{margin-top:10px}
+.raw-panel{margin-top:18px;border:1px solid #dfe5ee;background:white;border-radius:10px;overflow:hidden}.raw-panel>summary{padding:13px 18px;cursor:pointer;font-size:13px;color:#53647a}.raw-panel>summary span{font-size:11px;background:#edf1f6;padding:2px 7px;border-radius:5px;margin-left:6px}.raw-note{padding:0 18px 10px;font-size:12px;color:#8590a0}
+#raw-messages{max-height:420px;overflow:auto;border-top:1px solid #e7ecf3}#raw-messages>details{border-bottom:1px solid #edf0f5}#raw-messages summary{padding:10px 18px;font:12px/1.5 system-ui;cursor:pointer;overflow-wrap:anywhere}#raw-messages .outgoing summary{color:#356fc0;background:#f8faff}pre{margin:0;padding:14px 18px;background:#f7f9fc;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 Consolas,monospace;color:#53647a}
+@media(max-width:620px){main{padding:16px 10px}header{align-items:flex-start;gap:10px}.toolbar{gap:8px;justify-content:flex-end}h1{font-size:20px}.workspace{height:calc(100dvh - 155px)}.section-heading,#task-panel{padding-left:14px;padding-right:14px}#messages{padding-left:12px;padding-right:12px}.composer{padding:12px}.message{max-width:98%}.compose-footer .hint{max-width:230px;font-size:11px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div><h1>MOA 旅游演示</h1><div class="subtitle">景点 · 行程 · 酒店 / 虚构数据演示</div></div>
+  <div class="toolbar"><span id="status" role="status">可以发送消息</span><button id="new-session">新会话</button></div>
+</header>
+<details class="session-info"><summary>会话信息</summary><div>Context ID：<span id="context"></span></div><div>L1 A2A：http://127.0.0.1:18219/a2a</div></details>
+<div class="workspace">
+  <section id="task-panel" hidden><h2>当前任务</h2><div id="todos"></div></section>
+  <section class="conversation"><div class="section-heading"><h2>对话</h2><span class="hint">补充信息和确认均在这里完成</span></div>
+    <div id="messages" aria-live="polite"><div id="empty">从一句话开始，例如：查询杭州有哪些演示景点</div></div>
+  </section>
+  <div class="composer"><div id="scenarios" class="scenario-buttons"></div><textarea id="input" aria-label="消息" placeholder="输入你的需求，或回答上方的问题…"></textarea>
+    <div class="compose-footer"><span class="hint">消息直接发送至 L1 · 完整报文见下方</span><button id="send">发送</button></div>
+  </div>
+</div>
+<details class="raw-panel"><summary>A2A 详细报文 <span id="raw-count">0</span></summary>
+  <div class="raw-note">按收发顺序保留完整请求与响应；上方已展示的消息也保留在此。点击单条可查看全部 JSON。</div>
+  <div id="raw-messages"></div>
+</details>
+</main>
+<script>
+'use strict';
+const endpoint = 'http://127.0.0.1:18219/a2a';
+const el = id => document.getElementById(id);
+let contextId = crypto.randomUUID(), waitingTask = '', activeTask = '', busy = false;
+let interaction = null, offer = null, offerTimer = null, answerBox = null;
+let fallbackInteraction = false, logCount = 0;
+const interrupts = new Set();
+const stateLabels = {SUBMITTED:'已提交', WORKING:'处理中', INPUT_REQUIRED:'等待你的回复',
+  COMPLETED:'已完成', FAILED:'执行失败', CANCELED:'已取消', CANCELLED:'已取消', REJECTED:'已拒绝'};
+const todos = new Map();
+el('context').textContent = contextId;
+function followLatest(container, action) {
+  const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+  action();
+  if (nearBottom) container.scrollTop = container.scrollHeight;
+}
+function message(role, text, title) {
+  el('empty').hidden = true;
+  const box = document.createElement('div'); box.className = 'message ' + role;
+  const label = document.createElement('div'); label.className = 'label';
+  label.textContent = title || (role === 'user' ? '你' : role === 'error' ? '错误' : 'MOA');
+  const content = document.createElement('div'); content.className = 'content'; content.textContent = text;
+  box.append(label, content);
+  followLatest(el('messages'), () => el('messages').append(box));
+  return box;
+}
+function setContent(box, text) {
+  followLatest(el('messages'), () => box.querySelector('.content').textContent = text);
+}
+function answer(text, append = false) {
+  if (!text) return;
+  if (!answerBox) answerBox = message('agent', text);
+  else setContent(answerBox, append ? answerBox.querySelector('.content').textContent + text : text);
+}
+function record(direction, raw) {
+  const entry = document.createElement('details'), summary = document.createElement('summary');
+  const result = raw?.result || {}, update = result.task || result.statusUpdate;
+  const artifact = result.artifactUpdate;
+  const event = artifact?.metadata?.agentEvent || artifact?.artifact?.metadata?.agentEvent;
+  const label = direction === '发送' ? raw?.method : raw?.error ? 'JSON-RPC 错误'
+    : update ? 'L1 · ' + (update.status?.state || 'task')
+    : event ? event.source?.agentId + ' · ' + event.type : artifact ? 'artifactUpdate' : 'JSON-RPC';
+  summary.textContent = (++logCount) + ' · ' + direction + ' · ' + new Date().toLocaleTimeString() + ' · ' + (label || '报文');
+  entry.className = direction === '发送' ? 'outgoing' : 'incoming';
+  const json = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
+  let loaded = false;
+  entry.ontoggle = () => {
+    if (!entry.open || loaded) return;
+    const pre = document.createElement('pre'); pre.textContent = json; entry.append(pre); loaded = true;
+  };
+  entry.append(summary);
+  followLatest(el('raw-messages'), () => el('raw-messages').append(entry));
+  el('raw-count').textContent = logCount;
+}
+const fieldDefinitions = [
+  {test:/城市|目的地/, label:'城市', options:['杭州','北京']},
+  {test:/出发.*日|出行.*日|开始.*日|start_date/i, label:'出发日期', date:true},
+  {test:/入住|check_in/i, label:'入住日期', date:true},
+  {test:/退房|离店|check_out/i, label:'退房日期', date:true},
+  {test:/天数|几天|多少天|days/i, label:'行程天数', max:14, unit:'天'},
+  {test:/人数|成人|几位|多少人|几人|people/i, label:'成人数', max:10, unit:'位成人'},
+  {test:/间数|房间数|几间|多少间|rooms/i, label:'房间数', max:5, unit:'间房'}
+];
+function showQuestion(payload, remote, fallback = false) {
+  const key = (remote || 'l1') + ':' + payload.interrupt_id;
+  if (!fallback && payload.interrupt_id && interrupts.has(key)) return;
+  if (!fallback && payload.interrupt_id) interrupts.add(key);
+  const text = payload.content || (payload.questions || []).map(q => q.question).join('\n\n');
+  let box;
+  if (!fallback && interaction && fallbackInteraction) {
+    box = interaction; setContent(box, text);
+  } else {
+    clearInteraction(); box = message('agent', text || '请补充信息后继续', '需要你的回复');
+  }
+  interaction = box; fallbackInteraction = fallback;
+  const questions = payload.questions || [];
+  const choices = questions.length === 1 && Array.isArray(questions[0].options) ? questions[0].options : [];
+  const labels = choices.map(option => typeof option === 'string' ? option : option.label).filter(Boolean);
+  const isConfirmation = payload.tool === 'confirm_action' || labels.includes('确认') && labels.includes('拒绝');
+  if (isConfirmation) {
+    for (const choice of ['确认', '拒绝']) button(box, choice, () => { if (!busy && waitingTask) send(choice); });
+  } else if (questions.length) {
+    const form = document.createElement('form'), fields = document.createElement('div');
+    fields.className = 'question-fields';
+    const replies = [], renderedFields = new Set();
+    for (const question of questions) {
+      const title = question.header || question.question || '补充信息';
+      const hint = title + ' ' + (question.question || '');
+      // Prefer the field title: the description can mention other fields as constraints.
+      const headerMatches = question.header ? fieldDefinitions.filter(definition => definition.test.test(question.header)) : [];
+      const definitions = headerMatches.length ? headerMatches : fieldDefinitions.filter(definition => definition.test.test(hint));
+      if (!definitions.length) definitions.push({label:title, options:(question.options || [])
+        .map(option => typeof option === 'string' ? option : option.label).filter(Boolean)});
+      for (const definition of definitions) {
+        if (renderedFields.has(definition.label)) continue;
+        renderedFields.add(definition.label);
+        const label = document.createElement('label'); label.textContent = definition.label;
+        const options = definition.max ? Array.from({length:definition.max}, (_, i) => (i + 1) + definition.unit) : definition.options;
+        const control = document.createElement(definition.date || !options?.length ? 'input' : 'select');
+        control.required = true;
+        if (definition.date) {
+          control.type = 'date';
+          const today = new Date();
+          control.min = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+        } else if (options?.length) {
+          const empty = document.createElement('option'); empty.value = ''; empty.textContent = '请选择'; control.append(empty);
+          for (const value of options) {
+            const option = document.createElement('option'); option.value = value; option.textContent = value; control.append(option);
+          }
+        } else { control.type = 'text'; control.placeholder = '填写补充信息'; }
+        label.append(control); fields.append(label); replies.push({label:definition.label, control});
+      }
+    }
+    form.append(fields);
+    const submit = button(form, '提交所选信息'); submit.type = 'submit';
+    form.onsubmit = event => {
+      event.preventDefault();
+      if (busy || !waitingTask || !form.reportValidity()) return;
+      const checkIn = replies.find(reply => reply.label === '入住日期')?.control;
+      const checkOut = replies.find(reply => reply.label === '退房日期')?.control;
+      if (checkIn && checkOut) {
+        const nights = (Date.parse(checkOut.value) - Date.parse(checkIn.value)) / 86400000;
+        checkOut.setCustomValidity(nights > 0 && nights <= 14 ? '' : '退房日期须晚于入住日期，最多入住14晚');
+        if (!form.reportValidity()) return;
+      }
+      send(replies.map(reply => reply.label + '：' + reply.control.value).join('；'));
+    };
+    for (const {control} of replies) control.oninput = () => {
+      for (const reply of replies) reply.control.setCustomValidity('');
+    };
+    box.append(form);
+  }
+
+  lock(busy);
+}
+function disableControls(box) { if (box) box.querySelectorAll('button, input, select').forEach(control => control.disabled = true); }
+function clearInteraction() { disableControls(interaction); interaction = null; fallbackInteraction = false; }
+function closeOffer() { if (offer) disableControls(offer.box); offer = null; clearTimeout(offerTimer); }
+function button(box, title, action) {
+  const control = document.createElement('button'); control.textContent = title;
+  control.onclick = action; box.append(control); return control;
+}
+function lock(value) {
+  busy = value; el('send').disabled = value; el('new-session').disabled = value;
+  if (offer) offer.buttons.forEach(control => control.disabled = value || Boolean(waitingTask) || Date.now() >= offer.expires);
+  el('scenarios').querySelectorAll('button').forEach(control => control.disabled = value || Boolean(waitingTask));
+  if (interaction) interaction.querySelectorAll('button, input, select').forEach(control => control.disabled = value || !waitingTask);
+}
+function renderTodos() {
+  el('todos').replaceChildren(); el('task-panel').hidden = !todos.size;
+  const labels = {DRAFT:'规划中', PENDING:'待执行', RUNNING:'执行中', SUCCEEDED:'已完成',
+    COMPLETED:'已完成', FAILED:'失败', SKIPPED:'已跳过', BLOCKED:'受阻', CANCELED:'已取消'};
+  for (const [key, todo] of todos) {
+    const row = document.createElement('div'); row.className = 'todo';
+    const title = document.createElement('span'); title.textContent = (key.startsWith('l1:') ? '' : '下游 · ') + (todo.content || todo.id);
+    const badge = document.createElement('span'); badge.className = 'badge';
+    badge.textContent = labels[todo.status] || todo.status || '待执行';
+    row.append(title, badge); el('todos').append(row);
+  }
+}
+function semantic(payload, remote) {
+  const type = payload['moa.semanticType'] || payload.event;
+  const data = payload.data || {};
+  if (type === 'service_lead_out') {
+    if (remote) return;
+    closeOffer();
+    const box = message('agent', payload.content || '是否继续查询演示酒店？', '继续探索');
+    const expires = Number(data.serviceLeadOut?.expiresAt || 0);
+    const item = (data.items || []).find(entry => entry.capabilityId === 'cap.hotel');
+    if (!item || !Number.isFinite(expires) || expires <= Date.now()) return;
+    const accept = button(box, item.title || '查询酒店', () => {
+      if (busy || waitingTask || !offer || Date.now() >= offer.expires) return;
+      send('查询演示酒店，只查询，不报价，不预订。');
+    });
+    const decline = button(box, '暂不查询', () => {
+      if (busy) return; closeOffer(); box.remove(); message('user', '暂不查询（关闭建议）');
+    });
+    offer = {box, expires, buttons: [accept, decline]};
+    offerTimer = setTimeout(closeOffer, Math.min(expires - Date.now(), 2147483647)); lock(busy); return;
+  }
+  if (type === 'todolist_start' && !remote && data.mode !== 'append') { todos.clear(); renderTodos(); }
+  if (['todolist_item','todo_start','todo_end','todo_skipped','todo_blocked'].includes(type) && data.id) {
+    // Only real IDs are used; remote IDs are namespaced to avoid colliding with L1.
+    const key = (remote || 'l1') + ':' + data.id;
+    todos.set(key, {...todos.get(key), ...data}); renderTodos(); return;
+  }
+  if (type === 'interrupt_start') { showQuestion(payload, remote); return; }
+  if (remote) return;
+  if (type === 'final_answer_chunk') answer(String(payload.content || ''), true);
+  else if (type === 'message' && payload.content) message('agent', String(payload.content));
+  else if (type === 'error') message('error', payload.content || '执行失败，请查看详细报文');
+}
+
+function parts(list, remote) {
+  for (const part of list || []) {
+    if (part.text && !remote) {
+      let text = part.text;
+      // A delegated DeepAgent may return its execution envelope as text.
+      // Unwrap only that documented shape; retain the full response in the A2A log.
+      for (let depth = 0; depth < 4; depth++) {
+        let value; try { value = JSON.parse(text); } catch { break; }
+        if (value?.type !== 'deep_agent_result' || typeof value.output !== 'string') break;
+        text = value.output;
+      }
+      answer(text); continue;
+    }
+    const data = part.data;
+    if (data?.type === 'custom' && data.payload) semantic(data.payload, remote);
+    else if (data?.event) semantic(data, remote);
+    // Tool output, diagnostic envelopes and unknown data remain in the complete A2A log.
+  }
+}
+function handle(rpc) {
+  if (rpc.error) throw new Error('JSON-RPC ' + rpc.error.code + ': ' + rpc.error.message);
+  const result = rpc.result || {}, update = result.task || result.statusUpdate;
+  if (update) {
+    const id = update.taskId || update.id;
+    if (!id || activeTask && id !== activeTask) throw new Error('顶层任务标识不一致');
+    activeTask = id;
+    const state = (update.status?.state || '').replace(/^TASK_STATE_/, '').replaceAll('-', '_').toUpperCase();
+    el('status').textContent = stateLabels[state] || state;
+    el('status').dataset.state = state;
+    if (state === 'INPUT_REQUIRED') waitingTask = id;
+    if (['COMPLETED','FAILED','CANCELED','CANCELLED','REJECTED'].includes(state)) {
+      waitingTask = ''; clearInteraction();
+    }
+    // Semantic interrupts carry the question UI; only L1 status controls task resume.
+    if (state === 'INPUT_REQUIRED' && !interaction) {
+      const prompt = (update.status?.message?.parts || []).map(part => part.text || '').filter(Boolean).join('\n');
+      showQuestion({content:prompt}, false, true);
+    } else if (state === 'COMPLETED' && !answerBox) {
+      parts(update.status?.message?.parts, false);
+    } else if (['FAILED','CANCELED','CANCELLED','REJECTED'].includes(state)) {
+      const prompt = (update.status?.message?.parts || []).map(part => part.text || '').filter(Boolean).join('\n');
+      message('error', prompt || stateLabels[state]);
+    }
+    for (const artifact of update.artifacts || []) {
+      const event = artifact.metadata?.agentEvent;
+      if (!event || event.type === 'output') parts(artifact.parts, event?.source?.agentId);
+    }
+    return state;
+  }
+  const artifact = result.artifactUpdate;
+  if (artifact) {
+    const event = artifact.metadata?.agentEvent || artifact.artifact?.metadata?.agentEvent;
+    // source.taskId belongs to a downstream Agent; it never sets activeTask or waitingTask.
+    if (!event || event.type === 'output') parts(artifact.artifact?.parts, event?.source?.agentId || false);
+  }
+  return '';
+}
+async function send(text) {
+  if (busy || !text.trim()) return;
+  closeOffer(); clearInteraction(); activeTask = waitingTask; answerBox = null; interrupts.clear();
+  const msg = {messageId: crypto.randomUUID(), role: 'ROLE_USER', contextId, parts: [{text}]};
+  if (waitingTask) msg.taskId = waitingTask;
+  const body = {jsonrpc:'2.0', id:crypto.randomUUID(), method:'SendStreamingMessage', params:{message:msg}};
+  message('user', text); record('发送', body); lock(true);
+  el('status').textContent = '正在请求 L1…'; el('status').dataset.state = 'WORKING';
+  let state = '', reader;
+  try {
+    const response = await fetch(endpoint, {method:'POST', credentials:'omit',
+      headers:{'Content-Type':'application/json','Accept':'text/event-stream'}, body:JSON.stringify(body),
+      signal:AbortSignal.timeout(180000)});
+    if (!response.ok) { const text = await response.text(); record('接收', text); throw new Error('HTTP ' + response.status + ': ' + text.slice(0,1000)); }
+    if (!response.headers.get('content-type')?.includes('text/event-stream')) {
+      const text = await response.text(); record('接收', text); throw new Error('预期 SSE：' + text.slice(0,1000));
+    }
+    reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
+    const frame = value => {
+      const lines = value.split(/\r?\n/).filter(line => line.startsWith('data:'));
+      if (!lines.length) return;
+      const text = lines.map(line => line.slice(5).replace(/^ /, '')).join('\n');
+      let rpc;
+      try { rpc = JSON.parse(text); } catch { record('接收', text); throw new Error('收到无法解析的 JSON，请查看详细报文'); }
+      record('接收', rpc);
+      const next = handle(rpc);
+      if (next) state = next;
+    };
+    while (true) {
+      const chunk = await reader.read(); buffer += decoder.decode(chunk.value, {stream:!chunk.done});
+      let match;
+      while ((match = /\r?\n\r?\n/.exec(buffer))) {
+        frame(buffer.slice(0,match.index)); buffer = buffer.slice(match.index + match[0].length);
+      }
+      if (chunk.done) { if (buffer.trim()) frame(buffer); break; }
+    }
+    if (!['INPUT_REQUIRED','COMPLETED','FAILED','CANCELED','CANCELLED','REJECTED'].includes(state)) {
+      throw new Error('流已结束，但没有可信的 L1 等待或终态；结果未知，请勿重复提交业务');
+    }
+  } catch (error) {
+    closeOffer(); clearInteraction(); waitingTask = '';
+    el('status').dataset.state = 'FAILED'; el('status').textContent = '请求失败或结果未知'; message('error', error.message);
+  } finally {
+    if (reader) { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    lock(false);
+  }
+}
+for (const [title, query] of [
+  ['景点查询', '查询杭州有哪些演示景点'],
+  ['旅行安排', '给我安排杭州3天的旅行。'],
+  ['模拟预订', '模拟预订杭州最便宜的可容纳房型，请先询问日期、成人数和间数。'],
+  ['先景点再酒店', '先查询杭州有哪些演示景点，再查询杭州的演示酒店。只查询，不预订。']
+]) button(el('scenarios'), title, () => { if (!busy && !waitingTask) send(query); });
+el('send').onclick = () => { const text = el('input').value; if (!busy && text.trim()) { el('input').value = ''; send(text); } };
+el('new-session').onclick = () => {
+  if (busy) return; closeOffer(); clearInteraction(); contextId = crypto.randomUUID();
+  waitingTask = ''; activeTask = ''; todos.clear(); renderTodos(); el('messages').replaceChildren(el('empty'));
+  answerBox = null; interrupts.clear(); logCount = 0; el('raw-count').textContent = '0';
+  el('raw-messages').replaceChildren(); el('empty').hidden = false; el('input').value = '';
+  el('context').textContent = contextId; el('status').textContent = '可以发送消息'; el('status').dataset.state = '';
+};
+</script>
+</body>
+</html>

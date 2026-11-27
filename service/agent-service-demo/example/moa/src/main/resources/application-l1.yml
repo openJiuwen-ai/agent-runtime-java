@@ -1,0 +1,61 @@
+server:
+  port: 18219
+spring:
+  application:
+    name: moa-demo-l1
+openjiuwen:
+  service:
+    agent-id: moa-demo-l1
+    a2a:
+      remote-agents:
+        - name: mock-tourism
+          url: http://127.0.0.1:3001/a2a/mock
+          streaming: true
+          timeout-seconds: 120
+        - name: moa-demo-l2
+          url: http://127.0.0.1:18229
+          streaming: true
+          timeout-seconds: 120
+moa:
+  prompts:
+    orchestration: classpath:prompts/demo-orchestration.md
+  skill-agent:
+    agent-id: travel-skill
+    entry: travel-entry
+    operations:
+      attractions:
+        type: A2A
+        title: 查询演示景点
+        adapter: mock-tourism
+        intent: attractions.search
+        query-template: 'city={city}'
+        max-calls: 3
+        contract-file: contracts/destination_info.yml
+      plan:
+        type: A2A
+        title: 生成旅行安排
+        adapter: mock-tourism
+        intent: trip.plan
+        query-template: |-
+          selection_id={selection_id}
+          start_date={start_date}
+          days={days}
+          people={people}
+        input-bindings:
+          selection_id: {operation: attractions, path: /selection_id}
+        max-calls: 3
+        contract-file: contracts/plan.yml
+  orchestration:
+    candidate-pack: classpath:candidates/l1.yaml
+  service-lead-out:
+    follow-up:
+      enabled: true
+      ttl: 5m
+    rules:
+      - completed-capability-id: cap.trip
+        items:
+          - capability-id: cap.hotel
+            title: 查询演示酒店
+            hint: 是否继续查询演示酒店？
+            interaction: BUTTON
+            risk: LOW
