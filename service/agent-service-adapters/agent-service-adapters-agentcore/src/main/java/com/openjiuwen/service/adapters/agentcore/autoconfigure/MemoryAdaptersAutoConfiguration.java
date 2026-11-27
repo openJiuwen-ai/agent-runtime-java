@@ -15,9 +15,15 @@ import com.openjiuwen.service.adapters.agentcore.memory.mem0.Mem0MemoryStoreProv
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
+import com.openjiuwen.service.adapters.common.memory.ObservedMemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.beans.factory.BeanFactoryUtils;
+import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -41,6 +47,13 @@ import java.util.List;
 @ConditionalOnClass(RunnerConfig.class)
 @EnableConfigurationProperties(MiddlewareProperties.class)
 public class MemoryAdaptersAutoConfiguration {
+    private ListableBeanFactory beanFactory;
+
+    @Autowired
+    void setBeanFactory(ListableBeanFactory beanFactory) {
+        this.beanFactory = beanFactory;
+    }
+
     /**
      * Registers the mem0 memory store provider.
      *
@@ -92,7 +105,16 @@ public class MemoryAdaptersAutoConfiguration {
             throw new IllegalStateException(
                 "openjiuwen.service.middleware.memory.enabled=true but encrypted-api-key resolves to empty");
         }
-        return new MemoryStoreFactory(providers).create(apiKey, memory);
+        MemoryStore store = new MemoryStoreFactory(providers).create(apiKey, memory);
+        if (beanFactory == null || BeanFactoryUtils.beanNamesForTypeIncludingAncestors(beanFactory,
+            MemorySearchObserver.class, true, false).length == 0) {
+            return store;
+        }
+        ObjectProvider<MemorySearchObserver> observers = beanFactory.getBeanProvider(MemorySearchObserver.class);
+        return ObservedMemoryStore.wrap(store, (provider, query, topK) -> {
+            MemorySearchObserver observer = observers.getIfUnique();
+            return observer == null ? null : observer.start(provider, query, topK);
+        });
     }
 
     /**

@@ -13,11 +13,15 @@ import com.openjiuwen.service.adapters.common.memory.MemoryDeleteRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryGetRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryMessage;
 import com.openjiuwen.service.adapters.common.memory.MemoryRecord;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
+import com.openjiuwen.service.adapters.common.memory.MemoryStore;
+import com.openjiuwen.service.adapters.common.memory.ObservedMemoryStore;
 import com.openjiuwen.service.adapters.common.memory.MemoryScope;
 import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryWriteResult;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.AfterEach;
@@ -29,6 +33,13 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -51,7 +62,12 @@ class Jiuwen2MemoryStoreTest {
     }
 
     private Jiuwen2MemoryStore newStore() {
+        return newStore(0);
+    }
+
+    private Jiuwen2MemoryStore newStore(int retries) {
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
+        memory.getRetry().setMax(retries);
         memory.setEndpoint(server.endpoint());
         memory.setScopeOrg("local");
         memory.setScopeUser("developer");
@@ -258,7 +274,285 @@ class Jiuwen2MemoryStoreTest {
             .hasMessage("memory add messages must not be empty");
     }
 
+    @Test
+    void observedRetryPropagatesPerAttemptAndReportsOnlyAcceptedEnvelope() throws Exception {
+        server = LocalJiuwen2Server.start();
+        server.shouldFailFirst = true;
+        Thread caller = Thread.currentThread();
+        AtomicReference<String> raw = new AtomicReference<>();
+        AtomicInteger accepted = new AtomicInteger();
+        MemoryStore store = ObservedMemoryStore.wrap(newStore(1), (provider, query, topK) -> {
+            assertThat(Thread.currentThread()).isEqualTo(caller);
+            assertThat(provider).isEqualTo("jiuwen2");
+            return new MemorySearchObserver.Call() {
+                @Override
+                public MemorySearchObserver.TraceHeaders startAttempt(int attempt) {
+                    assertThat(Thread.currentThread()).isEqualTo(caller);
+                    return new MemorySearchObserver.TraceHeaders(
+                        "00-11111111111111111111111111111111-000000000000000" + attempt + "-01", "vendor=test");
+                }
+
+                @Override
+                public void rawResponse(int attempt, String json) {
+                    assertThat(Thread.currentThread()).isEqualTo(caller);
+                    assertThat(raw.getAndSet(json)).isNull();
+                    accepted.set(attempt);
+                }
+
+                @Override
+                public void succeeded(List<MemoryRecord> records) {
+                    throw new IllegalStateException("observer failure must not retry the search");
+                }
+            };
+        });
+        assertThat(store.search(new MemorySearchRequest(null, "query", 3, null, null))).hasSize(1);
+        assertThat(accepted).hasValue(2);
+        assertThat(server.searchRequests()).isEqualTo(2);
+        assertThat(server.lastSearchHeaders.get().getFirst("traceparent")).endsWith("0000000000000002-01");
+        assertThat(server.lastSearchHeaders.get().getFirst("tracestate")).isEqualTo("vendor=test");
+        assertThat(server.lastSearchHeaders.get().getFirst("Authorization")).isEqualTo("Bearer plainkey");
+        assertThat(MAPPER.readTree(raw.get()).has("trajectory")).isTrue();
+        assertThat(MAPPER.readTree(raw.get()).at("/items/0/unit_id").asText()).isEqualTo("unit-1");
+    }
+
+    @Test
+    void directTransportObserverFailuresNeitherRetryNorReplaceResult() {
+        server = LocalJiuwen2Server.start();
+        AtomicInteger starts = new AtomicInteger();
+        AtomicInteger ends = new AtomicInteger();
+        MemorySearchObserver.Call broken = new MemorySearchObserver.Call() {
+            @Override
+            public MemorySearchObserver.TraceHeaders startAttempt(int attempt) {
+                starts.incrementAndGet();
+                throw new IllegalStateException("start failed");
+            }
+
+            @Override
+            public void endAttempt(int attempt, boolean isCompleted) {
+                assertThat(isCompleted).isTrue();
+                ends.incrementAndGet();
+                throw new IllegalStateException("finish failed");
+            }
+
+            @Override
+            public void rawResponse(int attempt, String json) {
+                throw new IllegalStateException("capture failed");
+            }
+        };
+        assertThat(newStore(1).search(searchFor("direct"), broken)).hasSize(1);
+        assertThat(starts).hasValue(1);
+        assertThat(ends).hasValue(1);
+        assertThat(server.searchRequests()).isOne();
+    }
+
+    @Test
+    void overlappingSearchesKeepCallerHeadersBoundToTheirQuery() throws Exception {
+        server = LocalJiuwen2Server.start();
+        CountDownLatch bothWorkers = new CountDownLatch(2);
+        String prefix = "00-11111111111111111111111111111111-000000000000000";
+        MemorySearchObserver observer = (provider, query, topK) -> new MemorySearchObserver.Call() {
+            @Override
+            public MemorySearchObserver.TraceHeaders startAttempt(int attempt) {
+                bothWorkers.countDown();
+                await(bothWorkers);
+                return new MemorySearchObserver.TraceHeaders(prefix + query + "-01", null);
+            }
+        };
+        MemoryStore store = ObservedMemoryStore.wrap(newStore(), observer);
+        ExecutorService callers = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(2));
+        try {
+            CompletableFuture<Void> first = CompletableFuture.runAsync(() -> store.search(searchFor("1")), callers);
+            CompletableFuture<Void> second = CompletableFuture.runAsync(() -> store.search(searchFor("2")), callers);
+            CompletableFuture.allOf(first, second).get(10, TimeUnit.SECONDS);
+        } finally {
+            callers.shutdownNow();
+        }
+        assertThat(server.parentsByQuery).containsEntry("1", prefix + "1-01").containsEntry("2", prefix + "2-01");
+    }
+
+    @Test
+    void timedOutAttemptCannotPublishRawResponseOrChangeFailure() throws Exception {
+        server = LocalJiuwen2Server.start();
+        MiddlewareProperties.Memory policy = new MiddlewareProperties.Memory();
+        policy.setEndpoint(server.endpoint());
+        policy.setTimeoutMs(550);
+        CountDownLatch release = new CountDownLatch(1);
+        server.searchGate = release;
+        AtomicInteger rawCount = new AtomicInteger();
+        AtomicReference<Boolean> accepted = new AtomicReference<>();
+        AtomicReference<String> failureCode = new AtomicReference<>();
+        MemoryStore store = ObservedMemoryStore.wrap(new Jiuwen2MemoryStore("key", policy, null),
+            (provider, query, topK) -> new MemorySearchObserver.Call() {
+                @Override
+                public void endAttempt(int attempt, boolean isCompleted) {
+                    accepted.set(isCompleted);
+                }
+
+                @Override
+                public void rawResponse(int acceptedAttempt, String json) {
+                    rawCount.incrementAndGet();
+                }
+
+                @Override
+                public void failed(String code) {
+                    failureCode.set(code);
+                    throw new IllegalStateException("observer must not replace business error");
+                }
+            });
+        try {
+            assertThatThrownBy(() -> store.search(searchFor("late")))
+                .isInstanceOf(com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterException.class);
+        } finally {
+            release.countDown();
+        }
+        assertThat(accepted.get()).isFalse();
+        assertThat(failureCode.get()).isNotBlank();
+        assertThat(rawCount).hasValue(0);
+    }
+
+    @Test
+    void slowCompletionCannotRetryOrTimeoutAnAcceptedResponse() {
+        server = LocalJiuwen2Server.start();
+        MiddlewareProperties.Memory policy = new MiddlewareProperties.Memory();
+        policy.setEndpoint(server.endpoint());
+        policy.setTimeoutMs(600);
+        policy.getRetry().setMax(1);
+        MemoryStore store = ObservedMemoryStore.wrap(new Jiuwen2MemoryStore("key", policy, null),
+            (provider, query, requested) -> new MemorySearchObserver.Call() {
+                @Override
+                public void endAttempt(int attempt, boolean isCompleted) {
+                    assertThat(isCompleted).isTrue();
+                    try {
+                        Thread.sleep(800);
+                    } catch (InterruptedException interrupted) {
+                        throw new AssertionError(interrupted);
+                    }
+                }
+            });
+        assertThat(store.search(searchFor("slow-observer"))).hasSize(1);
+        assertThat(server.searchRequests()).isOne();
+    }
+
+    @Test
+    void observedCustomClientKeepsOverride() {
+        server = LocalJiuwen2Server.start();
+        MiddlewareProperties.Memory policy = new MiddlewareProperties.Memory();
+        policy.setEndpoint(server.endpoint());
+        AtomicInteger invocations = new AtomicInteger();
+        Jiuwen2MemoryApi custom = new Jiuwen2MemoryApi(server.endpoint(), policy, "test") {
+            @Override
+            public List<Map<String, Object>> search(String url, String query, Map<String, Object> scope, int k) {
+                invocations.incrementAndGet();
+                return List.of(Map.of("unit_id", "custom", "content", "from override"));
+            }
+        };
+        MemoryStore plain = new Jiuwen2MemoryStore("key", policy, custom);
+        MemoryStore observed = ObservedMemoryStore.wrap(plain, (provider, query, k) -> new MemorySearchObserver.Call() {
+            @Override
+            public void rawResponse(int attempt, String json) {
+                throw new AssertionError("no raw envelope from custom client");
+            }
+        });
+        assertThat(observed.search(searchFor("q"))).isEqualTo(plain.search(searchFor("q")));
+        assertThat(invocations).hasValue(2);
+        assertThat(server.searchRequests()).isZero();
+    }
+
+    @Test
+    void observerFailureDoesNotReplaceProviderException() {
+        server = LocalJiuwen2Server.start();
+        MiddlewareProperties.Memory policy = new MiddlewareProperties.Memory();
+        policy.setEndpoint(server.endpoint());
+        ArithmeticException providerFailure = new ArithmeticException("provider failure");
+        Jiuwen2MemoryApi custom = new Jiuwen2MemoryApi(server.endpoint(), policy, "test") {
+            @Override
+            public List<Map<String, Object>> search(String url, String query, Map<String, Object> scope, int topK) {
+                throw providerFailure;
+            }
+        };
+        AtomicReference<String> observedCode = new AtomicReference<>();
+        MemorySearchObserver observer = (provider, query, depth) -> new MemorySearchObserver.Call() {
+            @Override
+            public void failed(String code) {
+                observedCode.set(code);
+                throw new UnsupportedOperationException("observer failure");
+            }
+        };
+        MemoryStore store = ObservedMemoryStore.wrap(new Jiuwen2MemoryStore("key", policy, custom), observer);
+        assertThatThrownBy(() -> store.search(searchFor("q"))).isSameAs(providerFailure);
+        assertThat(observedCode.get()).isEqualTo("ArithmeticException");
+    }
+
+    @Test
+    void observerErrorsAreNotSwallowed() {
+        server = LocalJiuwen2Server.start();
+        AssertionError fatal = new AssertionError("observer error");
+        MemoryStore store = ObservedMemoryStore.wrap(newStore(), (provider, query, depth) -> {
+            throw fatal;
+        });
+        assertThatThrownBy(() -> store.search(searchFor("q"))).isSameAs(fatal);
+        assertThat(server.searchRequests()).isZero();
+    }
+
+    @Test
+    void blankSearchSkipsWhileEmptyResponseReportsDepth() {
+        server = LocalJiuwen2Server.start();
+        server.isEmptySearch = true;
+        AtomicInteger skipped = new AtomicInteger();
+        AtomicInteger successes = new AtomicInteger();
+        AtomicInteger effective = new AtomicInteger();
+        MemoryStore store = ObservedMemoryStore.wrap(newStore(), (provider, query, requested) -> {
+            assertThat(requested).isEqualTo(100);
+            return new MemorySearchObserver.Call() {
+                @Override
+                public void skipped() {
+                    skipped.incrementAndGet();
+                }
+
+                @Override
+                public void effectiveTopK(int depth) {
+                    effective.set(depth);
+                }
+
+                @Override
+                public void succeeded(List<MemoryRecord> records) {
+                    assertThat(records).isEmpty();
+                    successes.incrementAndGet();
+                }
+            };
+        });
+        assertThat(store.search(new MemorySearchRequest(null, " ", 100, null, null))).isEmpty();
+        assertThat(server.searchRequests()).isZero();
+        assertThat(skipped).hasValue(1);
+        assertThat(successes).hasValue(0);
+        assertThat(store.search(new MemorySearchRequest(null, "miss", 100, null, null))).isEmpty();
+        assertThat(server.searchRequests()).isOne();
+        assertThat(successes).hasValue(1);
+        assertThat(effective).hasValue(50);
+        assertThat(server.lastSearchBody()).containsEntry("top_k", effective.get());
+    }
+
+    private static MemorySearchRequest searchFor(String query) {
+        return new MemorySearchRequest(null, query, 3, null, null);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException interrupted) {
+            throw new AssertionError(interrupted);
+        }
+    }
+
     private static final class LocalJiuwen2Server {
+        private volatile boolean shouldFailFirst;
+        private volatile boolean isEmptySearch;
+        private volatile CountDownLatch searchGate;
+
+        private final AtomicReference<Headers> lastSearchHeaders = new AtomicReference<>();
+
+        private final Map<String, String> parentsByQuery = new ConcurrentHashMap<>();
         private final HttpServer server;
 
         private final AtomicInteger searchRequests = new AtomicInteger(0);
@@ -362,10 +656,21 @@ class Jiuwen2MemoryStoreTest {
             }
             if ("POST".equals(method) && "/v1/search".equals(path)) {
                 Map<String, Object> body = readBody(exchange);
-                searchRequests.incrementAndGet();
+                lastSearchHeaders.set(exchange.getRequestHeaders());
+                String parent = exchange.getRequestHeaders().getFirst("traceparent");
+                if (parent != null) {
+                    parentsByQuery.put(String.valueOf(body.get("query")), parent);
+                }
+                if (searchRequests.incrementAndGet() == 1 && shouldFailFirst) {
+                    writeJson(exchange, 503, Map.of("status", "unavailable"));
+                    return;
+                }
+                if (searchGate != null) {
+                    await(searchGate);
+                }
                 lastSearchBody.set(body);
-                writeJson(exchange, 200, Map.of("items", List.of(searchItem()), "trajectory", List.of(),
-                    "errors", List.of()));
+                writeJson(exchange, 200, Map.of("items", isEmptySearch ? List.of() : List.of(searchItem()),
+                    "trajectory", List.of(), "errors", List.of()));
                 return;
             }
             if ("POST".equals(method) && "/v1/get".equals(path)) {

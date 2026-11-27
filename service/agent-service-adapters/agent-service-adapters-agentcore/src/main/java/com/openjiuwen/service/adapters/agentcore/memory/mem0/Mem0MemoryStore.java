@@ -10,9 +10,11 @@ import com.openjiuwen.service.adapters.common.memory.MemoryGetRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryMessage;
 import com.openjiuwen.service.adapters.common.memory.MemoryRecord;
 import com.openjiuwen.service.adapters.common.memory.MemoryScope;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
 import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.memory.MemoryWriteResult;
+import com.openjiuwen.service.adapters.common.memory.ObservedMemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
 import java.util.ArrayList;
@@ -29,7 +31,7 @@ import java.util.Optional;
  *
  * @since 0.1.0
  */
-public class Mem0MemoryStore implements MemoryStore {
+public class Mem0MemoryStore implements MemoryStore, MemorySearchObserver.Transport {
     private static final String PROVIDER = "mem0";
 
     private static final int DEFAULT_TOP_K = 10;
@@ -90,14 +92,30 @@ public class Mem0MemoryStore implements MemoryStore {
 
     @Override
     public List<MemoryRecord> search(MemorySearchRequest request) {
+        return searchInternal(request, null);
+    }
+
+    @Override
+    public List<MemoryRecord> search(MemorySearchRequest request, MemorySearchObserver.Call call) {
+        return getClass() == Mem0MemoryStore.class
+            ? searchInternal(request, ObservedMemoryStore.protect(call)) : search(request);
+    }
+
+    private List<MemoryRecord> searchInternal(MemorySearchRequest request, MemorySearchObserver.Call call) {
         ensureAvailable();
         MemorySearchRequest normalized = request != null
             ? request
             : new MemorySearchRequest(MemoryScope.empty(), "", 0, null, Map.of());
         if (normalized.query().isBlank()) {
+            if (call != null) {
+                call.skipped();
+            }
             return List.of();
         }
         int topK = normalizeTopK(normalized.topK());
+        if (call != null) {
+            call.effectiveTopK(topK);
+        }
         boolean shouldRerank = normalized.shouldRerank() != null ? normalized.shouldRerank() : shouldRerankByDefault;
         GovernedMem0Api.SearchMemoriesOptions options =
             GovernedMem0Api.SearchMemoriesOptions.of(toMem0Scope(normalized.scope()), shouldRerank, topK);

@@ -11,10 +11,15 @@ import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
 import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -63,6 +68,90 @@ class MemoryAdaptersAutoConfigurationTest {
                 assertThat(context).hasSingleBean(MemoryStore.class);
                 assertThat(context.getBean(MemoryStore.class).isAvailable()).isTrue();
                 assertThat(scene).hasValue(CredentialSceneType.MEMORY_API_KEY);
+            });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class StoreDependentExtension {
+        final AtomicInteger creations = new AtomicInteger();
+        final AtomicInteger starts = new AtomicInteger();
+
+        @Bean
+        @Lazy
+        MemorySearchObserver observer(MemoryStore store) {
+            creations.incrementAndGet();
+            return (provider, query, depth) -> {
+                assertThat(provider).isEqualTo(store.getProvider());
+                starts.incrementAndGet();
+                return null;
+            };
+        }
+    }
+
+    @Test
+    void observerCanDependOnStoreAndIsNotResolvedWhileCreatingStore() {
+        contextRunner.withUserConfiguration(StoreDependentExtension.class).withPropertyValues(
+            "openjiuwen.service.middleware.memory.enabled=true",
+            "openjiuwen.service.middleware.memory.provider=jiuwen2",
+            "openjiuwen.service.middleware.memory.encrypted-api-key=test-key").run(context -> {
+                assertThat(context).hasNotFailed();
+                StoreDependentExtension extension = context.getBean(StoreDependentExtension.class);
+                MemoryStore store = context.getBean(MemoryStore.class);
+                assertThat(extension.creations).hasValue(0);
+                assertThat(store.search(null)).isEmpty();
+                assertThat(extension.creations).hasValue(1);
+                assertThat(extension.starts).hasValue(1);
+            });
+    }
+
+    @Test
+    void optionalObserverIsDiscoveredWithoutAnAgentHandler() {
+        AtomicInteger starts = new AtomicInteger();
+        contextRunner.withBean(MemorySearchObserver.class, () -> (provider, query, requestedK) -> {
+            starts.incrementAndGet();
+            return null;
+        }).withPropertyValues("openjiuwen.service.middleware.memory.enabled=true",
+            "openjiuwen.service.middleware.memory.provider=jiuwen2",
+            "openjiuwen.service.middleware.memory.encrypted-api-key=test-key")
+            .run(context -> {
+                MemoryStore store = context.getBean(MemoryStore.class);
+                assertThat(store.search(new MemorySearchRequest(null, "", 2, null, null))).isEmpty();
+                assertThat(starts).hasValue(1);
+            });
+    }
+
+    @Test
+    void ambiguousObserversDoNotBreakEnabledOrDisabledMemory() {
+        MemorySearchObserver observer = (provider, query, depth) -> {
+            throw new AssertionError("ambiguous observer should not be selected");
+        };
+        ApplicationContextRunner two = contextRunner
+            .withBean("one", MemorySearchObserver.class, () -> observer)
+            .withBean("two", MemorySearchObserver.class, () -> observer);
+        two.run(context -> assertThat(context).doesNotHaveBean(MemoryStore.class));
+        two.withPropertyValues("openjiuwen.service.middleware.memory.enabled=true",
+            "openjiuwen.service.middleware.memory.provider=jiuwen2",
+            "openjiuwen.service.middleware.memory.encrypted-api-key=test-key")
+            .run(context -> {
+                assertThat(context).hasSingleBean(MemoryStore.class);
+                assertThat(context.getBean(MemoryStore.class).search(null)).isEmpty();
+            });
+    }
+
+    @Test
+    void primaryObserverWinsWhenBothAgentAndExtensionProvideOne() {
+        AtomicInteger starts = new AtomicInteger();
+        contextRunner.withBean("extension", MemorySearchObserver.class, () -> (provider, query, depth) -> {
+            throw new AssertionError("non-primary observer selected");
+        }).withBean("application", MemorySearchObserver.class, () -> (provider, query, depth) -> {
+            starts.incrementAndGet();
+            return null;
+        }, definition -> definition.setPrimary(true)).withPropertyValues(
+            "openjiuwen.service.middleware.memory.enabled=true",
+            "openjiuwen.service.middleware.memory.provider=jiuwen2",
+            "openjiuwen.service.middleware.memory.encrypted-api-key=test-key").run(context -> {
+                assertThat(context.getBean(MemoryStore.class).search(null)).isEmpty();
+                assertThat(starts).hasValue(1);
             });
     }
 

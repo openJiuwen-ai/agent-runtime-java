@@ -21,6 +21,8 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiConsumer;
+import java.util.function.IntFunction;
 
 /**
  * Executes external service calls with timeout, retry, circuit breaker, and audit handling.
@@ -101,6 +103,38 @@ public class ExternalCallExecutor {
      */
     public <T> T execute(String operationType, String method, boolean shouldRetry, Object request,
         Callable<T> callable) {
+        return executeWithPolicy(operationType, method, shouldRetry, request,
+            attempt -> callWithTimeout(callable, operationType, method));
+    }
+
+    /**
+     * Prepares and completes each observed attempt on the caller, outside its transport timeout.
+     *
+     * @param <T> operation result type
+     * @param operationType external operation type
+     * @param method external operation method
+     * @param shouldRetry whether to apply the retry policy
+     * @param prepare creates the transport work for an attempt
+     * @param finish receives the attempt number and outcome
+     * @return result of the successful attempt
+     */
+    public <T> T executeAttempts(String operationType, String method, boolean shouldRetry,
+        IntFunction<Callable<T>> prepare, BiConsumer<Integer, Boolean> finish) {
+        return executeWithPolicy(operationType, method, shouldRetry, null, attempt -> {
+            Callable<T> work = prepare.apply(attempt);
+            boolean isAccepted = false;
+            try {
+                T result = callWithTimeout(work, operationType, method);
+                isAccepted = true;
+                return result;
+            } finally {
+                finish.accept(attempt, isAccepted);
+            }
+        });
+    }
+
+    private <T> T executeWithPolicy(String operationType, String method, boolean shouldRetry, Object request,
+        IntFunction<T> runAttempt) {
         String circuitKey = operationType + "." + method;
         int maxAttempts = shouldRetry ? 1 + policy.getRetry().getMax() : 1;
         RuntimeException lastFailure = null;
@@ -108,7 +142,7 @@ public class ExternalCallExecutor {
             ensureCircuitClosed(circuitKey, operationType, method);
             long startNanos = System.nanoTime();
             try {
-                T result = callWithTimeout(callable, operationType, method);
+                T result = runAttempt.apply(attempt);
                 recordSuccess(circuitKey);
                 auditSuccess(operationType, method, attempt, elapsedMs(startNanos), request, result);
                 return result;
