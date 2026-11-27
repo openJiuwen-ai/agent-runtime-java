@@ -243,7 +243,7 @@ class MemoryStoreMemoryProviderTest {
     }
 
     @Test
-    void thirdPartyPrefetchObservesRecordsBeforePromptFilteringWithoutRawResponse() {
+    void thirdPartyPrefetchReportsUnfilteredRecordsOnly() {
         RecordingMemoryStore original = new RecordingMemoryStore(List.of(
             new MemoryRecord("high", "chosen", Map.of("score", 0.9), Map.of()),
             new MemoryRecord("low", "ignored", Map.of("score", 0.01), Map.of())));

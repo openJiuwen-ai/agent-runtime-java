@@ -129,7 +129,8 @@ public class Jiuwen2MemoryApi {
             SearchReply reply = executor.executeAttempts(OP, "search", shouldRetry, attempt -> {
                 MemorySearchObserver.TraceHeaders headers = call.startAttempt(attempt);
                 return () -> {
-                    String json = sendBody(baseUrl, "/v1/search", "POST", body, false, headers).orElse("");
+                    String json = sendBody(new Endpoint(baseUrl, "/v1/search"), "POST", body, false, headers)
+                        .orElse("");
                     return new SearchReply(attempt, json, parseBody(json));
                 };
             }, call::endAttempt);
@@ -252,19 +253,25 @@ public class Jiuwen2MemoryApi {
 
     private Optional<Map<String, Object>> send(String baseUrl, String path, String method,
         Map<String, Object> body, boolean canBeAbsent) throws Exception {
-        Optional<String> json = sendBody(baseUrl, path, method, body, canBeAbsent, null);
+        Optional<String> json = sendBody(new Endpoint(baseUrl, path), method, body, canBeAbsent, null);
         return json.isPresent() ? Optional.of(parseBody(json.get())) : Optional.empty();
     }
 
     private record SearchReply(int attempt, String json, Map<String, Object> parsed) {
     }
 
-    private Optional<String> sendBody(String baseUrl, String path, String method, Map<String, Object> body,
+    private record Endpoint(String baseUrl, String path) {
+        private URI uri() {
+            String normalizedBase = (baseUrl == null || baseUrl.isBlank())
+                ? "http://localhost:8137"
+                : baseUrl.replaceAll("/+$", "");
+            return URI.create(normalizedBase + path);
+        }
+    }
+
+    private Optional<String> sendBody(Endpoint endpoint, String method, Map<String, Object> body,
         boolean canBeAbsent, MemorySearchObserver.TraceHeaders headers) throws Exception {
-        String normalizedBase = (baseUrl == null || baseUrl.isBlank())
-            ? "http://localhost:8137"
-            : baseUrl.replaceAll("/+$", "");
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(normalizedBase + path))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint.uri())
             .timeout(requestTimeout)
             .header("Accept", "application/json")
             .header("Authorization", "Bearer " + apiKey);

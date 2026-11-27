@@ -107,18 +107,28 @@ public class ExternalCallExecutor {
             attempt -> callWithTimeout(callable, operationType, method));
     }
 
-    /** Prepares and completes each observed attempt on the caller, outside its transport timeout. */
+    /**
+     * Prepares and completes each observed attempt on the caller, outside its transport timeout.
+     *
+     * @param <T> operation result type
+     * @param operationType external operation type
+     * @param method external operation method
+     * @param shouldRetry whether to apply the retry policy
+     * @param prepare creates the transport work for an attempt
+     * @param finish receives the attempt number and outcome
+     * @return result of the successful attempt
+     */
     public <T> T executeAttempts(String operationType, String method, boolean shouldRetry,
         IntFunction<Callable<T>> prepare, BiConsumer<Integer, Boolean> finish) {
         return executeWithPolicy(operationType, method, shouldRetry, null, attempt -> {
             Callable<T> work = prepare.apply(attempt);
-            boolean accepted = false;
+            boolean isAccepted = false;
             try {
                 T result = callWithTimeout(work, operationType, method);
-                accepted = true;
+                isAccepted = true;
                 return result;
             } finally {
-                finish.accept(attempt, accepted);
+                finish.accept(attempt, isAccepted);
             }
         });
     }

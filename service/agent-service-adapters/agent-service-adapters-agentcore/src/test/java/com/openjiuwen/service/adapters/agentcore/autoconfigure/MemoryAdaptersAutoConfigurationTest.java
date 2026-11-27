@@ -111,7 +111,8 @@ class MemoryAdaptersAutoConfigurationTest {
             starts.incrementAndGet();
             return null;
         }, definition -> definition.setPrimary(true)).withPropertyValues(
-            "openjiuwen.service.middleware.memory.enabled=true", "openjiuwen.service.middleware.memory.provider=jiuwen2",
+            "openjiuwen.service.middleware.memory.enabled=true",
+            "openjiuwen.service.middleware.memory.provider=jiuwen2",
             "openjiuwen.service.middleware.memory.encrypted-api-key=test-key").run(context -> {
                 assertThat(context.getBean(MemoryStore.class).search(null)).isEmpty();
                 assertThat(starts).hasValue(1);
