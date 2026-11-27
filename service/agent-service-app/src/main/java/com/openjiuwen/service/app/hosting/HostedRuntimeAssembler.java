@@ -10,6 +10,7 @@ import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration;
 import com.openjiuwen.service.app.autoconfigure.A2AAutoConfiguration.HostedResources;
 import com.openjiuwen.service.app.config.A2AProperties;
 import com.openjiuwen.service.app.controller.a2a.A2AAgentExecutor;
+import com.openjiuwen.service.app.controller.a2a.A2AInMemoryQueueManager;
 import com.openjiuwen.service.app.controller.a2a.A2AProtocolAdapter;
 import com.openjiuwen.service.app.controller.a2a.A2ATaskContinuation;
 import com.openjiuwen.service.app.controller.a2a.AdmissionReleaseCoordinator;
@@ -31,7 +32,6 @@ import com.openjiuwen.service.spec.hosting.ScopedRuntimeRedisClient;
 import com.openjiuwen.service.spec.spi.AgentHandler;
 import com.openjiuwen.service.spec.spi.RuntimeRedisClient;
 
-import org.a2aproject.sdk.server.events.InMemoryQueueManager;
 import org.a2aproject.sdk.server.events.MainEventBus;
 import org.a2aproject.sdk.server.requesthandlers.DefaultRequestHandler;
 import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
@@ -122,7 +122,7 @@ public final class HostedRuntimeAssembler {
         TaskStateProvider provider = store instanceof TaskStateProvider stateProvider
                 ? stateProvider
                 : assembly.taskStateProvider;
-        var queues = new InMemoryQueueManager(provider, bus);
+        var queues = new A2AInMemoryQueueManager(provider, bus);
         AtomicReference<A2AAgentExecutor> localExecutor = new AtomicReference<>();
         ObjectProvider<A2AAgentExecutor> executorProvider = new ObjectProvider<>() {
             @Override

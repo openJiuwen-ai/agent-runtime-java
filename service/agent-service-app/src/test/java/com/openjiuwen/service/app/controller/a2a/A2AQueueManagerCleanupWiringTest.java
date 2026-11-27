@@ -53,6 +53,20 @@ class A2AQueueManagerCleanupWiringTest {
     }
 
     @Test
+    void explicitCloseSkipsReadingAnAlreadyRemovedQueue() {
+        RecordingStore delegate = new RecordingStore();
+        WriteThrottlingTaskStore store = new WriteThrottlingTaskStore(delegate, 200L);
+        InMemoryQueueManager manager = wiredManager(store);
+        manager.createOrTap("task-1");
+        store.save(finalizedTask("task-1"), false);
+
+        manager.close("task-1");
+
+        assertThat(manager.get("task-1")).isNull();
+        assertThat(delegate.reads).isZero();
+    }
+
+    @Test
     void plainStoreKeepsLegacyKeepQueueBehavior() {
         RecordingStore plain = new RecordingStore();
         InMemoryQueueManager manager = wiredManager(plain);
@@ -90,6 +104,8 @@ class A2AQueueManagerCleanupWiringTest {
     private static final class RecordingStore implements TaskStore {
         private final Map<String, Task> data = new HashMap<>();
 
+        private int reads;
+
         @Override
         public void save(Task task, boolean isOverwrite) {
             data.put(task.id(), task);
@@ -97,6 +113,7 @@ class A2AQueueManagerCleanupWiringTest {
 
         @Override
         public Task get(String taskId) {
+            reads++;
             return data.get(taskId);
         }
 
