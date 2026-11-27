@@ -11,6 +11,7 @@ import com.openjiuwen.service.adapters.common.memory.MemoryMessage;
 import com.openjiuwen.service.adapters.common.memory.MemoryRecord;
 import com.openjiuwen.service.adapters.common.memory.MemoryScope;
 import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.memory.MemoryWriteResult;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
@@ -46,7 +47,7 @@ import java.util.Optional;
  *
  * @since 0.1.0
  */
-public class Jiuwen2MemoryStore implements MemoryStore {
+public class Jiuwen2MemoryStore implements MemoryStore, MemorySearchObserver.Transport {
     private static final String PROVIDER = "jiuwen2";
     private static final int DEFAULT_TOP_K = 10;
     private static final int MAX_TOP_K = 50;
@@ -97,6 +98,11 @@ public class Jiuwen2MemoryStore implements MemoryStore {
 
     @Override
     public List<MemoryRecord> search(MemorySearchRequest request) {
+        return search(request, null);
+    }
+
+    @Override
+    public List<MemoryRecord> search(MemorySearchRequest request, MemorySearchObserver.Call call) {
         ensureAvailable();
         MemorySearchRequest normalized = request != null
             ? request
@@ -105,8 +111,9 @@ public class Jiuwen2MemoryStore implements MemoryStore {
             return List.of();
         }
         int topK = normalizeTopK(normalized.topK());
-        List<Map<String, Object>> items = api.search(baseUrl, normalized.query(),
-            requestScope(normalized.scope()), topK);
+        Map<String, Object> scope = requestScope(normalized.scope());
+        List<Map<String, Object>> items = call == null ? api.search(baseUrl, normalized.query(), scope, topK)
+            : api.search(baseUrl, normalized.query(), scope, topK, call);
         return toRecords(items, "unit_id");
     }
 

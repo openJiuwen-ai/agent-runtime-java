@@ -11,6 +11,8 @@ import com.openjiuwen.service.adapters.common.credential.CredentialDecryptor;
 import com.openjiuwen.service.adapters.common.credential.CredentialDecryptorAutoConfiguration;
 import com.openjiuwen.service.adapters.common.credential.CredentialSceneType;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -63,6 +65,22 @@ class MemoryAdaptersAutoConfigurationTest {
                 assertThat(context).hasSingleBean(MemoryStore.class);
                 assertThat(context.getBean(MemoryStore.class).isAvailable()).isTrue();
                 assertThat(scene).hasValue(CredentialSceneType.MEMORY_API_KEY);
+            });
+    }
+
+    @Test
+    void optionalObserverIsDiscoveredWithoutAnAgentHandler() {
+        AtomicInteger starts = new AtomicInteger();
+        contextRunner.withBean(MemorySearchObserver.class, () -> (provider, query, requestedK) -> {
+            starts.incrementAndGet();
+            return null;
+        }).withPropertyValues("openjiuwen.service.middleware.memory.enabled=true",
+            "openjiuwen.service.middleware.memory.provider=jiuwen2",
+            "openjiuwen.service.middleware.memory.encrypted-api-key=test-key")
+            .run(context -> {
+                MemoryStore store = context.getBean(MemoryStore.class);
+                assertThat(store.search(new MemorySearchRequest(null, "", 2, null, null))).isEmpty();
+                assertThat(starts).hasValue(1);
             });
     }
 

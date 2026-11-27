@@ -9,6 +9,7 @@ import com.openjiuwen.service.adapters.common.external.ExternalCallExecutor;
 import com.openjiuwen.service.adapters.common.external.ExternalCallPolicy;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterErrorCode;
 import com.openjiuwen.service.adapters.common.external.ExternalSvcAdapterException;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -21,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Governance-decorated HTTP client for the agent-memory 2.0 API surface.
@@ -110,6 +112,11 @@ public class Jiuwen2MemoryApi {
      */
     public List<Map<String, Object>> search(String baseUrl, String query, Map<String, Object> scope,
         int topK) {
+        return search(baseUrl, query, scope, topK, null);
+    }
+
+    List<Map<String, Object>> search(String baseUrl, String query, Map<String, Object> scope,
+        int topK, MemorySearchObserver.Call call) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("query", query);
         Map<String, Object> context = new LinkedHashMap<>();
@@ -119,6 +126,15 @@ public class Jiuwen2MemoryApi {
         // agent-memory 2.0 defaults to disclosure l0 (abstract only); full text requires
         // an explicit l2, otherwise returned content is empty.
         body.put("disclosure", "l2");
+        if (call != null) {
+            AtomicInteger attempts = new AtomicInteger();
+            SearchReply reply = executor.execute(OP, "search", shouldRetry,
+                () -> searchAttempt(baseUrl, body, call, attempts.incrementAndGet()));
+            if (!reply.json().isBlank()) {
+                call.rawResponse(reply.attempt(), reply.json());
+            }
+            return extractItems(reply.parsed(), "items");
+        }
         Map<String, Object> response = executor.execute(OP, "search", shouldRetry,
             () -> send(baseUrl, "/v1/search", "POST", body, false)).orElse(Map.of());
         return extractItems(response, "items");
@@ -233,6 +249,29 @@ public class Jiuwen2MemoryApi {
 
     private Optional<Map<String, Object>> send(String baseUrl, String path, String method,
         Map<String, Object> body, boolean canBeAbsent) throws Exception {
+        Optional<String> json = sendBody(baseUrl, path, method, body, canBeAbsent, null);
+        return json.isPresent() ? Optional.of(parseBody(json.get())) : Optional.empty();
+    }
+
+    private record SearchReply(int attempt, String json, Map<String, Object> parsed) {
+    }
+
+    private SearchReply searchAttempt(String baseUrl, Map<String, Object> body, MemorySearchObserver.Call call,
+        int attempt) throws Exception {
+        MemorySearchObserver.TraceHeaders headers = call.startAttempt(attempt);
+        boolean completed = false;
+        try {
+            String json = sendBody(baseUrl, "/v1/search", "POST", body, false, headers).orElse("");
+            SearchReply reply = new SearchReply(attempt, json, parseBody(json));
+            completed = true;
+            return reply;
+        } finally {
+            call.endAttempt(attempt, completed);
+        }
+    }
+
+    private Optional<String> sendBody(String baseUrl, String path, String method, Map<String, Object> body,
+        boolean canBeAbsent, MemorySearchObserver.TraceHeaders headers) throws Exception {
         String normalizedBase = (baseUrl == null || baseUrl.isBlank())
             ? "http://localhost:8137"
             : baseUrl.replaceAll("/+$", "");
@@ -240,6 +279,7 @@ public class Jiuwen2MemoryApi {
             .timeout(requestTimeout)
             .header("Accept", "application/json")
             .header("Authorization", "Bearer " + apiKey);
+        addTraceHeaders(builder, headers);
         if (body != null) {
             String requestBody = MAPPER.writeValueAsString(body);
             builder.header("Content-Type", "application/json")
@@ -256,17 +296,34 @@ public class Jiuwen2MemoryApi {
             throw new IllegalStateException(
                 "Jiuwen2 Memory API request failed with status " + response.statusCode() + ": " + response.body());
         }
-        String responseBody = response.body();
-        if (responseBody == null || responseBody.isBlank()) {
-            return Optional.of(new LinkedHashMap<>());
+        return Optional.of(response.body() == null ? "" : response.body());
+    }
+
+    private static void addTraceHeaders(HttpRequest.Builder builder, MemorySearchObserver.TraceHeaders headers) {
+        if (headers == null || headers.traceparent() == null || headers.traceparent().isBlank()) {
+            return;
+        }
+        try {
+            builder.header("traceparent", headers.traceparent());
+            if (headers.tracestate() != null && !headers.tracestate().isBlank()) {
+                builder.header("tracestate", headers.tracestate());
+            }
+        } catch (IllegalArgumentException invalidHeader) {
+            return;
+        }
+    }
+
+    private static Map<String, Object> parseBody(String responseBody) throws java.io.IOException {
+        if (responseBody.isBlank()) {
+            return new LinkedHashMap<>();
         }
         Object parsed = MAPPER.readValue(responseBody, Object.class);
         if (parsed instanceof Map<?, ?> map) {
-            return Optional.of(castMap(map));
+            return castMap(map);
         }
         Map<String, Object> wrapped = new LinkedHashMap<>();
         wrapped.put("results", parsed);
-        return Optional.of(wrapped);
+        return wrapped;
     }
 
     private static Map<String, Object> castMap(Map<?, ?> source) {

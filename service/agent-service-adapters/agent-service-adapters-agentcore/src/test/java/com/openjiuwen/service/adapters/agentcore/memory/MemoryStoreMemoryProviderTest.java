@@ -11,6 +11,8 @@ import com.openjiuwen.service.adapters.common.memory.MemoryDeleteRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryGetRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryRecord;
 import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
+import com.openjiuwen.service.adapters.common.memory.ObservedMemoryStore;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.memory.MemoryWriteResult;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
@@ -238,6 +240,34 @@ class MemoryStoreMemoryProviderTest {
         assertThat(block)
             .contains("相关记忆：用户喜欢拿铁")
             .doesNotContain("无关记忆：今天是周五");
+    }
+
+    @Test
+    void thirdPartyPrefetchObservesRecordsBeforePromptFilteringWithoutRawResponse() {
+        RecordingMemoryStore original = new RecordingMemoryStore(List.of(
+            new MemoryRecord("high", "chosen", Map.of("score", 0.9), Map.of()),
+            new MemoryRecord("low", "ignored", Map.of("score", 0.01), Map.of())));
+        assertThat(ObservedMemoryStore.wrap(original, null)).isSameAs(original);
+        List<String> ids = new ArrayList<>();
+        MemoryStore observed = ObservedMemoryStore.wrap(original, (provider, query, topK) -> {
+            assertThat(provider).isEqualTo("fake");
+            assertThat(query).isEqualTo("query");
+            return new MemorySearchObserver.Call() {
+                @Override
+                public void succeeded(List<MemoryRecord> records) {
+                    records.forEach(record -> ids.add(record.memoryId()));
+                }
+
+                @Override
+                public void rawResponse(int acceptedAttempt, String json) {
+                    throw new AssertionError("no transport envelope for this third-party provider");
+                }
+            };
+        });
+        String prompt = new MemoryStoreMemoryProvider(observed, new MiddlewareProperties.Memory())
+            .prefetch("query", Map.of()).join();
+        assertThat(ids).containsExactly("high", "low");
+        assertThat(prompt).contains("chosen").doesNotContain("ignored");
     }
 
     private static final class RecordingMemoryStore implements MemoryStore {

@@ -13,11 +13,15 @@ import com.openjiuwen.service.adapters.common.memory.MemoryDeleteRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryGetRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryMessage;
 import com.openjiuwen.service.adapters.common.memory.MemoryRecord;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
+import com.openjiuwen.service.adapters.common.memory.MemoryStore;
+import com.openjiuwen.service.adapters.common.memory.ObservedMemoryStore;
 import com.openjiuwen.service.adapters.common.memory.MemoryScope;
 import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryWriteResult;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.AfterEach;
@@ -29,6 +33,10 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -51,7 +59,12 @@ class Jiuwen2MemoryStoreTest {
     }
 
     private Jiuwen2MemoryStore newStore() {
+        return newStore(0);
+    }
+
+    private Jiuwen2MemoryStore newStore(int retries) {
         MiddlewareProperties.Memory memory = new MiddlewareProperties.Memory();
+        memory.getRetry().setMax(retries);
         memory.setEndpoint(server.endpoint());
         memory.setScopeOrg("local");
         memory.setScopeUser("developer");
@@ -258,7 +271,127 @@ class Jiuwen2MemoryStoreTest {
             .hasMessage("memory add messages must not be empty");
     }
 
+    @Test
+    void observedRetryPropagatesPerAttemptAndReportsOnlyAcceptedEnvelope() throws Exception {
+        server = LocalJiuwen2Server.start();
+        server.failFirst = true;
+        Thread caller = Thread.currentThread();
+        AtomicReference<String> raw = new AtomicReference<>();
+        AtomicInteger accepted = new AtomicInteger();
+        MemoryStore store = ObservedMemoryStore.wrap(newStore(1), (provider, query, topK) -> {
+            assertThat(Thread.currentThread()).isEqualTo(caller);
+            assertThat(provider).isEqualTo("jiuwen2");
+            return new MemorySearchObserver.Call() {
+                @Override
+                public MemorySearchObserver.TraceHeaders startAttempt(int attempt) {
+                    assertThat(Thread.currentThread()).isNotEqualTo(caller);
+                    return new MemorySearchObserver.TraceHeaders(
+                        "00-11111111111111111111111111111111-000000000000000" + attempt + "-01", "vendor=test");
+                }
+
+                @Override
+                public void rawResponse(int attempt, String json) {
+                    assertThat(Thread.currentThread()).isEqualTo(caller);
+                    assertThat(raw.getAndSet(json)).isNull();
+                    accepted.set(attempt);
+                }
+
+                @Override
+                public void succeeded(List<MemoryRecord> records) {
+                    throw new IllegalStateException("observer failure must not retry the search");
+                }
+            };
+        });
+        assertThat(store.search(new MemorySearchRequest(null, "query", 3, null, null))).hasSize(1);
+        assertThat(accepted).hasValue(2);
+        assertThat(server.searchRequests()).isEqualTo(2);
+        assertThat(server.lastSearchHeaders.get().getFirst("traceparent")).endsWith("0000000000000002-01");
+        assertThat(server.lastSearchHeaders.get().getFirst("tracestate")).isEqualTo("vendor=test");
+        assertThat(server.lastSearchHeaders.get().getFirst("Authorization")).isEqualTo("Bearer plainkey");
+        assertThat(MAPPER.readTree(raw.get()).has("trajectory")).isTrue();
+        assertThat(MAPPER.readTree(raw.get()).at("/items/0/unit_id").asText()).isEqualTo("unit-1");
+    }
+
+    @Test
+    void overlappingSearchesKeepCallerHeadersBoundToTheirQuery() throws Exception {
+        server = LocalJiuwen2Server.start();
+        CountDownLatch bothWorkers = new CountDownLatch(2);
+        String prefix = "00-11111111111111111111111111111111-000000000000000";
+        MemoryStore store = ObservedMemoryStore.wrap(newStore(), (provider, query, topK) -> new MemorySearchObserver.Call() {
+            @Override
+            public MemorySearchObserver.TraceHeaders startAttempt(int attempt) {
+                bothWorkers.countDown();
+                await(bothWorkers);
+                return new MemorySearchObserver.TraceHeaders(prefix + query + "-01", null);
+            }
+        });
+        CompletableFuture<Void> first = CompletableFuture.runAsync(() -> store.search(searchFor("1")));
+        CompletableFuture<Void> second = CompletableFuture.runAsync(() -> store.search(searchFor("2")));
+        CompletableFuture.allOf(first, second).get(10, TimeUnit.SECONDS);
+        assertThat(server.parentsByQuery).containsEntry("1", prefix + "1-01").containsEntry("2", prefix + "2-01");
+    }
+
+    @Test
+    void timedOutAttemptCannotPublishRawResponseOrChangeFailure() throws Exception {
+        server = LocalJiuwen2Server.start();
+        MiddlewareProperties.Memory policy = new MiddlewareProperties.Memory();
+        policy.setEndpoint(server.endpoint());
+        policy.setTimeoutMs(550);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch workerEnded = new CountDownLatch(1);
+        AtomicInteger rawCount = new AtomicInteger();
+        AtomicReference<String> failureCode = new AtomicReference<>();
+        MemoryStore store = ObservedMemoryStore.wrap(new Jiuwen2MemoryStore("key", policy, null),
+            (provider, query, topK) -> new MemorySearchObserver.Call() {
+                @Override
+                public void endAttempt(int attempt, boolean completed) {
+                    try {
+                        await(release);
+                    } finally {
+                        workerEnded.countDown();
+                    }
+                }
+
+                @Override
+                public void rawResponse(int acceptedAttempt, String json) {
+                    rawCount.incrementAndGet();
+                }
+
+                @Override
+                public void failed(String code) {
+                    failureCode.set(code);
+                    throw new IllegalStateException("observer must not replace business error");
+                }
+            });
+        try {
+            assertThatThrownBy(() -> store.search(searchFor("late"))).hasMessageContaining("timed out");
+        } finally {
+            release.countDown();
+        }
+        assertThat(workerEnded.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(failureCode.get()).isNotBlank();
+        assertThat(rawCount).hasValue(0);
+    }
+
+    private static MemorySearchRequest searchFor(String query) {
+        return new MemorySearchRequest(null, query, 3, null, null);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(interrupted);
+        }
+    }
+
     private static final class LocalJiuwen2Server {
+        private volatile boolean failFirst;
+
+        private final AtomicReference<Headers> lastSearchHeaders = new AtomicReference<>();
+
+        private final Map<String, String> parentsByQuery = new ConcurrentHashMap<>();
         private final HttpServer server;
 
         private final AtomicInteger searchRequests = new AtomicInteger(0);
@@ -362,7 +495,15 @@ class Jiuwen2MemoryStoreTest {
             }
             if ("POST".equals(method) && "/v1/search".equals(path)) {
                 Map<String, Object> body = readBody(exchange);
-                searchRequests.incrementAndGet();
+                lastSearchHeaders.set(exchange.getRequestHeaders());
+                String parent = exchange.getRequestHeaders().getFirst("traceparent");
+                if (parent != null) {
+                    parentsByQuery.put(String.valueOf(body.get("query")), parent);
+                }
+                if (searchRequests.incrementAndGet() == 1 && failFirst) {
+                    writeJson(exchange, 503, Map.of("status", "unavailable"));
+                    return;
+                }
                 lastSearchBody.set(body);
                 writeJson(exchange, 200, Map.of("items", List.of(searchItem()), "trajectory", List.of(),
                     "errors", List.of()));
