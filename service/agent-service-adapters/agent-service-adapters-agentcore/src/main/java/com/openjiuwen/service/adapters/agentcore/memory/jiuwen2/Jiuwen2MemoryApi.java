@@ -22,7 +22,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Governance-decorated HTTP client for the agent-memory 2.0 API surface.
@@ -127,9 +126,13 @@ public class Jiuwen2MemoryApi {
         // an explicit l2, otherwise returned content is empty.
         body.put("disclosure", "l2");
         if (call != null) {
-            AtomicInteger attempts = new AtomicInteger();
-            SearchReply reply = executor.execute(OP, "search", shouldRetry,
-                () -> searchAttempt(baseUrl, body, call, attempts.incrementAndGet()));
+            SearchReply reply = executor.executeAttempts(OP, "search", shouldRetry, attempt -> {
+                MemorySearchObserver.TraceHeaders headers = call.startAttempt(attempt);
+                return () -> {
+                    String json = sendBody(baseUrl, "/v1/search", "POST", body, false, headers).orElse("");
+                    return new SearchReply(attempt, json, parseBody(json));
+                };
+            }, call::endAttempt);
             if (!reply.json().isBlank()) {
                 call.rawResponse(reply.attempt(), reply.json());
             }
@@ -254,20 +257,6 @@ public class Jiuwen2MemoryApi {
     }
 
     private record SearchReply(int attempt, String json, Map<String, Object> parsed) {
-    }
-
-    private SearchReply searchAttempt(String baseUrl, Map<String, Object> body, MemorySearchObserver.Call call,
-        int attempt) throws Exception {
-        MemorySearchObserver.TraceHeaders headers = call.startAttempt(attempt);
-        boolean completed = false;
-        try {
-            String json = sendBody(baseUrl, "/v1/search", "POST", body, false, headers).orElse("");
-            SearchReply reply = new SearchReply(attempt, json, parseBody(json));
-            completed = true;
-            return reply;
-        } finally {
-            call.endAttempt(attempt, completed);
-        }
     }
 
     private Optional<String> sendBody(String baseUrl, String path, String method, Map<String, Object> body,

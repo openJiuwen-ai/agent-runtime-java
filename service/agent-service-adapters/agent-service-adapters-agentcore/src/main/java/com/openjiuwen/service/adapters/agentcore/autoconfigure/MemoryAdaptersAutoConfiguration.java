@@ -20,6 +20,7 @@ import com.openjiuwen.service.adapters.common.memory.ObservedMemoryStore;
 import com.openjiuwen.service.adapters.common.middleware.MiddlewareProperties;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -44,11 +45,11 @@ import java.util.List;
 @ConditionalOnClass(RunnerConfig.class)
 @EnableConfigurationProperties(MiddlewareProperties.class)
 public class MemoryAdaptersAutoConfiguration {
-    private MemorySearchObserver searchObserver;
+    private ObjectProvider<MemorySearchObserver> searchObservers;
 
-    @Autowired(required = false)
-    void setSearchObserver(MemorySearchObserver observer) {
-        this.searchObserver = observer;
+    @Autowired
+    void setSearchObservers(ObjectProvider<MemorySearchObserver> observers) {
+        this.searchObservers = observers;
     }
 
     /**
@@ -102,7 +103,8 @@ public class MemoryAdaptersAutoConfiguration {
             throw new IllegalStateException(
                 "openjiuwen.service.middleware.memory.enabled=true but encrypted-api-key resolves to empty");
         }
-        return ObservedMemoryStore.wrap(new MemoryStoreFactory(providers).create(apiKey, memory), searchObserver);
+        MemoryStore store = new MemoryStoreFactory(providers).create(apiKey, memory);
+        return ObservedMemoryStore.wrap(store, searchObservers == null ? null : searchObservers.getIfUnique());
     }
 
     /**

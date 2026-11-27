@@ -10,6 +10,7 @@ import com.openjiuwen.service.adapters.common.memory.MemoryGetRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryMessage;
 import com.openjiuwen.service.adapters.common.memory.MemoryRecord;
 import com.openjiuwen.service.adapters.common.memory.MemoryScope;
+import com.openjiuwen.service.adapters.common.memory.MemorySearchObserver;
 import com.openjiuwen.service.adapters.common.memory.MemorySearchRequest;
 import com.openjiuwen.service.adapters.common.memory.MemoryStore;
 import com.openjiuwen.service.adapters.common.memory.MemoryWriteResult;
@@ -34,7 +35,7 @@ import java.util.Optional;
  *
  * @since 0.1.0
  */
-public class JiuwenMemoryStore implements MemoryStore {
+public class JiuwenMemoryStore implements MemoryStore, MemorySearchObserver.Transport {
     private static final String PROVIDER = "jiuwen";
     private static final int DEFAULT_TOP_K = 10;
     private static final int MAX_TOP_K = 50;
@@ -81,14 +82,29 @@ public class JiuwenMemoryStore implements MemoryStore {
 
     @Override
     public List<MemoryRecord> search(MemorySearchRequest request) {
+        return searchInternal(request, null);
+    }
+
+    @Override
+    public List<MemoryRecord> search(MemorySearchRequest request, MemorySearchObserver.Call call) {
+        return getClass() == JiuwenMemoryStore.class ? searchInternal(request, call) : search(request);
+    }
+
+    private List<MemoryRecord> searchInternal(MemorySearchRequest request, MemorySearchObserver.Call call) {
         ensureAvailable();
         MemorySearchRequest normalized = request != null
             ? request
             : new MemorySearchRequest(MemoryScope.empty(), "", 0, null, Map.of());
         if (normalized.query().isBlank()) {
+            if (call != null) {
+                call.skipped();
+            }
             return List.of();
         }
         int topK = normalizeTopK(normalized.topK());
+        if (call != null) {
+            call.effectiveTopK(topK);
+        }
         MemoryScope scope = mergeScope(normalized.scope());
         List<Map<String, Object>> records = api.searchMemory(baseUrl, normalized.query(), topK,
             scope.userId(), scope.scopeId());

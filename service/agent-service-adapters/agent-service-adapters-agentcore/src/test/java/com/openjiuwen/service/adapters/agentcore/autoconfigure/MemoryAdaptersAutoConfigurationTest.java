@@ -85,6 +85,40 @@ class MemoryAdaptersAutoConfigurationTest {
     }
 
     @Test
+    void ambiguousObserversDoNotBreakEnabledOrDisabledMemory() {
+        MemorySearchObserver observer = (provider, query, depth) -> {
+            throw new AssertionError("ambiguous observer should not be selected");
+        };
+        ApplicationContextRunner two = contextRunner
+            .withBean("one", MemorySearchObserver.class, () -> observer)
+            .withBean("two", MemorySearchObserver.class, () -> observer);
+        two.run(context -> assertThat(context).doesNotHaveBean(MemoryStore.class));
+        two.withPropertyValues("openjiuwen.service.middleware.memory.enabled=true",
+            "openjiuwen.service.middleware.memory.provider=jiuwen2",
+            "openjiuwen.service.middleware.memory.encrypted-api-key=test-key")
+            .run(context -> {
+                assertThat(context).hasSingleBean(MemoryStore.class);
+                assertThat(context.getBean(MemoryStore.class).search(null)).isEmpty();
+            });
+    }
+
+    @Test
+    void primaryObserverWinsWhenBothAgentAndExtensionProvideOne() {
+        AtomicInteger starts = new AtomicInteger();
+        contextRunner.withBean("extension", MemorySearchObserver.class, () -> (provider, query, depth) -> {
+            throw new AssertionError("non-primary observer selected");
+        }).withBean("application", MemorySearchObserver.class, () -> (provider, query, depth) -> {
+            starts.incrementAndGet();
+            return null;
+        }, definition -> definition.setPrimary(true)).withPropertyValues(
+            "openjiuwen.service.middleware.memory.enabled=true", "openjiuwen.service.middleware.memory.provider=jiuwen2",
+            "openjiuwen.service.middleware.memory.encrypted-api-key=test-key").run(context -> {
+                assertThat(context.getBean(MemoryStore.class).search(null)).isEmpty();
+                assertThat(starts).hasValue(1);
+            });
+    }
+
+    @Test
     void enabledMemoryFailsWhenApiKeyIsMissing() {
         contextRunner.withPropertyValues(
             "openjiuwen.service.middleware.memory.enabled=true",

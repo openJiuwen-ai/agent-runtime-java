@@ -40,7 +40,9 @@ public final class ObservedMemoryStore implements MemoryStore {
             safeCall.failed(code);
             throw failure;
         }
-        safeCall.succeeded(result == null ? null : Collections.unmodifiableList(result));
+        if (!safeCall.skipped) {
+            safeCall.succeeded(result == null ? null : Collections.unmodifiableList(result));
+        }
         return result;
     }
 
@@ -77,7 +79,25 @@ public final class ObservedMemoryStore implements MemoryStore {
         }
     }
 
-    private record SafeCall(MemorySearchObserver.Call delegate) implements MemorySearchObserver.Call {
+    private static final class SafeCall implements MemorySearchObserver.Call {
+        private final MemorySearchObserver.Call delegate;
+        private boolean skipped;
+
+        private SafeCall(MemorySearchObserver.Call delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void effectiveTopK(int topK) {
+            run(() -> delegate.effectiveTopK(topK));
+        }
+
+        @Override
+        public void skipped() {
+            skipped = true;
+            run(delegate::skipped);
+        }
+
         @Override
         public MemorySearchObserver.TraceHeaders startAttempt(int attempt) {
             return safely(() -> delegate.startAttempt(attempt));

@@ -8,15 +8,23 @@ public interface MemorySearchObserver {
     /** Capture the caller context before dispatch; return null to skip this search. No credentials are supplied. */
     Call start(String provider, String query, int requestedTopK);
 
-    /** Per-search handle, shared with transport workers. Late attempts must not affect another search. */
+    /** Per-search handle, bound to one logical invocation, including all governed attempts. */
     interface Call {
-        /** Called on a transport worker, not necessarily the thread that started this search. */
+        /** Called on the caller before submitting a timed transport attempt. */
         default TraceHeaders startAttempt(int attempt) {
             return null;
         }
 
-        /** Transport finished; this may occur after the caller timed out. */
+        /** Called on the caller after the executor accepts or rejects the attempt, not on a late worker. */
         default void endAttempt(int attempt, boolean completed) {
+        }
+
+        /** Provider-confirmed search depth; absent for opaque providers. */
+        default void effectiveTopK(int topK) {
+        }
+
+        /** Terminal event when the provider handles an empty query locally without dispatch. */
+        default void skipped() {
         }
 
         /** Only the response accepted by the retry/timeout executor, before provider-specific projection. */

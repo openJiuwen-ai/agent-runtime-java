@@ -98,21 +98,32 @@ public class Jiuwen2MemoryStore implements MemoryStore, MemorySearchObserver.Tra
 
     @Override
     public List<MemoryRecord> search(MemorySearchRequest request) {
-        return search(request, null);
+        return searchInternal(request, null);
     }
 
     @Override
     public List<MemoryRecord> search(MemorySearchRequest request, MemorySearchObserver.Call call) {
+        return getClass() == Jiuwen2MemoryStore.class ? searchInternal(request, call) : search(request);
+    }
+
+    private List<MemoryRecord> searchInternal(MemorySearchRequest request, MemorySearchObserver.Call call) {
         ensureAvailable();
         MemorySearchRequest normalized = request != null
             ? request
             : new MemorySearchRequest(MemoryScope.empty(), "", 0, null, Map.of());
         if (normalized.query().isBlank()) {
+            if (call != null) {
+                call.skipped();
+            }
             return List.of();
         }
         int topK = normalizeTopK(normalized.topK());
+        if (call != null) {
+            call.effectiveTopK(topK);
+        }
         Map<String, Object> scope = requestScope(normalized.scope());
-        List<Map<String, Object>> items = call == null ? api.search(baseUrl, normalized.query(), scope, topK)
+        List<Map<String, Object>> items = call == null || api.getClass() != Jiuwen2MemoryApi.class
+            ? api.search(baseUrl, normalized.query(), scope, topK)
             : api.search(baseUrl, normalized.query(), scope, topK, call);
         return toRecords(items, "unit_id");
     }
